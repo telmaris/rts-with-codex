@@ -30,6 +30,20 @@ enum class TileType : int
     IRON_ORE = 3
 };
 
+struct ResourceBufferView
+{
+    ResourceType type{ResourceType::Null};
+    int amount{0};
+    int capacity{0};
+    int recipeAmount{0};
+};
+
+struct BuildingConnectionView
+{
+    ResourceType type{ResourceType::Null};
+    Building* building{nullptr};
+};
+
 class Building
 {
     public:
@@ -47,6 +61,23 @@ class Building
         virtual void SetReceiver(ResourceType, Building*) = 0;
         virtual void HandleTransport(ResourceType res, int x, Building* building) = 0;
 
+        virtual std::vector<ResourceBufferView> GetInputBufferViews() const { return {}; }
+        virtual std::vector<ResourceBufferView> GetOutputBufferViews() const { return {}; }
+        virtual std::vector<BuildingConnectionView> GetSupplierViews() const { return {}; }
+        virtual std::vector<BuildingConnectionView> GetReceiverViews() const { return {}; }
+        virtual bool HasSupplier(ResourceType) const { return false; }
+        virtual bool HasReceiver(ResourceType) const { return false; }
+        virtual float GetProductionProgress() const { return 0.0f; }
+        virtual bool CanBlockProduction() const { return false; }
+        virtual bool IsProductionBlocked() const { return productionBlocked; }
+        virtual void SetProductionBlocked(bool blocked) { productionBlocked = blocked; }
+        virtual Vec2i GetFootprint() const { return footprint; }
+        virtual int GetTextureId() const { return textureId; }
+        virtual int GetTotalProduced() const { return totalProduced; }
+        virtual float GetEfficiency() const;
+        virtual double GetLifetime() const { return lifetime; }
+        virtual double GetActiveTime() const { return activeTime; }
+
         void ReceptTransport(Transportable*);
         void UpdateTransportables(double);
 
@@ -59,6 +90,12 @@ class Building
     std::string tag;
     std::vector<Transportable*> transportables;
     double transportTime = 0.0;
+    Vec2i footprint{1, 1};
+    int textureId{0};
+    bool productionBlocked{false};
+    double lifetime{0.0};
+    double activeTime{0.0};
+    int totalProduced{0};
 };
 
 class Road : public Building
@@ -71,7 +108,7 @@ class Road : public Building
         void InitBuilding(TileType t ) override {}
 
         void AddResource(Resource*) {}
-        Resource GetResource(ResourceType) {}
+        Resource GetResource(ResourceType) { return Resource{}; }
         void HandleTransport(ResourceType res, int x, Building* building) {}
 
         void SetSupplier(ResourceType, Building*) {}
@@ -110,6 +147,14 @@ class ProductionBuilding : public Building
         void RequestResource(ResourceType ResType, int amount);
 
         void ReceptTransport(Transportable*);
+        std::vector<ResourceBufferView> GetInputBufferViews() const override;
+        std::vector<ResourceBufferView> GetOutputBufferViews() const override;
+        std::vector<BuildingConnectionView> GetSupplierViews() const override;
+        std::vector<BuildingConnectionView> GetReceiverViews() const override;
+        bool HasSupplier(ResourceType) const override;
+        bool HasReceiver(ResourceType) const override;
+        float GetProductionProgress() const override;
+        bool CanBlockProduction() const override { return true; }
 
         TileType type;
         std::map<ResourceType, int> ingredients;    // to budynek pochłania do produkcji (1 para <resourcetype, int> per składnik)
@@ -147,6 +192,7 @@ public:
         //protected:
         //void HandleTransport();
         void HandleTransport(ResourceType res, int x, Building* building) override;
+        std::vector<ResourceBufferView> GetOutputBufferViews() const override;
 
         std::map<ResourceType, ResourceBuffer> resourceBuffers;
 };

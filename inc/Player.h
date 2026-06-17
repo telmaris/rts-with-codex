@@ -12,7 +12,7 @@ class Player
 {
 public:
     Player() = default;
-    Player(int i, TileMap& tmap) : tilemap(tmap), id(i), build(this, tilemap){ roadNetwork = std::make_unique<RoadNetwork>(tilemap);}
+    Player(int i, TileMap& tmap) : tilemap(tmap), id(i), build(this, tilemap, id){ roadNetwork = std::make_unique<RoadNetwork>(tilemap);}
 
     void Update(double dt)
     {
@@ -29,6 +29,7 @@ public:
         if(bld != nullptr)
         {
             roadNetwork->UpdateNavMap(tilePos, bld);
+            tilemap.AutoConnectBuilding(bld);
         }
         return bld;
     }

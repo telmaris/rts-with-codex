@@ -4,7 +4,9 @@
 
 void GameWindow::LaunchGame()
 {
-    InitWindow(800, 450, "raylib example - basic window");
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
+    InitWindow(1280, 720, "RTS");
+    SetWindowMinSize(960, 540);
 
     AddScene<MainMenuScene>("MainScene");
     ChangeScene("MainScene", "");
@@ -40,7 +42,10 @@ void GameWindow::HandleEvent(std::shared_ptr<Event> e)
     auto ptr3 = std::dynamic_pointer_cast<ToggleFullscreenEvent>(e);
     if (ptr3 != nullptr)
     {
-        ToggleFullscreen();
+        if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE))
+            ClearWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
+        else
+            SetWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
     }
 }
 
@@ -52,7 +57,7 @@ void GameWindow::MainLoop()
     while (isRunning)
     {
         UpdateWindowSize();
-        Update(0);
+        Update(GetFrameTime());
     }
 }
 

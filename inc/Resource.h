@@ -80,12 +80,11 @@ public:
     {
         for(auto& resType : resourceTypes)
         {
-            std::array<Resource, 10000> arr;
+            auto& arr = pool[resType];
             for (auto& x : arr)
             {
                 x = Resource(resType);
             }
-            pool.insert({resType, arr});
         }
 
         for(auto& [type, arr] : pool)

@@ -3,6 +3,14 @@
 #include "../inc/Player.h"
 #include "../inc/MapGenerator.h"
 
+float Building::GetEfficiency() const
+{
+    if (lifetime <= 0.0)
+        return 0.0f;
+
+    return static_cast<float>(activeTime / lifetime);
+}
+
 void Building::UpdateTransportables(double dt)
 {
     for (auto it = transportables.begin(); it != transportables.end();)
@@ -57,6 +65,10 @@ ProductionBuilding::ProductionBuilding(int ajdi)
 
 void ProductionBuilding::Update(double dt)
 {
+    lifetime += dt;
+    if (productionStarted && !productionBlocked)
+        activeTime += dt;
+
     Produce(dt);
     HandleTransport();
     UpdateTransportables(dt);
@@ -64,6 +76,9 @@ void ProductionBuilding::Update(double dt)
 
 void ProductionBuilding::Produce(double dt)
 {
+    if (productionBlocked)
+        return;
+
     if (productionStarted)
     {
         // handle ongoing production
@@ -75,6 +90,7 @@ void ProductionBuilding::Produce(double dt)
                 for (int i = 0; i < amount; i++)
                 {
                     outputBuffers[resource].GenerateResource(resource);
+                    totalProduced++;
                     Log::Msg(tag, "Created a resource: ", rt2s(resource));
                 }
             }
@@ -188,7 +204,78 @@ void ProductionBuilding::AddResource(Resource* res)
 
 Resource ProductionBuilding::GetResource(ResourceType type)
 {
-    inputBuffers[type].GetResource();
+    auto [isAvailable, resource] = inputBuffers[type].GetResource();
+    return isAvailable ? *resource : Resource{};
+}
+
+std::vector<ResourceBufferView> ProductionBuilding::GetInputBufferViews() const
+{
+    std::vector<ResourceBufferView> result;
+    for (const auto &[resource, buffer] : inputBuffers)
+    {
+        int recipeAmount = 0;
+        auto recipeIt = ingredients.find(resource);
+        if (recipeIt != ingredients.end())
+            recipeAmount = recipeIt->second;
+
+        result.push_back({resource, static_cast<int>(buffer.buffer.size()), buffer.bufferSize, recipeAmount});
+    }
+    return result;
+}
+
+std::vector<ResourceBufferView> ProductionBuilding::GetOutputBufferViews() const
+{
+    std::vector<ResourceBufferView> result;
+    for (const auto &[resource, buffer] : outputBuffers)
+    {
+        int recipeAmount = 0;
+        auto recipeIt = products.find(resource);
+        if (recipeIt != products.end())
+            recipeAmount = recipeIt->second;
+
+        result.push_back({resource, static_cast<int>(buffer.buffer.size()), buffer.bufferSize, recipeAmount});
+    }
+    return result;
+}
+
+std::vector<BuildingConnectionView> ProductionBuilding::GetSupplierViews() const
+{
+    std::vector<BuildingConnectionView> result;
+    for (const auto &[resource, amount] : ingredients)
+    {
+        auto it = suppliersMap.find(resource);
+        result.push_back({resource, it != suppliersMap.end() ? it->second : nullptr});
+    }
+    return result;
+}
+
+std::vector<BuildingConnectionView> ProductionBuilding::GetReceiverViews() const
+{
+    std::vector<BuildingConnectionView> result;
+    for (const auto &[resource, amount] : products)
+    {
+        auto it = receiversMap.find(resource);
+        result.push_back({resource, it != receiversMap.end() ? it->second : nullptr});
+    }
+    return result;
+}
+
+bool ProductionBuilding::HasSupplier(ResourceType type) const
+{
+    return suppliersMap.contains(type) && suppliersMap.at(type) != nullptr;
+}
+
+bool ProductionBuilding::HasReceiver(ResourceType type) const
+{
+    return receiversMap.contains(type) && receiversMap.at(type) != nullptr;
+}
+
+float ProductionBuilding::GetProductionProgress() const
+{
+    if (!productionStarted || productionTime <= 0.0)
+        return 0.0f;
+
+    return std::clamp(static_cast<float>(elapsedTime / productionTime), 0.0f, 1.0f);
 }
 
 void ProductionBuilding::SetSupplier(ResourceType type, Building* supplier)
@@ -224,6 +311,8 @@ Woodcutter::Woodcutter(int i)
     tag = "[Woodcutter]";
     // type = Tile::WOOD;
     buildingType = BuildingType::Woodcutter;
+    textureId = 0;
+    footprint = {2,2};
     products.insert({ResourceType::WOOD, 1});
     productionTime = 5;
     ResourceBuffer output{ResourceType::WOOD, 3};
@@ -235,7 +324,8 @@ LumberMill::LumberMill(int i)
     name = "Lumber Mill";
     tag = "[Lumber Mill]";
     buildingType = BuildingType::LumberMill;
-
+    textureId = 1;
+    footprint = {2,2};
     // type = ResourceType::PLANKS;
     products.insert({ResourceType::PLANKS, 2});
     productionTime = 10;
@@ -256,6 +346,8 @@ Mine::Mine(int i)
     name = "Mine";
     tag = "[Mine]";
     buildingType = BuildingType::Mine;
+    textureId = 2;
+    footprint = {2,2};
 }
 
 void Mine::InitBuilding(TileType tile)
@@ -282,7 +374,10 @@ Foundry::Foundry(int ajdi)
     name = "Foundry";
     tag = "[Foundry]";
     buildingType = BuildingType::Foundry;
+    textureId = 3;
+    footprint = {2,2};
 }
+
 void Foundry::SetSupplier(ResourceType type, Building* supplier)
 {
     // 1) foundry nic nie produkuje - czyli jest absolutnie nowy supplier
@@ -350,6 +445,8 @@ StorageBuilding::StorageBuilding(int actualId)
     resourceBuffers.insert({ResourceType::PLANKS, ResourceBuffer {ResourceType::PLANKS, 16}});
     resourceBuffers.insert({ResourceType::COAL, ResourceBuffer {ResourceType::COAL, 16}});
     buildingType = BuildingType::StorageBuilding;
+    textureId = 4;
+    footprint = {2,2};
 }
 void StorageBuilding::AddResource(Resource* res)
 {
@@ -359,8 +456,10 @@ void StorageBuilding::AddResource(Resource* res)
 
 Resource StorageBuilding::GetResource(ResourceType type)
 {
-    resourceBuffers[type].GetResource();
+    auto [isAvailable, resource] = resourceBuffers[type].GetResource();
+    return isAvailable ? *resource : Resource{};
 }
+
 void StorageBuilding::HandleTransport(ResourceType resource, int amount, Building* receiver)
 {
     for(int i = 0; i<amount; i++)
@@ -376,6 +475,7 @@ void StorageBuilding::HandleTransport(ResourceType resource, int amount, Buildin
 }
 void StorageBuilding::Update(double dt)
 {
+    lifetime += dt;
     UpdateTransportables(dt);
 }
 void StorageBuilding::SetReceiver(ResourceType type, Building* receiver)
@@ -391,6 +491,16 @@ void StorageBuilding::InitBuilding(TileType tajl)
     
 }
 
+std::vector<ResourceBufferView> StorageBuilding::GetOutputBufferViews() const
+{
+    std::vector<ResourceBufferView> result;
+    for (const auto &[resource, buffer] : resourceBuffers)
+    {
+        result.push_back({resource, static_cast<int>(buffer.buffer.size()), buffer.bufferSize, 0});
+    }
+    return result;
+}
+
 void StorageBuilding::ReceptTransport(Transportable* trans)
 {
     // transportables.push_back(trans);
@@ -402,11 +512,13 @@ Road::Road(int i)
     name = "Road";
     tag = "[Road]";
     buildingType = BuildingType::Road;
+    textureId = 5;
     transportTime = 1.0;
 }
 
 void Road::Update(double dt)
 {
+    lifetime += dt;
     UpdateTransportables(dt);
 }
 

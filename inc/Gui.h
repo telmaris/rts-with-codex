@@ -2,6 +2,10 @@
 #define GUI_H
 
 #include "Utils.h"
+#include "Resource.h"
+#include "raylib.h"
+
+class Building;
 
 // TODO: napisać klase UiCanvas która przechowuje elementy UI i zarządza nimi (przede wszystkim rozmiarem)
 
@@ -30,10 +34,16 @@ public:
         sizeAnchor = anchor;
     }
 
-    inline void UpdateSize(Vec2i windowSize)
+    virtual void UpdateSize(Vec2i windowSize)
     {
-        pos = Vec2i{windowSize.x * posAnchor.x, windowSize.y * posAnchor.y};
-        size = Vec2i{windowSize.x * sizeAnchor.x, windowSize.y * sizeAnchor.y};
+        pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
+        size = Vec2i{static_cast<int>(windowSize.x * sizeAnchor.x), static_cast<int>(windowSize.y * sizeAnchor.y)};
+    }
+
+    inline bool ContainsPoint(Vec2i point) const
+    {
+        return point.x >= pos.x && point.x <= pos.x + size.x &&
+               point.y >= pos.y && point.y <= pos.y + size.y;
     }
 
     Vec2i pos{100, 100};
@@ -49,17 +59,29 @@ public:
 class UiButton : public UiWidget
 {
 public:
+    UiButton();
     void Update(double dt) override;
+    void LoadTextures(const std::string& normalPath, const std::string& hoverPath);
 
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
+    inline void SetDrawText(bool shouldDraw)
+    {
+        drawText = shouldDraw;
+    }
+
     virtual void OnClick() { func(); }
 
     std::string text{"Default button text"};
     std::function<void()> func;
+    Texture2D normalTexture{};
+    Texture2D hoverTexture{};
+    bool hasNormalTexture{false};
+    bool hasHoverTexture{false};
+    bool drawText{true};
     // int number;
 };
 
@@ -139,8 +161,8 @@ public:
 
     inline void UpdateSize(Vec2i windowSize)
     {
-        pos = Vec2i{windowSize.x * posAnchor.x, windowSize.y * posAnchor.y};
-        size = Vec2i{windowSize.x * sizeAnchor.x, windowSize.y * sizeAnchor.y};
+        pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
+        size = Vec2i{static_cast<int>(windowSize.x * sizeAnchor.x), static_cast<int>(windowSize.y * sizeAnchor.y)};
 
         int childrenCount = children.size();
         if(childrenCount == 0) return;
@@ -184,8 +206,8 @@ public:
 
     inline void UpdateSize(Vec2i windowSize)
     {
-        pos = Vec2i{windowSize.x * posAnchor.x, windowSize.y * posAnchor.y};
-        size = Vec2i{windowSize.x * sizeAnchor.x, windowSize.y * sizeAnchor.y};
+        pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
+        size = Vec2i{static_cast<int>(windowSize.x * sizeAnchor.x), static_cast<int>(windowSize.y * sizeAnchor.y)};
 
         int childrenCount = children.size();
         Vec2i childrenSize{size.x / childrenCount, size.y};
@@ -275,12 +297,66 @@ class DropdownBox : public UiWidget
     std::string text{"Default dropdown text"};
 };
 
-
-class GuiPanel : public UiWidget
+class ProgressBar : public UiWidget
 {
     public:
         void Update(double dt) override;
 
+        inline void ChangeText(std::string stryng)
+        {
+            text = stryng;
+        }
+
+        inline void SetValue(float val)
+        {
+            value = std::clamp(val, 0.0f, 1.0f);
+        }
+
+        float value{0.0f};
+        std::string text{"Progress"};
+};
+
+class UiImage : public UiWidget
+{
+    public:
+        void Update(double dt) override;
+        bool LoadTextureFromFile(const std::string& path);
+
+        Texture2D texture{};
+        bool hasTexture{false};
+        bool cover{false};
+};
+
+struct ResourceIconAtlas
+{
+    void Load(const std::string& path, Vec2i iconSize);
+    bool IsLoaded() const { return loaded; }
+    Rectangle GetRect(ResourceType type) const;
+
+    Texture2D texture{};
+    Vec2i size{32, 32};
+    bool loaded{false};
+};
+
+class GuiPanel : public UiWidget
+{
+    public:
+        GuiPanel();
+        void Update(double dt) override;
+        void UpdateSize(Vec2i windowSize) override;
+        void SetBuilding(Building* ptr);
+        bool HasBuilding() const { return building != nullptr; }
+        Building* GetBuilding() const { return building; }
+        static void LoadResourceAtlas(const std::string& path, Vec2i iconSize = {32, 32});
+
+        inline void ChangeText(std::string stryng)
+        {
+            text = stryng;
+        }
+
         std::string text{"Gui Panel"};
+        Building* building{nullptr};
+        ProgressBar progressBar;
+        UiButton lockButton;
 };
 #endif

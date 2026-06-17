@@ -8,7 +8,13 @@ bool Transportable::Update(double dt)
     elapsedTime += dt;
     if(elapsedTime >= transportTime)
     {
-        Building* next = (*map)[transportPath[currentPathStep+1]].building.get();
+        if (currentPathStep + 1 >= transportPath.size())
+            return true;
+
+        Building* next = map->GetBuilding(transportPath[currentPathStep+1]);
+        if (next == nullptr)
+            return true;
+
         // Log::Msg("[Transportable]", "calling recept transport at ", map->GetCoordsFromId(next->positionId));
         next->ReceptTransport(this);
 
@@ -49,12 +55,6 @@ void RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* r
     }
     res->BeginTransport(src, dest, tilemap, path);
     src->ReceptTransport(res);
-
-    // for (auto &i : path)
-    // {
-    //     std::cout << tilemap->GetCoordsFromId(i) << " ";
-    // }
-    // std::cout << std::endl;
 }
 
 double RoadNetwork::CalculateTransportTime(Building *src, Building *dest)
@@ -67,20 +67,36 @@ double RoadNetwork::CalculateTransportTime(Building *src, Building *dest)
 
 void RoadNetwork::UpdateNavMap(int id, Building *bld)
 {
-    if (id < 0 || id >= navMap->map.size())
+    if (bld == nullptr)
         return;
-    Log::Msg(tag, bld->name, " added to Navigation Map at map id ", id);
-    navMap->map[id].node = bld;
+
+    for (int tileId : tilemap->GetBuildingTileIds(bld))
+    {
+        if (tileId < 0 || tileId >= navMap->map.size())
+            continue;
+
+        Log::Msg(tag, bld->name, " added to Navigation Map at map id ", tileId);
+        navMap->map[tileId].node = bld;
+    }
 }
 
 std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
 {
-    int start = src->placement->id;
-    int end = dest->placement->id;
-
     int maxColumns = tilemap->params.sizeX;
     int maxRows = tilemap->params.sizeY;
     int maxIndex = maxColumns * maxRows;
+    auto startTiles = tilemap->GetBuildingTileIds(src);
+    auto endTiles = tilemap->GetBuildingTileIds(dest);
+
+    if (startTiles.empty() || endTiles.empty())
+        return {};
+
+    std::vector<bool> isEnd(maxIndex, false);
+    for (int end : endTiles)
+    {
+        if (end >= 0 && end < maxIndex)
+            isEnd[end] = true;
+    }
 
     const std::vector<int> directions{
         -maxColumns, // up
@@ -93,16 +109,27 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
     std::vector<int> parent(maxIndex, -1);
 
     std::queue<int> q;
-    q.push(start);
-    visited[start] = true;
+    for (int start : startTiles)
+    {
+        if (start < 0 || start >= maxIndex)
+            continue;
+
+        q.push(start);
+        visited[start] = true;
+    }
+
+    int reachedEnd = -1;
 
     while (!q.empty())
     {
         int current = q.front();
         q.pop();
 
-        if (current == end)
+        if (isEnd[current])
+        {
+            reachedEnd = current;
             break;
+        }
 
         int currentCol = current % maxColumns;
         int currentRow = current / maxColumns;
@@ -134,11 +161,11 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
         }
     }
 
-    if (!visited[end])
+    if (reachedEnd < 0)
         return {};
 
     std::vector<int> path;
-    for (int at = end; at != -1; at = parent[at])
+    for (int at = reachedEnd; at != -1; at = parent[at])
         path.push_back(at);
 
     std::reverse(path.begin(), path.end());

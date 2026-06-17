@@ -3,6 +3,7 @@
 
 #include "Utils.h"
 #include "MapGenerator.h"
+#include "Player.h"
 #include "Renderer.h"
 
 class PlayerHandler

@@ -26,6 +26,7 @@ class MainMenuScene : public Scene
     // UiButton optionsButton;
     // UiButton quitButton;
     VBox buttonsColumn;
+    UiImage menuGraphic;
 };
 
 class OptionsScene : public Scene

@@ -13,6 +13,7 @@ enum InputMap
 
     CLOSE_TOP_GUI,
     OPEN_BUILD_GUI,
+    OPEN_ROAD_BUILD_GUI,
 
 
     // mouse actions
@@ -52,6 +53,7 @@ inline void InputProcessor::Init(GuiController* gui)
 
     actionInputs[CLOSE_TOP_GUI].key = KEY_ESCAPE;
     actionInputs[OPEN_BUILD_GUI].key = KEY_Q;
+    actionInputs[OPEN_ROAD_BUILD_GUI].key = KEY_R;
     
     actionInputs[LEFT_BUTTON_DOWN].button = MOUSE_BUTTON_LEFT;
     actionInputs[LEFT_BUTTON_UP].button = MOUSE_BUTTON_LEFT;

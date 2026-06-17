@@ -7,8 +7,12 @@ bool InputProcessor::IsActionPressed(int action)
 {
     bool result = false;
 
-    if (action < MAX_ACTION)
-        result = (IsKeyPressed(actionInputs[action].key) || IsMouseButtonPressed(actionInputs[action].button));
+    if (action > ACTION_NULL && action < MAX_ACTION)
+    {
+        auto input = actionInputs[action];
+        result = ((input.key >= 0) && IsKeyPressed(input.key)) ||
+                 ((input.button >= 0) && IsMouseButtonPressed(input.button));
+    }
 
     return result;
 }
@@ -17,8 +21,12 @@ bool InputProcessor::IsActionReleased(int action)
 {
     bool result = false;
 
-    if (action < MAX_ACTION)
-        result = (IsKeyReleased(actionInputs[action].key) || IsMouseButtonReleased(actionInputs[action].button));
+    if (action > ACTION_NULL && action < MAX_ACTION)
+    {
+        auto input = actionInputs[action];
+        result = ((input.key >= 0) && IsKeyReleased(input.key)) ||
+                 ((input.button >= 0) && IsMouseButtonReleased(input.button));
+    }
 
     return result;
 }
@@ -27,8 +35,12 @@ bool InputProcessor::IsActionDown(int action)
 {
     bool result = false;
 
-    if (action < MAX_ACTION)
-        result = (IsKeyDown(actionInputs[action].key) || IsMouseButtonDown(actionInputs[action].button));
+    if (action > ACTION_NULL && action < MAX_ACTION)
+    {
+        auto input = actionInputs[action];
+        result = ((input.key >= 0) && IsKeyDown(input.key)) ||
+                 ((input.button >= 0) && IsMouseButtonDown(input.button));
+    }
 
     return result;
 }
@@ -37,38 +49,46 @@ bool InputProcessor::IsActionDown(int action)
 
 MainMenuScene::MainMenuScene()
 {
-    buttonsColumn.ChangeSizeAnchor(Vec2f{0.2f, 0.4f});
+    buttonsColumn.ChangeSizeAnchor(Vec2f{0.4f, 0.3f});
+    buttonsColumn.ChangePositionAnchor(Vec2f{0.3f, 0.4f});
+
+    menuGraphic.ChangeSizeAnchor(Vec2f{1.0f, 1.0f});
+    menuGraphic.ChangePositionAnchor(Vec2f{0.0f, 0.0f});
+    menuGraphic.cover = true;
+    menuGraphic.LoadTextureFromFile("assets/ui/menu/main_menu.png");
 
     auto newGameButton = std::make_shared<UiButton>();
     newGameButton->ChangeText("New Game");
+    newGameButton->SetDrawText(false);
+    newGameButton->LoadTextures("assets/ui/menu/menu_newgame_normal.png", "assets/ui/menu/menu_newgame_hover.png");
     newGameButton->func = std::bind(&MainMenuScene::OnNewGamePressed, this);
     buttonsColumn.AddChild(newGameButton);
 
     auto loadGameButton = std::make_shared<UiButton>();
     loadGameButton->ChangeText("Load Game");
+    loadGameButton->SetDrawText(false);
+    loadGameButton->LoadTextures("assets/ui/menu/menu_loadgame_normal.png", "assets/ui/menu/menu_loadgame_hover.png");
     loadGameButton->func = std::bind(&MainMenuScene::OnLoadGamePressed, this);
     buttonsColumn.AddChild(loadGameButton);
 
     auto optionsButton = std::make_shared<UiButton>();
     optionsButton->ChangeText("Options");
+    optionsButton->SetDrawText(false);
+    optionsButton->LoadTextures("assets/ui/menu/menu_options_normal.png", "assets/ui/menu/menu_options_hover.png");
     optionsButton->func = std::bind(&MainMenuScene::OnOptionsPressed, this);
     buttonsColumn.AddChild(optionsButton);
 
     auto quitButton = std::make_shared<UiButton>();
     quitButton->ChangeText("Quit");
+    quitButton->SetDrawText(false);
+    quitButton->LoadTextures("assets/ui/menu/menu_quit_normal.png", "assets/ui/menu/menu_quit_hover.png");
     quitButton->func = std::bind(&MainMenuScene::OnQuitPressed, this);
     buttonsColumn.AddChild(quitButton);
 }
 
 void MainMenuScene::Update(double dt)
 {
-    // newGameButton.Update(dt);
-    // loadGameButton.Update(dt);
-    // optionsButton.Update(dt);
-    // quitButton.Update(dt);
-    buttonsColumn.Update(dt);
-
-    render.Draw();
+    render.Draw({&menuGraphic, &buttonsColumn}, dt);
 }
 
 void MainMenuScene::OnNewGamePressed()
@@ -111,6 +131,7 @@ void MainMenuScene::HandleEvent(std::shared_ptr<Event> e)
     if (ptr != nullptr)
     {
         buttonsColumn.UpdateSize(ptr->windowSize);
+        menuGraphic.UpdateSize(ptr->windowSize);
     }
 }
 
@@ -282,6 +303,12 @@ void LoadGameScene::LoadSaves()
     namespace fs = std::filesystem;
     fs::path root = "./saves";
 
+    if (!fs::exists(root))
+    {
+        fs::create_directories(root);
+        return;
+    }
+
     for (const auto &entry : fs::recursive_directory_iterator(root))
     {
         if (!entry.is_regular_file())
@@ -330,15 +357,19 @@ void LoadGameScene::HandleEvent(std::shared_ptr<Event> e)
 GameScene::GameScene()
 {
     render.atlasMap[0] = TextureAtlas{};
-    render.atlasMap[0].LoadTextureAtlas("../assets/textures/atlas_terrain.png");
+    render.atlasMap[0].LoadTextureAtlas("assets/textures/atlas_terrain.png");
 
     render.atlasMap[1] = TextureAtlas{};
-    render.atlasMap[1].LoadTextureAtlas("../assets/textures/atlas_building.png");
-    // render.atlasMap[1].LoadTextureAtlas("../assets/textures/atlas1.png");
+    render.atlasMap[1].LoadTextureAtlas("assets/textures/atlas_building.png", {64, 64});
+    // render.atlasMap[1].LoadTextureAtlas("assets/textures/atlas1.png");
+
+    GuiPanel::LoadResourceAtlas("assets/ui/resource_icons.png", {32, 32});
 
     controller = std::make_unique<GuiController>();
     controller->Init(this);
     controller->AddSystem<BasicMapViewSystem>("default");
+    controller->AddSystem<BuildGuiSystem>("build");
+    controller->AddSystem<RoadBuildSystem>("road_build");
     controller->ChangeSystem("default");
     
     inputs.Init(controller.get());
@@ -415,6 +446,7 @@ void GameScene::SaveGame()
     // todo: prepare a serializable struct with game state data
 
     std::string filename{"saves/" + game->worldName + ".save"};
+    std::filesystem::create_directories("saves");
     std::fstream saveFile{filename, saveFile.trunc | saveFile.out};
 
     if (!saveFile.is_open())

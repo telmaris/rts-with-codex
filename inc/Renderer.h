@@ -4,12 +4,16 @@
 #include "Utils.h"
 #include "raylib.h"
 #include "Gui.h"
+#include "MapGenerator.h"
+
+constexpr int RENDER_WIDTH = 1920;
+constexpr int RENDER_HEIGHT = 1080;
 
 struct CanvasLayer
 {
     CanvasLayer()
     {
-        fbo = LoadRenderTexture(1920, 1080);
+        fbo = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
     }
 
     RenderTexture2D fbo;    // frame buffer object
@@ -17,10 +21,10 @@ struct CanvasLayer
 
 struct TextureAtlas
 {
-    inline void LoadTextureAtlas(const char* path)
+    inline void LoadTextureAtlas(const char* path, Vec2i tileSize = {TILE_SIZE, TILE_SIZE})
     {
         tex = LoadTexture(path);
-        size = {64,64};
+        size = tileSize;
         dim = {tex.width / size.x, tex.height / size.y};
 
         Log::Msg("[Texture Atlas]", "Loaded. Size: [", tex.width, ", ", tex.height, "] Dimensions: [", dim.x, ", ", dim.y, "]");
@@ -30,6 +34,7 @@ struct TextureAtlas
     Rectangle GetRectFromId(int id)
     {
         Rectangle rect;
+        id = std::clamp(id, 0, std::max(0, dim.x * dim.y - 1));
 
         rect.height = size.y;
         rect.width = size.x;
@@ -52,7 +57,7 @@ class Renderer
     Renderer()
     {
         camera.offset = {0,0};
-        camera.target = {0*64,0*64};
+        camera.target = {0*TILE_SIZE,0*TILE_SIZE};
         camera.zoom = 1.0f;
         camera.rotation = 0.0f;
     }
@@ -60,6 +65,12 @@ class Renderer
     void Draw(std::vector<UiWidget*> ui = {}, double dt = 0);
     void DrawOnLayer(int, Texture2D, Vec2i);
     void DrawOnLayer(int, int, int, Vec2f);
+    void BeginLayer(int);
+    void EndLayer();
+    void DrawAtlasTile(int, int, Vec2f);
+    void DrawAtlasTile(int, int, Vec2f, Vec2f);
+    Vec2f ScreenToRender(Vector2);
+    Vec2f RenderToScreen(Vec2f);
     void ClearLayers();
 
 
