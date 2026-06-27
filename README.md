@@ -6,8 +6,8 @@
 
 Prototype RTS game built with CMake and raylib.
 
-## Builds
+## Game
 
-Every push runs the Windows build workflow and uploads `rts-windows-x64.zip` as a GitHub Actions artifact.
+The game is a hybrid approach to the genre; namely blending my favourite concepts of Factorio and Hearts of Iron 4. I always wanted a game which was designed somewhere inbetween micro resource management and logistics, and macro strategy and military expansion.
 
-Version tags such as `v0.1.0` also publish the ZIP as a GitHub Release.
+The game supports up to 5 AI local players (AI is quite dumb atm), and experimental multiplayer. There is no tutorial so diving into the game can be challenging.
