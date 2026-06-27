@@ -5,41 +5,61 @@
 #include "Resource.h"
 #include "raylib.h"
 
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+// raylib exposes GOLD as a color macro; GUI code also uses ResourceType::GOLD.
+#ifdef GOLD
+#undef GOLD
+#endif
+
 class Building;
+class ProductionBuilding;
+enum class MilitaryUnitType : int;
 
-// TODO: napisać klase UiCanvas która przechowuje elementy UI i zarządza nimi (przede wszystkim rozmiarem)
-
+// Base rectangle widget with anchor-based layout support.
 class UiWidget
 {
 public:
+    // Draws and updates widget state for the current frame.
     virtual void Update(double dt) = 0;
 
+    // Sets absolute pixel position.
     inline void ChangePosition(int x, int y)
     {
         pos.x = x;
         pos.y = y;
     }
+    // Sets absolute pixel size.
     inline void ChangeSize(int sizeX, int sizeY)
     {
         size.x = sizeX;
         size.y = sizeY;
     }
 
+    // Sets normalized position anchor relative to the window.
     inline void ChangePositionAnchor(Vec2f anchor)
     {
         posAnchor = anchor;
     }
+    // Sets normalized size anchor relative to the window.
     inline void ChangeSizeAnchor(Vec2f anchor)
     {
         sizeAnchor = anchor;
     }
 
+    // Recomputes pixel rectangle from current anchors and window size.
     virtual void UpdateSize(Vec2i windowSize)
     {
         pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
         size = Vec2i{static_cast<int>(windowSize.x * sizeAnchor.x), static_cast<int>(windowSize.y * sizeAnchor.y)};
     }
 
+    // Returns true when a screen-space point is inside widget bounds.
     inline bool ContainsPoint(Vec2i point) const
     {
         return point.x >= pos.x && point.x <= pos.x + size.x &&
@@ -51,28 +71,31 @@ public:
 
     Vec2f posAnchor{0.2f, 0.2f};
     Vec2f sizeAnchor{0.2f, 0.1f};
-
-    // std::string name{"default widget name"};
-    // int id{0};
 };
 
+// Clickable UI button with optional normal and hover textures.
 class UiButton : public UiWidget
 {
 public:
     UiButton();
+    // Draws the button, handles hover state and dispatches clicks.
     void Update(double dt) override;
+    // Loads textures used for normal and hover visual states.
     void LoadTextures(const std::string& normalPath, const std::string& hoverPath);
 
+    // Replaces button label text.
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
+    // Toggles drawing of the text label over textured buttons.
     inline void SetDrawText(bool shouldDraw)
     {
         drawText = shouldDraw;
     }
 
+    // Executes the assigned click callback.
     virtual void OnClick() { func(); }
 
     std::string text{"Default button text"};
@@ -82,9 +105,9 @@ public:
     bool hasNormalTexture{false};
     bool hasHoverTexture{false};
     bool drawText{true};
-    // int number;
 };
 
+// Boolean toggle widget.
 class CheckBox : public UiWidget
 {
 public:
@@ -94,14 +117,18 @@ public:
         sizeAnchor = Vec2f{0.05f, 0.05f};
     }
 
+    // Draws the checkbox and toggles it when clicked.
     void Update(double dt) override;
 
+    // Replaces checkbox label text.
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
+    // Returns the current checked state.
     inline bool IsActive() { return currentState; }
+    // Returns true once after the checked state changes.
     inline bool HasChanged()
     {
         if (previousState != currentState)
@@ -118,6 +145,7 @@ public:
     std::string text{"Default checkbox text"};
 };
 
+// Horizontal scalar input backed by raygui's slider bar.
 class SliderBar : public UiWidget
 {
 public:
@@ -127,18 +155,22 @@ public:
         sizeAnchor = Vec2f{0.4f, 0.05f};
     }
 
+    // Draws the slider and updates the current value.
     void Update(double dt) override;
 
+    // Replaces slider label text.
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
-    float GetValue()
+    // Returns the current slider value.
+    float GetValue() const
     {
         return currentValue;
     }
 
+    // Returns true once after the slider value changes.
     inline bool HasChanged()
     {
         if (previousValue != currentValue)
@@ -149,16 +181,19 @@ public:
         return false;
     }
 
-    float currentValue;
-    float previousValue;
+    float currentValue{0.0f};
+    float previousValue{0.0f};
     std::string text{"Default slider bar text"};
 };
 
+// Vertical box that distributes child widgets evenly inside its bounds.
 class VBox : public UiWidget
 {
 public:
+    // Updates all child widgets.
     void Update(double dt) override;
 
+    // Recomputes this box and its children from window anchors.
     inline void UpdateSize(Vec2i windowSize)
     {
         pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
@@ -176,9 +211,11 @@ public:
         }
     }
 
+    // Recomputes child rectangles using current absolute box bounds.
     void UpdateSize()
     {
         int childrenCount = children.size();
+        if(childrenCount == 0) return;
         Vec2i childrenSize{size.x, size.y / childrenCount};
 
         for (int i = 0; i < childrenCount; i++)
@@ -188,28 +225,39 @@ public:
         }
     }
 
+    // Adds one child widget and refreshes layout.
     void AddChild(std::shared_ptr<UiWidget> child)
     {
         children.push_back(child);
         UpdateSize();
     }
 
+    // Removes all child widgets.
+    void ClearChildren()
+    {
+        children.clear();
+    }
+
     std::vector<std::shared_ptr<UiWidget>> children;
 
-    Vec4i margins{0, 5, 0, 0}; // up down left right
+    Vec4i margins{0, 5, 0, 0};
 };
 
+// Horizontal box that distributes child widgets evenly inside its bounds.
 class HBox : public UiWidget
 {
 public:
+    // Updates all child widgets.
     void Update(double dt) override;
 
+    // Recomputes this box and its children from window anchors.
     inline void UpdateSize(Vec2i windowSize)
     {
         pos = Vec2i{static_cast<int>(windowSize.x * posAnchor.x), static_cast<int>(windowSize.y * posAnchor.y)};
         size = Vec2i{static_cast<int>(windowSize.x * sizeAnchor.x), static_cast<int>(windowSize.y * sizeAnchor.y)};
 
         int childrenCount = children.size();
+        if(childrenCount == 0) return;
         Vec2i childrenSize{size.x / childrenCount, size.y};
 
         for (int i = 0; i < childrenCount; i++)
@@ -219,9 +267,11 @@ public:
         }
     }
 
+    // Recomputes child rectangles using current absolute box bounds.
     void UpdateSize()
     {
         int childrenCount = children.size();
+        if(childrenCount == 0) return;
         Vec2i childrenSize{size.x / childrenCount, size.y};
 
         for (int i = 0; i < childrenCount; i++)
@@ -231,6 +281,7 @@ public:
         }
     }
 
+    // Adds one child widget and refreshes layout.
     void AddChild(std::shared_ptr<UiWidget> child)
     {
         children.push_back(child);
@@ -239,20 +290,27 @@ public:
 
     std::vector<std::shared_ptr<UiWidget>> children;
 
-    Vec4i margins{0, 5, 0, 0}; // up down left right
+    Vec4i margins{0, 5, 0, 0};
 };
 
+// Fixed-size text input widget used by menu forms.
 class TextBox : public UiWidget
 {
     public:
 
+    // Draws the input and stores edited text.
     void Update(double dt) override;
 
+    // Replaces the current text value.
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
+    // Replaces the current editable value.
+    void SetValue(const std::string& value);
+
+    // Returns true once after the text value changes.
     inline bool HasChanged()
     {
         if (text.compare(textOutput))
@@ -263,24 +321,40 @@ class TextBox : public UiWidget
         return false;
     }
 
-    std::string GetText() { return text; }
+    // Returns the current text value.
+    std::string GetText() const { return text; }
 
-    char textOutput[16] = "\0";
+    char textOutput[256] = "\0";
     std::string text{"Default textbox text"};
 };
 
-//TODO:
+// Static text label used by forms.
+class UiLabel : public UiWidget
+{
+    public:
+        void Update(double dt) override;
+        void ChangeText(std::string value) { text = std::move(value); }
+
+        std::string text;
+        int fontSize{22};
+        Color color{RAYWHITE};
+};
+
+// Reserved dropdown widget shell for future option selectors.
 class DropdownBox : public UiWidget
 {
     public:
 
+    // Draws and updates the dropdown state.
     void Update(double dt) override;
 
+    // Replaces dropdown label text.
     inline void ChangeText(std::string stryng)
     {
         text = stryng;
     }
 
+    // Returns true once after selected text changes.
     inline bool HasChanged()
     {
         if (text.compare(textOutput))
@@ -291,22 +365,27 @@ class DropdownBox : public UiWidget
         return false;
     }
 
+    // Returns current selected text.
     std::string GetText() { return text; }
 
-    char* textOutput;
+    char* textOutput{nullptr};
     std::string text{"Default dropdown text"};
 };
 
+// Linear progress indicator with clamped 0..1 value.
 class ProgressBar : public UiWidget
 {
     public:
+        // Draws progress bar and optional label.
         void Update(double dt) override;
 
+        // Replaces progress label text.
         inline void ChangeText(std::string stryng)
         {
             text = stryng;
         }
 
+        // Sets current progress value, clamped to 0..1.
         inline void SetValue(float val)
         {
             value = std::clamp(val, 0.0f, 1.0f);
@@ -316,10 +395,13 @@ class ProgressBar : public UiWidget
         std::string text{"Progress"};
 };
 
+// Textured image widget that can draw contained or cover-scaled images.
 class UiImage : public UiWidget
 {
     public:
+        // Draws the loaded image when available.
         void Update(double dt) override;
+        // Loads a texture from disk for this widget.
         bool LoadTextureFromFile(const std::string& path);
 
         Texture2D texture{};
@@ -327,28 +409,72 @@ class UiImage : public UiWidget
         bool cover{false};
 };
 
+// Texture atlas used by UI panels to render resource icons.
 struct ResourceIconAtlas
 {
+    // Loads atlas texture and records one icon cell size.
     void Load(const std::string& path, Vec2i iconSize);
+    // Returns true after the atlas texture is loaded.
     bool IsLoaded() const { return loaded; }
+    // Returns atlas rectangle for a resource type.
     Rectangle GetRect(ResourceType type) const;
 
     Texture2D texture{};
-    Vec2i size{32, 32};
+    Vec2i size{64, 64};
     bool loaded{false};
 };
 
+// Shared UI text rendering helpers backed by the configured UI font.
+class UiText
+{
+public:
+    // Measures text width using the shared UI font.
+    static int Measure(const std::string& text, int fontSize);
+    // Draws text using the shared UI font.
+    static void Draw(const std::string& text, float x, float y, int fontSize, Color color);
+    // Draws text that shrinks until it fits within bounds.
+    static void DrawFit(const std::string& text, Rectangle bounds, int fontSize, Color color);
+};
+
+// Shared tooltip renderer used by panels and build/research views.
+class Tooltip
+{
+public:
+    // Renders a tooltip near the mouse using the shared UI style.
+    static void Draw(const std::string& title, const std::vector<std::string>& lines, float preferredWidth = 0.0f);
+};
+
+// Building information panel shown after selecting map objects.
 class GuiPanel : public UiWidget
 {
     public:
         GuiPanel();
+        // Draws the panel and building-specific content.
         void Update(double dt) override;
+        // Recomputes panel rectangle and child widget layout from window size.
         void UpdateSize(Vec2i windowSize) override;
+        // Sets the building currently displayed by the panel.
         void SetBuilding(Building* ptr);
+        // Returns true when the panel has a building target.
         bool HasBuilding() const { return building != nullptr; }
+        // Returns the building currently displayed by the panel.
         Building* GetBuilding() const { return building; }
-        static void LoadResourceAtlas(const std::string& path, Vec2i iconSize = {32, 32});
+        bool ConsumeDestroyRequest()
+        {
+            bool requested = destroyRequested;
+            destroyRequested = false;
+            return requested;
+        }
+        // Loads shared resource icon atlas used by all panels.
+        static void LoadResourceAtlas(const std::string& path, Vec2i iconSize = {64, 64});
+        // Loads shared UI font used by custom panel text and raygui controls.
+        static void LoadUiFont(const std::string& path);
+        // Draws one resource icon using the shared atlas or a color fallback.
+        static void DrawResourceIcon(ResourceType type, Rectangle dest);
+        // Scrolls generic panel content when a panel section overflows.
+        void ScrollContent(float wheel);
 
+        // Replaces panel title text.
         inline void ChangeText(std::string stryng)
         {
             text = stryng;
@@ -358,5 +484,41 @@ class GuiPanel : public UiWidget
         Building* building{nullptr};
         ProgressBar progressBar;
         UiButton lockButton;
+        UiButton destroyButton;
+        UiButton recipeButton;
+        UiButton recruitMilitiaButton;
+        UiButton recruitSwordsmanButton;
+        UiButton recruitArcherButton;
+        std::function<void(Building*, MilitaryUnitType)> recruitRequested;
+        bool destroyRequested{false};
+        bool dragging{false};
+        Vec2i dragOffset{0, 0};
+        float contentScrollOffset{0.0f};
+        float maxContentScrollOffset{0.0f};
+};
+
+// Standard side panel for selected building details.
+class BuildingInfoPanel : public GuiPanel
+{
+public:
+    using GuiPanel::GuiPanel;
+};
+
+// Full-screen technology tree panel used by university buildings.
+class ResearchPanel : public GuiPanel
+{
+public:
+    // Draws categorized research trees for the selected university owner.
+    void Update(double dt) override;
+    // Uses a larger modal-like layout than standard side panels.
+    void UpdateSize(Vec2i windowSize) override;
+    void AdjustTreeZoom(Vec2i point, float wheel);
+
+    Vec2f treePanOffset{0.0f, 0.0f};
+    float treeZoom{0.78f};
+    bool treePanning{false};
+    Vec2f lastTreePanMouse{0.0f, 0.0f};
+    std::string selectedTagFilter;
+    std::function<void(const std::string&, ProductionBuilding*)> researchRequested;
 };
 #endif

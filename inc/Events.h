@@ -6,28 +6,34 @@
 
 class EventBroker;
 class Event;
+class IGameTransport;
 
+// Object that can receive events from an EventBroker.
 class EventClient
 {
     public:
 
     virtual ~EventClient() = default;
 
+    // Handles one event delivered by a broker.
     virtual void HandleEvent(std::shared_ptr<Event>) {}
 
-    EventBroker* broker;
+    EventBroker* broker{nullptr};
 };
 
+// Broadcast-only event dispatcher used by scenes and the game window.
 class EventBroker
 {
     public:
     virtual ~EventBroker() = default;
 
+    // Registers a named event client.
     inline void AddClient(std::string name, EventClient* client)
     {
         clients[name] = client;
     }
 
+    // Sends an event to the broker itself and every registered client.
     inline void Broadcast(std::shared_ptr<Event> e)
     {
         HandleEvent(e);
@@ -38,28 +44,28 @@ class EventBroker
         }
     }
 
-    // dodać wysyłanie do konkretnego adresata
-
+    // Handles events received by the broker itself.
     virtual void HandleEvent(std::shared_ptr<Event>) {}
 
     std::map<std::string, EventClient*> clients;
 };
 
+// Base event payload.
 struct Event
 {
     virtual ~Event() = default;
 
-    EventClient* sender;
+    EventClient* sender{nullptr};
     std::string  msgName;
 };
 
-// ====== EVENT MESSAGES =========
-
+// Requests application shutdown.
 struct QuitGameEvent : Event
 {
     QuitGameEvent() {msgName = "QuitGameEvent";}
 };
 
+// Requests scene activation.
 struct ChangeSceneEvent : Event
 {
     ChangeSceneEvent() {msgName = "ChangeSceneEvent";}
@@ -67,6 +73,7 @@ struct ChangeSceneEvent : Event
     std::string previousSceneName;
 };
 
+// Reports a render-size change.
 struct WindowSizeChangedEvent : Event
 {
     WindowSizeChangedEvent() {msgName = "WindowSizeChangedEvent";}
@@ -74,11 +81,13 @@ struct WindowSizeChangedEvent : Event
     Vec2i windowSize;
 };
 
+// Requests borderless fullscreen toggle.
 struct ToggleFullscreenEvent : Event
 {
     ToggleFullscreenEvent() {msgName = "ToggleFullscreenEvent";}
 };
 
+// Requests new world creation.
 struct NewGameEvent : Event
 {
     NewGameEvent() {msgName = "NewGameEvent";}
@@ -87,11 +96,49 @@ struct NewGameEvent : Event
     std::string name;
 };
 
+// Starts a LAN host session.
+struct HostMultiplayerGameEvent : Event
+{
+    HostMultiplayerGameEvent() {msgName = "HostMultiplayerGameEvent";}
+
+    MapParameters params;
+    std::string name;
+    unsigned short port{27015};
+    std::shared_ptr<IGameTransport> transport;
+};
+
+// Starts a LAN client session.
+struct JoinMultiplayerGameEvent : Event
+{
+    JoinMultiplayerGameEvent() {msgName = "JoinMultiplayerGameEvent";}
+
+    MapParameters params;
+    std::string name;
+    std::string address{"127.0.0.1"};
+    unsigned short port{27015};
+    std::shared_ptr<IGameTransport> transport;
+};
+
+// Requests loading an existing save.
 struct LoadGameEvent : Event
 {
     LoadGameEvent() {msgName = "LoadGameEvent";}
 
     std::string name;
+};
+
+// Requests saving the current game.
+struct SaveGameEvent : Event
+{
+    SaveGameEvent() {msgName = "SaveGameEvent";}
+
+    std::string name;
+};
+
+// Notifies menus that save files changed on disk.
+struct SaveListChangedEvent : Event
+{
+    SaveListChangedEvent() {msgName = "SaveListChangedEvent";}
 };
 
 #endif

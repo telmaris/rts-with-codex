@@ -1,18 +1,14 @@
 #include "Game.h"
-// #include "Scenes.h"
 #include "GameWindow.h"
+#include "Utils.h"
 
+// Initializes main.
 int main(void)
 {
-    // auto g = std::make_unique<Game>();
-    const auto tag = "[MAIN]";
-
-//    g->InitGame();
-//    g->GameLoop();
-
+    Log::Msg("[Main]", "Starting RTS");
     GameWindow window;
-    
-   window.LaunchGame();
+    window.LaunchGame();
+    Log::Msg("[Main]", "Shutdown");
    
     return 0;
 }

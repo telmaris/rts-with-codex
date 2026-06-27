@@ -1,11 +1,12 @@
 #include "../inc/Game.h"
 
+// Initializes runtime state for this object.
 void Game::InitGame()
 {
     gameWorld = std::make_unique<GameWorld>();
-    // gameWorld->InitWorld("default");
 }
 
+// Initializes Game::GameLoop.
 void Game::GameLoop()
 {
     using clock_t = std::chrono::steady_clock;
@@ -26,6 +27,7 @@ void Game::GameLoop()
     }
 }
 
+// Initializes Game::Cleanup.
 void Game::Cleanup()
 {
     

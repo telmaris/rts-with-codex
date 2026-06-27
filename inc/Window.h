@@ -4,7 +4,7 @@
 
 #include "Utils.h"
 
-// reprezentuje okno/kontext Raylib
+// Placeholder for a future Raylib window abstraction.
 class Window
 {
     public:

@@ -13,16 +13,24 @@ $RaylibConfig = Join-Path $RaylibRoot "lib\cmake\raylib"
 $RaylibInclude = Join-Path $RaylibRoot "include"
 $RaylibLibrary = Join-Path $RaylibRoot "lib\raylib.lib"
 
+function Assert-LastCommandSucceeded([string]$StepName) {
+    if ($LASTEXITCODE -ne 0) {
+        throw "$StepName failed with exit code $LASTEXITCODE"
+    }
+}
+
 if (-not (Test-Path $RaylibLibrary)) {
     throw "raylib.lib not found. Set RAYLIB_ROOT or build raylib into: $RaylibRoot"
 }
 
 cmake -S $RepoRoot -B (Join-Path $RepoRoot "build") `
-    -Draylib_DIR=$RaylibConfig `
-    -Draylib_INCLUDE_DIR=$RaylibInclude `
-    -Draylib_LIBRARY=$RaylibLibrary
+    "-Draylib_DIR=$RaylibConfig" `
+    "-Draylib_INCLUDE_DIR=$RaylibInclude" `
+    "-Draylib_LIBRARY=$RaylibLibrary"
+Assert-LastCommandSucceeded "CMake configure"
 
 cmake --build (Join-Path $RepoRoot "build") --config $Config
+Assert-LastCommandSucceeded "CMake build"
 
 $Exe = Join-Path $RepoRoot "build\$Config\rts.exe"
 if (-not (Test-Path $Exe)) {

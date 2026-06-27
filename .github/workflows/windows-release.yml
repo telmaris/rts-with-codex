@@ -1,0 +1,75 @@
+name: Windows build
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows ZIP
+    runs-on: windows-latest
+
+    env:
+      BUILD_TYPE: Release
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install raylib
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install raylib:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
+            -DVCPKG_APPLOCAL_DEPS=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dist = "dist\rts-windows-x64"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "build\${{ env.BUILD_TYPE }}\rts.exe" $dist
+          if (Test-Path "build\${{ env.BUILD_TYPE }}\*.dll") {
+            Copy-Item "build\${{ env.BUILD_TYPE }}\*.dll" $dist
+          }
+          Copy-Item "assets" "$dist\assets" -Recurse
+          New-Item -ItemType Directory -Force -Path "$dist\saves" | Out-Null
+          Compress-Archive -Path "$dist\*" -DestinationPath "dist\rts-windows-x64.zip" -Force
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rts-windows-x64
+          path: dist/rts-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/rts-windows-x64.zip
+          generate_release_notes: true

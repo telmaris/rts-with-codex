@@ -1,0 +1,514 @@
+# RTS domain balance data.
+# Strings can be quoted. Comments start with '#'.
+
+building Headquarters
+    name "Headquarters"
+    tag "[Headquarters]"
+    texture "assets/textures/building/headquarters.png"
+    build_cost "Starting building"
+    build_time 0.0
+    footprint 3 3
+    texture_id 4
+    storage IRON 80 30
+    storage IRON_ORE 100 40
+    storage COPPER_ORE 80 0
+    storage COPPER 80 0
+    storage SILVER_ORE 80 0
+    storage SILVER 80 0
+    storage GOLD_ORE 80 0
+    storage GOLD 80 0
+    storage WOOD 160 120
+    storage PLANKS 100 40
+    storage LEATHER 80 0
+    storage COAL 80 20
+    storage STONE 160 120
+    storage WATER 120 40
+    storage MEAT 80 0
+    storage WHEAT 100 20
+    storage FLOUR 80 0
+    storage BREAD 80 0
+    storage FOOD_PROVISIONS 100 20
+    storage PAPER 80 0
+    storage COINS 80 10
+    storage TOOLS 60 0
+    storage COPPER_SWORD 60 0
+    storage IRON_SWORD 60 0
+    storage STEEL_SWORD 60 0
+    storage BOW 60 0
+    storage ARROWS 120 0
+    storage HORSE 60 0
+    storage WEAPON_SUPPLY 60 0
+    military territory_radius 13 hit_points 1000
+end
+
+building Village
+    name "Village"
+    tag "[Village]"
+    texture "assets/textures/building/cottage.png"
+    build_cost WOOD 45
+    build_cost STONE 20
+    build_cost PLANKS 12
+    build_time 18.0
+    footprint 4 4
+    texture_id 4
+    village manpower_rate 0.2 population_cap 80 upkeep_interval 60.0 food_package_upkeep 1.0
+end
+
+building StorageBuilding
+    name "Storage Building"
+    tag "[StorageBuilding]"
+    texture "assets/textures/building/storage.png"
+    build_cost WOOD 65
+    build_cost STONE 40
+    build_cost PLANKS 20
+    build_time 14.0
+    footprint 3 3
+    texture_id 4
+    storage IRON 80
+    storage IRON_ORE 80
+    storage COPPER_ORE 80
+    storage COPPER 80
+    storage SILVER_ORE 80
+    storage SILVER 80
+    storage GOLD_ORE 80
+    storage GOLD 80
+    storage WOOD 160
+    storage PLANKS 100
+    storage LEATHER 80
+    storage COAL 80
+    storage STONE 160
+    storage WATER 120
+    storage MEAT 80
+    storage WHEAT 100
+    storage FLOUR 80
+    storage BREAD 80
+    storage FOOD_PROVISIONS 100
+    storage PAPER 80
+    storage TOOLS 60
+    storage COPPER_SWORD 60
+    storage IRON_SWORD 60
+    storage STEEL_SWORD 60
+    storage BOW 60
+    storage ARROWS 120
+    storage HORSE 60
+    storage WEAPON_SUPPLY 60
+end
+
+building Woodcutter
+    name "Woodcutter"
+    tag "[Woodcutter]"
+    texture "assets/textures/building/woodcutter.png"
+    build_cost WOOD 20
+    build_cost STONE 10
+    build_time 8.0
+    footprint 2 2
+    texture_id 0
+    production
+        workers 4
+        cycle_time 4.0
+        output WOOD 2
+        output_buffer WOOD 8
+    end
+end
+
+building HuntersHut
+    name "Hunter's Hut"
+    tag "[HuntersHut]"
+    texture "assets/textures/building/hunter.png"
+    build_cost WOOD 35
+    build_cost STONE 15
+    build_cost PLANKS 10
+    build_time 10.0
+    footprint 2 2
+    texture_id 9
+    terrain_production WOOD
+        workers 4
+        cycle_time 10.0
+        output MEAT 1
+        output_buffer MEAT 6
+    end
+end
+
+building LumberMill
+    name "Lumber Mill"
+    tag "[Lumber Mill]"
+    texture "assets/textures/building/lumbermill.png"
+    build_cost WOOD 40
+    build_cost STONE 25
+    build_cost PLANKS 15
+    build_time 16.0
+    footprint 3 3
+    texture_id 1
+    production
+        workers 12
+        cycle_time 12.0
+        input WOOD 3
+        output PLANKS 2
+        input_buffer WOOD 9
+        output_buffer PLANKS 8
+    end
+end
+
+building Mine
+    name "Mine"
+    tag "[Mine]"
+    texture "assets/textures/building/mine.png"
+    build_cost WOOD 40
+    build_cost STONE 10
+    build_cost PLANKS 15
+    build_time 12.0
+    footprint 2 2
+    texture_id 2
+
+    terrain_production IRON_ORE
+        workers 8
+        cycle_time 12.0
+        output IRON_ORE 2
+        output_buffer IRON_ORE 10
+    end
+
+    terrain_production COAL
+        workers 8
+        cycle_time 10.0
+        output COAL 2
+        output_buffer COAL 10
+    end
+
+    terrain_production STONE
+        workers 8
+        cycle_time 5.0
+        output STONE 1
+        output_buffer STONE 8
+    end
+end
+
+building Foundry
+    name "Foundry"
+    tag "[Foundry]"
+    texture "assets/textures/building/foundry.png"
+    build_cost WOOD 30
+    build_cost STONE 40
+    build_cost PLANKS 40
+    build_cost IRON 10
+    build_time 28.0
+    footprint 3 3
+    texture_id 3
+    production
+        workers 12
+        cycle_time 2.0
+        input IRON_ORE 1
+        input COAL 1
+        output IRON 2
+        input_buffer IRON_ORE 8
+        input_buffer COAL 8
+        output_buffer IRON 16
+    end
+    recipe "Copper"
+        workers 12
+        cycle_time 2.0
+        input COPPER_ORE 1
+        input COAL 1
+        output COPPER 2
+        input_buffer COPPER_ORE 8
+        input_buffer COAL 8
+        output_buffer COPPER 16
+    end
+    recipe "Iron"
+        workers 12
+        cycle_time 2.0
+        input IRON_ORE 1
+        input COAL 1
+        output IRON 2
+        input_buffer IRON_ORE 8
+        input_buffer COAL 8
+        output_buffer IRON 16
+    end
+    recipe "Silver"
+        workers 12
+        cycle_time 2.5
+        input SILVER_ORE 1
+        input COAL 1
+        output SILVER 2
+        input_buffer SILVER_ORE 8
+        input_buffer COAL 8
+        output_buffer SILVER 16
+    end
+    recipe "Gold"
+        workers 12
+        cycle_time 3.0
+        input GOLD_ORE 1
+        input COAL 1
+        output GOLD 2
+        input_buffer GOLD_ORE 8
+        input_buffer COAL 8
+        output_buffer GOLD 16
+    end
+end
+
+building Well
+    name "Well"
+    tag "[Well]"
+    texture "assets/textures/building/well.png"
+    build_cost WOOD 25
+    build_cost STONE 30
+    build_time 8.0
+    footprint 2 2
+    texture_id 10
+    production
+        workers 2
+        cycle_time 4.0
+        output WATER 2
+        output_buffer WATER 12
+    end
+end
+
+building WheatFarm
+    name "Wheat Farm"
+    tag "[WheatFarm]"
+    texture "assets/textures/building/wheat_farm.png"
+    build_cost WOOD 30
+    build_cost STONE 15
+    build_cost PLANKS 20
+    build_time 14.0
+    footprint 4 4
+    texture_id 11
+    production
+        workers 8
+        cycle_time 12.0
+        input WATER 5
+        output WHEAT 4
+        input_buffer WATER 10
+        output_buffer WHEAT 16
+    end
+end
+
+building Windmill
+    name "Windmill"
+    tag "[Windmill]"
+    texture "assets/textures/building/windmill.png"
+    build_cost WOOD 30
+    build_cost STONE 35
+    build_cost PLANKS 50
+    build_time 24.0
+    footprint 4 4
+    texture_id 12
+    production
+        workers 6
+        cycle_time 8.0
+        input WHEAT 2
+        output FLOUR 2
+        input_buffer WHEAT 12
+        output_buffer FLOUR 16
+    end
+end
+
+building Bakery
+    name "Bakery"
+    tag "[Bakery]"
+    texture "assets/textures/building/bakery.png"
+    build_cost WOOD 35
+    build_cost STONE 40
+    build_cost PLANKS 30
+    build_time 28.0
+    footprint 3 3
+    texture_id 13
+    production
+        workers 8
+        cycle_time 10.0
+        input FLOUR 2
+        input WATER 2
+        output BREAD 2
+        input_buffer FLOUR 12
+        input_buffer WATER 8
+        output_buffer BREAD 18
+    end
+end
+
+building Inn
+    name "Inn"
+    tag "[Inn]"
+    texture "assets/textures/building/inn.png"
+    build_cost WOOD 40
+    build_cost STONE 40
+    build_cost PLANKS 50
+    build_time 32.0
+    footprint 4 4
+    texture_id 14
+    production
+        workers 8
+        cycle_time 40.0
+        input BREAD 10
+        input MEAT 4
+        input WATER 10
+        output FOOD_PROVISIONS 1
+        input_buffer BREAD 20
+        input_buffer MEAT 12
+        input_buffer WATER 20
+        output_buffer FOOD_PROVISIONS 5
+    end
+end
+
+building Paperworks
+    name "Paperworks"
+    tag "[Paperworks]"
+    texture "assets/textures/building/paperworks.png"
+    build_cost WOOD 50
+    build_cost STONE 80
+    build_cost PLANKS 100
+    build_cost IRON 15
+    build_time 34.0
+    footprint 3 3
+    texture_id 15
+    production
+        workers 8
+        cycle_time 10.0
+        input WOOD 2
+        input WATER 1
+        output PAPER 3
+        input_buffer WOOD 14
+        input_buffer WATER 8
+        output_buffer PAPER 18
+    end
+end
+
+building Smith
+    name "Smith"
+    tag "[Smith]"
+    texture "assets/textures/building/smith.png"
+    build_cost WOOD 50
+    build_cost STONE 70
+    build_cost PLANKS 50
+    build_cost IRON 45
+    build_time 38.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 10
+        cycle_time 12.0
+        input IRON 2
+        input WOOD 1
+        output TOOLS 1
+        input_buffer IRON 12
+        input_buffer WOOD 8
+        output_buffer TOOLS 10
+    end
+    recipe "Tools"
+        workers 10
+        cycle_time 12.0
+        input IRON 2
+        input WOOD 1
+        output TOOLS 1
+        input_buffer IRON 12
+        input_buffer WOOD 8
+        output_buffer TOOLS 10
+    end
+    recipe "Copper Sword"
+        workers 10
+        cycle_time 14.0
+        input COPPER 2
+        input WOOD 1
+        output COPPER_SWORD 1
+        input_buffer COPPER 12
+        input_buffer WOOD 8
+        output_buffer COPPER_SWORD 8
+    end
+    recipe "Iron Sword"
+        workers 10
+        cycle_time 16.0
+        input IRON 3
+        input WOOD 1
+        output IRON_SWORD 1
+        input_buffer IRON 12
+        input_buffer WOOD 8
+        output_buffer IRON_SWORD 8
+    end
+end
+
+building University
+    name "University"
+    tag "[University]"
+    texture "assets/textures/building/university.png"
+    build_cost WOOD 100
+    build_cost STONE 320
+    build_cost PLANKS 250
+    build_cost IRON 120
+    build_cost TOOLS 30
+    requires_focus academic_patronage
+    build_time 80.0
+    footprint 5 5
+    texture_id 17
+    production
+        workers 40
+        cycle_time 20.0
+        input PAPER 5
+        input_buffer PAPER 30
+    end
+end
+
+building GuardTower
+    name "Guard Tower"
+    tag "[GuardTower]"
+    texture "assets/textures/building/guard_tower.png"
+    build_cost WOOD 60
+    build_cost STONE 30
+    build_cost PLANKS 30
+    build_time 24.0
+    footprint 2 2
+    texture_id 6
+    military territory_radius 8 hit_points 300 strength 25 garrison 10 garrison_capacity 20 supply 20 supply_capacity 40
+end
+
+building Fortress
+    name "Fortress"
+    tag "[Fortress]"
+    texture "assets/textures/building/fortress.png"
+    build_cost WOOD 150
+    build_cost STONE 220
+    build_cost PLANKS 75
+    build_cost IRON 45
+    build_time 45.0
+    footprint 3 3
+    texture_id 7
+    military territory_radius 13 hit_points 800 strength 70 garrison 35 garrison_capacity 70 supply 80 supply_capacity 160
+end
+
+building Castle
+    name "Castle"
+    tag "[Castle]"
+    texture "assets/textures/building/castle.png"
+    build_cost WOOD 260
+    build_cost STONE 420
+    build_cost PLANKS 140
+    build_cost IRON 120
+    build_time 75.0
+    footprint 4 4
+    texture_id 8
+    military territory_radius 20 hit_points 1600 strength 140 garrison 80 garrison_capacity 160 supply 200 supply_capacity 400
+end
+
+building Barracks
+    name "Barracks"
+    tag "[Barracks]"
+    texture "assets/textures/building/barracks.png"
+    build_cost WOOD 70
+    build_cost STONE 70
+    build_cost PLANKS 50
+    build_cost IRON 20
+    build_cost TOOLS 10
+    build_time 42.0
+    footprint 4 4
+    texture_id 18
+    military territory_radius 0 hit_points 600 strength 15 garrison 0 garrison_capacity 80 supply 0 supply_capacity 120
+end
+
+building Road
+    name "Road"
+    tag "[Road]"
+    texture "assets/textures/building/road.png"
+    build_cost STONE 2
+    build_time 1.0
+    footprint 1 1
+    texture_id 5
+    transport_time 1.0
+    road upgrade_level 1 max_capacity 5 speed_modifier 1.0
+end

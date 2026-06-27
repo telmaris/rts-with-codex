@@ -19,7 +19,7 @@ struct Transportable
     int currentPathStep = 0;
     
     bool Update(double);
-    void BeginTransport(Building*, Building*, TileMap*, std::vector<int>&);
+    void BeginTransport(Building*, Building*, TileMap*, const std::vector<int>&);
 };
 
 #endif

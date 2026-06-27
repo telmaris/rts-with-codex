@@ -5,15 +5,18 @@
 #include "Window.h"
 #include "GameWorld.h"
 
-// fasada gry
+// Legacy game facade kept for experiments outside the scene-driven window shell.
 class Game
 {
 public:
     Game() = default;
     ~Game() = default;
 
+    // Creates owned game systems.
     void InitGame();
+    // Runs the legacy simulation loop.
     void GameLoop();
+    // Releases owned game systems.
     void Cleanup();
 
 private:

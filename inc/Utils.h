@@ -14,34 +14,39 @@
 #include <queue>
 #include <array>
 #include <functional>
-#include <random> //zrobic klase random ktroa bedzie losowac liczby w danym zakresie
+#include <random>
 #include <type_traits>
 #include <fstream>
 #include <filesystem>
 #include <limits>
+#include <mutex>
 
+constexpr int TILE_SIZE = 32;
 
-class Random
-{
-    public:
-    static void normalized(int a, int b)
-    {
-        std::mt19937 generator (123);
-        std::uniform_real_distribution<double> dis(a, b);
-        double randomRealBetweenZeroAndOne = dis(generator);
-    }
-};
+// Simple stdout logger with timestamped messages.
 class Log
 {
 public:
+    // Writes one tagged log line with all arguments streamed in order.
     template <typename... Args>
     static void Msg(std::string tag, Args &&...args)
     {
-        std::cout << tag << " | ";
-        (std::cout << ... << args) << " | " << CurrentTime() << '\n';
-        
+        std::lock_guard<std::mutex> lock(GetMutex());
+        std::ostringstream line;
+        line << tag << " | ";
+        (line << ... << args);
+        line << " | " << CurrentTime();
+
+        std::cout << line.str() << '\n';
+        auto& file = GetFile();
+        if (file.is_open())
+        {
+            file << line.str() << '\n';
+            file.flush();
+        }
     }
 
+    // Returns local time formatted for log messages.
     static std::string CurrentTime()
     {
         using namespace std::chrono;
@@ -61,8 +66,27 @@ public:
 
         return oss.str();
     }
+
+private:
+    static std::ofstream& GetFile()
+    {
+        static std::ofstream file = []()
+        {
+            std::error_code error;
+            std::filesystem::create_directories("logs", error);
+            return std::ofstream("logs/rts.log", std::ios::out | std::ios::trunc);
+        }();
+        return file;
+    }
+
+    static std::mutex& GetMutex()
+    {
+        static std::mutex mutex;
+        return mutex;
+    }
 };
 
+// Two-component value type used for integer and floating point coordinates.
 template <typename T>
 struct Vec2
 {
@@ -71,17 +95,20 @@ struct Vec2
 
     T x{0}, y{0};
 
+    // Streams this vector in a compact debug format.
     friend std::ostream& operator<<(std::ostream& os, const Vec2& rhs)
     {
         os << "[" << rhs.x << ", " << rhs.y << "]";
         return os;
     }
 
+    // Returns true when both coordinates match.
     bool operator==(const Vec2& rhs) const
     {
         return (x == rhs.x) && (y == rhs.y);
     }
 
+    // Returns true when any coordinate differs.
     bool operator!=(const Vec2& rhs) const
     {
         return !(*this == rhs);
@@ -91,6 +118,7 @@ struct Vec2
 using Vec2i = Vec2<int>;
 using Vec2f = Vec2<float>;
 
+// Four-component value type used for margins and rectangle-like data.
 template <typename T>
 struct Vec4
 {

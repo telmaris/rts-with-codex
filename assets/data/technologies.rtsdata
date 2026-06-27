@@ -1,0 +1,1818 @@
+# RTS technology tree.
+#
+# Technologies consume time and physical resources.
+#
+# Categories:
+# PRODUCTION
+# WARFARE
+# SOCIAL
+#
+# No technology modifies WorkerCapacity.
+#
+# Main dependencies connect only adjacent logical layers.
+# Side technologies are optional dead ends and are not required later.
+
+
+# ============================================================
+# PRODUCTION
+# ============================================================
+
+# ----------------------------
+# PRODUCTION — LAYER 1
+# ----------------------------
+
+technology forestry
+    name "Swift Woodcutting"
+    description "Improved axes and cutting methods increase basic wood production."
+    category PRODUCTION
+    layout_order 10
+    research_time 12
+    cost PAPER 20
+    cost WOOD 30
+    cost TOOLS 5
+    modifier ProductionCycleTime multiplier 0.75 building Woodcutter
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Woodcutter resource WOOD
+end
+
+technology masonry
+    name "Masonry"
+    description "Basic stoneworking techniques improve construction quality and defensive durability."
+    category PRODUCTION
+    layout_order 20
+    research_time 16
+    cost PAPER 12
+    cost STONE 30
+    cost TOOLS 4
+    modifier HitPoints multiplier 1.15 building Headquarters
+    modifier HitPoints multiplier 1.15 building GuardTower
+    modifier HitPoints multiplier 1.15 building Fortress
+    modifier HitPoints multiplier 1.15 building Castle
+end
+
+technology workshop_measurements
+    name "Workshop Measurements"
+    description "Standardized weights and measurements improve workshop reliability."
+    category PRODUCTION
+    layout_order 30
+    research_time 18
+    cost PAPER 18
+    cost TOOLS 8
+    modifier ProductionCycleTime multiplier 0.92 building Smith
+    modifier ProductionCycleTime multiplier 0.92 building Paperworks
+end
+
+technology cartwrighting
+    name "Cartwrighting"
+    description "Improved carts reduce transport delays and increase road efficiency."
+    category PRODUCTION
+    layout_order 40
+    research_time 18
+    cost PAPER 18
+    cost WOOD 20
+    cost TOOLS 6
+    modifier TransportTime multiplier 0.90
+    modifier RoadSpeed multiplier 1.08 building Road
+end
+
+technology storage_methods
+    name "Storage Methods"
+    description "Better stacking, labeling and preservation increase practical reserve capacity."
+    category PRODUCTION
+    layout_order 50
+    research_time 18
+    cost PAPER 16
+    cost PLANKS 20
+    modifier SupplyCapacity multiplier 1.10
+    modifier BuildTime multiplier 0.94 building StorageBuilding
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 2
+# ----------------------------
+
+technology sawmill_blades
+    name "Upgraded Sawmill Blades"
+    description "Better saws improve plank production speed and productivity."
+    category PRODUCTION
+    layout_order 60
+    research_time 24
+    requires forestry
+    cost PAPER 25
+    cost TOOLS 10
+    cost IRON 15
+    modifier ProductionCycleTime multiplier 0.80 building LumberMill
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building LumberMill resource PLANKS
+end
+
+technology deep_mining
+    name "Deep Mining"
+    description "Reinforced shafts and improved tools increase extraction of stone, coal and iron ore."
+    category PRODUCTION
+    layout_order 70
+    research_time 30
+    requires masonry
+    cost PAPER 22
+    cost TOOLS 8
+    cost PLANKS 20
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Mine resource IRON_ORE
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Mine resource COAL
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Mine resource STONE
+end
+
+technology organized_workshops
+    name "Organized Workshops"
+    description "Specialized stations and divided work improve advanced production."
+    category PRODUCTION
+    layout_order 80
+    research_time 28
+    requires workshop_measurements
+    cost PAPER 28
+    cost TOOLS 12
+    cost PLANKS 15
+    modifier ProductionCycleTime multiplier 0.86 building Smith
+    modifier ProductionCycleTime multiplier 0.86 building Paperworks
+end
+
+technology reinforced_wagons
+    name "Reinforced Wagons"
+    description "Stronger axles and larger wagon beds allow heavier and more reliable transport."
+    category PRODUCTION
+    layout_order 90
+    research_time 26
+    requires cartwrighting
+    cost PAPER 22
+    cost PLANKS 25
+    cost IRON 10
+    modifier TransportTime multiplier 0.86
+    modifier RoadCapacity additive 1 building Road
+end
+
+technology regional_storehouses
+    name "Regional Storehouses"
+    description "Purpose-built depots improve storage and military supply reserves."
+    category PRODUCTION
+    layout_order 100
+    research_time 26
+    requires storage_methods
+    cost PAPER 22
+    cost STONE 20
+    cost PLANKS 25
+    modifier SupplyCapacity multiplier 1.15
+    modifier BuildTime multiplier 0.88 building StorageBuilding
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 2 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology charcoal_burning
+    name "Charcoal Burning"
+    description "Specialized charcoal production improves foundry efficiency and military equipment output."
+    category PRODUCTION
+    layout_order 101
+    research_time 28
+    requires forestry
+    cost PAPER 20
+    cost WOOD 45
+    cost TOOLS 5
+    modifier ProductionCycleTime multiplier 0.84 building Foundry
+    modifier MilitaryStrength multiplier 1.03
+end
+
+technology stone_cutting_tools
+    name "Stone-Cutting Tools"
+    description "Hardened chisels improve stone extraction and speed defensive construction."
+    category PRODUCTION
+    layout_order 102
+    research_time 28
+    requires masonry
+    cost PAPER 20
+    cost IRON 12
+    cost TOOLS 10
+    modifier ProductionCycleTime multiplier 0.86 building Mine
+    modifier BuildTime multiplier 0.90 building GuardTower
+    modifier BuildTime multiplier 0.90 building Fortress
+end
+
+technology sealed_containers
+    name "Sealed Containers"
+    description "Better barrels and crates reduce spoilage during storage and military transport."
+    category PRODUCTION
+    layout_order 103
+    research_time 28
+    requires storage_methods
+    cost PAPER 18
+    cost PLANKS 20
+    cost FOOD_PROVISIONS 15
+    modifier SupplyConsumption multiplier 0.94
+    modifier SupplyCapacity multiplier 1.08
+end
+
+technology standardized_weapon_parts
+    name "Standardized Weapon Parts"
+    description "Reusable weapon components reduce the manpower and time needed to equip new units."
+    category PRODUCTION
+    layout_order 104
+    research_time 30
+    requires workshop_measurements
+    cost PAPER 25
+    cost IRON 20
+    cost TOOLS 15
+    modifier RecruitmentTime multiplier 0.94 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.96
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 3
+# ----------------------------
+
+technology timber_standardization
+    name "Timber Standardization"
+    description "Standard plank sizes reduce delays in workshops and construction."
+    category PRODUCTION
+    layout_order 110
+    research_time 36
+    requires sawmill_blades
+    cost PAPER 35
+    cost PLANKS 40
+    cost TOOLS 12
+    modifier ProductionCycleTime multiplier 0.86 building LumberMill
+    modifier BuildTime multiplier 0.94
+end
+
+technology mine_supports
+    name "Reinforced Mine Supports"
+    description "Improved shaft supports allow deeper and more productive mining."
+    category PRODUCTION
+    layout_order 120
+    research_time 38
+    requires deep_mining
+    cost PAPER 30
+    cost PLANKS 35
+    cost IRON 20
+    modifier ProductionCycleTime multiplier 0.84 building Mine
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Mine resource IRON_ORE
+end
+
+technology specialized_foundries
+    name "Specialized Foundries"
+    description "Dedicated furnaces and casting areas improve metal processing."
+    category PRODUCTION
+    layout_order 130
+    research_time 40
+    requires organized_workshops
+    cost PAPER 36
+    cost IRON 30
+    cost COAL 25
+    cost TOOLS 15
+    modifier ProductionCycleTime multiplier 0.80 building Foundry
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Foundry resource IRON
+end
+
+technology road_engineering
+    name "Road Engineering"
+    description "Improved grading and foundations make roads faster and more efficient."
+    category PRODUCTION
+    layout_order 140
+    research_time 36
+    requires reinforced_wagons
+    cost PAPER 30
+    cost STONE 40
+    cost TOOLS 12
+    modifier RoadSpeed multiplier 1.15 building Road
+    modifier RoadCapacity additive 1 building Road
+    modifier BuildTime multiplier 0.92 building Road
+end
+
+technology inventory_ledgers
+    name "Inventory Ledgers"
+    description "Permanent stock records improve storage administration and supply planning."
+    category PRODUCTION
+    layout_order 150
+    research_time 36
+    requires regional_storehouses
+    cost PAPER 40
+    cost PLANKS 20
+    modifier SupplyCapacity multiplier 1.12
+    modifier SupplyConsumption multiplier 0.96
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 3 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology precision_saws
+    name "Precision Saws"
+    description "Fine-toothed saws greatly improve plank production."
+    category PRODUCTION
+    layout_order 151
+    research_time 42
+    requires sawmill_blades
+    cost PAPER 32
+    cost IRON 25
+    cost TOOLS 18
+    modifier ProductionCycleTime multiplier 0.72 building LumberMill
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building LumberMill resource PLANKS
+end
+
+technology ore_sorting
+    name "Ore Sorting"
+    description "Workers separate useful ore before transport, increasing mine and foundry efficiency."
+    category PRODUCTION
+    layout_order 152
+    research_time 42
+    requires deep_mining
+    cost PAPER 30
+    cost TOOLS 15
+    cost IRON_ORE 35
+    modifier ProductionCycleTime multiplier 0.88 building Mine
+    modifier ProductionCycleTime multiplier 0.84 building Foundry
+end
+
+technology workshop_jigs
+    name "Workshop Jigs"
+    description "Reusable guides and fixtures improve repetitive workshop production."
+    category PRODUCTION
+    layout_order 153
+    research_time 42
+    requires organized_workshops
+    cost PAPER 35
+    cost TOOLS 20
+    cost IRON 15
+    modifier ProductionCycleTime multiplier 0.76 building Smith
+    modifier RecruitmentTime multiplier 0.96 building Barracks
+end
+
+technology suspension_bridges
+    name "Suspension Bridges"
+    description "Improved bridge construction reduces transport delays across difficult terrain."
+    category PRODUCTION
+    layout_order 154
+    research_time 42
+    requires road_engineering
+    cost PAPER 32
+    cost PLANKS 45
+    cost IRON 10
+    modifier TransportTime multiplier 0.78
+    modifier TerritoryRadius additive 1 building GuardTower
+end
+
+technology reserve_standards
+    name "Reserve Standards"
+    description "Uniform reserve targets improve national and military supply readiness."
+    category PRODUCTION
+    layout_order 155
+    research_time 42
+    requires inventory_ledgers
+    cost PAPER 45
+    cost FOOD_PROVISIONS 25
+    modifier SupplyCapacity multiplier 1.25
+    modifier GarrisonCapacity additive 1 building GuardTower
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 4
+# ----------------------------
+
+technology construction_templates
+    name "Construction Templates"
+    description "Reusable plans and standardized materials reduce general building time."
+    category PRODUCTION
+    layout_order 160
+    research_time 48
+    requires timber_standardization
+    cost PAPER 45
+    cost PLANKS 45
+    cost TOOLS 20
+    modifier BuildTime multiplier 0.88
+end
+
+technology mechanical_hoists
+    name "Mechanical Hoists"
+    description "Hoists and lifting frames improve mine, foundry and construction efficiency."
+    category PRODUCTION
+    layout_order 170
+    research_time 52
+    requires mine_supports
+    cost PAPER 45
+    cost PLANKS 35
+    cost IRON 30
+    cost TOOLS 20
+    modifier ProductionCycleTime multiplier 0.82 building Mine
+    modifier ProductionCycleTime multiplier 0.86 building Foundry
+    modifier BuildTime multiplier 0.92
+end
+
+technology division_of_labor
+    name "Division of Labor"
+    description "Advanced task specialization improves workshop throughput."
+    category PRODUCTION
+    layout_order 180
+    research_time 52
+    requires specialized_foundries
+    cost PAPER 50
+    cost TOOLS 25
+    cost IRON 25
+    modifier ProductionCycleTime multiplier 0.86 building Smith
+    modifier ProductionCycleTime multiplier 0.86 building Foundry
+    modifier ProductionCycleTime multiplier 0.90 building LumberMill
+end
+
+technology paved_roads
+    name "Paved Roads"
+    description "Stone paving greatly improves road speed and cargo throughput."
+    category PRODUCTION
+    layout_order 190
+    research_time 50
+    requires road_engineering
+    cost PAPER 45
+    cost STONE 60
+    cost TOOLS 18
+    modifier RoadSpeed multiplier 1.18 building Road
+    modifier RoadCapacity additive 2 building Road
+end
+
+technology logistical_accounting
+    name "Logistical Accounting"
+    description "Centralized transport records reduce delays and improve supply distribution."
+    category PRODUCTION
+    layout_order 200
+    research_time 50
+    requires inventory_ledgers
+    cost PAPER 55
+    cost PLANKS 25
+    modifier TransportTime multiplier 0.82
+    modifier SupplyCapacity multiplier 1.15
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 4 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology prefabricated_components
+    name "Prefabricated Components"
+    description "Standard components are prepared in advance for rapid civil and military construction."
+    category PRODUCTION
+    layout_order 201
+    research_time 56
+    requires construction_templates
+    cost PAPER 48
+    cost PLANKS 55
+    cost TOOLS 25
+    modifier BuildTime multiplier 0.78
+    modifier BuildTime multiplier 0.86 building GuardTower
+end
+
+technology blast_furnace_design
+    name "Advanced Furnace Design"
+    description "Improved furnace airflow increases metal production and army equipment quality."
+    category PRODUCTION
+    layout_order 202
+    research_time 58
+    requires mechanical_hoists
+    cost PAPER 50
+    cost STONE 40
+    cost IRON 35
+    cost COAL 45
+    modifier ProductionCycleTime multiplier 0.70 building Foundry
+    modifier MilitaryStrength multiplier 1.05
+end
+
+technology masterwork_tools
+    name "Masterwork Tools"
+    description "High-quality tools improve major processing workshops and military engineering."
+    category PRODUCTION
+    layout_order 203
+    research_time 58
+    requires division_of_labor
+    cost PAPER 55
+    cost TOOLS 40
+    cost IRON 30
+    modifier ProductionCycleTime multiplier 0.82 building Smith
+    modifier ProductionCycleTime multiplier 0.84 building LumberMill
+    modifier ProductionCycleTime multiplier 0.84 building Paperworks
+    modifier AttackDamage multiplier 1.03
+end
+
+technology freight_stations
+    name "Freight Stations"
+    description "Dedicated loading points improve road throughput and military resupply."
+    category PRODUCTION
+    layout_order 204
+    research_time 56
+    requires paved_roads
+    cost PAPER 48
+    cost PLANKS 40
+    cost STONE 30
+    modifier RoadCapacity additive 3 building Road
+    modifier TransportTime multiplier 0.86
+    modifier SupplyConsumption multiplier 0.97
+end
+
+technology strategic_reserves
+    name "Strategic Reserves"
+    description "Permanent emergency stockpiles greatly increase national supply capacity."
+    category PRODUCTION
+    layout_order 205
+    research_time 58
+    requires logistical_accounting
+    cost PAPER 60
+    cost FOOD_PROVISIONS 50
+    cost PLANKS 30
+    modifier SupplyCapacity multiplier 1.35
+    modifier RecruitmentTime multiplier 0.96 building Barracks
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 5
+# ----------------------------
+
+technology engineering_corps
+    name "Engineering Corps"
+    description "Specialist engineers coordinate advanced construction and infrastructure."
+    category PRODUCTION
+    layout_order 210
+    research_time 66
+    requires construction_templates
+    requires mechanical_hoists
+    cost PAPER 70
+    cost TOOLS 35
+    cost IRON 35
+    modifier BuildTime multiplier 0.84
+    modifier HitPoints multiplier 1.08 building GuardTower
+    modifier HitPoints multiplier 1.08 building Fortress
+end
+
+technology industrial_workshops
+    name "Industrial Workshops"
+    description "Large specialized workshops greatly increase production throughput."
+    category PRODUCTION
+    layout_order 220
+    research_time 70
+    requires division_of_labor
+    cost PAPER 70
+    cost TOOLS 40
+    cost IRON 45
+    cost COAL 35
+    modifier ProductionCycleTime multiplier 0.80 building Smith
+    modifier ProductionCycleTime multiplier 0.80 building Foundry
+    modifier ProductionOutputAmount additive 1 multiplier 1.0 building Smith
+end
+
+technology integrated_transport
+    name "Integrated Transport"
+    description "Road administration, freight planning and storage are coordinated as one system."
+    category PRODUCTION
+    layout_order 230
+    research_time 70
+    requires paved_roads
+    requires logistical_accounting
+    cost PAPER 75
+    cost PLANKS 50
+    cost STONE 40
+    modifier RoadSpeed multiplier 1.12 building Road
+    modifier RoadCapacity additive 2 building Road
+    modifier TransportTime multiplier 0.78
+end
+
+
+# ----------------------------
+# PRODUCTION — LAYER 5 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology monumental_architecture
+    name "Monumental Architecture"
+    description "Advanced structural methods improve the durability and territorial influence of major buildings."
+    category PRODUCTION
+    layout_order 231
+    research_time 72
+    requires engineering_corps
+    cost PAPER 65
+    cost STONE 80
+    cost TOOLS 30
+    modifier HitPoints multiplier 1.20 building Headquarters
+    modifier HitPoints multiplier 1.20 building Fortress
+    modifier HitPoints multiplier 1.20 building Castle
+    modifier TerritoryRadius additive 1 building Headquarters
+end
+
+technology production_science
+    name "Production Science"
+    description "Systematic study of workshop methods improves manufacturing and university research."
+    category PRODUCTION
+    layout_order 232
+    research_time 74
+    requires industrial_workshops
+    cost PAPER 80
+    cost TOOLS 35
+    cost IRON 35
+    modifier ProductionCycleTime multiplier 0.92
+    modifier ProductionCycleTime multiplier 0.94 building University
+end
+
+technology national_supply_grid
+    name "National Supply Grid"
+    description "A realm-wide logistics system supports industry, settlements and armies."
+    category PRODUCTION
+    layout_order 233
+    research_time 76
+    requires integrated_transport
+    cost PAPER 85
+    cost PLANKS 60
+    cost FOOD_PROVISIONS 40
+    modifier SupplyCapacity multiplier 1.25
+    modifier SupplyConsumption multiplier 0.94
+    modifier TransportTime multiplier 0.86
+end
+
+
+# ============================================================
+# WARFARE
+# ============================================================
+
+# ----------------------------
+# WARFARE — LAYER 1
+# ----------------------------
+
+technology weapon_drills
+    name "Weapon Drills"
+    description "Regular weapon practice improves basic combat effectiveness."
+    category WARFARE
+    layout_order 10
+    research_time 14
+    cost PAPER 15
+    cost TOOLS 5
+    modifier MilitaryStrength multiplier 1.06
+end
+
+technology levy_organization
+    name "Levy Organization"
+    description "Standardized mustering procedures reduce recruitment delays."
+    category WARFARE
+    layout_order 20
+    research_time 14
+    cost PAPER 15
+    cost FOOD_PROVISIONS 10
+    modifier RecruitmentTime multiplier 0.92 building Barracks
+end
+
+technology field_provisions
+    name "Field Provisions"
+    description "Basic ration planning reduces the supply needs of deployed armies."
+    category WARFARE
+    layout_order 30
+    research_time 16
+    cost PAPER 16
+    cost FOOD_PROVISIONS 20
+    modifier SupplyConsumption multiplier 0.92
+end
+
+technology watchtower_design
+    name "Watchtower Design"
+    description "Improved tower plans increase durability and territorial control."
+    category WARFARE
+    layout_order 40
+    research_time 16
+    cost PAPER 14
+    cost WOOD 25
+    cost STONE 15
+    modifier HitPoints multiplier 1.12 building GuardTower
+    modifier TerritoryRadius additive 1 building GuardTower
+end
+
+technology battlefield_signals
+    name "Battlefield Signals"
+    description "Flags, horns and drums improve coordination during attacks."
+    category WARFARE
+    layout_order 50
+    research_time 18
+    cost PAPER 18
+    cost WOOD 10
+    modifier AttackDamage multiplier 1.06
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 2
+# ----------------------------
+
+technology formation_training
+    name "Formation Training"
+    description "Troops learn to maintain formation under pressure."
+    category WARFARE
+    layout_order 60
+    research_time 24
+    requires weapon_drills
+    cost PAPER 24
+    cost TOOLS 10
+    modifier MilitaryStrength multiplier 1.08
+end
+
+technology muster_rolls
+    name "Muster Rolls"
+    description "Written military records reduce recruitment time and manpower waste."
+    category WARFARE
+    layout_order 70
+    research_time 24
+    requires levy_organization
+    cost PAPER 28
+    cost FOOD_PROVISIONS 15
+    modifier RecruitmentTime multiplier 0.88 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.94
+end
+
+technology preserved_rations
+    name "Preserved Rations"
+    description "Long-lasting food reduces supply consumption during campaigns."
+    category WARFARE
+    layout_order 80
+    research_time 26
+    requires field_provisions
+    cost PAPER 22
+    cost FOOD_PROVISIONS 35
+    modifier SupplyConsumption multiplier 0.86
+    modifier SupplyCapacity multiplier 1.08
+end
+
+technology reinforced_towers
+    name "Reinforced Towers"
+    description "Stone foundations and stronger frames increase tower survivability."
+    category WARFARE
+    layout_order 90
+    research_time 26
+    requires watchtower_design
+    cost PAPER 22
+    cost STONE 35
+    cost PLANKS 20
+    modifier HitPoints multiplier 1.18 building GuardTower
+    modifier GarrisonCapacity additive 2 building GuardTower
+end
+
+technology coordinated_assaults
+    name "Coordinated Assaults"
+    description "Organized attack waves improve offensive damage."
+    category WARFARE
+    layout_order 100
+    research_time 26
+    requires battlefield_signals
+    cost PAPER 25
+    cost TOOLS 12
+    modifier AttackDamage multiplier 1.08
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 2 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology spear_formations
+    name "Spear Formations"
+    description "Dense spear lines improve combat strength and reduce the manpower required to hold ground."
+    category WARFARE
+    layout_order 101
+    research_time 28
+    requires weapon_drills
+    cost PAPER 20
+    cost WOOD 25
+    cost IRON 15
+    modifier MilitaryStrength multiplier 1.10
+    modifier RecruitmentManpowerCost multiplier 0.97
+end
+
+technology emergency_levies
+    name "Emergency Levies"
+    description "Simplified equipment and mustering procedures allow armies to be raised rapidly."
+    category WARFARE
+    layout_order 102
+    research_time 28
+    requires levy_organization
+    cost PAPER 20
+    cost FOOD_PROVISIONS 20
+    modifier RecruitmentTime multiplier 0.78 building Barracks
+    modifier ProductionCycleTime multiplier 0.97 building Smith
+end
+
+technology supply_carts
+    name "Supply Carts"
+    description "Dedicated military wagons increase carried supplies and support civilian transport."
+    category WARFARE
+    layout_order 103
+    research_time 28
+    requires field_provisions
+    cost PAPER 22
+    cost PLANKS 30
+    cost TOOLS 8
+    modifier SupplyCapacity multiplier 1.18
+    modifier TransportTime multiplier 0.90
+end
+
+technology frontier_watch
+    name "Frontier Watch"
+    description "Permanent watches extend defensive control and protect nearby roads."
+    category WARFARE
+    layout_order 104
+    research_time 28
+    requires watchtower_design
+    cost PAPER 20
+    cost FOOD_PROVISIONS 15
+    modifier TerritoryRadius additive 2 building GuardTower
+    modifier RoadSpeed multiplier 1.04 building Road
+end
+
+technology assault_training
+    name "Assault Training"
+    description "Troops practice rapid attacks and efficient use of military equipment."
+    category WARFARE
+    layout_order 105
+    research_time 28
+    requires battlefield_signals
+    cost PAPER 22
+    cost TOOLS 12
+    modifier AttackDamage multiplier 1.12
+    modifier ProductionCycleTime multiplier 0.97 building Foundry
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 3
+# ----------------------------
+
+technology disciplined_ranks
+    name "Disciplined Ranks"
+    description "Advanced formation discipline improves the strength of organized armies."
+    category WARFARE
+    layout_order 110
+    research_time 36
+    requires formation_training
+    cost PAPER 35
+    cost FOOD_PROVISIONS 20
+    modifier MilitaryStrength multiplier 1.10
+end
+
+technology recruitment_officers
+    name "Recruitment Officers"
+    description "Permanent officers improve recruitment efficiency and reduce manpower costs."
+    category WARFARE
+    layout_order 120
+    research_time 36
+    requires muster_rolls
+    cost PAPER 38
+    cost FOOD_PROVISIONS 20
+    modifier RecruitmentTime multiplier 0.88 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.90
+end
+
+technology military_depots
+    name "Military Depots"
+    description "Dedicated military storage increases campaign supply reserves."
+    category WARFARE
+    layout_order 130
+    research_time 38
+    requires preserved_rations
+    cost PAPER 35
+    cost PLANKS 35
+    cost FOOD_PROVISIONS 35
+    modifier SupplyCapacity multiplier 1.22
+    modifier BuildTime multiplier 0.90 building StorageBuilding
+end
+
+technology fortified_positions
+    name "Fortified Positions"
+    description "Prepared positions improve tower and fortress durability."
+    category WARFARE
+    layout_order 140
+    research_time 38
+    requires reinforced_towers
+    cost PAPER 32
+    cost STONE 45
+    cost TOOLS 15
+    modifier HitPoints multiplier 1.15 building GuardTower
+    modifier HitPoints multiplier 1.15 building Fortress
+    modifier GarrisonCapacity additive 2 building GuardTower
+end
+
+technology operational_planning
+    name "Operational Planning"
+    description "Detailed attack planning increases offensive effectiveness."
+    category WARFARE
+    layout_order 150
+    research_time 38
+    requires coordinated_assaults
+    cost PAPER 40
+    cost FOOD_PROVISIONS 20
+    modifier AttackDamage multiplier 1.10
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 3 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology veteran_instructors
+    name "Veteran Instructors"
+    description "Experienced soldiers improve training quality and military workshop standards."
+    category WARFARE
+    layout_order 151
+    research_time 42
+    requires formation_training
+    cost PAPER 36
+    cost FOOD_PROVISIONS 25
+    modifier MilitaryStrength multiplier 1.12
+    modifier ProductionCycleTime multiplier 0.96 building Smith
+end
+
+technology standardized_equipment
+    name "Standardized Equipment"
+    description "Uniform weapons reduce recruitment costs and simplify production."
+    category WARFARE
+    layout_order 152
+    research_time 42
+    requires muster_rolls
+    cost PAPER 38
+    cost IRON 35
+    cost TOOLS 20
+    modifier RecruitmentManpowerCost multiplier 0.84
+    modifier ProductionCycleTime multiplier 0.94 building Smith
+end
+
+technology army_bakeries
+    name "Army Bakeries"
+    description "Dedicated military food production reduces army consumption and supports nearby settlements."
+    category WARFARE
+    layout_order 153
+    research_time 42
+    requires preserved_rations
+    cost PAPER 35
+    cost FOOD_PROVISIONS 50
+    modifier SupplyConsumption multiplier 0.80
+    modifier ManpowerRate multiplier 1.03 building Village
+end
+
+technology layered_defenses
+    name "Layered Defenses"
+    description "Overlapping defensive zones expand territorial control and secure storage facilities."
+    category WARFARE
+    layout_order 154
+    research_time 42
+    requires reinforced_towers
+    cost PAPER 35
+    cost STONE 40
+    modifier TerritoryRadius additive 2 building GuardTower
+    modifier GarrisonCapacity additive 2 building GuardTower
+    modifier BuildTime multiplier 0.95 building StorageBuilding
+end
+
+technology shock_tactics
+    name "Shock Tactics"
+    description "Concentrated assaults improve damage and encourage faster military production."
+    category WARFARE
+    layout_order 155
+    research_time 42
+    requires coordinated_assaults
+    cost PAPER 38
+    cost IRON 25
+    cost FOOD_PROVISIONS 25
+    modifier AttackDamage multiplier 1.14
+    modifier ProductionCycleTime multiplier 0.95 building Foundry
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 4
+# ----------------------------
+
+technology standing_army
+    name "Standing Army"
+    description "Permanent training structures improve overall military quality."
+    category WARFARE
+    layout_order 160
+    research_time 50
+    requires disciplined_ranks
+    cost PAPER 50
+    cost FOOD_PROVISIONS 35
+    cost IRON 25
+    modifier MilitaryStrength multiplier 1.10
+    modifier RecruitmentTime multiplier 0.92 building Barracks
+end
+
+technology professional_recruitment
+    name "Professional Recruitment"
+    description "Specialized recruitment administration reduces training time and manpower losses."
+    category WARFARE
+    layout_order 170
+    research_time 50
+    requires recruitment_officers
+    cost PAPER 52
+    cost FOOD_PROVISIONS 30
+    modifier RecruitmentTime multiplier 0.84 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.88
+end
+
+technology campaign_logistics
+    name "Campaign Logistics"
+    description "Permanent supply planning improves operational endurance and road usage."
+    category WARFARE
+    layout_order 180
+    research_time 52
+    requires military_depots
+    cost PAPER 55
+    cost PLANKS 40
+    cost FOOD_PROVISIONS 45
+    modifier SupplyCapacity multiplier 1.20
+    modifier SupplyConsumption multiplier 0.90
+    modifier TransportTime multiplier 0.88
+    modifier RoadCapacity additive 1 building Road
+end
+
+technology fortress_architecture
+    name "Fortress Architecture"
+    description "Advanced defensive design strengthens towers, fortresses and castles."
+    category WARFARE
+    layout_order 190
+    research_time 52
+    requires fortified_positions
+    cost PAPER 50
+    cost STONE 65
+    cost TOOLS 20
+    modifier HitPoints multiplier 1.18 building GuardTower
+    modifier HitPoints multiplier 1.18 building Fortress
+    modifier HitPoints multiplier 1.18 building Castle
+end
+
+technology combined_assaults
+    name "Combined Assaults"
+    description "Coordinated formations and attack timing improve offensive damage and general strength."
+    category WARFARE
+    layout_order 200
+    research_time 52
+    requires operational_planning
+    cost PAPER 55
+    cost FOOD_PROVISIONS 30
+    cost TOOLS 20
+    modifier AttackDamage multiplier 1.10
+    modifier MilitaryStrength multiplier 1.05
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 4 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology elite_training
+    name "Elite Training"
+    description "Demanding instruction produces stronger troops and more efficient university military studies."
+    category WARFARE
+    layout_order 201
+    research_time 58
+    requires standing_army
+    cost PAPER 60
+    cost FOOD_PROVISIONS 45
+    cost IRON 35
+    modifier MilitaryStrength multiplier 1.15
+    modifier ProductionCycleTime multiplier 0.96 building University
+end
+
+technology rapid_mobilization
+    name "Rapid Mobilization"
+    description "Prearranged muster and production plans allow forces to be raised extremely quickly."
+    category WARFARE
+    layout_order 202
+    research_time 58
+    requires professional_recruitment
+    cost PAPER 60
+    cost FOOD_PROVISIONS 40
+    modifier RecruitmentTime multiplier 0.72 building Barracks
+    modifier ProductionCycleTime multiplier 0.95 building Smith
+end
+
+technology mobile_supply_columns
+    name "Mobile Supply Columns"
+    description "Fast military transport also improves general freight distribution."
+    category WARFARE
+    layout_order 203
+    research_time 58
+    requires campaign_logistics
+    cost PAPER 58
+    cost PLANKS 50
+    cost TOOLS 20
+    modifier TransportTime multiplier 0.74
+    modifier SupplyCapacity multiplier 1.15
+    modifier RoadSpeed multiplier 1.06 building Road
+end
+
+technology concentric_fortifications
+    name "Concentric Fortifications"
+    description "Multiple defensive layers improve durability and territorial control."
+    category WARFARE
+    layout_order 204
+    research_time 60
+    requires fortress_architecture
+    cost PAPER 60
+    cost STONE 80
+    cost IRON 25
+    modifier HitPoints multiplier 1.25 building Fortress
+    modifier HitPoints multiplier 1.25 building Castle
+    modifier TerritoryRadius additive 1 building GuardTower
+end
+
+technology decisive_battle_doctrine
+    name "Decisive Battle Doctrine"
+    description "The army concentrates force for overwhelming engagements and accelerates military supply production."
+    category WARFARE
+    layout_order 205
+    research_time 60
+    requires combined_assaults
+    cost PAPER 62
+    cost FOOD_PROVISIONS 40
+    cost IRON 30
+    modifier AttackDamage multiplier 1.16
+    modifier ProductionCycleTime multiplier 0.94 building Foundry
+end
+
+
+# ----------------------------
+# WARFARE — LAYER 5
+# ----------------------------
+
+technology professional_army
+    name "Professional Army"
+    description "Permanent organization creates a highly effective military institution."
+    category WARFARE
+    layout_order 210
+    research_time 70
+    requires standing_army
+    requires professional_recruitment
+    cost PAPER 80
+    cost FOOD_PROVISIONS 55
+    cost IRON 40
+    modifier MilitaryStrength multiplier 1.12
+    modifier RecruitmentTime multiplier 0.88 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.92
+end
+
+technology military_logistics_service
+    name "Military Logistics Service"
+    description "A dedicated service manages army transport, reserves and provisioning."
+    category WARFARE
+    layout_order 220
+    research_time 72
+    requires campaign_logistics
+    cost PAPER 85
+    cost PLANKS 55
+    cost FOOD_PROVISIONS 60
+    modifier SupplyCapacity multiplier 1.25
+    modifier SupplyConsumption multiplier 0.88
+    modifier TransportTime multiplier 0.82
+end
+
+technology strategic_defense
+    name "Strategic Defense"
+    description "Fortresses and towers are integrated into a coordinated defensive network."
+    category WARFARE
+    layout_order 230
+    research_time 72
+    requires fortress_architecture
+    cost PAPER 80
+    cost STONE 90
+    cost TOOLS 30
+    modifier TerritoryRadius additive 2 building GuardTower
+    modifier GarrisonCapacity additive 3 building GuardTower
+    modifier HitPoints multiplier 1.15 building GuardTower
+    modifier HitPoints multiplier 1.15 building Fortress
+end
+
+technology grand_offensive
+    name "Grand Offensive"
+    description "Advanced planning and disciplined formations support large-scale attacks."
+    category WARFARE
+    layout_order 240
+    research_time 72
+    requires combined_assaults
+    cost PAPER 85
+    cost FOOD_PROVISIONS 55
+    cost IRON 45
+    modifier AttackDamage multiplier 1.14
+    modifier MilitaryStrength multiplier 1.08
+end
+
+
+# ============================================================
+# SOCIAL
+# ============================================================
+
+# ----------------------------
+# SOCIAL — LAYER 1
+# ----------------------------
+
+technology village_records
+    name "Village Records"
+    description "Better household records improve population and labor administration."
+    category SOCIAL
+    layout_order 10
+    research_time 18
+    cost PAPER 15
+    cost FOOD_PROVISIONS 10
+    modifier PopulationCap additive 20 building Village
+    modifier ManpowerRate multiplier 1.10 building Village
+end
+
+technology basic_literacy
+    name "Basic Literacy"
+    description "Basic reading and record keeping improve paper production and research."
+    category SOCIAL
+    layout_order 20
+    research_time 18
+    cost PAPER 20
+    cost TOOLS 4
+    modifier ProductionCycleTime multiplier 0.94 building Paperworks
+    modifier ProductionCycleTime multiplier 0.96 building University
+end
+
+technology communal_health
+    name "Communal Health"
+    description "Clean water practices and basic sanitation support population growth."
+    category SOCIAL
+    layout_order 30
+    research_time 18
+    cost PAPER 15
+    cost FOOD_PROVISIONS 15
+    modifier PopulationCap additive 12 building Village
+    modifier ManpowerRate multiplier 1.06 building Village
+end
+
+technology public_storehouses
+    name "Public Storehouses"
+    description "Communal reserves improve civilian and military supply security."
+    category SOCIAL
+    layout_order 40
+    research_time 20
+    cost PAPER 16
+    cost PLANKS 20
+    cost FOOD_PROVISIONS 15
+    modifier SupplyCapacity multiplier 1.10
+    modifier BuildTime multiplier 0.94 building StorageBuilding
+end
+
+technology civic_mustering
+    name "Civic Mustering"
+    description "Communal obligations make military recruitment more orderly."
+    category SOCIAL
+    layout_order 50
+    research_time 20
+    cost PAPER 16
+    cost FOOD_PROVISIONS 12
+    modifier RecruitmentTime multiplier 0.94 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.96
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 2
+# ----------------------------
+
+technology household_census
+    name "Household Census"
+    description "Regular population counts improve manpower administration."
+    category SOCIAL
+    layout_order 60
+    research_time 26
+    requires village_records
+    cost PAPER 28
+    cost FOOD_PROVISIONS 18
+    modifier PopulationCap additive 25 building Village
+    modifier ManpowerRate multiplier 1.08 building Village
+end
+
+technology scribal_training
+    name "Scribal Training"
+    description "Trained scribes improve paper production and academic output."
+    category SOCIAL
+    layout_order 70
+    research_time 26
+    requires basic_literacy
+    cost PAPER 30
+    cost TOOLS 8
+    modifier ProductionCycleTime multiplier 0.88 building Paperworks
+    modifier ProductionCycleTime multiplier 0.92 building University
+end
+
+technology public_wells
+    name "Public Wells"
+    description "Reliable clean water supports larger settlements and construction crews."
+    category SOCIAL
+    layout_order 80
+    research_time 26
+    requires communal_health
+    cost PAPER 22
+    cost STONE 30
+    modifier PopulationCap additive 18 building Village
+    modifier BuildTime multiplier 0.97
+end
+
+technology granary_administration
+    name "Granary Administration"
+    description "Permanent reserve management improves national supply capacity."
+    category SOCIAL
+    layout_order 90
+    research_time 26
+    requires public_storehouses
+    cost PAPER 28
+    cost FOOD_PROVISIONS 25
+    modifier SupplyCapacity multiplier 1.15
+end
+
+technology service_registers
+    name "Service Registers"
+    description "Military obligation records reduce manpower waste during recruitment."
+    category SOCIAL
+    layout_order 100
+    research_time 26
+    requires civic_mustering
+    cost PAPER 30
+    cost FOOD_PROVISIONS 15
+    modifier RecruitmentManpowerCost multiplier 0.92
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 2 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology migration_incentives
+    name "Migration Incentives"
+    description "Settlement privileges attract population and support new production centers."
+    category SOCIAL
+    layout_order 101
+    research_time 30
+    requires village_records
+    cost PAPER 25
+    cost FOOD_PROVISIONS 30
+    modifier PopulationCap additive 30 building Village
+    modifier ProductionCycleTime multiplier 0.97 building LumberMill
+end
+
+technology copied_manuscripts
+    name "Copied Manuscripts"
+    description "Organized manuscript copying improves academic and technical knowledge."
+    category SOCIAL
+    layout_order 102
+    research_time 30
+    requires basic_literacy
+    cost PAPER 40
+    modifier ProductionCycleTime multiplier 0.88 building University
+    modifier ProductionCycleTime multiplier 0.96 building Smith
+end
+
+technology herbal_practice
+    name "Herbal Practice"
+    description "Local medical knowledge improves manpower recovery and army provisioning."
+    category SOCIAL
+    layout_order 103
+    research_time 30
+    requires communal_health
+    cost PAPER 24
+    cost FOOD_PROVISIONS 20
+    modifier ManpowerRate multiplier 1.10 building Village
+    modifier SupplyConsumption multiplier 0.97
+end
+
+technology emergency_reserves
+    name "Emergency Reserves"
+    description "Protected civilian reserves support both settlements and defensive garrisons."
+    category SOCIAL
+    layout_order 104
+    research_time 30
+    requires public_storehouses
+    cost PAPER 25
+    cost FOOD_PROVISIONS 40
+    modifier SupplyCapacity multiplier 1.22
+    modifier GarrisonCapacity additive 1 building GuardTower
+end
+
+technology local_militias
+    name "Local Militias"
+    description "Permanent local service expands garrisons and territorial control."
+    category SOCIAL
+    layout_order 105
+    research_time 30
+    requires civic_mustering
+    cost PAPER 25
+    cost FOOD_PROVISIONS 20
+    modifier GarrisonCapacity additive 3 building GuardTower
+    modifier TerritoryRadius additive 1 building GuardTower
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 3
+# ----------------------------
+
+technology provincial_census
+    name "Provincial Census"
+    description "Regional records further improve manpower and settlement administration."
+    category SOCIAL
+    layout_order 110
+    research_time 38
+    requires household_census
+    cost PAPER 40
+    cost FOOD_PROVISIONS 25
+    modifier PopulationCap additive 30 building Village
+    modifier ManpowerRate multiplier 1.08 building Village
+end
+
+technology formal_scholarship
+    name "Formal Scholarship"
+    description "Structured teaching improves university research and technical production."
+    category SOCIAL
+    layout_order 120
+    research_time 40
+    requires scribal_training
+    cost PAPER 50
+    cost TOOLS 12
+    modifier ProductionCycleTime multiplier 0.88 building University
+    modifier ProductionCycleTime multiplier 0.96 building Paperworks
+end
+
+technology urban_sanitation
+    name "Urban Sanitation"
+    description "Drainage and organized waste removal improve settlement and workforce stability."
+    category SOCIAL
+    layout_order 130
+    research_time 40
+    requires public_wells
+    cost PAPER 35
+    cost STONE 40
+    cost TOOLS 10
+    modifier PopulationCap additive 25 building Village
+    modifier ManpowerRate multiplier 1.05 building Village
+    modifier ProductionCycleTime multiplier 0.98
+end
+
+technology rationing_systems
+    name "Rationing Systems"
+    description "Formal ration schedules reduce unnecessary supply consumption."
+    category SOCIAL
+    layout_order 140
+    research_time 40
+    requires granary_administration
+    cost PAPER 42
+    cost FOOD_PROVISIONS 35
+    modifier SupplyConsumption multiplier 0.90
+end
+
+technology professional_service
+    name "Professional Service"
+    description "Permanent military administration reduces recruitment inefficiency."
+    category SOCIAL
+    layout_order 150
+    research_time 40
+    requires service_registers
+    cost PAPER 45
+    cost FOOD_PROVISIONS 25
+    modifier RecruitmentTime multiplier 0.90 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.90
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 3 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology settlement_charters
+    name "Settlement Charters"
+    description "Legal rights encourage larger settlements and faster public construction."
+    category SOCIAL
+    layout_order 151
+    research_time 44
+    requires household_census
+    cost PAPER 45
+    cost FOOD_PROVISIONS 30
+    modifier PopulationCap additive 40 building Village
+    modifier BuildTime multiplier 0.96
+end
+
+technology scholarly_correspondence
+    name "Scholarly Correspondence"
+    description "Regular exchanges between scholars accelerate research and improve military planning."
+    category SOCIAL
+    layout_order 152
+    research_time 44
+    requires scribal_training
+    cost PAPER 55
+    modifier ProductionCycleTime multiplier 0.82 building University
+    modifier AttackDamage multiplier 1.03
+end
+
+technology trained_physicians
+    name "Trained Physicians"
+    description "Organized medical practice improves population and military recovery."
+    category SOCIAL
+    layout_order 153
+    research_time 44
+    requires public_wells
+    cost PAPER 45
+    cost FOOD_PROVISIONS 30
+    modifier ManpowerRate multiplier 1.12 building Village
+    modifier RecruitmentManpowerCost multiplier 0.97
+end
+
+technology public_distribution
+    name "Public Distribution"
+    description "Organized distribution reduces transport delays and supports production."
+    category SOCIAL
+    layout_order 154
+    research_time 44
+    requires granary_administration
+    cost PAPER 45
+    cost PLANKS 25
+    modifier TransportTime multiplier 0.88
+    modifier ProductionCycleTime multiplier 0.97
+end
+
+technology reserve_obligations
+    name "Reserve Obligations"
+    description "Formal reserve service improves recruitment and frontier defense."
+    category SOCIAL
+    layout_order 155
+    research_time 44
+    requires service_registers
+    cost PAPER 45
+    cost FOOD_PROVISIONS 30
+    modifier RecruitmentTime multiplier 0.84 building Barracks
+    modifier GarrisonCapacity additive 2 building GuardTower
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 4
+# ----------------------------
+
+technology centralized_administration
+    name "Centralized Administration"
+    description "Permanent regional records improve population, production and construction administration."
+    category SOCIAL
+    layout_order 160
+    research_time 52
+    requires provincial_census
+    cost PAPER 60
+    cost FOOD_PROVISIONS 35
+    modifier PopulationCap additive 30 building Village
+    modifier ManpowerRate multiplier 1.08 building Village
+    modifier BuildTime multiplier 0.95
+end
+
+technology university_curriculum
+    name "University Curriculum"
+    description "Standardized teaching increases university research and paper production."
+    category SOCIAL
+    layout_order 170
+    research_time 54
+    requires formal_scholarship
+    cost PAPER 70
+    cost TOOLS 18
+    modifier ProductionCycleTime multiplier 0.84 building University
+    modifier ProductionCycleTime multiplier 0.94 building Paperworks
+end
+
+technology public_health_offices
+    name "Public Health Offices"
+    description "Permanent health administration improves settlement growth and manpower recovery."
+    category SOCIAL
+    layout_order 180
+    research_time 54
+    requires urban_sanitation
+    cost PAPER 60
+    cost FOOD_PROVISIONS 40
+    modifier PopulationCap additive 30 building Village
+    modifier ManpowerRate multiplier 1.10 building Village
+end
+
+technology national_granaries
+    name "National Granaries"
+    description "A realm-wide reserve system increases capacity and improves supply efficiency."
+    category SOCIAL
+    layout_order 190
+    research_time 54
+    requires rationing_systems
+    cost PAPER 65
+    cost FOOD_PROVISIONS 60
+    cost PLANKS 35
+    modifier SupplyCapacity multiplier 1.22
+    modifier SupplyConsumption multiplier 0.92
+end
+
+technology military_bureaucracy
+    name "Military Bureaucracy"
+    description "Permanent military administration improves recruitment and garrison organization."
+    category SOCIAL
+    layout_order 200
+    research_time 54
+    requires professional_service
+    cost PAPER 65
+    cost FOOD_PROVISIONS 35
+    modifier RecruitmentTime multiplier 0.86 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.90
+    modifier GarrisonCapacity additive 2 building GuardTower
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 4 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology provincial_governors
+    name "Provincial Governors"
+    description "Regional officials improve territorial, logistical and construction administration."
+    category SOCIAL
+    layout_order 201
+    research_time 58
+    requires centralized_administration
+    cost PAPER 65
+    cost FOOD_PROVISIONS 35
+    modifier TerritoryRadius additive 1 building Headquarters
+    modifier TerritoryRadius additive 1 building GuardTower
+    modifier TransportTime multiplier 0.96
+end
+
+technology endowed_chairs
+    name "Endowed University Chairs"
+    description "Permanent academic positions improve research and advanced production."
+    category SOCIAL
+    layout_order 202
+    research_time 60
+    requires university_curriculum
+    cost PAPER 80
+    cost IRON 15
+    modifier ProductionCycleTime multiplier 0.78 building University
+    modifier ProductionCycleTime multiplier 0.96 building Foundry
+end
+
+technology hospitals
+    name "Hospitals"
+    description "Dedicated medical institutions improve manpower recovery and recruitment efficiency."
+    category SOCIAL
+    layout_order 203
+    research_time 60
+    requires public_health_offices
+    cost PAPER 70
+    cost FOOD_PROVISIONS 50
+    cost PLANKS 30
+    modifier ManpowerRate multiplier 1.15 building Village
+    modifier RecruitmentManpowerCost multiplier 0.95
+end
+
+technology reserve_network
+    name "Reserve Network"
+    description "Distributed public reserves improve supply capacity and transport."
+    category SOCIAL
+    layout_order 204
+    research_time 60
+    requires national_granaries
+    cost PAPER 70
+    cost FOOD_PROVISIONS 65
+    cost PLANKS 40
+    modifier SupplyCapacity multiplier 1.25
+    modifier TransportTime multiplier 0.88
+end
+
+technology officer_records
+    name "Officer Records"
+    description "Detailed personnel records reduce recruitment waste and improve army coordination."
+    category SOCIAL
+    layout_order 205
+    research_time 60
+    requires military_bureaucracy
+    cost PAPER 75
+    cost FOOD_PROVISIONS 40
+    modifier RecruitmentManpowerCost multiplier 0.82
+    modifier MilitaryStrength multiplier 1.04
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 5
+# ----------------------------
+
+technology civil_service
+    name "Civil Service"
+    description "A permanent administrative class improves population management and public construction."
+    category SOCIAL
+    layout_order 210
+    research_time 70
+    requires centralized_administration
+    cost PAPER 85
+    cost FOOD_PROVISIONS 45
+    modifier PopulationCap additive 35 building Village
+    modifier ManpowerRate multiplier 1.08 building Village
+    modifier BuildTime multiplier 0.92
+end
+
+technology academic_institutions
+    name "Academic Institutions"
+    description "Permanent academic organizations greatly improve research and technical production."
+    category SOCIAL
+    layout_order 220
+    research_time 74
+    requires university_curriculum
+    cost PAPER 95
+    cost TOOLS 25
+    modifier ProductionCycleTime multiplier 0.80 building University
+    modifier ProductionCycleTime multiplier 0.94 building Smith
+    modifier ProductionCycleTime multiplier 0.94 building Foundry
+end
+
+technology public_welfare
+    name "Public Welfare"
+    description "Coordinated health, food and settlement policies support sustained population growth."
+    category SOCIAL
+    layout_order 230
+    research_time 74
+    requires public_health_offices
+    requires national_granaries
+    cost PAPER 90
+    cost FOOD_PROVISIONS 75
+    modifier PopulationCap additive 40 building Village
+    modifier ManpowerRate multiplier 1.12 building Village
+    modifier SupplyConsumption multiplier 0.94
+end
+
+technology state_military_administration
+    name "State Military Administration"
+    description "Civil and military records are integrated into one recruitment and supply system."
+    category SOCIAL
+    layout_order 240
+    research_time 74
+    requires military_bureaucracy
+    cost PAPER 90
+    cost FOOD_PROVISIONS 55
+    modifier RecruitmentTime multiplier 0.84 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.86
+    modifier GarrisonCapacity additive 3 building GuardTower
+    modifier SupplyCapacity multiplier 1.08
+end
+
+
+# ----------------------------
+# SOCIAL — LAYER 5 SIDE TECHNOLOGIES
+# ----------------------------
+
+technology national_census
+    name "National Census"
+    description "A complete census maximizes population, manpower and tax-like production administration."
+    category SOCIAL
+    layout_order 241
+    research_time 80
+    requires civil_service
+    cost PAPER 100
+    cost FOOD_PROVISIONS 55
+    modifier PopulationCap additive 60 building Village
+    modifier ManpowerRate multiplier 1.12 building Village
+    modifier ProductionCycleTime multiplier 0.97
+end
+
+technology scholarly_societies
+    name "Scholarly Societies"
+    description "Independent academic societies accelerate research and improve military theory."
+    category SOCIAL
+    layout_order 242
+    research_time 82
+    requires academic_institutions
+    cost PAPER 110
+    modifier ProductionCycleTime multiplier 0.74 building University
+    modifier MilitaryStrength multiplier 1.04
+    modifier AttackDamage multiplier 1.03
+end
+
+technology population_recovery
+    name "Population Recovery"
+    description "Advanced health and welfare systems greatly increase manpower recovery and recruitment sustainability."
+    category SOCIAL
+    layout_order 243
+    research_time 82
+    requires public_welfare
+    cost PAPER 95
+    cost FOOD_PROVISIONS 90
+    modifier ManpowerRate multiplier 1.18 building Village
+    modifier RecruitmentManpowerCost multiplier 0.94
+end
+
+technology universal_service
+    name "Universal Service"
+    description "A standardized national service system reduces recruitment time and manpower cost."
+    category SOCIAL
+    layout_order 244
+    research_time 82
+    requires state_military_administration
+    cost PAPER 100
+    cost FOOD_PROVISIONS 70
+    modifier RecruitmentTime multiplier 0.78 building Barracks
+    modifier RecruitmentManpowerCost multiplier 0.80
+    modifier MilitaryStrength multiplier 1.03
+end
