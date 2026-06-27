@@ -29,6 +29,8 @@ class GameWorld
 
         // Creates a new world with generated terrain and starting entities.
         void InitWorld(std::string, Renderer*, MapParameters params = {});
+        // Creates a deterministic multiplayer world with server-assigned player slots.
+        void InitMultiplayerWorld(std::string name, Renderer* renderer, MapParameters params, int localPlayerId, bool authoritativeHost);
         // Writes the current world state to a save file.
         bool SaveToFile(const std::string& path) const;
         // Rebuilds the world state from a save file.

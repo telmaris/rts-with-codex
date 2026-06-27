@@ -33,11 +33,21 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install raylib:x64-windows
 
+      - name: Install raygui header
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path external\raygui | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/raysan5/raygui/4.0/src/raygui.h" `
+            -OutFile "external\raygui\raygui.h"
+
       - name: Configure
         shell: pwsh
         run: |
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+            -DBUILD_TESTING=ON `
+            -Draygui_INCLUDE_DIR="$PWD\external\raygui" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
             -DVCPKG_APPLOCAL_DEPS=ON
@@ -46,6 +56,21 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Run command/session tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test-results | Out-Null
+          $testExe = "build\tests\${{ env.BUILD_TYPE }}\rts_tests.exe"
+          & $testExe --gtest_filter=GameCommandTests.* --gtest_output=xml:test-results\gtest-command-session.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/*.xml
+          if-no-files-found: warn
 
       - name: Package
         shell: pwsh

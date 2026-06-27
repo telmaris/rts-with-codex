@@ -148,8 +148,8 @@ public:
 class LocalhostHostSession : public IGameSession
 {
 public:
-    LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport)
-    : world(&world), transport(std::move(transport))
+    LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId = 0)
+    : world(&world), transport(std::move(transport)), remotePlayerId(remotePlayerId)
     {
     }
 
@@ -172,7 +172,24 @@ public:
             {
                 GameCommand command;
                 if (GameCommand::TryDeserialize(payload, command))
+                {
+                    if (command.playerId != remotePlayerId)
+                    {
+                        GameCommandResult rejected{
+                            command.commandId,
+                            world->GetSimulationTick(),
+                            command.targetTick,
+                            command.playerId,
+                            command.type,
+                            false,
+                            "rejected: wrong player slot",
+                            command.Serialize()};
+                        commandResults.push_back(rejected);
+                        transport->SendHostResult(rejected.Serialize());
+                        continue;
+                    }
                     world->SubmitCommand(command, minimumTargetTick);
+                }
             }
         }
 
@@ -204,6 +221,7 @@ private:
     std::shared_ptr<IGameTransport> transport;
     FixedSimulationClock clock;
     std::uint64_t inputDelayTicks{3};
+    int remotePlayerId{0};
     std::vector<GameCommandResult> commandResults;
 };
 
@@ -211,14 +229,15 @@ private:
 class LocalhostClientSession : public IGameSession
 {
 public:
-    LocalhostClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport)
-    : observedWorld(observedWorld), transport(std::move(transport))
+    LocalhostClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport, int assignedPlayerId = 0)
+    : observedWorld(observedWorld), transport(std::move(transport)), assignedPlayerId(assignedPlayerId)
     {
     }
 
     std::uint64_t SubmitCommand(const GameCommand& command) override
     {
         GameCommand outbound = command;
+        outbound.playerId = assignedPlayerId;
         if (outbound.commandId == 0)
             outbound.commandId = nextClientCommandId++;
         if (transport != nullptr)
@@ -268,6 +287,7 @@ private:
     GameWorld* observedWorld{nullptr};
     std::shared_ptr<IGameTransport> transport;
     std::uint64_t nextClientCommandId{1};
+    int assignedPlayerId{0};
     FixedSimulationClock clock;
     std::vector<GameCommandResult> commandResults;
 };
@@ -278,8 +298,8 @@ class LocalhostMultiplayerSession : public IGameSession
 public:
     explicit LocalhostMultiplayerSession(GameWorld& world)
     : transport(std::make_shared<LocalhostGameTransport>()),
-      host(world, transport),
-      client(nullptr, transport)
+      host(world, transport, world.GetLocalPlayerId()),
+      client(nullptr, transport, world.GetLocalPlayerId())
     {
     }
 

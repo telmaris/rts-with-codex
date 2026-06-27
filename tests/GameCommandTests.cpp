@@ -117,8 +117,61 @@ TEST(GameCommandTests, LocalhostMultiplayerSessionRoundTripsCommandResult)
     EXPECT_EQ(results.front().commandId, commandId);
     EXPECT_EQ(results.front().simulationTick, 3u);
     EXPECT_EQ(results.front().targetTick, 3u);
-    EXPECT_EQ(results.front().playerId, 999);
+    EXPECT_EQ(results.front().playerId, world.GetLocalPlayerId());
     EXPECT_EQ(results.front().type, GameCommandType::DestroyBuilding);
     EXPECT_FALSE(results.front().accepted);
     EXPECT_EQ(session.GetWorld(), &world);
+}
+
+TEST(GameCommandTests, HostRejectsTransportCommandForWrongPlayerSlot)
+{
+    GameWorld world;
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    LocalhostHostSession host(world, transport, 1);
+
+    GameCommand command = GameCommand::DestroyBuilding(0, 123);
+    command.commandId = 77;
+    transport->SendClientCommand(command.Serialize());
+    host.Update(0.20);
+    auto results = host.ConsumeCommandResults();
+
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results.front().commandId, command.commandId);
+    EXPECT_EQ(results.front().playerId, 0);
+    EXPECT_FALSE(results.front().accepted);
+    EXPECT_EQ(results.front().reason, "rejected: wrong player slot");
+}
+
+TEST(GameCommandTests, MultiplayerWorldAssignsStableServerSlotsAndColors)
+{
+    MapParameters params;
+    params.aiOpponentCount = 1;
+    params.seed = 27015;
+
+    GameWorld hostWorld;
+    GameWorld clientWorld;
+    hostWorld.InitMultiplayerWorld("test", nullptr, params, 0, true);
+    clientWorld.InitMultiplayerWorld("test", nullptr, params, 1, false);
+
+    ASSERT_EQ(hostWorld.GetLocalPlayerId(), 0);
+    ASSERT_EQ(clientWorld.GetLocalPlayerId(), 1);
+    ASSERT_TRUE(hostWorld.playerHandler.players.contains(0));
+    ASSERT_TRUE(hostWorld.playerHandler.players.contains(1));
+    ASSERT_TRUE(clientWorld.playerHandler.players.contains(0));
+    ASSERT_TRUE(clientWorld.playerHandler.players.contains(1));
+
+    Color hostSlot0 = hostWorld.playerHandler.players[0]->color;
+    Color clientSlot0 = clientWorld.playerHandler.players[0]->color;
+    Color hostSlot1 = hostWorld.playerHandler.players[1]->color;
+    Color clientSlot1 = clientWorld.playerHandler.players[1]->color;
+
+    EXPECT_EQ(hostSlot0.r, clientSlot0.r);
+    EXPECT_EQ(hostSlot0.g, clientSlot0.g);
+    EXPECT_EQ(hostSlot0.b, clientSlot0.b);
+    EXPECT_EQ(hostSlot1.r, clientSlot1.r);
+    EXPECT_EQ(hostSlot1.g, clientSlot1.g);
+    EXPECT_EQ(hostSlot1.b, clientSlot1.b);
+    EXPECT_EQ(hostWorld.playerHandler.players[1]->controllerType, PlayerControllerType::Remote);
+    EXPECT_EQ(clientWorld.playerHandler.players[1]->controllerType, PlayerControllerType::LocalHuman);
+    EXPECT_EQ(clientWorld.playerHandler.players[2]->controllerType, PlayerControllerType::Remote);
 }

@@ -4,6 +4,22 @@ using namespace GameWorldInternal;
 
 namespace
 {
+    constexpr int MultiplayerHumanSlots = 2;
+
+    Color PlayerSlotColor(int id)
+    {
+        static const std::array<Color, 7> colors{
+            Color{66, 154, 255, 255},
+            Color{220, 72, 72, 255},
+            Color{230, 151, 62, 255},
+            Color{176, 86, 216, 255},
+            Color{73, 181, 126, 255},
+            Color{217, 210, 82, 255},
+            Color{88, 196, 210, 255}
+        };
+        return colors[static_cast<size_t>(std::clamp(id, 0, static_cast<int>(colors.size()) - 1))];
+    }
+
     // Adds a debug resource package to the player's headquarters.
     void GrantDebugResourcesToHeadquarters(Player* player, int amount)
     {
@@ -125,7 +141,7 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
     tilemap.generator.GenerateTileMap(tilemap, params);
 
     localPlayerId = 0;
-    auto* human = CreatePlayer(0, PlayerControllerType::LocalHuman, "Player", Color{66, 154, 255, 255});
+    auto* human = CreatePlayer(0, PlayerControllerType::LocalHuman, "Player", PlayerSlotColor(0));
 
     Vec2i hqAnchor = CreateStartingBase(human, MapGenerator::PickHeadquartersAnchor(params), params.seed ^ 0x9E3779B9u);
     if (params.debugMode)
@@ -133,18 +149,11 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
 
     Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
     std::vector<Vec2i> occupiedAnchors{hqAnchor};
-    std::array<Color, 5> enemyColors{
-        Color{220, 72, 72, 255},
-        Color{230, 151, 62, 255},
-        Color{176, 86, 216, 255},
-        Color{73, 181, 126, 255},
-        Color{217, 210, 82, 255}
-    };
     int opponentCount = std::clamp(params.aiOpponentCount, 0, 5);
     for (int i = 0; i < opponentCount; i++)
     {
         int playerId = i + 1;
-        auto* enemy = CreatePlayer(playerId, PlayerControllerType::AI, "AI Opponent " + std::to_string(playerId), enemyColors[i % enemyColors.size()]);
+        auto* enemy = CreatePlayer(playerId, PlayerControllerType::AI, "AI Opponent " + std::to_string(playerId), PlayerSlotColor(playerId));
         Vec2i enemyAnchor = PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xD1B54A32u + static_cast<unsigned int>(i * 7919)));
         occupiedAnchors.push_back(enemyAnchor);
         CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
@@ -157,6 +166,68 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
         Vec2f hqWorldCenter{
             static_cast<float>(hqAnchor.x * TILE_SIZE) + hqFootprint.x * TILE_SIZE * 0.5f,
             static_cast<float>(hqAnchor.y * TILE_SIZE) + hqFootprint.y * TILE_SIZE * 0.5f};
+        render->CenterCameraOnWorld(hqWorldCenter, {tilemap.params.sizeX, tilemap.params.sizeY});
+        cachedCameraTarget = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+        cachedCameraZoom = -1.0f;
+    }
+}
+
+// Initializes deterministic multiplayer runtime state with server-assigned slots.
+void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, MapParameters params, int localId, bool authoritativeHost)
+{
+    worldName = name;
+    render = r;
+
+    tilemap.generator.GenerateTileMap(tilemap, params);
+
+    localPlayerId = std::clamp(localId, 0, MultiplayerHumanSlots - 1);
+
+    Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
+    std::vector<Vec2i> occupiedAnchors;
+    Vec2i cameraAnchor = MapGenerator::PickHeadquartersAnchor(params);
+
+    for (int playerId = 0; playerId < MultiplayerHumanSlots; playerId++)
+    {
+        PlayerControllerType controllerType = PlayerControllerType::Remote;
+        if (playerId == localPlayerId)
+            controllerType = PlayerControllerType::LocalHuman;
+
+        std::string playerName = playerId == 0 ? "Host" : "Client";
+        auto* player = CreatePlayer(playerId, controllerType, playerName, PlayerSlotColor(playerId));
+        Vec2i anchor = playerId == 0
+            ? MapGenerator::PickHeadquartersAnchor(params)
+            : PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xA511E9B3u + static_cast<unsigned int>(playerId * 4099)));
+        occupiedAnchors.push_back(anchor);
+        CreateStartingBase(player, anchor, params.seed ^ (0x9E3779B9u + static_cast<unsigned int>(playerId * 104729)));
+        if (playerId == localPlayerId)
+            cameraAnchor = anchor;
+    }
+
+    int opponentCount = std::clamp(params.aiOpponentCount, 0, 5);
+    for (int i = 0; i < opponentCount; i++)
+    {
+        int playerId = MultiplayerHumanSlots + i;
+        PlayerControllerType controllerType = authoritativeHost ? PlayerControllerType::AI : PlayerControllerType::Remote;
+        auto* enemy = CreatePlayer(playerId, controllerType, "AI Opponent " + std::to_string(i + 1), PlayerSlotColor(playerId));
+        Vec2i enemyAnchor = PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xD1B54A32u + static_cast<unsigned int>(i * 7919)));
+        occupiedAnchors.push_back(enemyAnchor);
+        CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
+    }
+
+    if (params.debugMode)
+    {
+        auto it = playerHandler.players.find(localPlayerId);
+        if (it != playerHandler.players.end())
+            GrantDebugResourcesToHeadquarters(it->second.get(), 50);
+    }
+
+    if (render != nullptr)
+    {
+        render->camera.zoom = 1.75f;
+        render->camera.rotation = 0.0f;
+        Vec2f hqWorldCenter{
+            static_cast<float>(cameraAnchor.x * TILE_SIZE) + hqFootprint.x * TILE_SIZE * 0.5f,
+            static_cast<float>(cameraAnchor.y * TILE_SIZE) + hqFootprint.y * TILE_SIZE * 0.5f};
         render->CenterCameraOnWorld(hqWorldCenter, {tilemap.params.sizeX, tilemap.params.sizeY});
         cachedCameraTarget = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
         cachedCameraZoom = -1.0f;

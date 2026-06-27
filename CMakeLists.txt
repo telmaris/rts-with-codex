@@ -30,6 +30,11 @@ if (NOT raylib_FOUND)
 endif()
 add_library(game "")
 
+set(raygui_INCLUDE_DIR "" CACHE PATH "Path to directory containing raygui.h")
+if (raygui_INCLUDE_DIR)
+    target_include_directories(game PUBLIC "${raygui_INCLUDE_DIR}")
+endif()
+
 include_directories(inc)
 add_subdirectory(src)
 

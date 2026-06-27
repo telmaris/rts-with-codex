@@ -1637,11 +1637,11 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     render.ClearLayers();
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
-    game->InitWorld(worldName, &render, params);
+    game->InitMultiplayerWorld(worldName, &render, params, 0, true);
     if (transport == nullptr)
         transport = TcpGameTransport::CreateHost(port);
     Log::Msg("GameScene", "Starting multiplayer host world '", worldName, "' on port ", port);
-    session = std::make_unique<LocalhostHostSession>(*game, transport);
+    session = std::make_unique<LocalhostHostSession>(*game, transport, 1);
 }
 
 // Joins a LAN multiplayer world with a local mirror.
@@ -1650,11 +1650,11 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
     render.ClearLayers();
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
-    game->InitWorld(worldName, &render, params);
+    game->InitMultiplayerWorld(worldName, &render, params, 1, false);
     if (transport == nullptr)
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
-    session = std::make_unique<LocalhostClientSession>(game.get(), transport);
+    session = std::make_unique<LocalhostClientSession>(game.get(), transport, 1);
 }
 
 // Loads the requested data into runtime state.
