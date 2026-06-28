@@ -39,18 +39,28 @@ if (MSVC AND DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "stat
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-find_package(raylib 3.0 QUIET)
+find_package(raylib 5.0 QUIET)
 find_package(Threads REQUIRED)
 
 if (NOT raylib_FOUND)
-    if (NOT raylib_INCLUDE_DIR OR NOT raylib_LIBRARY)
-        message(FATAL_ERROR "raylib not found. Set raylib_INCLUDE_DIR and raylib_LIBRARY.")
+    if (raylib_INCLUDE_DIR AND raylib_LIBRARY)
+        # Pre-built raylib supplied via -Draylib_INCLUDE_DIR / -Draylib_LIBRARY (local dev).
+        add_library(raylib UNKNOWN IMPORTED)
+        set_target_properties(raylib PROPERTIES
+            IMPORTED_LOCATION "${raylib_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${raylib_INCLUDE_DIR}")
+    else()
+        # No pre-built supplied — fetch and build raylib 5.0 from source (CI / first-time setup).
+        message(STATUS "raylib not found locally; fetching raylib 5.0 via FetchContent")
+        set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(BUILD_GAMES    OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            raylib
+            GIT_REPOSITORY https://github.com/raysan5/raylib.git
+            GIT_TAG        5.0
+            GIT_SHALLOW    TRUE)
+        FetchContent_MakeAvailable(raylib)
     endif()
-
-    add_library(raylib UNKNOWN IMPORTED)
-    set_target_properties(raylib PROPERTIES
-        IMPORTED_LOCATION "${raylib_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${raylib_INCLUDE_DIR}")
 endif()
 
 # Force STATIC regardless of BUILD_SHARED_LIBS (vcpkg x64-windows sets it ON).
