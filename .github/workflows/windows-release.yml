@@ -22,7 +22,6 @@ jobs:
 
     env:
       BUILD_TYPE: Release
-      VCPKG_DEFAULT_TRIPLET: x64-windows-static
 
     steps:
       - name: Checkout
@@ -30,21 +29,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install raylib
+      - name: Build raylib 5.0 from source
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install raylib:x64-windows-static
+          git clone --depth 1 --branch 5.0 https://github.com/raysan5/raylib.git deps/raylib-src
+          cmake -S deps/raylib-src -B deps/raylib-src/build `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_INSTALL_PREFIX=$PWD\deps\raylib" `
+            -DBUILD_EXAMPLES=OFF `
+            -DBUILD_SHARED_LIBS=OFF
+          cmake --build deps/raylib-src/build --config Release --parallel
+          cmake --install deps/raylib-src/build --config Release
 
       - name: Configure
         shell: pwsh
         run: |
           cmake -S . -B build `
+            -A x64 `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DBUILD_TESTING=ON `
-            -Draygui_INCLUDE_DIR="$PWD\deps\raygui" `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
-            -DVCPKG_APPLOCAL_DEPS=ON
+            "-Draylib_INCLUDE_DIR=$PWD\deps\raylib\include" `
+            "-Draylib_LIBRARY=$PWD\deps\raylib\lib\raylib.lib" `
+            "-Draygui_INCLUDE_DIR=$PWD\deps\raygui"
 
       - name: Build
         shell: pwsh
