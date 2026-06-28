@@ -29,19 +29,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build raylib 5.0 from source
-        shell: pwsh
-        run: |
-          git clone --depth 1 --branch 5.0 https://github.com/raysan5/raylib.git deps/raylib-src
-          cmake -S deps/raylib-src -B deps/raylib-src/build `
-            -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            "-DCMAKE_INSTALL_PREFIX=$PWD\deps\raylib" `
-            -DBUILD_EXAMPLES=OFF `
-            -DBUILD_SHARED_LIBS=OFF
-          cmake --build deps/raylib-src/build --config Release --parallel
-          cmake --install deps/raylib-src/build --config Release
-
       - name: Configure
         shell: pwsh
         run: |
@@ -49,8 +36,6 @@ jobs:
             -A x64 `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DBUILD_TESTING=ON `
-            "-Draylib_INCLUDE_DIR=$PWD\deps\raylib\include" `
-            "-Draylib_LIBRARY=$PWD\deps\raylib\lib\raylib.lib" `
             "-Draygui_INCLUDE_DIR=$PWD\deps\raygui"
 
       - name: Build
