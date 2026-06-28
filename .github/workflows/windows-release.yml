@@ -36,6 +36,7 @@ jobs:
             -A x64 `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DBUILD_TESTING=ON `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             "-Draygui_INCLUDE_DIR=$PWD\deps\raygui"
 
       - name: Build
