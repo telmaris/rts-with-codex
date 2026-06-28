@@ -1064,6 +1064,7 @@ void MultiplayerScene::OnStartPressed()
     msg->params = params;
     msg->port = lobbyPort;
     msg->transport = lobbyTransport;
+    lobbyTransport = nullptr;
     broker->Broadcast(msg);
 }
 
@@ -1247,6 +1248,7 @@ void MultiplayerScene::UpdateLobbyMessages(double dt)
             msg->address = lobbyAddress;
             msg->port = lobbyPort;
             msg->transport = lobbyTransport;
+            lobbyTransport = nullptr;
             broker->Broadcast(msg);
         }
         else if (payload.rfind("CHAT ", 0) == 0)
@@ -1931,6 +1933,7 @@ void GameScene::Update(double dt)
     }
 
     runtimeLoop->Update(*this, dt);
+    commandResults.clear();
 }
 
 // Handles the UI action represented by OnMultiplayerPressed.

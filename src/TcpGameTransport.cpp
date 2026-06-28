@@ -187,7 +187,9 @@ std::vector<std::string> TcpGameTransport::ReceiveLobbyMessages()
 void TcpGameTransport::SendLine(const std::string& payload)
 {
     std::lock_guard<std::mutex> lock(mutex);
-    outboundLines.push_back(payload + "\n");
+    constexpr size_t MaxOutboundLines = 1024;
+    if (outboundLines.size() < MaxOutboundLines)
+        outboundLines.push_back(payload + "\n");
 }
 
 std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue)

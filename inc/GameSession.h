@@ -236,6 +236,8 @@ public:
                 if (payload == "SYNC_READY")
                 {
                     remoteInitialSnapshotReady = true;
+                    lastSentSnapshot = GameSnapshot{};
+                    hasLastSentSnapshot = false;
                     Log::Msg("[Session]", "Remote client confirmed initial map sync");
                     continue;
                 }
@@ -440,7 +442,7 @@ public:
                         if (resyncRequestCooldown <= 0.0)
                         {
                             transport->SendClientCommand("RESYNC_REQUEST");
-                            resyncRequestCooldown = 5.0;
+                            resyncRequestCooldown = 30.0;
                             Log::Msg("[Session]", "Checksum mismatch: local=", localChecksum, " host=", frame.checksum, " requesting snapshot");
                         }
                         else
@@ -625,11 +627,12 @@ private:
         GameSnapshot snapshot;
         if (GameSnapshot::TryDeserialize(payload, snapshot))
         {
-                latestNetworkSnapshot = std::move(snapshot);
-                hasNetworkSnapshot = true;
-                resyncRequestCooldown = 0.0;
-            }
+            latestNetworkSnapshot = std::move(snapshot);
+            hasNetworkSnapshot = true;
+            // Note: snapshot only carries visual tile data, not full sim state.
+            // Keep the cooldown running so we don't immediately re-request.
         }
+    }
 
     GameWorld* observedWorld{nullptr};
     std::shared_ptr<IGameTransport> transport;
