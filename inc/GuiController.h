@@ -125,7 +125,7 @@ public:
     GameScene* scene{nullptr};
 };
 
-// Draws visible military orders for the local player.
+// Draws visible military orders and active battle indicators for the local player.
 class MilitaryOrderWidget : public UiWidget
 {
 public:
@@ -134,15 +134,53 @@ public:
     GameScene* scene{nullptr};
 };
 
+// Shows parameters of an active or recently ended battle.
+class BattleInfoPanel : public UiWidget
+{
+public:
+    void Update(double dt) override;
+    void UpdateSize(Vec2i windowSize) override;
+    bool HasBattle() const { return activeBattleId >= 0; }
+    void SetBattle(int battleId) { activeBattleId = battleId; }
+    void Clear() { activeBattleId = -1; }
+
+    GameScene* scene{nullptr};
+    int activeBattleId{-1};
+};
+
+// Pickable map marker for a single division.
+struct DivisionMapMarker
+{
+    Building* homeBuilding{nullptr};
+    int divisionId{-1};
+    Vector2 screenPos{0.0f, 0.0f};
+};
+
+// Draws all local-player division markers on the map and exposes pick data.
+class DivisionMapWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    // Returns the marker hit at a screen point, or nullptr if none.
+    const DivisionMapMarker* HitTest(Vec2i screenPoint) const;
+
+    GameScene* scene{nullptr};
+    std::vector<DivisionMapMarker> markers; // rebuilt each frame in Update()
+    static constexpr float kMarkerRadius = 10.0f;
+};
+
 // Bottom army strip listing divisions stationed in the selected military building.
 class MilitaryDivisionBarWidget : public UiWidget
 {
 public:
     void Update(double dt) override;
     bool HandleClick(Vec2i point);
+    bool IsSelected(int divId) const;
 
     Building* building{nullptr};
-    int selectedDivisionId{-1};
+    Building* prevBuilding{nullptr};
+    std::vector<int> selectedDivisionIds;
 };
 
 // Top-screen strategic resource summary for the local player.
@@ -248,6 +286,10 @@ public:
         statsPanel.scene = scene;
         statsPanel.ChangePositionAnchor({0.06f, 0.10f});
         statsPanel.ChangeSizeAnchor({0.88f, 0.82f});
+        battleInfoPanel.scene = scene;
+        battleInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
+        battleInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
+        divisionMapWidget.scene = scene;
         buildingInfoPanel.recruitRequested = [this](Building* building, MilitaryUnitType unitType)
         {
             SubmitRecruitCommand(building, unitType);
@@ -292,15 +334,19 @@ public:
 
     BuildingInfoPanel buildingInfoPanel;
     ResearchPanel researchPanel;
+    BattleInfoPanel battleInfoPanel;
     SelectedBuildingWidget selectedBuildingWidget;
     ProductionWarningWidget productionWarningWidget;
     MilitaryOrderWidget militaryOrderWidget;
+    DivisionMapWidget divisionMapWidget;
     MilitaryDivisionBarWidget militaryDivisionBarWidget;
     StrategicResourceHudWidget strategicHudWidget;
     StatsPanelWidget statsPanel;
     FocusPanelWidget focusPanel;
 
     bool isBuildingSelected{false};
+    bool isDivisionOnlyMode{false}; // garrison bar only, no building info panel
+    int selectedBattleId{-1};
 };
 
 // Build interaction mode for placeable buildings.

@@ -25,4 +25,6 @@ include_directories(../inc)
                        Gui.cpp
                        ResearchCatalog.cpp
                        Renderer.cpp
-                       GuiController.cpp)
+                       GuiController.cpp
+                       Battle.cpp
+                       ArmyGroup.cpp)

@@ -105,6 +105,16 @@ public:
     double orderCooldown{0.0};
     DivisionEquipment equipment;
 
+    // Movement state — transient, not serialized; resets to home building on save/load.
+    Vec2f worldPos{-1.0f, -1.0f};      // current world-space position; -1,-1 = home building
+    bool inTransit{false};
+    std::vector<int> travelPath;        // road tile ids (empty = direct march)
+    int travelPathStep{0};
+    double travelElapsed{0.0};
+    double travelStepTime{0.0};         // sec/tile (road path) or total sec (direct march)
+    Vec2f travelFromPos{0.0f, 0.0f};
+    Vec2f travelToPos{0.0f, 0.0f};
+
     float HealthRatio() const
     {
         return maxHealth > 0 ? std::clamp(health / static_cast<float>(maxHealth), 0.0f, 1.0f) : 0.0f;

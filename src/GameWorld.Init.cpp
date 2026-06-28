@@ -45,6 +45,19 @@ namespace
             return;
         }
     }
+
+    void GrantDebugManpower(Player* player)
+    {
+        if (player == nullptr)
+            return;
+        int cap = player->GetPopulationCap();
+        int gift = static_cast<int>(cap * 0.7);
+        if (gift > 0)
+        {
+            player->AddManpower(static_cast<double>(gift));
+            Log::Msg("[Debug]", player->name, " received ", gift, " manpower (70% of cap ", cap, ")");
+        }
+    }
 }
 
 // Creates and registers the requested runtime object.
@@ -145,7 +158,11 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
 
     Vec2i hqAnchor = CreateStartingBase(human, MapGenerator::PickHeadquartersAnchor(params), params.seed ^ 0x9E3779B9u);
     if (params.debugMode)
+    {
+        human->debugMode = true;
         GrantDebugResourcesToHeadquarters(human, 50);
+        GrantDebugManpower(human);
+    }
 
     Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
     std::vector<Vec2i> occupiedAnchors{hqAnchor};
@@ -157,6 +174,8 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
         Vec2i enemyAnchor = PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xD1B54A32u + static_cast<unsigned int>(i * 7919)));
         occupiedAnchors.push_back(enemyAnchor);
         CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
+        if (params.debugMode)
+            enemy->debugMode = true;
     }
 
     if (render != nullptr)
@@ -216,9 +235,13 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, MapParameter
 
     if (params.debugMode)
     {
-        auto it = playerHandler.players.find(localPlayerId);
-        if (it != playerHandler.players.end())
-            GrantDebugResourcesToHeadquarters(it->second.get(), 50);
+        for (auto& [id, player] : playerHandler.players)
+        {
+            if (player == nullptr) continue;
+            player->debugMode = true;
+            GrantDebugResourcesToHeadquarters(player.get(), 50);
+            GrantDebugManpower(player.get());
+        }
     }
 
     if (render != nullptr)

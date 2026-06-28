@@ -254,7 +254,24 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             if (source->HasComponent<RecruitmentComponent>())
                 return false;
             garrison->IssueOrder(command.militaryOrderType, target->positionId);
+            garrison->StartAllDivisionsMovement(*source, *target);
         }
+
+        // Register in battle system
+        if (command.militaryOrderType == MilitaryOrderType::Attack)
+        {
+            battles.StartBattle(source->positionId, target->positionId);
+        }
+        else if (command.militaryOrderType == MilitaryOrderType::Support)
+        {
+            auto* b = battles.FindBattleByBuilding(target->positionId);
+            if (b != nullptr)
+            {
+                bool targetIsAttacker = (b->attackerTileId == target->positionId);
+                battles.AddSupport(b->id, source->positionId, targetIsAttacker);
+            }
+        }
+
         return acceptCommand();
     }
 

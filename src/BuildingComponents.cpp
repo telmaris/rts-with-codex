@@ -76,16 +76,127 @@ namespace
         return std::max(1, static_cast<int>(std::round(d.strength * health * weaponSupply)));
     }
 
-    double DivisionTravelDelaySeconds(const Building& source, const MilitaryDivision& div, int targetId)
+    // Returns the world-space center of a tile id.
+    Vec2f TileWorldCenter(const TileMap& tilemap, int tileId)
     {
-        if (source.owner == nullptr || targetId < 0 || div.speedTilesPerMinute <= 0.0)
-            return 0.0;
+        Vec2i c = tilemap.GetCoordsFromId(tileId);
+        return {(c.x + 0.5f) * TILE_SIZE, (c.y + 0.5f) * TILE_SIZE};
+    }
 
-        Vec2i from = source.owner->tilemap.GetCoordsFromId(source.positionId);
-        Vec2i to   = source.owner->tilemap.GetCoordsFromId(targetId);
-        double dx = static_cast<double>(to.x - from.x);
-        double dy = static_cast<double>(to.y - from.y);
-        return std::sqrt(dx * dx + dy * dy) / div.speedTilesPerMinute * 60.0;
+    // Returns the world-space center of a building's footprint.
+    Vec2f BuildingWorldCenter(const Building& b, const TileMap& tilemap)
+    {
+        Vec2i c = tilemap.GetCoordsFromId(b.positionId);
+        Vec2i fp = b.GetFootprint();
+        return {(c.x + fp.x * 0.5f) * TILE_SIZE, (c.y + fp.y * 0.5f) * TILE_SIZE};
+    }
+
+    // Starts physical movement of a division from its home building to a target.
+    // Uses road pathfinding when available, otherwise direct march with +30% distance.
+    void StartDivisionMovement(MilitaryDivision& div, Building& self, Building& target)
+    {
+        if (self.owner == nullptr || div.speedTilesPerMinute <= 0.0) return;
+        TileMap& tilemap = self.owner->tilemap;
+
+        // Try road path
+        if (self.owner->roadNetwork != nullptr)
+        {
+            auto path = self.owner->roadNetwork->CalculatePath(&self, &target);
+            if (!path.empty())
+            {
+                // Base 1 tile/sec on roads; army logistics can modify this.
+                double roadSpeedTpm = 60.0; // tiles/minute = 1/sec
+                if (self.owner != nullptr)
+                {
+                    const ArmyGroup* army = self.owner->armyGroups.FindArmyByDivision(div.id);
+                    if (army != nullptr)
+                        roadSpeedTpm = army->ModifyStat(BalanceStat::ArmyRoadSpeed, roadSpeedTpm);
+                }
+                div.travelPath = std::move(path);
+                div.travelPathStep = 0;
+                div.travelElapsed = 0.0;
+                div.travelStepTime = 60.0 / std::max(1.0, roadSpeedTpm);
+                div.worldPos = TileWorldCenter(tilemap, div.travelPath.front());
+                div.travelFromPos = div.worldPos;
+                div.travelToPos = BuildingWorldCenter(target, tilemap);
+                div.inTransit = true;
+                return;
+            }
+        }
+
+        // Direct march: straight-line distance + 30% off-road penalty
+        double marchSpeedTpm = div.speedTilesPerMinute;
+        if (self.owner != nullptr)
+        {
+            const ArmyGroup* army = self.owner->armyGroups.FindArmyByDivision(div.id);
+            if (army != nullptr)
+                marchSpeedTpm = army->ModifyStat(BalanceStat::ArmyMarchSpeed, marchSpeedTpm);
+        }
+        Vec2f from = (div.worldPos.x >= 0.0f) ? div.worldPos : BuildingWorldCenter(self, tilemap);
+        Vec2f to = BuildingWorldCenter(target, tilemap);
+        float dx = to.x - from.x;
+        float dy = to.y - from.y;
+        float pixelDist = std::sqrt(dx * dx + dy * dy);
+        float tileDist = pixelDist / TILE_SIZE * 1.3f;
+        double totalSec = (tileDist / std::max(1.0, marchSpeedTpm)) * 60.0;
+        div.travelPath.clear();
+        div.travelFromPos = from;
+        div.travelToPos = to;
+        div.travelStepTime = std::max(totalSec, 0.1);
+        div.travelElapsed = 0.0;
+        div.worldPos = from;
+        div.inTransit = true;
+    }
+
+    // Advances division movement for one tick. Returns true when the division has just arrived.
+    bool UpdateDivisionMovement(MilitaryDivision& div, const TileMap& tilemap, double dt)
+    {
+        if (!div.inTransit) return false;
+
+        div.travelElapsed += dt;
+
+        if (!div.travelPath.empty())
+        {
+            // Road movement: hop between tile centers
+            while (div.travelElapsed >= div.travelStepTime && div.inTransit)
+            {
+                div.travelElapsed -= div.travelStepTime;
+                div.travelPathStep++;
+                if (div.travelPathStep >= static_cast<int>(div.travelPath.size()))
+                {
+                    div.travelPath.clear();
+                    div.inTransit = false;
+                    return true;
+                }
+            }
+            if (!div.inTransit) return true;
+
+            Vec2f cur = TileWorldCenter(tilemap, div.travelPath[div.travelPathStep]);
+            if (div.travelPathStep + 1 < static_cast<int>(div.travelPath.size()))
+            {
+                Vec2f nxt = TileWorldCenter(tilemap, div.travelPath[div.travelPathStep + 1]);
+                float t = static_cast<float>(std::min(1.0, div.travelElapsed / div.travelStepTime));
+                div.worldPos = {cur.x + (nxt.x - cur.x) * t, cur.y + (nxt.y - cur.y) * t};
+            }
+            else
+            {
+                div.worldPos = cur;
+            }
+        }
+        else
+        {
+            // Direct march: linear interpolation
+            float t = static_cast<float>(std::min(1.0, div.travelElapsed / div.travelStepTime));
+            div.worldPos = {
+                div.travelFromPos.x + (div.travelToPos.x - div.travelFromPos.x) * t,
+                div.travelFromPos.y + (div.travelToPos.y - div.travelFromPos.y) * t};
+            if (div.travelElapsed >= div.travelStepTime)
+            {
+                div.inTransit = false;
+                return true;
+            }
+        }
+        return false;
     }
 } // namespace
 
@@ -863,11 +974,19 @@ void GarrisonComponent::Update(Building& self, double dt)
     for (size_t i = 0; i < divisions.size();)
     {
         auto& div = divisions[i];
+
+        // Advance physical movement
+        if (div.inTransit && self.owner != nullptr)
+            UpdateDivisionMovement(div, self.owner->tilemap, dt);
+
         if (div.currentOrder == MilitaryOrderType::None || div.orderTargetPositionId < 0)
         {
             i++;
             continue;
         }
+
+        // Only engage when the division has arrived at its target
+        if (div.inTransit) { i++; continue; }
 
         div.orderCooldown = std::max(0.0, div.orderCooldown - dt);
         if (div.orderCooldown > 0.0) { i++; continue; }
@@ -897,6 +1016,14 @@ void GarrisonComponent::Update(Building& self, double dt)
             }
 
             int damage = DivisionAttackDamage(div);
+            // Apply army attack bonus if division belongs to an army
+            if (self.owner != nullptr)
+            {
+                const ArmyGroup* army = self.owner->armyGroups.FindArmyByDivision(div.id);
+                if (army != nullptr)
+                    damage = static_cast<int>(army->ModifyStat(BalanceStat::ArmyAttackBonus,
+                                                               static_cast<double>(damage)));
+            }
             defenderTerritory->ReceiveDamage(damage);
             Log::Msg("[Combat]", self.name, " division #", div.id, " attacks ", target->name,
                      " for ", damage, " damage (", defenderTerritory->hp, "/",
@@ -964,19 +1091,11 @@ void GarrisonComponent::Update(Building& self, double dt)
 
     if (currentOrder == MilitaryOrderType::Attack)
     {
+        // Building-level direct attack is disabled; divisions handle all combat.
+        // Keep the state for battle tracking and clear when the target is gone.
         auto* defenderTerritory = target->GetComponent<TerritoryComponent>();
         if (target->owner == self.owner || defenderTerritory == nullptr || defenderTerritory->hp <= 0)
-        {
             ClearOrder();
-            return;
-        }
-
-        int damage = GetModifiedAttackDamage(self);
-        defenderTerritory->ReceiveDamage(damage);
-        Log::Msg("[Combat]", self.name, " attacks ", target->name,
-                 " for ", damage, " damage (", defenderTerritory->hp, "/",
-                 defenderTerritory->GetMaxHp(*target), ")");
-        orderCooldown = 3.0;
         return;
     }
 
@@ -1036,20 +1155,39 @@ void GarrisonComponent::IssueOrder(MilitaryOrderType order, int targetId)
     currentOrder = order;
     orderTargetId = targetId;
     orderCooldown = 0.0;
+    // Cascade combat orders to all stationed divisions (AI path)
+    for (auto& div : divisions)
+    {
+        div.currentOrder = order;
+        div.orderTargetPositionId = targetId;
+        div.orderCooldown = 0.0;
+    }
 }
 
 bool GarrisonComponent::IssueDivisionOrder(int divisionId, MilitaryOrderType order,
-                                             int targetId, const Building& self)
+                                             int targetId, Building& self)
 {
     for (auto& div : divisions)
     {
         if (div.id != divisionId) continue;
         div.currentOrder = order;
         div.orderTargetPositionId = targetId;
-        div.orderCooldown = DivisionTravelDelaySeconds(self, div, targetId);
+        div.orderCooldown = 0.0;
+        if (self.owner != nullptr)
+        {
+            Building* target = self.owner->tilemap.GetBuilding(targetId);
+            if (target != nullptr)
+                StartDivisionMovement(div, self, *target);
+        }
         return true;
     }
     return false;
+}
+
+void GarrisonComponent::StartAllDivisionsMovement(Building& self, Building& target)
+{
+    for (auto& div : divisions)
+        StartDivisionMovement(div, self, target);
 }
 
 void GarrisonComponent::ClearOrder()
@@ -1280,9 +1418,11 @@ bool RecruitmentComponent::QueueUnit(MilitaryUnitType type, Building& self,
         return false;
     }
 
-    double time = self.owner->ModifyBalanceForBuilding(
-        BalanceStat::RecruitmentTime,
-        GetBaseRecruitmentTime(type), &self, ResourceType::Null, type);
+    double time = self.owner->debugMode
+        ? 1.0
+        : self.owner->ModifyBalanceForBuilding(
+              BalanceStat::RecruitmentTime,
+              GetBaseRecruitmentTime(type), &self, ResourceType::Null, type);
     queue.push_back({type, time});
     return true;
 }

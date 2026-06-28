@@ -5,6 +5,7 @@
 #include "InputHandler.h"
 #include "BuildingFactory.h"
 #include "BuildingConfig.h"
+#include "ArmyGroup.h"
 #include "BalanceModifiers.h"
 #include "GameCommand.h"
 #include "RoadNetwork.h"
@@ -767,6 +768,12 @@ public:
     std::string name{"Player"};
     Color color{66, 154, 255, 255};
     PlayerControllerType controllerType{PlayerControllerType::LocalHuman};
+    bool debugMode{false};
+
+    // Army management
+    ArmyGroupRegistry armyGroups;
+    // Global army modifiers from tech/focus (keys: "tech:...", "focus:...")
+    BalanceModifierSet armyModifierSet;
 
     std::unique_ptr<InputHandler> input;
     std::unique_ptr<RoadNetwork> roadNetwork;

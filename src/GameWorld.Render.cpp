@@ -15,6 +15,7 @@ void GameWorld::UpdateSimulation(double dt)
         }
     ProcessCommands();
     tilemap.UpdateBuildings(dt);
+    battles.Update(tilemap, dt);
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->UpdateEconomyTelemetry(dt);

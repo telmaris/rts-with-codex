@@ -2,6 +2,7 @@
 #define GAMEWORLD_H
 
 #include "Utils.h"
+#include "Battle.h"
 #include "Controller.h"
 #include "GameCommand.h"
 #include "GameSnapshot.h"
@@ -76,6 +77,7 @@ class GameWorld
     public:
         TileMap tilemap;
         PlayerHandler playerHandler;
+        BattleRegistry battles;
         Renderer* render{nullptr};
         std::string worldName{"default"};
         int localPlayerId{0};

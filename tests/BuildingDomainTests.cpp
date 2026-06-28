@@ -635,9 +635,10 @@ TEST(BuildingDomainTests, MilitaryOrdersAttackSupportAndDefendUpdateCombatState)
 
     attacker->garrison.IssueOrder(MilitaryOrderType::Attack, defender->positionId);
     attacker->Update(1.0);
-    EXPECT_LT(defender->GetHitPoints(), beforeHitPoints);
+    // Buildings no longer deal direct damage — only stationed divisions do.
+    EXPECT_EQ(defender->GetHitPoints(), beforeHitPoints);
     EXPECT_EQ(attacker->garrison.currentOrder, MilitaryOrderType::Attack);
-    EXPECT_GT(attacker->garrison.orderCooldown, 0.0);
+    EXPECT_EQ(attacker->garrison.orderCooldown, 0.0);
 
     auto* source = dynamic_cast<GuardTower*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 10}), &player, std::make_unique<GuardTower>(3)));

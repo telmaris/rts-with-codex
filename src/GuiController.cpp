@@ -1,6 +1,7 @@
 ﻿#include "../inc/Scenes.h"
 #include "../inc/BuildingConfig.h"
 #include "../inc/ResearchCatalog.h"
+#include "../inc/Player.h"
 
 #include <algorithm>
 #include <array>
@@ -994,9 +995,39 @@ void BasicMapViewSystem::Update(double dt)
     MoveCamera(scene, cameraMovement);
     owner->AddUiWidget(&productionWarningWidget);
     owner->AddUiWidget(&militaryOrderWidget);
+    owner->AddUiWidget(&divisionMapWidget);
+
+    if (selectedBattleId >= 0 && scene != nullptr && scene->game != nullptr)
+    {
+        if (scene->game->battles.FindBattle(selectedBattleId) == nullptr)
+            selectedBattleId = -1;
+        else
+        {
+            battleInfoPanel.SetBattle(selectedBattleId);
+            owner->AddUiWidget(&battleInfoPanel);
+        }
+    }
+
+    if (isDivisionOnlyMode && !isBuildingSelected)
+    {
+        // Show only the garrison bar — triggered by clicking a map division marker.
+        // Clear when the home building disappears or user clicks elsewhere.
+        auto* garrison = militaryDivisionBarWidget.building != nullptr
+            ? militaryDivisionBarWidget.building->GetComponent<GarrisonComponent>() : nullptr;
+        if (garrison == nullptr || garrison->divisions.empty())
+        {
+            isDivisionOnlyMode = false;
+            militaryDivisionBarWidget.building = nullptr;
+        }
+        else
+        {
+            owner->AddUiWidget(&militaryDivisionBarWidget);
+        }
+    }
 
     if (isBuildingSelected)
     {
+        isDivisionOnlyMode = false;
         GuiPanel* activePanel = researchPanel.HasBuilding()
             ? static_cast<GuiPanel*>(&researchPanel)
             : &buildingInfoPanel;
@@ -1041,9 +1072,11 @@ void BasicMapViewSystem::UpdateUiWidgets(Vec2i size)
 {
     buildingInfoPanel.UpdateSize(size);
     researchPanel.UpdateSize(size);
+    battleInfoPanel.UpdateSize(size);
     statsPanel.UpdateSize(size);
     militaryDivisionBarWidget.UpdateSize(size);
     strategicHudWidget.UpdateSize(size);
+    divisionMapWidget.UpdateSize(size);
 }
 
 // Initializes BasicMapViewSystem::EscPressed.
@@ -1217,6 +1250,69 @@ void BasicMapViewSystem::LmbPressed()
         return;
     }
 
+    // Check division map markers before tile selection
+    {
+        bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        const DivisionMapMarker* hit = divisionMapWidget.HitTest(screenPos);
+        if (hit != nullptr && hit->homeBuilding != nullptr)
+        {
+            Building* home = hit->homeBuilding;
+            // Division-only mode: show only garrison bar, not full building panel
+            isBuildingSelected = false;
+            isDivisionOnlyMode = true;
+            selectedBattleId = -1;
+            buildingInfoPanel.SetBuilding(nullptr);
+            researchPanel.SetBuilding(nullptr);
+            militaryDivisionBarWidget.building = home;
+            if (ctrl)
+            {
+                auto it = std::find(militaryDivisionBarWidget.selectedDivisionIds.begin(),
+                                    militaryDivisionBarWidget.selectedDivisionIds.end(), hit->divisionId);
+                if (it != militaryDivisionBarWidget.selectedDivisionIds.end())
+                    militaryDivisionBarWidget.selectedDivisionIds.erase(it);
+                else
+                    militaryDivisionBarWidget.selectedDivisionIds.push_back(hit->divisionId);
+            }
+            else
+            {
+                militaryDivisionBarWidget.selectedDivisionIds = {hit->divisionId};
+            }
+            Log::Msg("[Input]", "Division #", hit->divisionId, " selected via map marker (garrison-only mode)");
+            return;
+        }
+    }
+
+    // Check battle indicator circles before tile selection
+    if (scene != nullptr && scene->game != nullptr)
+    {
+        for (const auto& battle : scene->game->battles.GetBattles())
+        {
+            if (battle.IsOver()) continue;
+            Building* atk = scene->game->tilemap.GetBuilding(battle.attackerTileId);
+            Building* def = scene->game->tilemap.GetBuilding(battle.defenderTileId);
+            if (atk == nullptr || def == nullptr) continue;
+
+            Vector2 atkPos = BuildingScreenCenter(scene, atk);
+            Vector2 defPos = BuildingScreenCenter(scene, def);
+            Vector2 mid{(atkPos.x + defPos.x) * 0.5f, (atkPos.y + defPos.y) * 0.5f};
+            float dx = mousePos.x - mid.x;
+            float dy = mousePos.y - mid.y;
+            if (dx * dx + dy * dy <= 16.0f * 16.0f)
+            {
+                selectedBattleId = battle.id;
+                isBuildingSelected = false;
+                buildingInfoPanel.SetBuilding(nullptr);
+                researchPanel.SetBuilding(nullptr);
+                Log::Msg("[Input]", "Battle #", battle.id, " selected");
+                return;
+            }
+        }
+    }
+
+    // Clicking on the map clears battle + division-only selection
+    selectedBattleId = -1;
+    isDivisionOnlyMode = false;
+
     Vec2i tilePos = ScreenToTile(scene, mousePos);
     if (tilePos.x < 0 || tilePos.y < 0)
         return;
@@ -1292,39 +1388,31 @@ void BasicMapViewSystem::RmbPressed()
                 auto* selectedGarrison = selected->GetComponent<GarrisonComponent>();
                 bool receiverHasTerritory = receiver->HasComponent<TerritoryComponent>();
                 bool receiverHasGarrison = receiver->HasComponent<GarrisonComponent>();
-                int selectedDivisionId = selectedGarrison != nullptr ? militaryDivisionBarWidget.selectedDivisionId : -1;
-                if (selectedGarrison != nullptr && receiverHasTerritory && selectedDivisionId >= 0)
+                const auto& divIds = militaryDivisionBarWidget.selectedDivisionIds;
+                if (selectedGarrison != nullptr && receiverHasTerritory && !divIds.empty())
                 {
                     if (selected->owner != receiver->owner)
                     {
-                        scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Attack, selected->positionId, receiver->positionId, selectedDivisionId));
-                        Log::Msg("[Input]", selected->name, " division #", selectedDivisionId, " attack order against ", receiver->name);
+                        for (int divId : divIds)
+                        {
+                            scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Attack, selected->positionId, receiver->positionId, divId));
+                            Log::Msg("[Input]", selected->name, " division #", divId, " attack order against ", receiver->name);
+                        }
                         return;
                     }
 
                     if (selected->owner == receiver->owner && receiverHasGarrison)
                     {
-                        scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Support, selected->positionId, receiver->positionId, selectedDivisionId));
-                        Log::Msg("[Input]", selected->name, " division #", selectedDivisionId, " support order for ", receiver->name);
+                        for (int divId : divIds)
+                        {
+                            scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Support, selected->positionId, receiver->positionId, divId));
+                            Log::Msg("[Input]", selected->name, " division #", divId, " support order for ", receiver->name);
+                        }
                         return;
                     }
                 }
 
-                bool selectedHasMilitary = selectedGarrison != nullptr;
-                if (selected->owner != receiver->owner && selectedHasMilitary && receiverHasTerritory)
-                {
-                    scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Attack, selected->positionId, receiver->positionId));
-                    Log::Msg("[Input]", selected->name, " attack order against ", receiver->name);
-                    return;
-                }
-
-                if (selected->owner == receiver->owner && selectedHasMilitary && receiverHasGarrison)
-                {
-                    scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Support, selected->positionId, receiver->positionId));
-                    Log::Msg("[Input]", selected->name, " support order for ", receiver->name);
-                    return;
-                }
-
+                // No division selected — only allow logistics receiver assignment
                 bool alternativeReceiver = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
                 scene->SubmitLocalCommand(GameCommand::SetReceiver(scene->game->GetLocalPlayerId(), selected->positionId, receiver->positionId, alternativeReceiver));
                 Log::Msg("[Input]", receiver->name, alternativeReceiver ? " set as alternative receiver for " : " set as receiver for ", selected->name);
@@ -1454,12 +1542,49 @@ void MilitaryOrderWidget::Update(double dt)
             if (target == nullptr)
                 continue;
 
-            DrawOrderArrow(BuildingScreenCenter(scene, building), BuildingScreenCenter(scene, target), MilitaryOrderColor(division.currentOrder));
+            // Arrow origin: division's current world position (if in transit, else building center)
+            Vector2 divScreen;
+            if (division.inTransit && division.worldPos.x >= 0.0f)
+            {
+                Vec2f s = scene->render.WorldToScreen(division.worldPos);
+                divScreen = {s.x, s.y};
+            }
+            else
+            {
+                divScreen = BuildingScreenCenter(scene, building);
+            }
+            DrawOrderArrow(divScreen, BuildingScreenCenter(scene, target), MilitaryOrderColor(division.currentOrder));
         }
+    }
+
+    // Draw battle indicator circles at midpoints of active attack lines
+    for (const auto& battle : scene->game->battles.GetBattles())
+    {
+        if (battle.IsOver()) continue;
+        Building* atk = scene->game->tilemap.GetBuilding(battle.attackerTileId);
+        Building* def = scene->game->tilemap.GetBuilding(battle.defenderTileId);
+        if (atk == nullptr || def == nullptr) continue;
+
+        Vector2 atkPos = BuildingScreenCenter(scene, atk);
+        Vector2 defPos = BuildingScreenCenter(scene, def);
+        Vector2 mid{(atkPos.x + defPos.x) * 0.5f, (atkPos.y + defPos.y) * 0.5f};
+
+        DrawCircle((int)mid.x, (int)mid.y, 14.0f, Color{30, 16, 16, 200});
+        DrawCircleLines((int)mid.x, (int)mid.y, 14.0f, Color{220, 80, 50, 255});
+        DrawText("VS", (int)(mid.x - 9), (int)(mid.y - 7), 13, Color{255, 210, 90, 255});
     }
 }
 
-// Selects one division card in the bottom military strip.
+// Returns true if a division is in the current selection group.
+bool MilitaryDivisionBarWidget::IsSelected(int divId) const
+{
+    for (int id : selectedDivisionIds)
+        if (id == divId) return true;
+    return false;
+}
+
+// Selects or group-toggles a division card in the bottom military strip.
+// Ctrl+LMB adds/removes from group; plain LMB replaces selection.
 bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
 {
     auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
@@ -1472,12 +1597,24 @@ bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
     float cardH = std::max(72.0f, bounds.height - 52.0f);
     float x = bounds.x + 14.0f;
     float y = bounds.y + 38.0f;
+    bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
     for (const auto& division : garrison->divisions)
     {
         Rectangle card{x, y, cardW, cardH};
         if (CheckCollisionPointRec(Vector2{static_cast<float>(point.x), static_cast<float>(point.y)}, card))
         {
-            selectedDivisionId = division.id;
+            if (ctrl)
+            {
+                auto it = std::find(selectedDivisionIds.begin(), selectedDivisionIds.end(), division.id);
+                if (it != selectedDivisionIds.end())
+                    selectedDivisionIds.erase(it);
+                else
+                    selectedDivisionIds.push_back(division.id);
+            }
+            else
+            {
+                selectedDivisionIds = {division.id};
+            }
             return true;
         }
         x += cardW + cardGap;
@@ -1498,12 +1635,22 @@ void MilitaryDivisionBarWidget::Update(double dt)
     if (garrison == nullptr)
         return;
 
-    bool selectedStillExists = false;
-    for (const auto& division : garrison->divisions)
-        if (division.id == selectedDivisionId)
-            selectedStillExists = true;
-    if (!selectedStillExists)
-        selectedDivisionId = -1;
+    // Clear selection when building changes
+    if (building != prevBuilding)
+    {
+        selectedDivisionIds.clear();
+        prevBuilding = building;
+    }
+
+    // Remove ids for divisions that no longer exist
+    selectedDivisionIds.erase(
+        std::remove_if(selectedDivisionIds.begin(), selectedDivisionIds.end(),
+            [&garrison](int id) {
+                for (const auto& div : garrison->divisions)
+                    if (div.id == id) return false;
+                return true;
+            }),
+        selectedDivisionIds.end());
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     DrawRectangleRounded(bounds, 0.06f, 8, Color{20, 24, 30, 232});
@@ -1529,7 +1676,7 @@ void MilitaryDivisionBarWidget::Update(double dt)
     {
         Rectangle card{x, y, cardW, cardH};
         bool isHovered = CheckCollisionPointRec(mouse, card);
-        bool isSelected = selectedDivisionId == division.id;
+        bool isSelected = IsSelected(division.id);
         if (isHovered)
             hovered = &division;
 
@@ -1561,8 +1708,23 @@ void MilitaryDivisionBarWidget::Update(double dt)
         weaponFill.width *= division.weaponSupplyCapacity > 0 ? std::clamp(division.weaponSupply / static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f) : 0.0f;
         DrawRectangleRounded(foodFill, 0.25f, 4, Color{206, 148, 88, 255});
         DrawRectangleRounded(weaponFill, 0.25f, 4, Color{126, 142, 162, 255});
+        // Army badge (top-right corner of card)
+        float badgeX = card.x + card.width - 54.0f;
         if (division.currentOrder != MilitaryOrderType::None)
-            UiText::DrawFit("ORDER", Rectangle{card.x + card.width - 54.0f, card.y + 8.0f, 44.0f, 16.0f}, 13, MilitaryOrderColor(division.currentOrder));
+        {
+            UiText::DrawFit("ORDER", Rectangle{badgeX, card.y + 8.0f, 44.0f, 16.0f}, 13, MilitaryOrderColor(division.currentOrder));
+            badgeX -= 48.0f;
+        }
+        if (building->owner != nullptr)
+        {
+            const ArmyGroup* army = building->owner->armyGroups.FindArmyByDivision(division.id);
+            if (army != nullptr)
+                UiText::DrawFit(army->name, Rectangle{badgeX - 4.0f, card.y + 28.0f, 60.0f, 14.0f},
+                                12, Color{180, 160, 100, 255});
+        }
+        if (division.inTransit)
+            UiText::DrawFit("MARCH", Rectangle{card.x + 2.0f, card.y + 8.0f, 50.0f, 14.0f},
+                            11, Color{130, 200, 255, 255});
 
         x += cardW + cardGap;
         if (x + cardW > bounds.x + bounds.width - 14.0f)
@@ -3736,3 +3898,220 @@ void FocusGuiSystem::Scroll()
     ZoomCamera(scene);
 }
 
+// Propagates window resize to the battle info panel.
+void BattleInfoPanel::UpdateSize(Vec2i windowSize)
+{
+    UiWidget::UpdateSize(windowSize);
+}
+
+// Renders battle parameters for both sides plus battle log.
+void BattleInfoPanel::Update(double dt)
+{
+    if (!HasBattle() || scene == nullptr || scene->game == nullptr)
+        return;
+
+    const BattleInstance* battle = scene->game->battles.FindBattle(activeBattleId);
+    if (battle == nullptr)
+    {
+        activeBattleId = -1;
+        return;
+    }
+
+    Rectangle panel{(float)pos.x, (float)pos.y, (float)size.x, (float)size.y};
+
+    DrawRectangleRec(panel, Color{18, 22, 30, 245});
+    DrawRectangleLinesEx(panel, 2.0f, Color{180, 70, 50, 255});
+
+    // Title row
+    DrawText("BATTLE", (int)(panel.x + 12), (int)(panel.y + 10), 20, Color{220, 110, 70, 255});
+
+    const char* stateLabel = "Ongoing";
+    Color stateColor = Color{100, 220, 120, 255};
+    switch (battle->state)
+    {
+        case BattleState::AttackerWon: stateLabel = "Attacker Won"; stateColor = Color{220, 100, 80, 255}; break;
+        case BattleState::DefenderWon: stateLabel = "Defender Won"; stateColor = Color{80, 120, 220, 255}; break;
+        case BattleState::Withdrawn:   stateLabel = "Withdrawn";    stateColor = Color{180, 180, 80, 255}; break;
+        default: break;
+    }
+    std::string timeStr = std::to_string((int)battle->elapsedTime) + "s";
+    DrawText(timeStr.c_str(), (int)(panel.x + panel.width / 2.0f - 15.0f), (int)(panel.y + 12), 15, Color{160, 160, 160, 255});
+    DrawText(stateLabel, (int)(panel.x + panel.width - MeasureText(stateLabel, 15) - 10), (int)(panel.y + 12), 15, stateColor);
+
+    float sepY = panel.y + 38.0f;
+    DrawLineEx({panel.x, sepY}, {panel.x + panel.width, sepY}, 1.0f, Color{55, 60, 72, 255});
+
+    float colW = panel.width / 2.0f - 8.0f;
+    float leftX = panel.x + 6.0f;
+    float rightX = panel.x + panel.width / 2.0f + 4.0f;
+    float colY = panel.y + 46.0f;
+
+    auto DrawSide = [&](int tileId, const std::vector<int>& supportIds, float colX, const char* sideLabel, Color sideColor)
+    {
+        DrawText(sideLabel, (int)colX, (int)colY, 13, sideColor);
+
+        Building* b = scene->game->tilemap.GetBuilding(tileId);
+        if (b == nullptr)
+        {
+            DrawText("(destroyed)", (int)colX, (int)(colY + 18), 13, Color{160, 80, 80, 255});
+            return;
+        }
+
+        DrawText(b->name.c_str(), (int)colX, (int)(colY + 18), 15, RAYWHITE);
+
+        auto* territory = b->GetComponent<TerritoryComponent>();
+        if (territory != nullptr)
+        {
+            int hp = territory->hp;
+            int maxHp = territory->GetMaxHp(*b);
+            std::string hpStr = "HP: " + std::to_string(hp) + "/" + std::to_string(maxHp);
+            DrawText(hpStr.c_str(), (int)colX, (int)(colY + 38), 13, Color{190, 200, 210, 255});
+
+            Rectangle barBg{colX, colY + 56.0f, colW - 4.0f, 9.0f};
+            Rectangle barFill = barBg;
+            float ratio = maxHp > 0 ? std::clamp(hp / (float)maxHp, 0.0f, 1.0f) : 0.0f;
+            barFill.width *= ratio;
+            DrawRectangleRec(barBg, Color{35, 38, 45, 220});
+            DrawRectangleRec(barFill, Color{75, 185, 100, 230});
+            DrawRectangleLinesEx(barBg, 1.0f, Color{60, 65, 75, 200});
+        }
+
+        auto* garrison = b->GetComponent<GarrisonComponent>();
+        if (garrison != nullptr)
+        {
+            int troops = garrison->GetTotalTroops();
+            int divCount = (int)garrison->divisions.size();
+            std::string troopsStr = "Div: " + std::to_string(divCount) + "  Troops: " + std::to_string(troops);
+            DrawText(troopsStr.c_str(), (int)colX, (int)(colY + 70), 12, Color{170, 185, 205, 255});
+
+            int strength = garrison->GetEffectiveStrength(*b);
+            std::string strStr = "Strength: " + std::to_string(strength);
+            DrawText(strStr.c_str(), (int)colX, (int)(colY + 86), 12, Color{210, 170, 100, 255});
+        }
+
+        if (!supportIds.empty())
+        {
+            DrawText("Support:", (int)colX, (int)(colY + 104), 12, Color{110, 170, 235, 255});
+            float sy = colY + 120.0f;
+            for (int sId : supportIds)
+            {
+                Building* sb = scene->game->tilemap.GetBuilding(sId);
+                if (sb != nullptr)
+                {
+                    DrawText(sb->name.c_str(), (int)(colX + 8), (int)sy, 12, Color{150, 195, 240, 220});
+                    sy += 15.0f;
+                    if (sy > colY + 170.0f) break;
+                }
+            }
+        }
+    };
+
+    DrawSide(battle->attackerTileId, battle->attackerSupportTileIds, leftX, "ATTACKER", Color{220, 90, 70, 255});
+    DrawSide(battle->defenderTileId, battle->defenderSupportTileIds, rightX, "DEFENDER", Color{70, 110, 220, 255});
+
+    float midLineX = panel.x + panel.width / 2.0f;
+    DrawLineEx({midLineX, panel.y + 42.0f}, {midLineX, panel.y + 220.0f}, 1.0f, Color{55, 60, 72, 255});
+
+    // Battle log
+    float logSepY = panel.y + 224.0f;
+    DrawLineEx({panel.x, logSepY}, {panel.x + panel.width, logSepY}, 1.0f, Color{55, 60, 72, 255});
+    DrawText("BATTLE LOG", (int)(panel.x + 10), (int)(logSepY + 6), 12, Color{140, 145, 165, 255});
+
+    float logY = logSepY + 24.0f;
+    int logStart = std::max(0, (int)battle->log.size() - 10);
+    for (int i = logStart; i < (int)battle->log.size(); i++)
+    {
+        if (logY > panel.y + panel.height - 8.0f) break;
+        const auto& entry = battle->log[i];
+        std::string tStr = "[" + std::to_string((int)entry.time) + "s] ";
+        int tStrW = MeasureText(tStr.c_str(), 12);
+        DrawText(tStr.c_str(), (int)(panel.x + 6), (int)logY, 12, Color{110, 130, 150, 255});
+        DrawText(entry.message.c_str(), (int)(panel.x + 6 + tStrW), (int)logY, 12, Color{195, 200, 215, 255});
+        logY += 16.0f;
+    }
+}
+
+// ─── DivisionMapWidget ────────────────────────────────────────────────────────
+
+static Color DivisionMarkerColor(MilitaryUnitType type)
+{
+    switch (type)
+    {
+        case MilitaryUnitType::Militia:   return Color{220, 200, 110, 255};
+        case MilitaryUnitType::Swordsman: return Color{ 88, 178, 238, 255};
+        case MilitaryUnitType::Archer:    return Color{118, 210, 130, 255};
+        default:                          return Color{200, 200, 200, 255};
+    }
+}
+
+// Builds markers list and draws all local-player division dots on the map.
+void DivisionMapWidget::Update(double dt)
+{
+    markers.clear();
+    if (scene == nullptr || scene->game == nullptr) return;
+
+    auto localPlayerIt = scene->game->playerHandler.players.find(scene->game->GetLocalPlayerId());
+    Player* localPlayer = localPlayerIt != scene->game->playerHandler.players.end()
+        ? localPlayerIt->second.get() : nullptr;
+    if (localPlayer == nullptr) return;
+
+    for (auto* building : localPlayer->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+    {
+        if (building == nullptr) continue;
+        auto* garrison = building->GetComponent<GarrisonComponent>();
+        if (garrison == nullptr) return;
+
+        // Compute a slot offset above the building for stacked in-building markers
+        Vec2f buildingWorldCenter = {0.0f, 0.0f};
+        {
+            Vec2i c = scene->game->tilemap.GetCoordsFromId(building->positionId);
+            Vec2i fp = building->GetFootprint();
+            buildingWorldCenter = {(c.x + fp.x * 0.5f) * TILE_SIZE, (c.y + fp.y * 0.5f) * TILE_SIZE};
+        }
+
+        int slotIdx = 0;
+        for (const auto& div : garrison->divisions)
+        {
+            Vec2f worldPos;
+            if (div.inTransit && div.worldPos.x >= 0.0f)
+            {
+                worldPos = div.worldPos;
+            }
+            else
+            {
+                // Stack above the building: offset each slot horizontally
+                float offsetX = (slotIdx - static_cast<float>(garrison->divisions.size() - 1) * 0.5f) * (kMarkerRadius * 2.5f);
+                Vec2f aboveBuilding = {buildingWorldCenter.x + offsetX, buildingWorldCenter.y - TILE_SIZE * 0.8f};
+                worldPos = aboveBuilding;
+                slotIdx++;
+            }
+
+            Vec2f screen = scene->render.WorldToScreen(worldPos);
+            Color col = DivisionMarkerColor(div.type);
+
+            // Draw the dot
+            DrawCircle(static_cast<int>(screen.x), static_cast<int>(screen.y),
+                       kMarkerRadius + 1.5f, Color{10, 14, 20, 200});
+            DrawCircle(static_cast<int>(screen.x), static_cast<int>(screen.y),
+                       kMarkerRadius, col);
+            if (div.inTransit)
+                DrawCircleLines(static_cast<int>(screen.x), static_cast<int>(screen.y),
+                                kMarkerRadius, Color{255, 255, 255, 160});
+
+            markers.push_back({building, div.id, {screen.x, screen.y}});
+        }
+    }
+}
+
+// Returns the first marker at a screen point, or nullptr.
+const DivisionMapMarker* DivisionMapWidget::HitTest(Vec2i screenPoint) const
+{
+    for (const auto& m : markers)
+    {
+        float dx = screenPoint.x - m.screenPos.x;
+        float dy = screenPoint.y - m.screenPos.y;
+        if (dx * dx + dy * dy <= (kMarkerRadius + 4.0f) * (kMarkerRadius + 4.0f))
+            return &m;
+    }
+    return nullptr;
+}

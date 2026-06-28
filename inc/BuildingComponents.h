@@ -246,7 +246,8 @@ struct GarrisonComponent : IBuildingComponent
     void Update(Building& self, double dt) override;
     void IssueOrder(MilitaryOrderType order, int targetId);
     bool IssueDivisionOrder(int divisionId, MilitaryOrderType order, int targetId,
-                             const Building& self);
+                             Building& self);
+    void StartAllDivisionsMovement(Building& self, Building& target);
     void ClearOrder();
     bool HasActiveDivisionOrders() const;
     int GetTotalTroops() const;

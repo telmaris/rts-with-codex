@@ -1605,6 +1605,22 @@ void GuiPanel::Update(double dt)
         return;
     }
 
+    // Drag: click+hold on title bar (outside close button) to reposition
+    if (!closeHovered && CheckCollisionPointRec(mouse, titleBounds) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        dragging = true;
+        dragOffset = Vec2i{static_cast<int>(mouse.x) - pos.x, static_cast<int>(mouse.y) - pos.y};
+    }
+    if (dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    {
+        pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
+        pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
+        bounds = {static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
+        titleBounds = {bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+    }
+    if (dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        dragging = false;
+
     int titleFont = std::max(21, std::min(30, titleBar / 2 + 4));
     int titleWidth = UiText::Measure(text, titleFont);
     while (titleFont > 14 && titleWidth > bounds.width - (closeSize + margin) * 2 - margin)
