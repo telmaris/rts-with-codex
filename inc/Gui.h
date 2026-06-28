@@ -18,7 +18,6 @@
 #endif
 
 class Building;
-class ProductionBuilding;
 enum class MilitaryUnitType : int;
 
 // Base rectangle widget with anchor-based layout support.
@@ -519,6 +518,6 @@ public:
     bool treePanning{false};
     Vec2f lastTreePanMouse{0.0f, 0.0f};
     std::string selectedTagFilter;
-    std::function<void(const std::string&, ProductionBuilding*)> researchRequested;
+    std::function<void(const std::string&, Building*)> researchRequested;
 };
 #endif

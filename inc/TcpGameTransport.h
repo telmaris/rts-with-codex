@@ -28,12 +28,17 @@ public:
     std::vector<std::string> ReceiveHostCommands() override;
     void SendHostResult(const std::string& payload) override;
     std::vector<std::string> ReceiveClientResults() override;
+    void SendHostFrame(const std::string& payload) override;
+    std::vector<std::string> ReceiveClientFrames() override;
+    void SendHostSnapshot(const std::string& payload) override;
+    std::vector<std::string> ReceiveClientSnapshots() override;
     void SendLobbyMessage(const std::string& payload);
     std::vector<std::string> ReceiveLobbyMessages();
 
-    bool IsConnected() const { return connected; }
-    bool HasFailed() const { return failed; }
-    std::string GetStatus() const;
+    bool IsConnected() const override { return connected; }
+    bool HasFailed() const override { return failed; }
+    std::string GetStatus() const override;
+    int GetPingMs() const override { return pingMs; }
 
 private:
     explicit TcpGameTransport(Mode mode);
@@ -54,9 +59,12 @@ private:
     mutable std::mutex mutex;
     std::deque<std::string> hostCommands;
     std::deque<std::string> clientResults;
+    std::deque<std::string> clientFrames;
+    std::deque<std::string> clientSnapshots;
     std::deque<std::string> lobbyMessages;
     std::deque<std::string> outboundLines;
     std::string status{"Idle"};
+    std::atomic<int> pingMs{-1};
 
     unsigned short port{0};
     std::string address;

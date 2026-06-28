@@ -2,8 +2,12 @@
 #define RENDERER_H
 
 #include "Utils.h"
+#include "GameSnapshot.h"
 #include "raylib.h"
 #include "Gui.h"
+
+#include <cstdint>
+#include <limits>
 
 constexpr int RENDER_WIDTH = 1920;
 constexpr int RENDER_HEIGHT = 1080;
@@ -88,6 +92,10 @@ class Renderer
     void LoadBuildingTexture(BuildingType, const std::string&);
     // Draws a building with its standalone texture.
     void DrawBuildingTexture(Building*, Vec2f);
+    // Draws a building snapshot with its standalone texture.
+    void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos);
+    // Draws terrain, territory and buildings from an immutable game snapshot.
+    void DrawSnapshot(const GameSnapshot& snapshot);
     // Converts OS screen coordinates to fixed render coordinates.
     Vec2f ScreenToRender(Vector2);
     // Converts fixed render coordinates to OS screen coordinates.
@@ -102,6 +110,8 @@ class Renderer
     Vec2f WorldToScreen(Vec2f);
     // Keeps camera view within map bounds when possible.
     void ClampCameraToMap(Vec2i mapSize);
+    // Reserves screen-space pixels at the top when clamping the camera.
+    void SetTopScreenPadding(float padding);
     // Centers the camera on a world-space point and clamps it to map bounds.
     void CenterCameraOnWorld(Vec2f worldPoint, Vec2i mapSize);
     // Applies cursor-centered zoom and clamps camera afterwards.
@@ -115,6 +125,10 @@ class Renderer
     std::map<BuildingType, Texture2D> buildingTextures;
 
     Camera2D camera;
+    float topScreenPadding{0.0f};
+    std::uint64_t cachedSnapshotTick{std::numeric_limits<std::uint64_t>::max()};
+    Vec2f cachedSnapshotCameraTarget{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+    float cachedSnapshotCameraZoom{-1.0f};
 };
 
 

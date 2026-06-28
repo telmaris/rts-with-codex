@@ -29,16 +29,16 @@ std::vector<ResearchNodeView> ResearchCatalog::BuildView(const Player& player)
         node.layoutOrder = definition.layoutOrder == std::numeric_limits<int>::max() ? static_cast<int>(i) : definition.layoutOrder;
         node.definitionIndex = static_cast<int>(i);
         node.researched = player.technologies.HasTechnology(definition.id);
-        for (const auto* building : player.GetTrackedBuildings())
+        for (const auto* building : player.GetTrackedBuildingsWithComponent<ResearchComponent>())
         {
-            const auto* university = dynamic_cast<const ProductionBuilding*>(building);
-            if (university != nullptr && university->owner == &player &&
-                university->buildingType == BuildingType::University &&
-                university->GetActiveTechnologyId() == definition.id)
+            const auto* research = building != nullptr ? building->GetComponent<ResearchComponent>() : nullptr;
+            if (research != nullptr && building->owner == &player &&
+                building->buildingType == BuildingType::University &&
+                research->technologyId == definition.id)
             {
                 node.active = true;
-                node.remainingTime = university->GetActiveTechnologyRemaining();
-                node.progress = university->GetActiveTechnologyProgress();
+                node.remainingTime = research->remaining;
+                node.progress = research->GetProgress();
                 break;
             }
         }

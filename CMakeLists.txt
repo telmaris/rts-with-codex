@@ -1,5 +1,23 @@
 cmake_minimum_required(VERSION 3.16)
-project(RtsGameTutorial)
+
+# Version: single source of truth is the repository-root VERSION file.
+# Reconfigure automatically whenever it changes (e.g. after a build-time patch bump).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" RTS_VERSION_RAW LIMIT_COUNT 1)
+string(STRIP "${RTS_VERSION_RAW}" RTS_VERSION)
+if (NOT RTS_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION file malformed: '${RTS_VERSION}' (expected MAJOR.MINOR.PATCH)")
+endif()
+
+project(RtsGameTutorial VERSION ${RTS_VERSION} LANGUAGES CXX)
+
+# Generate a header carrying the version into the binary (written to the build tree).
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
+    "${CMAKE_BINARY_DIR}/generated/Version.h"
+    @ONLY)
+include_directories("${CMAKE_BINARY_DIR}/generated")
+message(STATUS "RTS version: ${RTS_VERSION}")
 
 include(FetchContent)
 
@@ -15,6 +33,12 @@ if (NOT MSVC)
     add_compile_options(-Wno-narrowing)
 endif()
 
+# When vcpkg provides statically-linked dependencies (x64-windows-static triplet),
+# our own code must also use the static CRT to avoid MSVC "defaultlib conflicts".
+if (MSVC AND DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 find_package(raylib 3.0 QUIET)
 find_package(Threads REQUIRED)
 
@@ -28,7 +52,9 @@ if (NOT raylib_FOUND)
         IMPORTED_LOCATION "${raylib_LIBRARY}"
         INTERFACE_INCLUDE_DIRECTORIES "${raylib_INCLUDE_DIR}")
 endif()
-add_library(game "")
+
+# Force STATIC regardless of BUILD_SHARED_LIBS (vcpkg x64-windows sets it ON).
+add_library(game STATIC "")
 
 set(raygui_INCLUDE_DIR "" CACHE PATH "Path to directory containing raygui.h")
 if (raygui_INCLUDE_DIR)

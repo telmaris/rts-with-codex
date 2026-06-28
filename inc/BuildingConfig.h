@@ -108,14 +108,14 @@ const TerrainProductionDefinition* FindTerrainProductionDefinition(BuildingType 
 // Applies common definition fields to a building instance.
 void ApplyBuildingDefinition(Building& building, const BuildingDefinition& definition);
 
-// Applies recipe and buffer data to a production building.
-void ApplyProductionDefinition(ProductionBuilding& building, const ProductionDefinition& definition);
-void ApplyProductionRecipes(ProductionBuilding& building, const BuildingDefinition& definition);
+// Applies recipe and buffer data to a building's production/worker components.
+void ApplyProductionDefinition(Building& building, const ProductionDefinition& definition);
+void ApplyProductionRecipes(Building& building, const BuildingDefinition& definition);
 
-// Applies storage buffer data to a storage building.
-void ApplyStorageDefinition(StorageBuilding& building, const BuildingDefinition& definition);
+// Applies storage buffer data to a building's storage component.
+void ApplyStorageDefinition(Building& building, const BuildingDefinition& definition);
 
-// Applies military stats to a military building.
-void ApplyMilitaryDefinition(MilitaryBuilding& building, const BuildingDefinition& definition);
+// Applies military stats to a building's territory/garrison/supply components.
+void ApplyMilitaryDefinition(Building& building, const BuildingDefinition& definition);
 
 #endif

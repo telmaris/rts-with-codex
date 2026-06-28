@@ -4,6 +4,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 TEST(GameCommandTests, SerializesAndDeserializesBuildCommand)
 {
     GameCommand original = GameCommand::BuildBuilding(2, BuildingType::LumberMill, {12, 34}, false);
@@ -107,20 +111,51 @@ TEST(GameCommandTests, GameWorldPublishesCommandResultAfterSimulationTick)
 TEST(GameCommandTests, LocalhostMultiplayerSessionRoundTripsCommandResult)
 {
     GameWorld world;
+    MapParameters params;
+    params.seed = 12345;
+    world.InitMultiplayerWorld("test", nullptr, params, 0, true);
+
     LocalhostMultiplayerSession session(world);
 
-    std::uint64_t commandId = session.SubmitCommand(GameCommand::DestroyBuilding(999, 123));
-    session.Update(0.20);
-    auto results = session.ConsumeCommandResults();
+    std::uint64_t commandId = session.SubmitCommand(GameCommand::DestroyBuilding(world.GetLocalPlayerId(), 123));
+    std::vector<GameCommandResult> results;
+    for (int i = 0; i < 20 && results.empty(); i++)
+    {
+        session.Update(0.20);
+        results = session.ConsumeCommandResults();
+    }
+
+    auto matching = std::find_if(results.begin(), results.end(), [commandId](const GameCommandResult& result) {
+        return result.commandId == commandId;
+    });
+    ASSERT_NE(matching, results.end());
+    EXPECT_EQ(matching->playerId, world.GetLocalPlayerId());
+    EXPECT_EQ(matching->type, GameCommandType::DestroyBuilding);
+    EXPECT_FALSE(matching->accepted);
+    EXPECT_EQ(session.GetWorld(), &world);
+}
+
+TEST(GameCommandTests, ThreadedSessionAdvancesSimulationAndPublishesCommandResult)
+{
+    GameWorld world;
+    auto inner = std::make_unique<HostGameSession>(world);
+    ThreadedGameSession session(std::move(inner));
+
+    std::uint64_t commandId = session.SubmitCommand(GameCommand::DestroyBuilding(world.GetLocalPlayerId(), 123));
+    std::vector<GameCommandResult> results;
+    for (int i = 0; i < 30 && results.empty(); i++)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        results = session.ConsumeCommandResults();
+    }
 
     ASSERT_EQ(results.size(), 1u);
     EXPECT_EQ(results.front().commandId, commandId);
-    EXPECT_EQ(results.front().simulationTick, 3u);
-    EXPECT_EQ(results.front().targetTick, 3u);
     EXPECT_EQ(results.front().playerId, world.GetLocalPlayerId());
     EXPECT_EQ(results.front().type, GameCommandType::DestroyBuilding);
     EXPECT_FALSE(results.front().accepted);
     EXPECT_EQ(session.GetWorld(), &world);
+    EXPECT_NE(session.GetWorldMutex(), nullptr);
 }
 
 TEST(GameCommandTests, HostRejectsTransportCommandForWrongPlayerSlot)

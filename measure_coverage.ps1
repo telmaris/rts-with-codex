@@ -12,12 +12,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
-$WorkspaceRoot = Split-Path -Parent $RepoRoot
-$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT } else { Join-Path $WorkspaceRoot "work\local\raylib" }
+$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT }
+              elseif (Test-Path (Join-Path $RepoRoot "deps\raylib\lib\raylib.lib")) { Join-Path $RepoRoot "deps\raylib" }
+              else { Join-Path (Split-Path -Parent $RepoRoot) "work\local\raylib" }
 
-$RaylibConfig = Join-Path $RaylibRoot "lib\cmake\raylib"
 $RaylibInclude = Join-Path $RaylibRoot "include"
 $RaylibLibrary = Join-Path $RaylibRoot "lib\raylib.lib"
+$RayguiInclude = Join-Path $RepoRoot "deps\raygui"
 $BuildPath = Join-Path $RepoRoot $BuildDir
 
 if (-not (Test-Path $RaylibLibrary)) {
@@ -47,9 +48,9 @@ cmake -S $RepoRoot -B $BuildPath `
     -DBUILD_TESTING=ON `
     -DENABLE_COVERAGE=ON `
     "-DOPENCPPCOVERAGE_EXECUTABLE=$OpenCppCoveragePath" `
-    "-Draylib_DIR=$RaylibConfig" `
     "-Draylib_INCLUDE_DIR=$RaylibInclude" `
-    "-Draylib_LIBRARY=$RaylibLibrary"
+    "-Draylib_LIBRARY=$RaylibLibrary" `
+    "-Draygui_INCLUDE_DIR=$RayguiInclude"
 
 Write-Host "Running coverage target ($Config)..." -ForegroundColor Cyan
 cmake --build $BuildPath --config $Config --target coverage

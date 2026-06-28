@@ -103,10 +103,10 @@ void TileMap::BuildOnTile(int id, Player *player, std::unique_ptr<Building> &&bu
         buildingsDirty = true;
         if (!placed->IsUnderConstruction())
         {
-            if (auto* military = dynamic_cast<IMilitaryBuilding*>(placed))
+            if (placed->GetTerritoryRadius() > 0)
             {
                 Vec2i center{anchor.x + footprint.x / 2, anchor.y + footprint.y / 2};
-                SetTerritory(center, military->GetTerritoryRadius() * 2 + 1, player);
+                SetTerritory(center, placed->GetTerritoryRadius() * 2 + 1, player);
             }
         }
     }
@@ -141,18 +141,18 @@ void TileMap::DestroyBuildingAt(int id)
         }
     }
 
-    bool wasRoad = building->buildingType == BuildingType::Road;
-    bool wasMilitary = dynamic_cast<IMilitaryBuilding*>(building) != nullptr;
+    bool wasRoad = building->HasComponent<RoadComponent>();
+    bool projectedTerritory = building->HasComponent<TerritoryComponent>();
     if (owner != nullptr)
         owner->UnregisterBuilding(building);
-    if (auto* production = dynamic_cast<ProductionBuilding*>(building))
+    if (auto* workers = building->GetComponent<WorkerComponent>())
     {
-        if (owner != nullptr && production->assignedWorkers > 0)
+        if (owner != nullptr && workers->assigned > 0)
         {
-            double workers = owner->strategicResources.Get(StrategicResourceType::Workers);
-            owner->strategicResources.Set(StrategicResourceType::Workers, workers - production->assignedWorkers);
-            owner->strategicResources.Add(StrategicResourceType::Manpower, production->assignedWorkers);
-            production->assignedWorkers = 0;
+            double workerPool = owner->strategicResources.Get(StrategicResourceType::Workers);
+            owner->strategicResources.Set(StrategicResourceType::Workers, workerPool - workers->assigned);
+            owner->strategicResources.Add(StrategicResourceType::Manpower, workers->assigned);
+            workers->assigned = 0;
         }
     }
     tilemap[id].DestroyBuilding();
@@ -167,7 +167,7 @@ void TileMap::DestroyBuildingAt(int id)
         RefreshRoadTilesAround(anchor);
 
     buildingsDirty = true;
-    if (wasMilitary)
+    if (projectedTerritory)
         RecalculateTerritory(owner);
 }
 
@@ -227,12 +227,11 @@ void TileMap::UpdateBuildings(double dt)
             }
 
             AutoConnectBuilding(tile.building.get());
-            if (dynamic_cast<IMilitaryBuilding*>(tile.building.get()) != nullptr)
+            if (tile.building->GetTerritoryRadius() > 0)
                 RecalculateTerritory(owner);
         }
 
-        auto* military = dynamic_cast<IMilitaryBuilding*>(tile.building.get());
-        if (military != nullptr && military->GetHitPoints() <= 0)
+        if (tile.building->GetTerritoryRadius() > 0 && tile.building->GetHitPoints() <= 0)
             destroyedBuildings.push_back(tile.id);
     }
 
@@ -526,7 +525,7 @@ Building* TileMap::FindNearestStorage(Building* source, Player* player)
 }
 
 // Initializes TileMap::ConnectReceiver.
-void TileMap::ConnectReceiver(Building* source, Building* receiver)
+void TileMap::ConnectReceiver(Building* source, Building* receiver, bool alternative)
 {
     if (source == nullptr || receiver == nullptr || source == receiver)
         return;
@@ -559,7 +558,10 @@ void TileMap::ConnectReceiver(Building* source, Building* receiver)
         }
         else
         {
-            source->SetReceiver(output.type, receiver);
+            if (alternative)
+                source->SetAlternativeReceiver(output.type, receiver);
+            else
+                source->SetReceiver(output.type, receiver);
         }
     }
 }
@@ -662,14 +664,13 @@ void TileMap::RecalculateTerritory(Player* player)
         if (building == nullptr || building->owner != player)
             continue;
 
-        auto* military = dynamic_cast<IMilitaryBuilding*>(building);
-        if (military == nullptr || military->GetHitPoints() <= 0 || building->IsUnderConstruction())
+        if (building->GetTerritoryRadius() <= 0 || building->GetHitPoints() <= 0 || building->IsUnderConstruction())
             continue;
 
         Vec2i anchor = GetCoordsFromId(building->positionId);
         Vec2i footprint = building->GetFootprint();
         Vec2i center{anchor.x + footprint.x / 2, anchor.y + footprint.y / 2};
-        SetTerritory(center, military->GetTerritoryRadius() * 2 + 1, player);
+        SetTerritory(center, building->GetTerritoryRadius() * 2 + 1, player);
     }
 }
 

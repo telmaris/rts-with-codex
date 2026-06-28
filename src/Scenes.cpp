@@ -3,6 +3,7 @@
 #include "../inc/GuiController.h"
 #include "../inc/TcpGameTransport.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 
@@ -260,6 +261,45 @@ namespace
         return true;
     }
 
+    std::string SerializeMultiplayerLobbyState(const std::string& sessionName, const std::string& hostName, const std::string& remoteName, const MapParameters& params)
+    {
+        std::ostringstream out;
+        out << "STATE " << std::quoted(sessionName) << ' '
+            << std::quoted(hostName) << ' '
+            << std::quoted(remoteName) << ' '
+            << params.aiOpponentCount << ' '
+            << static_cast<int>(params.sizePreset) << ' '
+            << params.aiDifficulty << ' '
+            << params.resourceDensity << ' '
+            << params.resourceFieldSize << ' '
+            << params.resourceRichness << ' '
+            << (params.debugMode ? 1 : 0);
+        return out.str();
+    }
+
+    bool TryDeserializeMultiplayerLobbyState(const std::string& payload, std::string& sessionName, std::string& hostName, std::string& remoteName, MapParameters& params)
+    {
+        std::istringstream in(payload);
+        int aiCount = 0;
+        int size = 0;
+        int difficulty = 0;
+        int richness = 120;
+        int debug = 0;
+        float density = 0.65f;
+        float fieldSize = 0.45f;
+        if (!(in >> std::quoted(sessionName) >> std::quoted(hostName) >> std::quoted(remoteName) >> aiCount >> size >> difficulty >> density >> fieldSize >> richness >> debug))
+            return false;
+
+        params = MakeDefaultMultiplayerParams(std::clamp(aiCount, 0, 5),
+            static_cast<MapSizePreset>(std::clamp(size, 0, 3)),
+            std::clamp(difficulty, 0, 3),
+            std::clamp(density, 0.0f, 1.0f),
+            std::clamp(fieldSize, 0.0f, 1.0f),
+            std::clamp((richness - 40) / 120.0f, 0.0f, 1.0f),
+            debug != 0);
+        return true;
+    }
+
     Color LocalPlayerChatColor()
     {
         return Color{66, 154, 255, 255};
@@ -371,6 +411,11 @@ MainMenuScene::MainMenuScene()
     menuGraphic.cover = true;
     menuGraphic.LoadTextureFromFile("assets/ui/menu/main_menu.png");
 
+    statusLabel.ChangePositionAnchor(Vec2f{0.26f, 0.82f});
+    statusLabel.ChangeSizeAnchor(Vec2f{0.48f, 0.05f});
+    statusLabel.fontSize = 22;
+    statusLabel.color = Color{238, 184, 84, 255};
+
     auto newGameButton = std::make_shared<UiButton>();
     newGameButton->ChangeText("New Game");
     newGameButton->func = std::bind(&MainMenuScene::OnNewGamePressed, this);
@@ -400,7 +445,13 @@ MainMenuScene::MainMenuScene()
 // Advances this object's state for one frame.
 void MainMenuScene::Update(double dt)
 {
-    render.Draw({&menuGraphic, &buttonsColumn}, dt);
+    if (statusTimer > 0.0)
+        statusTimer = std::max(0.0, statusTimer - dt);
+
+    std::vector<UiWidget*> widgets{&menuGraphic, &buttonsColumn};
+    if (statusTimer > 0.0)
+        widgets.push_back(&statusLabel);
+    render.Draw(widgets, dt);
 }
 
 // Handles the UI action represented by OnNewGamePressed.
@@ -449,6 +500,14 @@ void MainMenuScene::HandleEvent(std::shared_ptr<Event> e)
     {
         buttonsColumn.UpdateSize(ptr->windowSize);
         menuGraphic.UpdateSize(ptr->windowSize);
+        statusLabel.UpdateSize(ptr->windowSize);
+    }
+
+    auto networkStatus = std::dynamic_pointer_cast<NetworkStatusEvent>(e);
+    if (networkStatus != nullptr)
+    {
+        statusLabel.ChangeText(networkStatus->message);
+        statusTimer = 8.0;
     }
 }
 
@@ -469,9 +528,7 @@ OptionsScene::OptionsScene()
 // Advances this object's state for one frame.
 void OptionsScene::Update(double dt)
 {
-    backButton.Update(dt);
-    fullScreenCheckBox.Update(dt);
-    masterVolume.Update(dt);
+    render.Draw({&backButton, &fullScreenCheckBox, &masterVolume}, dt);
 
     if (fullScreenCheckBox.HasChanged())
     {
@@ -484,8 +541,6 @@ void OptionsScene::Update(double dt)
     {
         Log::Msg("[OptionsScene]", "Master volume: ", masterVolume.GetValue());
     }
-
-    render.Draw();
 }
 
 // Handles the UI action represented by OnBackPressed.
@@ -567,18 +622,17 @@ NewGameScene::NewGameScene()
 void NewGameScene::Update(double dt)
 {
     RefreshOptionLabels();
-    backButton.Update(dt);
-    startGame.Update(dt);
-    gameName.Update(dt);
-    sizeButton.Update(dt);
-    difficultyButton.Update(dt);
-    resourceDensity.Update(dt);
-    resourceFieldSize.Update(dt);
-    resourceRichness.Update(dt);
-    aiOpponents.Update(dt);
-    debugMode.Update(dt);
 
-    render.Draw();
+    render.Draw({&gameName,
+                 &sizeButton,
+                 &difficultyButton,
+                 &resourceDensity,
+                 &resourceFieldSize,
+                 &resourceRichness,
+                 &aiOpponents,
+                 &debugMode,
+                 &startGame,
+                 &backButton}, dt);
 }
 
 // Handles the UI action represented by OnBackPressed.
@@ -805,7 +859,9 @@ MultiplayerScene::MultiplayerScene()
 // Advances this object's state for one frame.
 void MultiplayerScene::Update(double dt)
 {
-    UpdateLobbyMessages();
+    UpdateLobbyMessages(dt);
+    if (connectionMessageTimer > 0.0)
+        connectionMessageTimer = std::max(0.0, connectionMessageTimer - dt);
     RefreshMultiplayerLabels();
 
     std::vector<UiWidget*> widgets;
@@ -876,10 +932,14 @@ void MultiplayerScene::Update(double dt)
     for (auto* widget : widgets)
         if (widget != nullptr)
             widget->Update(dt);
+    if (connectingToLobby || connectionMessageTimer > 0.0)
+        DrawConnectionDialog();
     EndDrawing();
 
     if (lobbyActive && !showGameSettings && IsKeyPressed(KEY_ENTER) && !chatInput.GetText().empty())
         OnSendChatPressed();
+    if (lobbyActive && showGameSettings && isLobbyHost && IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+        MaybeBroadcastSettingsChange("Game settings updated.");
 }
 
 // Handles the requested event or transfer.
@@ -917,6 +977,12 @@ void MultiplayerScene::HandleEvent(std::shared_ptr<Event> e)
 // Handles the UI action represented by OnBackPressed.
 void MultiplayerScene::OnBackPressed()
 {
+    if (connectingToLobby)
+    {
+        ResetLobby();
+        return;
+    }
+
     if (showGameSettings)
     {
         showGameSettings = false;
@@ -952,6 +1018,7 @@ void MultiplayerScene::OnHostPressed()
     AddLobbyLine(lobbyNickname + " is hosting '" + lobbySessionName + "' on port " + std::to_string(lobbyPort));
     AddLobbyLine("AI players: " + std::to_string(lobbyAiOpponentCount));
     AddLobbyLine("Waiting for players...");
+    lastBroadcastLobbyState.clear();
     Log::Msg("[Lobby]", "Host lobby opened: ", lobbySessionName, " port=", lobbyPort);
 }
 
@@ -966,8 +1033,12 @@ void MultiplayerScene::OnJoinPressed()
     lobbyPort = ParsePort(port.GetText());
     lobbyTransport = TcpGameTransport::CreateClient(lobbyAddress, lobbyPort);
     isLobbyHost = false;
-    lobbyActive = true;
-    AddLobbyLine("Connecting to " + lobbyAddress + ":" + std::to_string(lobbyPort));
+    lobbyActive = false;
+    connectingToLobby = true;
+    connectionWaitTimer = 0.0;
+    connectionMessageTimer = 0.0;
+    connectionMessage = "Connecting to " + lobbyAddress + ":" + std::to_string(lobbyPort);
+    lastBroadcastLobbyState.clear();
     Log::Msg("[Lobby]", "Client lobby join requested: ", lobbyAddress, ":", lobbyPort, " session=", lobbySessionName);
 }
 
@@ -981,6 +1052,7 @@ void MultiplayerScene::OnStartPressed()
     }
 
     SaveMultiplayerSettings();
+    MaybeBroadcastSettingsChange();
     MapParameters params = BuildLobbyMapParameters();
     lobbyTransport->SendLobbyMessage(SerializeMultiplayerStart(lobbySessionName, params));
     AddLobbyLine("Starting game...");
@@ -1007,6 +1079,7 @@ void MultiplayerScene::OnCloseGameSettingsPressed()
 {
     showGameSettings = false;
     SaveMultiplayerSettings();
+    MaybeBroadcastSettingsChange("Game settings updated.");
 }
 
 // Handles the UI action represented by OnMultiplayerSizePressed.
@@ -1015,6 +1088,7 @@ void MultiplayerScene::OnMultiplayerSizePressed()
     int next = (static_cast<int>(lobbySizePreset) + 1) % 4;
     lobbySizePreset = static_cast<MapSizePreset>(next);
     RefreshMultiplayerLabels();
+    MaybeBroadcastSettingsChange("Map size set to " + MapSizeName(lobbySizePreset) + ".");
 }
 
 // Handles the UI action represented by OnMultiplayerDifficultyPressed.
@@ -1022,6 +1096,7 @@ void MultiplayerScene::OnMultiplayerDifficultyPressed()
 {
     lobbyDifficulty = (lobbyDifficulty + 1) % 4;
     RefreshMultiplayerLabels();
+    MaybeBroadcastSettingsChange("Difficulty set to " + DifficultyName(lobbyDifficulty) + ".");
 }
 
 // Handles the UI action represented by OnSendChatPressed.
@@ -1058,20 +1133,55 @@ void MultiplayerScene::ResetLobby()
     lobbyLines.clear();
     remoteLobbyNickname.clear();
     lobbyActive = false;
+    connectingToLobby = false;
     isLobbyHost = false;
     announcedConnection = false;
     showGameSettings = false;
     hasRemoteLobbyPlayer = false;
     lobbyChatScroll = 0;
+    connectionWaitTimer = 0.0;
+    connectionMessageTimer = 0.0;
+    connectionMessage.clear();
+    lastBroadcastLobbyState.clear();
 }
 
 // Polls socket state and lobby messages.
-void MultiplayerScene::UpdateLobbyMessages()
+void MultiplayerScene::UpdateLobbyMessages(double dt)
 {
-    if (!lobbyActive || lobbyTransport == nullptr)
+    if ((!lobbyActive && !connectingToLobby) || lobbyTransport == nullptr)
         return;
 
     std::string status = lobbyTransport->GetStatus();
+    if (connectingToLobby)
+    {
+        connectionWaitTimer += dt;
+        connectionMessage = "Connecting to " + lobbyAddress + ":" + std::to_string(lobbyPort) + "...";
+        if (lobbyTransport->IsConnected())
+        {
+            connectingToLobby = false;
+            lobbyActive = true;
+            announcedConnection = true;
+            connectionMessage.clear();
+            AddLobbyLine("Connected to host.");
+            Log::Msg("[Lobby]", status);
+            lobbyTransport->SendLobbyMessage("JOIN " + lobbyNickname);
+        }
+        else if (lobbyTransport->HasFailed() || connectionWaitTimer >= 10.0)
+        {
+            connectionMessage = "Connection failed: " + status;
+            connectionMessageTimer = 3.0;
+            Log::Msg("[Lobby]", "Connection failed or timed out: ", status);
+            lobbyTransport.reset();
+            connectingToLobby = false;
+            lobbyActive = false;
+            announcedConnection = false;
+            return;
+        }
+        else
+        {
+            return;
+        }
+    }
     if (!announcedConnection && lobbyTransport->IsConnected())
     {
         announcedConnection = true;
@@ -1079,6 +1189,8 @@ void MultiplayerScene::UpdateLobbyMessages()
         Log::Msg("[Lobby]", status);
         if (!isLobbyHost)
             lobbyTransport->SendLobbyMessage("JOIN " + lobbyNickname);
+        else
+            BroadcastLobbyState();
     }
     if (lobbyTransport->HasFailed())
         AddLobbyLine("Connection failed: " + status);
@@ -1088,16 +1200,33 @@ void MultiplayerScene::UpdateLobbyMessages()
         if (payload.rfind("JOIN ", 0) == 0)
         {
             std::string playerName = payload.substr(5);
+            if (isLobbyHost)
+            {
+                for (const auto& [line, color] : lobbyLines)
+                    lobbyTransport->SendLobbyMessage("HISTORY " + line);
+            }
             remoteLobbyNickname = playerName;
             hasRemoteLobbyPlayer = true;
             AddLobbyLine(playerName + " joined.");
             Log::Msg("[Lobby]", "Player joined: ", playerName);
             if (isLobbyHost)
+            {
                 lobbyTransport->SendLobbyMessage("INFO " + playerName + " joined.");
+                BroadcastLobbyState();
+            }
         }
         else if (payload.rfind("INFO ", 0) == 0)
         {
             AddLobbyLine(payload.substr(5));
+        }
+        else if (payload.rfind("HISTORY ", 0) == 0)
+        {
+            AddLobbyLine(payload.substr(8));
+        }
+        else if (payload.rfind("STATE ", 0) == 0)
+        {
+            if (!ApplyLobbyState(payload.substr(6)))
+                AddLobbyLine("Failed to parse lobby state from host.", Color{240, 120, 120, 255});
         }
         else if (payload.rfind("START ", 0) == 0)
         {
@@ -1171,6 +1300,92 @@ MapParameters MultiplayerScene::BuildLobbyMapParameters() const
         multiplayerResourceFieldSize.GetValue(),
         multiplayerResourceRichness.GetValue(),
         multiplayerDebugMode.currentState);
+}
+
+void MultiplayerScene::BroadcastLobbyState(const std::string& infoMessage)
+{
+    if (!lobbyActive || !isLobbyHost || lobbyTransport == nullptr)
+        return;
+
+    lobbyAiOpponentCount = SliderToInt(aiOpponents.GetValue(), 0, 5);
+    MapParameters params = BuildLobbyMapParameters();
+    std::string state = SerializeMultiplayerLobbyState(lobbySessionName, lobbyNickname, remoteLobbyNickname, params);
+    lobbyTransport->SendLobbyMessage(state);
+    lastBroadcastLobbyState = state;
+    if (!infoMessage.empty())
+    {
+        AddLobbyLine(infoMessage);
+        lobbyTransport->SendLobbyMessage("INFO " + infoMessage);
+    }
+}
+
+bool MultiplayerScene::ApplyLobbyState(const std::string& payload)
+{
+    if (isLobbyHost)
+        return true;
+
+    std::string session;
+    std::string hostName;
+    std::string remoteName;
+    MapParameters params;
+    if (!TryDeserializeMultiplayerLobbyState(payload, session, hostName, remoteName, params))
+        return false;
+
+    lobbySessionName = session;
+    remoteLobbyNickname = hostName.empty() ? "Host" : hostName;
+    hasRemoteLobbyPlayer = true;
+    lobbyAiOpponentCount = params.aiOpponentCount;
+    lobbySizePreset = params.sizePreset;
+    lobbyDifficulty = params.aiDifficulty;
+    multiplayerResourceDensity.currentValue = params.resourceDensity;
+    multiplayerResourceFieldSize.currentValue = params.resourceFieldSize;
+    multiplayerResourceRichness.currentValue = std::clamp((params.resourceRichness - 40) / 120.0f, 0.0f, 1.0f);
+    multiplayerDebugMode.currentState = params.debugMode;
+    RefreshMultiplayerLabels();
+    return true;
+}
+
+void MultiplayerScene::MaybeBroadcastSettingsChange(const std::string& infoMessage)
+{
+    if (!lobbyActive || !isLobbyHost || lobbyTransport == nullptr)
+        return;
+
+    lobbyAiOpponentCount = SliderToInt(aiOpponents.GetValue(), 0, 5);
+    MapParameters params = BuildLobbyMapParameters();
+    std::string state = SerializeMultiplayerLobbyState(lobbySessionName, lobbyNickname, remoteLobbyNickname, params);
+    if (state == lastBroadcastLobbyState)
+        return;
+
+    BroadcastLobbyState(infoMessage);
+}
+
+void MultiplayerScene::DrawConnectionDialog() const
+{
+    int width = static_cast<int>(GetScreenWidth() * 0.46f);
+    int height = static_cast<int>(GetScreenHeight() * 0.22f);
+    int x = (GetScreenWidth() - width) / 2;
+    int y = (GetScreenHeight() - height) / 2;
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{0, 0, 0, 120});
+    DrawRectangle(x, y, width, height, Color{20, 24, 31, 245});
+    DrawRectangleLines(x, y, width, height, Color{96, 116, 142, 255});
+
+    std::string title = connectingToLobby ? "Connecting" : "Connection failed";
+    UiText::DrawFit(title,
+        Rectangle{static_cast<float>(x + 22), static_cast<float>(y + 18), static_cast<float>(width - 44), 32.0f},
+        28,
+        RAYWHITE);
+
+    std::string body = connectionMessage;
+    if (connectingToLobby)
+    {
+        int remaining = std::max(0, 10 - static_cast<int>(std::floor(connectionWaitTimer)));
+        body += "  Timeout in " + std::to_string(remaining) + "s";
+    }
+
+    UiText::DrawFit(body,
+        Rectangle{static_cast<float>(x + 24), static_cast<float>(y + 68), static_cast<float>(width - 48), static_cast<float>(height - 88)},
+        21,
+        Color{202, 216, 236, 255});
 }
 
 // Draws the lobby/chat log under the form.
@@ -1519,25 +1734,203 @@ GameScene::GameScene()
     controller->ChangeSystem("default");
     
     inputs.Init(controller.get());
+
+    networkStatusLabel.ChangeText("");
+    networkStatusLabel.ChangeSize(180, 28);
+    networkStatusLabel.fontSize = 18;
+    networkStatusLabel.color = Color{188, 226, 255, 255};
+    UpdateNetworkStatusWidget({GetScreenWidth(), GetScreenHeight()});
+}
+
+namespace
+{
+    void DrawRuntimeLoadingScreen(const std::string& message)
+    {
+        BeginDrawing();
+        ClearBackground(Color{12, 16, 22, 255});
+        int fontSize = 28;
+        int width = UiText::Measure(message, fontSize);
+        UiText::Draw(message,
+                     (GetScreenWidth() - width) * 0.5f,
+                     GetScreenHeight() * 0.5f,
+                     fontSize,
+                     Color{210, 224, 242, 255});
+        EndDrawing();
+    }
+
+    class GameRuntimeLoopBase : public IGameRuntimeLoop
+    {
+    public:
+        explicit GameRuntimeLoopBase(std::unique_ptr<IGameSession> session)
+        : session(std::move(session))
+        {
+        }
+
+        std::uint64_t SubmitCommand(const GameCommand& command) override
+        {
+            return session != nullptr ? session->SubmitCommand(command) : 0;
+        }
+
+        std::vector<GameCommandResult> ConsumeCommandResults() override
+        {
+            return session != nullptr ? session->ConsumeCommandResults() : std::vector<GameCommandResult>{};
+        }
+
+        bool IsConnectionClosed() const override
+        {
+            return session != nullptr && session->IsConnectionClosed();
+        }
+
+        std::string GetConnectionStatus() const override
+        {
+            return session != nullptr ? session->GetConnectionStatus() : std::string{};
+        }
+
+        std::recursive_mutex* GetWorldMutex() override
+        {
+            return session != nullptr ? session->GetWorldMutex() : nullptr;
+        }
+
+    protected:
+        void UpdateSessionAndResults(GameScene& scene, double dt)
+        {
+            if (session == nullptr)
+                return;
+
+            session->Update(dt);
+            auto results = session->ConsumeCommandResults();
+            scene.commandResults.insert(scene.commandResults.end(), results.begin(), results.end());
+
+            GameSnapshot incomingSnapshot;
+            if (session->ConsumeLatestSnapshot(incomingSnapshot))
+                scene.latestSnapshot = std::move(incomingSnapshot);
+        }
+
+        void DrawReadyGameplay(GameScene& scene, double dt, bool lockWorld)
+        {
+            std::unique_lock<std::recursive_mutex> worldLock;
+            if (lockWorld)
+                if (auto* mutex = GetWorldMutex())
+                    worldLock = std::unique_lock<std::recursive_mutex>(*mutex);
+
+            GameWorld* renderWorld = session != nullptr ? session->GetWorld() : nullptr;
+            if (renderWorld != nullptr)
+                renderWorld->DrawMap();
+            else if (scene.latestSnapshot.IsValid())
+                scene.render.DrawSnapshot(scene.latestSnapshot);
+
+            scene.inputs.HandleInputs();
+            scene.controller->Update(dt);
+
+            std::vector<UiWidget*> widgets = scene.controller->GetUiWidgets();
+            AppendDiagnostics(scene, widgets);
+
+            if (worldLock.owns_lock())
+                worldLock.unlock();
+            scene.render.Draw(widgets, dt);
+        }
+
+        void AppendDiagnostics(GameScene& scene, std::vector<UiWidget*>& widgets)
+        {
+            if (session == nullptr)
+                return;
+
+            int pingMs = session->GetPingMs();
+            std::string connectionStatus = session->GetConnectionStatus();
+            if (pingMs >= 0)
+            {
+                scene.networkStatusLabel.ChangeText("Ping " + std::to_string(pingMs) + " ms");
+                widgets.push_back(&scene.networkStatusLabel);
+            }
+            else if (!connectionStatus.empty() && connectionStatus != "Connected")
+            {
+                scene.networkStatusLabel.ChangeText(connectionStatus);
+                widgets.push_back(&scene.networkStatusLabel);
+            }
+        }
+
+        std::unique_ptr<IGameSession> session;
+    };
+
+    class SinglePlayerRuntimeLoop : public GameRuntimeLoopBase
+    {
+    public:
+        using GameRuntimeLoopBase::GameRuntimeLoopBase;
+
+        void Update(GameScene& scene, double dt) override
+        {
+            UpdateSessionAndResults(scene, dt);
+            DrawReadyGameplay(scene, dt, false);
+        }
+    };
+
+    class MultiplayerHostRuntimeLoop : public GameRuntimeLoopBase
+    {
+    public:
+        using GameRuntimeLoopBase::GameRuntimeLoopBase;
+
+        void Update(GameScene& scene, double dt) override
+        {
+            UpdateSessionAndResults(scene, dt);
+            if (session != nullptr && !session->IsReadyForGameplay())
+            {
+                std::string status = session->GetConnectionStatus();
+                DrawRuntimeLoadingScreen(status.empty() ? "Waiting for client map sync" : status);
+                return;
+            }
+
+            DrawReadyGameplay(scene, dt, true);
+        }
+    };
+
+    class MultiplayerClientRuntimeLoop : public GameRuntimeLoopBase
+    {
+    public:
+        using GameRuntimeLoopBase::GameRuntimeLoopBase;
+
+        void Update(GameScene& scene, double dt) override
+        {
+            UpdateSessionAndResults(scene, dt);
+            if (session != nullptr && !session->IsReadyForGameplay())
+            {
+                std::string status = session->GetConnectionStatus();
+                DrawRuntimeLoadingScreen(status.empty() ? "Syncing map" : status);
+                return;
+            }
+
+            DrawReadyGameplay(scene, dt, true);
+        }
+    };
 }
 
 // Advances this object's state for one frame.
 void GameScene::Update(double dt)
 {
-    if (game == nullptr || session == nullptr)
+    if (game == nullptr || runtimeLoop == nullptr)
         return;
 
-    inputs.HandleInputs();
-    controller->Update(dt);
-    session->Update(dt);
-    auto results = session->ConsumeCommandResults();
-    commandResults.insert(commandResults.end(), results.begin(), results.end());
+    if (runtimeLoop->IsConnectionClosed())
+    {
+        std::string status = runtimeLoop->GetConnectionStatus();
+        if (status.empty())
+            status = "Server closed the connection";
+        Log::Msg("GameScene", "Network session closed: ", status);
+        ShutdownActiveGame();
 
-    GameWorld* renderWorld = session->GetWorld();
-    if (renderWorld != nullptr)
-        renderWorld->DrawMap();
+        auto statusEvent = std::make_shared<NetworkStatusEvent>();
+        statusEvent->sender = this;
+        statusEvent->message = "Multiplayer disconnected: " + status;
+        broker->Broadcast(statusEvent);
 
-    render.Draw(controller->GetUiWidgets(), dt);
+        auto sceneEvent = std::make_shared<ChangeSceneEvent>();
+        sceneEvent->sender = this;
+        sceneEvent->sceneName = "MainScene";
+        sceneEvent->previousSceneName = name;
+        broker->Broadcast(sceneEvent);
+        return;
+    }
+
+    runtimeLoop->Update(*this, dt);
 }
 
 // Handles the UI action represented by OnMultiplayerPressed.
@@ -1560,7 +1953,12 @@ void GameScene::HandleEvent(std::shared_ptr<Event> e)
         {
             system->UpdateUiWidgets(ptr->windowSize);
         }
+        UpdateNetworkStatusWidget(ptr->windowSize);
     }
+
+    auto sceneChange = std::dynamic_pointer_cast<ChangeSceneEvent>(e);
+    if (sceneChange != nullptr && sceneChange->sceneName == "MainScene" && runtimeLoop != nullptr)
+        ShutdownActiveGame();
 
     auto ptr2 = std::dynamic_pointer_cast<NewGameEvent>(e);
     if (ptr2 != nullptr)
@@ -1628,7 +2026,7 @@ void GameScene::StartNewGame(std::string name, MapParameters params)
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
     game->InitWorld(worldName, &render, params);
-    session = std::make_unique<LocalhostMultiplayerSession>(*game);
+    runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
 }
 
 // Creates and hosts a LAN multiplayer world.
@@ -1640,8 +2038,10 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     game->InitMultiplayerWorld(worldName, &render, params, 0, true);
     if (transport == nullptr)
         transport = TcpGameTransport::CreateHost(port);
+    bool requireRemoteSync = transport != nullptr && transport->IsConnected();
     Log::Msg("GameScene", "Starting multiplayer host world '", worldName, "' on port ", port);
-    session = std::make_unique<LocalhostHostSession>(*game, transport, 1);
+    runtimeLoop = std::make_unique<MultiplayerHostRuntimeLoop>(
+        std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostHostSession>(*game, transport, 1, requireRemoteSync)));
 }
 
 // Joins a LAN multiplayer world with a local mirror.
@@ -1654,7 +2054,8 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
     if (transport == nullptr)
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
-    session = std::make_unique<LocalhostClientSession>(game.get(), transport, 1);
+    runtimeLoop = std::make_unique<MultiplayerClientRuntimeLoop>(
+        std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostClientSession>(game.get(), transport, 1)));
 }
 
 // Loads the requested data into runtime state.
@@ -1666,14 +2067,14 @@ bool GameScene::LoadGame(std::string name)
     std::string filename{"saves/" + saveName + ".save"};
     if (game->LoadFromFile(filename, &render))
     {
-        session = std::make_unique<LocalhostMultiplayerSession>(*game);
+        runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
         Log::Msg("GameScene", "Save ", saveName, " loaded!");
         return true;
     }
     else
     {
         Log::Msg("GameScene", "Failed to load save ", saveName);
-        session = nullptr;
+        runtimeLoop = nullptr;
         game = nullptr;
         return false;
     }
@@ -1684,6 +2085,11 @@ void GameScene::SaveGame(std::string saveName)
 {
     if (game == nullptr)
         return;
+
+    std::unique_lock<std::recursive_mutex> worldLock;
+    if (runtimeLoop != nullptr)
+        if (auto* mutex = runtimeLoop->GetWorldMutex())
+            worldLock = std::unique_lock<std::recursive_mutex>(*mutex);
 
     saveName = saveName.empty() ? game->worldName : saveName;
     saveName = SanitizeSaveName(saveName);
@@ -1700,8 +2106,8 @@ void GameScene::SaveGame(std::string saveName)
 // Sends a local player's intent to the active session authority.
 std::uint64_t GameScene::SubmitLocalCommand(const GameCommand& command)
 {
-    if (session != nullptr)
-        return session->SubmitCommand(command);
+    if (runtimeLoop != nullptr)
+        return runtimeLoop->SubmitCommand(command);
     return 0;
 }
 
@@ -1711,6 +2117,24 @@ std::vector<GameCommandResult> GameScene::ConsumeCommandResults()
     std::vector<GameCommandResult> results = std::move(commandResults);
     commandResults.clear();
     return results;
+}
+
+// Tears down the active runtime and closes any owned network transport.
+void GameScene::ShutdownActiveGame()
+{
+    runtimeLoop.reset();
+    game.reset();
+    latestSnapshot = GameSnapshot{};
+    commandResults.clear();
+    render.ClearLayers();
+    Log::Msg("GameScene", "Active game session shut down");
+}
+
+// Keeps the multiplayer diagnostics label pinned to the top-right corner.
+void GameScene::UpdateNetworkStatusWidget(Vec2i windowSize)
+{
+    networkStatusLabel.ChangeSize(190, 28);
+    networkStatusLabel.ChangePosition(std::max(8, windowSize.x - 205), 10);
 }
 
 // Initializes GameMenuScene::GameMenuScene.

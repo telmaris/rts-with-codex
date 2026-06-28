@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 enum class GameCommandType
 {
@@ -23,7 +24,7 @@ enum class GameCommandType
 
 struct GameCommand
 {
-    static constexpr int WireVersion = 3;
+    static constexpr int WireVersion = 4;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -45,13 +46,14 @@ struct GameCommand
         return command;
     }
 
-    static GameCommand SetReceiver(int playerId, int sourceTileId, int targetTileId)
+    static GameCommand SetReceiver(int playerId, int sourceTileId, int targetTileId, bool alternativeReceiver = false)
     {
         GameCommand command;
         command.playerId = playerId;
         command.type = GameCommandType::SetReceiver;
         command.sourceTileId = sourceTileId;
         command.targetTileId = targetTileId;
+        command.alternativeReceiver = alternativeReceiver;
         return command;
     }
 
@@ -123,6 +125,7 @@ struct GameCommand
                << static_cast<int>(militaryOrderType) << ' '
                << static_cast<int>(militaryUnitType) << ' '
                << divisionId << ' '
+               << (alternativeReceiver ? 1 : 0) << ' '
                << std::quoted(researchId);
         return stream.str();
     }
@@ -138,6 +141,7 @@ struct GameCommand
         int chargeCost = 0;
         int militaryOrderType = 0;
         int militaryUnitType = 0;
+        int alternativeReceiver = 0;
         std::string researchId;
 
         GameCommand parsed;
@@ -155,7 +159,9 @@ struct GameCommand
                >> militaryOrderType
                >> militaryUnitType
                >> parsed.divisionId
-               >> std::quoted(researchId);
+               >> alternativeReceiver;
+
+        stream >> std::quoted(researchId);
 
         if (!stream || version != WireVersion || !IsValidType(type))
             return false;
@@ -167,6 +173,7 @@ struct GameCommand
         parsed.chargeCost = chargeCost != 0;
         parsed.militaryOrderType = static_cast<MilitaryOrderType>(militaryOrderType);
         parsed.militaryUnitType = static_cast<MilitaryUnitType>(militaryUnitType);
+        parsed.alternativeReceiver = alternativeReceiver != 0;
         parsed.researchId = std::move(researchId);
         command = std::move(parsed);
         return true;
@@ -184,6 +191,7 @@ struct GameCommand
     MilitaryOrderType militaryOrderType{MilitaryOrderType::None};
     MilitaryUnitType militaryUnitType{MilitaryUnitType::Militia};
     int divisionId{-1};
+    bool alternativeReceiver{false};
     std::string researchId;
 
     static bool IsValidType(int type)
@@ -260,6 +268,59 @@ struct GameCommandResult
         parsed.reason = std::move(reason);
         parsed.commandPayload = std::move(commandPayload);
         result = std::move(parsed);
+        return true;
+    }
+};
+
+struct GameServerFrame
+{
+    static constexpr int WireVersion = 1;
+
+    std::uint64_t tick{0};
+    std::uint64_t checksum{0};
+    bool hasChecksum{false};
+    std::vector<GameCommandResult> results;
+
+    std::string Serialize() const
+    {
+        std::ostringstream stream;
+        stream << WireVersion << ' '
+               << tick << ' '
+               << (hasChecksum ? 1 : 0) << ' '
+               << checksum << ' '
+               << results.size();
+        for (const auto& result : results)
+            stream << ' ' << std::quoted(result.Serialize());
+        return stream.str();
+    }
+
+    static bool TryDeserialize(const std::string& payload, GameServerFrame& frame)
+    {
+        std::istringstream stream(payload);
+        int version = 0;
+        int hasChecksum = 0;
+        size_t resultCount = 0;
+        GameServerFrame parsed;
+        stream >> version >> parsed.tick >> hasChecksum >> parsed.checksum >> resultCount;
+        if (!stream || version != WireVersion)
+            return false;
+
+        parsed.hasChecksum = hasChecksum != 0;
+        parsed.results.reserve(resultCount);
+        for (size_t i = 0; i < resultCount; i++)
+        {
+            std::string serializedResult;
+            stream >> std::quoted(serializedResult);
+            if (!stream)
+                return false;
+
+            GameCommandResult result;
+            if (!GameCommandResult::TryDeserialize(serializedResult, result))
+                return false;
+            parsed.results.push_back(std::move(result));
+        }
+
+        frame = std::move(parsed);
         return true;
     }
 };

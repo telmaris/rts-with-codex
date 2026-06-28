@@ -33,7 +33,7 @@ TEST(PlayerEconomyTests, PopulationCapCountsFinishedVillages)
     auto* village = dynamic_cast<Village*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Village>(1)));
     ASSERT_NE(village, nullptr);
-    village->populationCap = 42;
+    village->population.populationCap = 42;
     village->constructionRemaining = 0.0;
 
     EXPECT_EQ(player.GetPopulationCap(), 42);
@@ -48,7 +48,7 @@ TEST(PlayerEconomyTests, AddManpowerRespectsPopulationCapIncludingWorkersAndSold
     auto* village = dynamic_cast<Village*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Village>(1)));
     ASSERT_NE(village, nullptr);
-    village->populationCap = 10;
+    village->population.populationCap = 10;
 
     player.strategicResources.Set(StrategicResourceType::Workers, 3);
     player.strategicResources.Set(StrategicResourceType::Soldiers, 2);
@@ -64,14 +64,14 @@ TEST(PlayerEconomyTests, AutoAssignWorkersMovesManpowerIntoProductionBuilding)
     Player player{0, map};
     PrepareOwnedMap(map, &player);
 
-    ProductionBuilding building{7};
+    Woodcutter building{7};
     building.owner = &player;
-    building.workerCapacity = 4;
-    building.assignedWorkers = 1;
+    building.workers.capacity = 4;
+    building.workers.assigned = 1;
     player.strategicResources.Set(StrategicResourceType::Manpower, 10);
 
     EXPECT_EQ(player.AutoAssignWorkers(&building), 3);
-    EXPECT_EQ(building.assignedWorkers, 4);
+    EXPECT_EQ(building.workers.assigned, 4);
     EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 7.0);
     EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Workers), 3.0);
 }

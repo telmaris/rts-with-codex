@@ -1,4 +1,4 @@
-#include "../inc/Gui.h"
+﻿#include "../inc/Gui.h"
 #include "../inc/Building.h"
 #include "../inc/Player.h"
 #include "../inc/ResearchCatalog.h"
@@ -68,7 +68,7 @@ namespace
             bool selected = selectedTag == value;
             bool hover = CheckCollisionPointRec(mouse, rect);
             DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{64, 94, 128, 235} : hover ? Color{45, 55, 69, 235} : Color{31, 37, 47, 220});
-            DrawRectangleRoundedLines(rect, 0.20f, 6, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
+            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
             DrawTextFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? RAYWHITE : Color{188, 198, 212, 255});
             if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
@@ -343,7 +343,7 @@ namespace
     void DrawResourceCard(const ResourceBufferView& view, Rectangle bounds)
     {
         DrawRectangleRounded(bounds, 0.08f, 6, Color{38, 42, 48, 230});
-        DrawRectangleRoundedLines(bounds, 0.08f, 6, Color{88, 94, 104, 255});
+        DrawRectangleRoundedLines(bounds, 0.08f, 6, 1.0f, Color{88, 94, 104, 255});
 
         float iconSize = std::min(bounds.width * 0.38f, bounds.height * 0.64f);
         Rectangle icon{
@@ -380,7 +380,7 @@ namespace
     void DrawResourceIcon(const ResourceBufferView& view, Rectangle bounds)
     {
         DrawRectangleRounded(bounds, 0.10f, 8, Color{32, 36, 42, 230});
-        DrawRectangleRoundedLines(bounds, 0.10f, 8, Color{86, 96, 110, 255});
+        DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, Color{86, 96, 110, 255});
 
         float padding = std::max(6.0f, bounds.width * 0.12f);
         Rectangle icon{
@@ -515,13 +515,14 @@ namespace
     // Returns remaining terrain richness under a building footprint.
     int GetLocalTerrainRichness(const Building* building)
     {
-        auto* production = dynamic_cast<const ProductionBuilding*>(building);
-        if (production == nullptr || production->owner == nullptr || production->type == TileType::GRASS || !production->ingredients.empty())
+        const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+        if (building == nullptr || production == nullptr || building->owner == nullptr ||
+            production->terrainType == TileType::GRASS || !production->ingredients.empty())
             return -1;
 
-        const TileMap& tilemap = production->owner->tilemap;
-        Vec2i anchor = tilemap.GetCoordsFromId(production->positionId);
-        Vec2i footprint = production->GetFootprint();
+        const TileMap& tilemap = building->owner->tilemap;
+        Vec2i anchor = tilemap.GetCoordsFromId(building->positionId);
+        Vec2i footprint = building->GetFootprint();
         int richness = 0;
         for (int y = 0; y < footprint.y; y++)
         {
@@ -532,7 +533,7 @@ namespace
                     continue;
 
                 const Tile& tile = tilemap.tilemap[tilemap.GetIdFromCoords(pos)];
-                if (tile.tileType == production->type)
+                if (tile.tileType == production->terrainType)
                     richness += tile.resourceRichness;
             }
         }
@@ -845,7 +846,7 @@ namespace
                        : Color{83, 94, 110, 255};
 
             DrawRectangleRounded(node, 0.08f, 8, fill);
-            DrawRectangleRoundedLines(node, 0.08f, 8, line);
+            DrawRectangleRoundedLines(node, 0.08f, 8, 1.0f, line);
             DrawTextFit(technology->name, Rectangle{node.x + 8.0f, node.y + 8.0f, node.width - 16.0f, 26.0f}, 17, RAYWHITE);
 
             Color stateColor = technology->researched ? Color{145, 230, 160, 255}
@@ -868,16 +869,17 @@ namespace
     }
 
     // Draws the selected university worker assignment above the research tree.
-    void DrawResearchWorkerPanel(const ProductionBuilding* university, Rectangle bounds)
+    void DrawResearchWorkerPanel(const Building* university, Rectangle bounds)
     {
-        if (university == nullptr)
+        const auto* workers = university != nullptr ? university->GetComponent<WorkerComponent>() : nullptr;
+        if (university == nullptr || workers == nullptr)
             return;
 
         DrawRectangleRounded(bounds, 0.045f, 8, Color{24, 29, 36, 224});
-        DrawRectangleRoundedLines(bounds, 0.045f, 8, Color{82, 98, 120, 245});
+        DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, Color{82, 98, 120, 245});
 
-        std::string label = "Workers: " + std::to_string(university->GetAssignedWorkers()) + "/" + std::to_string(university->GetWorkerCapacity());
-        int workerPct = static_cast<int>(std::round(university->GetWorkerRatio() * 100.0f));
+        std::string label = "Workers: " + std::to_string(workers->assigned) + "/" + std::to_string(workers->GetModifiedCapacity(*university));
+        int workerPct = static_cast<int>(std::round(workers->GetRatio() * 100.0f));
         std::string output = "Worker output: " + std::to_string(workerPct) + "%";
         float y = bounds.y + (bounds.height - 21.0f) * 0.5f;
         UiText::Draw(label, bounds.x + 14.0f, y, 20, RAYWHITE);
@@ -897,12 +899,12 @@ namespace
 
     // Draws all categorized university research trees.
     void DrawResearchTree(Player* player,
-                          ProductionBuilding* university,
+                          Building* university,
                           Rectangle bounds,
                           Vec2f panOffset,
                           float zoom,
                           std::string& selectedTagFilter,
-                          const std::function<void(const std::string&, ProductionBuilding*)>& researchRequested)
+                          const std::function<void(const std::string&, Building*)>& researchRequested)
     {
         if (player == nullptr)
         {
@@ -1115,7 +1117,7 @@ namespace
         for (const auto& [lane, header] : laneHeaders)
         {
             DrawRectangleRounded(header, 0.14f, 8, Color{36, 43, 54, 215});
-            DrawRectangleRoundedLines(header, 0.14f, 8, Color{74, 88, 108, 235});
+            DrawRectangleRoundedLines(header, 0.14f, 8, 1.0f, Color{74, 88, 108, 235});
             DrawTextFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), Color{208, 220, 238, 255});
         }
 
@@ -1151,7 +1153,8 @@ namespace
             Rectangle node = nodeBounds[technology.id];
             bool hovered = CheckCollisionPointRec(mouse, node);
             bool tagMatched = HasNodeTag(technology, selectedTagFilter);
-            bool selectedUniversityBusy = university != nullptr && !university->GetActiveTechnologyId().empty();
+            const auto* research = university != nullptr ? university->GetComponent<ResearchComponent>() : nullptr;
+            bool selectedUniversityBusy = research != nullptr && !research->technologyId.empty();
             bool localAvailable = technology.available && !selectedUniversityBusy;
 
             Color fill = technology.researched ? Color{45, 86, 63, 245}
@@ -1172,7 +1175,7 @@ namespace
             }
 
             DrawRectangleRounded(node, 0.08f, 8, fill);
-            DrawRectangleRoundedLines(node, 0.08f, 8, tagMatched && !selectedTagFilter.empty() ? Color{112, 208, 172, 255} : highlightedPath.contains(technology.id) ? Color{232, 202, 104, 255} : line);
+            DrawRectangleRoundedLines(node, 0.08f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{112, 208, 172, 255} : highlightedPath.contains(technology.id) ? Color{232, 202, 104, 255} : line);
             DrawTextWrappedCentered(technology.name, Rectangle{node.x + 8.0f * zoom, node.y + 7.0f * zoom, node.width - 16.0f * zoom, 39.0f * zoom}, std::max(13, static_cast<int>(20 * zoom)), RAYWHITE, 2);
 
             Color stateColor = technology.researched ? Color{145, 230, 160, 255}
@@ -1226,7 +1229,7 @@ void UiButton::Update(double dt)
         Color fill = hovered ? Color{78, 89, 106, 255} : Color{45, 52, 63, 255};
         Color line = hovered ? Color{151, 171, 199, 255} : Color{95, 106, 122, 255};
         DrawRectangleRounded(bounds, 0.08f, 8, fill);
-        DrawRectangleRoundedLines(bounds, 0.08f, 8, line);
+        DrawRectangleRoundedLines(bounds, 0.08f, 8, 1.0f, line);
     }
 
     if (drawText)
@@ -1295,7 +1298,7 @@ void ProgressBar::Update(double dt)
     Rectangle fill = bounds;
     fill.width *= value;
     DrawRectangleRounded(fill, 0.12f, 6, Color{79, 181, 128, 255});
-    DrawRectangleRoundedLines(bounds, 0.12f, 6, Color{99, 108, 120, 255});
+    DrawRectangleRoundedLines(bounds, 0.12f, 6, 1.0f, Color{99, 108, 120, 255});
 
     std::string label = text + " " + std::to_string(static_cast<int>(value * 100.0f)) + "%";
     int fontSize = std::max(12, std::min(17, static_cast<int>(bounds.height) - 3));
@@ -1429,7 +1432,7 @@ void UiImage::Update(double dt)
     else
     {
         DrawRectangleRounded(bounds, 0.04f, 8, Color{25, 29, 34, 255});
-        DrawRectangleRoundedLines(bounds, 0.04f, 8, Color{70, 78, 90, 255});
+        DrawRectangleRoundedLines(bounds, 0.04f, 8, 1.0f, Color{70, 78, 90, 255});
     }
 }
 
@@ -1521,7 +1524,7 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     bounds.y = std::max(8.0f, bounds.y);
 
     DrawRectangleRounded(bounds, 0.07f, 8, Color{18, 22, 28, 250});
-    DrawRectangleRoundedLines(bounds, 0.07f, 8, Color{132, 150, 176, 255});
+    DrawRectangleRoundedLines(bounds, 0.07f, 8, 1.0f, Color{132, 150, 176, 255});
     DrawUiText(title, bounds.x + padding, bounds.y + padding - 1.0f, titleFont, RAYWHITE);
 
     float y = bounds.y + padding + titleFont + 6.0f;
@@ -1565,7 +1568,7 @@ void GuiPanel::Update(double dt)
     int titleBar = std::max(34, size.y / 12);
 
     DrawRectangleRounded(bounds, 0.025f, 8, Color{28, 32, 38, 238});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, Color{92, 102, 118, 255});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{92, 102, 118, 255});
 
     Rectangle titleBounds{
         bounds.x,
@@ -1587,7 +1590,7 @@ void GuiPanel::Update(double dt)
         static_cast<float>(closeSize)};
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
     DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{120, 62, 62, 255} : Color{65, 72, 84, 255});
-    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, closeHovered ? Color{210, 125, 125, 255} : Color{120, 132, 150, 255});
+    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? Color{210, 125, 125, 255} : Color{120, 132, 150, 255});
     int xFont = std::max(13, closeSize / 2);
     int xWidth = UiText::Measure("X", xFont);
     UiText::Draw("X",
@@ -1672,9 +1675,9 @@ void GuiPanel::Update(double dt)
         return;
     }
 
-    if (building->buildingType == BuildingType::Road)
+    if (building->HasComponent<RoadComponent>())
     {
-        auto* road = dynamic_cast<Road*>(building);
+        auto* road = static_cast<Road*>(building);
         UiText::Draw("Transport", contentX, y, 22, Color{190, 198, 208, 255});
         y += 30;
 
@@ -1684,7 +1687,7 @@ void GuiPanel::Update(double dt)
             std::vector<std::string> stats{
                 "Capacity: " + std::to_string(used) + "/" + std::to_string(road->GetModifiedMaxCapacity()),
                 "Speed: x" + std::to_string(static_cast<int>(road->GetModifiedSpeedModifier() * 100.0)) + "%",
-                "Upgrade level: " + std::to_string(road->upgradeLevel)};
+                "Upgrade level: " + std::to_string(road->road.upgradeLevel)};
 
             for (const auto& stat : stats)
             {
@@ -1713,7 +1716,7 @@ void GuiPanel::Update(double dt)
                 ResourceType type = resource != nullptr ? resource->type : ResourceType::Null;
                 Rectangle row{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(rowH - 6)};
                 DrawRectangleRounded(row, 0.08f, 6, Color{36, 41, 49, 235});
-                DrawRectangleRoundedLines(row, 0.08f, 6, Color{88, 98, 114, 255});
+                DrawRectangleRoundedLines(row, 0.08f, 6, 1.0f, Color{88, 98, 114, 255});
 
                 Rectangle icon{row.x + 6.0f, row.y + 5.0f, 26.0f, 26.0f};
                 if (resourceIconAtlas.IsLoaded())
@@ -1743,16 +1746,19 @@ void GuiPanel::Update(double dt)
         return;
     }
 
-    if (auto* military = dynamic_cast<MilitaryBuilding*>(building))
+    auto* garrison = building->GetComponent<GarrisonComponent>();
+    auto* territory = building->GetComponent<TerritoryComponent>();
+    auto* supplyBuffer = building->GetComponent<SupplyBufferComponent>();
+    if (garrison != nullptr && territory != nullptr)
     {
-        bool barracks = building->buildingType == BuildingType::Barracks;
+        bool barracks = building->HasComponent<RecruitmentComponent>();
         UiText::Draw(barracks ? "Military training" : "Military", contentX, y, 22, Color{190, 198, 208, 255});
         y += 32;
 
         int weaponSupply = 0;
         int weaponSupplyCapacity = 0;
         int activeDivisionOrders = 0;
-        for (const auto& division : military->divisions)
+        for (const auto& division : garrison->divisions)
         {
             weaponSupply += division.weaponSupply;
             weaponSupplyCapacity += division.weaponSupplyCapacity;
@@ -1761,14 +1767,14 @@ void GuiPanel::Update(double dt)
         }
 
         std::vector<std::string> stats{
-            "Hit points: " + std::to_string(military->hitPoints) + "/" + std::to_string(military->GetMaxHitPoints()),
-            "Effective strength: " + std::to_string(military->GetEffectiveStrength()),
-            "Territory radius: " + std::to_string(military->GetTerritoryRadius()),
-            "Divisions: " + std::to_string(military->divisions.size()) + "/" + std::to_string(military->GetDivisionCapacity())};
+            "Hit points: " + std::to_string(territory->hp) + "/" + std::to_string(territory->GetMaxHp(*building)),
+            "Effective strength: " + std::to_string(garrison->GetEffectiveStrength(*building)),
+            "Territory radius: " + std::to_string(territory->GetRadius(*building)),
+            "Divisions: " + std::to_string(garrison->divisions.size()) + "/" + std::to_string(garrison->GetDivisionCap(*building))};
         if (barracks)
             stats.insert(stats.begin(), "Recruitment creates divisions");
         else
-            stats.push_back("Active orders: " + std::to_string(activeDivisionOrders + (military->currentOrder != MilitaryOrderType::None ? 1 : 0)));
+            stats.push_back("Active orders: " + std::to_string(activeDivisionOrders + (garrison->currentOrder != MilitaryOrderType::None ? 1 : 0)));
 
         int line = 20;
         for (const auto& stat : stats)
@@ -1791,10 +1797,13 @@ void GuiPanel::Update(double dt)
             y += 22;
         };
 
-        drawRatio("Garrison", static_cast<int>(military->divisions.size()), military->GetDivisionCapacity(), Color{86, 145, 222, 255});
-        drawRatio("Food supply", military->supply, military->GetSupplyCapacity(), Color{206, 148, 88, 255});
+        drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255});
+        drawRatio("Food supply",
+                  supplyBuffer != nullptr ? supplyBuffer->stored : 0,
+                  supplyBuffer != nullptr ? supplyBuffer->GetModifiedCapacity(*building) : 0,
+                  Color{206, 148, 88, 255});
         drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255});
-        if (!barracks && (military->currentOrder != MilitaryOrderType::None || military->HasActiveDivisionOrders()))
+        if (!barracks && (garrison->currentOrder != MilitaryOrderType::None || garrison->HasActiveDivisionOrders()))
         {
             UiText::DrawFit("Orders active",
                 Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f},
@@ -1802,16 +1811,16 @@ void GuiPanel::Update(double dt)
                 Color{255, 214, 112, 255});
             y += 24;
         }
-        if (auto* barracksBuilding = dynamic_cast<Barracks*>(building))
+        if (auto* recruitment = building->GetComponent<RecruitmentComponent>())
         {
             int buttonH = std::max(28, destroyButton.size.y - 4);
             int recruitY = bottom - destroyButton.size.y - margin - buttonH;
             int buttonGap = 6;
             int buttonW = (contentW - buttonGap * 2) / 3;
 
-            std::string queue = "Queue: " + std::to_string(barracksBuilding->recruitmentQueue.size());
-            if (!barracksBuilding->recruitmentQueue.empty())
-                queue += " (" + std::string(UnitLabel(barracksBuilding->recruitmentQueue.front().type)) + ")";
+            std::string queue = "Queue: " + std::to_string(recruitment->queue.size());
+            if (!recruitment->queue.empty())
+                queue += " (" + std::string(UnitLabel(recruitment->queue.front().type)) + ")";
             DrawTextFit(queue, Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 82), static_cast<float>(contentW), 18.0f}, 14, Color{190, 198, 208, 255});
             DrawTextFit(RecruitmentCostLabel(building, MilitaryUnitType::Militia), Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 60), static_cast<float>(contentW), 16.0f}, 13, Color{190, 198, 208, 255});
             DrawTextFit(RecruitmentCostLabel(building, MilitaryUnitType::Swordsman), Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 42), static_cast<float>(contentW), 16.0f}, 13, Color{190, 198, 208, 255});
@@ -1836,45 +1845,42 @@ void GuiPanel::Update(double dt)
         return;
     }
 
-    if (building->buildingType == BuildingType::Village)
+    if (auto* population = building->GetComponent<PopulationComponent>())
     {
-        auto* village = dynamic_cast<Village*>(building);
         UiText::Draw("Residential", contentX, y, 22, Color{190, 198, 208, 255});
         y += 32;
 
-        if (village != nullptr)
-        {
-            double manpowerRate = village->owner != nullptr
-                ? village->owner->ResolveStat(village->manpowerRate, village)
-                : village->manpowerRate.GetBase();
-            int populationCap = village->owner != nullptr
-                ? village->owner->ResolveStat(village->populationCap, village)
-                : village->populationCap.GetBase();
-            std::vector<std::string> stats{
-                "Generates: Manpower",
-                "Rate: " + std::to_string(static_cast<int>(manpowerRate * 60.0)) + " / min",
-                "Population cap: " + std::to_string(populationCap),
-                "Upkeep: " + std::to_string(static_cast<int>(village->foodPackageUpkeep)) + " food / min",
-                "Food supply: " + std::to_string(static_cast<int>(std::round(village->GetFoodSupplyRatio() * 100.0))) + "%",
-                "Worker output: " + std::to_string(static_cast<int>(std::round(village->GetWorkerProductivity() * 100.0))) + "%",
-                "Lifetime: " + std::to_string(static_cast<int>(village->GetLifetime())) + "s"};
+        double manpowerRate = building->owner != nullptr
+            ? building->owner->ResolveStat(population->manpowerRate, building)
+            : population->manpowerRate.GetBase();
+        int populationCap = building->owner != nullptr
+            ? building->owner->ResolveStat(population->populationCap, building)
+            : population->populationCap.GetBase();
+        std::vector<std::string> stats{
+            "Generates: Manpower",
+            "Rate: " + std::to_string(static_cast<int>(manpowerRate * 60.0)) + " / min",
+            "Population cap: " + std::to_string(populationCap),
+            "Upkeep: " + std::to_string(static_cast<int>(population->foodPackageUpkeep)) + " food / min",
+            "Food supply: " + std::to_string(static_cast<int>(std::round(population->GetFoodSupplyRatio() * 100.0))) + "%",
+            "Worker output: " + std::to_string(static_cast<int>(std::round(population->GetWorkerProductivity() * 100.0))) + "%",
+            "Lifetime: " + std::to_string(static_cast<int>(building->GetLifetime())) + "s"};
 
-            int line = 18;
-            for (const auto& stat : stats)
-            {
-                Color color = village->GetFoodSupplyRatio() < 1.0 && stat.find("Food supply") != std::string::npos ? Color{238, 184, 84, 255} : RAYWHITE;
-                DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(line)}, line - 3, color);
-                y += line + 4;
-            }
+        int line = 18;
+        for (const auto& stat : stats)
+        {
+            Color color = population->GetFoodSupplyRatio() < 1.0 && stat.find("Food supply") != std::string::npos ? Color{238, 184, 84, 255} : RAYWHITE;
+            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(line)}, line - 3, color);
+            y += line + 4;
         }
         drawDestroyButton();
         return;
     }
 
-    auto* panelProduction = dynamic_cast<ProductionBuilding*>(building);
+    auto* panelProduction = building->GetComponent<ProductionComponent>();
+    auto* panelRecipes = building->GetComponent<RecipeComponent>();
     int buttonSpace = destroyButton.size.y + margin +
                       (building->CanBlockProduction() ? lockButton.size.y + margin : 0) +
-                      (panelProduction != nullptr && panelProduction->HasSelectableRecipes() ? recipeButton.size.y + margin : 0);
+                      (panelRecipes != nullptr && panelRecipes->HasSelectableRecipes() ? recipeButton.size.y + margin : 0);
     int connectionsH = std::max(48, size.y / 9);
     int statsH = std::max(92, size.y / 5);
     int progressH = std::max(16, std::min(20, progressBar.size.y));
@@ -1943,6 +1949,8 @@ void GuiPanel::Update(double dt)
     for (const auto& receiver : receivers)
     {
         std::string label = rt2s(receiver.type) + " -> " + (receiver.building != nullptr ? receiver.building->name : "No receiver");
+        if (receiver.alternative)
+            label += " (alt)";
         Color color = receiver.building != nullptr ? RAYWHITE : Color{238, 184, 84, 255};
         DrawTextFit(label, Rectangle{static_cast<float>(contentX + connectionColumnW + connectionGap), static_cast<float>(rightY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, color);
         rightY += connectionLine;
@@ -1957,11 +1965,11 @@ void GuiPanel::Update(double dt)
     int foodProductivity = static_cast<int>(std::round(foodProductivityRatio * 100.0));
     double cycleTime = 0.0;
     int workerOutput = static_cast<int>(building->GetWorkerRatio() * 100.0f);
-    if (auto* production = dynamic_cast<ProductionBuilding*>(building))
+    if (panelProduction != nullptr)
     {
         double workerEfficiency = static_cast<double>(building->GetWorkerRatio()) * foodProductivityRatio;
         cycleTime = workerEfficiency > 0.0
-            ? production->GetModifiedProductionTime() / workerEfficiency
+            ? panelProduction->GetModifiedCycleTime(*building) / workerEfficiency
             : std::numeric_limits<double>::infinity();
     }
 
@@ -1974,9 +1982,8 @@ void GuiPanel::Update(double dt)
         "Efficiency: " + std::to_string(static_cast<int>(efficiency)) + "%",
         "Active: " + std::to_string(static_cast<int>(building->GetActiveTime())) + "s",
         "Lifetime: " + std::to_string(static_cast<int>(building->GetLifetime())) + "s"};
-    auto* productionBuilding = panelProduction;
-    if (productionBuilding != nullptr && !productionBuilding->GetRecipes().empty())
-        stats.insert(stats.begin(), "Recipe: " + productionBuilding->GetActiveRecipeName());
+    if (panelRecipes != nullptr && !panelRecipes->recipes.empty())
+        stats.insert(stats.begin(), "Recipe: " + panelRecipes->GetActiveRecipeName());
     int localRichness = GetLocalTerrainRichness(building);
     if (localRichness >= 0)
         stats.insert(stats.begin(), "Local richness: " + std::to_string(localRichness));
@@ -1998,11 +2005,11 @@ void GuiPanel::Update(double dt)
         DrawTextFit(stats[i], statBounds, statLine - 3, RAYWHITE);
     }
 
-    if (productionBuilding != nullptr && productionBuilding->HasSelectableRecipes())
+    if (panelRecipes != nullptr && panelRecipes->HasSelectableRecipes())
     {
         recipeButton.pos = Vec2i{contentX, bottom - destroyButton.size.y - margin - lockButton.size.y * 2 - margin};
         recipeButton.size = Vec2i{contentW, lockButton.size.y};
-        recipeButton.ChangeText("Recipe: " + productionBuilding->GetActiveRecipeName());
+        recipeButton.ChangeText("Recipe: " + panelRecipes->GetActiveRecipeName());
         recipeButton.Update(dt);
     }
 
@@ -2027,9 +2034,12 @@ GuiPanel::GuiPanel()
     };
     recipeButton.func = [this]()
     {
-        auto* production = dynamic_cast<ProductionBuilding*>(building);
-        if (production != nullptr)
-            production->CycleRecipe();
+        auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+        auto* logistics = building != nullptr ? building->GetComponent<LogisticsComponent>() : nullptr;
+        auto* workers = building != nullptr ? building->GetComponent<WorkerComponent>() : nullptr;
+        auto* recipes = building != nullptr ? building->GetComponent<RecipeComponent>() : nullptr;
+        if (building != nullptr && production != nullptr && logistics != nullptr && workers != nullptr && recipes != nullptr)
+            recipes->CycleRecipe(*building, *production, *logistics, *workers);
     };
     destroyButton.func = [this]()
     {
@@ -2145,7 +2155,7 @@ void ResearchPanel::Update(double dt)
     Vector2 mouse = GetMousePosition();
 
     DrawRectangleRounded(bounds, 0.018f, 8, Color{28, 32, 38, 242});
-    DrawRectangleRoundedLines(bounds, 0.018f, 8, Color{92, 102, 118, 255});
+    DrawRectangleRoundedLines(bounds, 0.018f, 8, 1.0f, Color{92, 102, 118, 255});
 
     Rectangle titleBounds{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
     DrawRectangleRounded(titleBounds, 0.018f, 8, Color{44, 52, 65, 255});
@@ -2161,7 +2171,7 @@ void ResearchPanel::Update(double dt)
         static_cast<float>(closeSize)};
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
     DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{120, 62, 62, 255} : Color{65, 72, 84, 255});
-    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, closeHovered ? Color{210, 125, 125, 255} : Color{120, 132, 150, 255});
+    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? Color{210, 125, 125, 255} : Color{120, 132, 150, 255});
 
     int xFont = std::max(14, closeSize / 2);
     int xWidth = UiText::Measure("X", xFont);
@@ -2230,7 +2240,7 @@ void ResearchPanel::Update(double dt)
         treePanning = false;
 
     DrawResearchTree(building->owner,
-                     dynamic_cast<ProductionBuilding*>(building),
+                     building,
                      treeBounds,
                      treePanOffset,
                      treeZoom,

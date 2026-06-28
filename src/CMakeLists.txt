@@ -8,10 +8,12 @@ include_directories(../inc)
                        GameWorld.Init.cpp
                        GameWorld.Persistence.cpp
                        GameWorld.Commands.cpp
+                       GameWorld.Checksum.cpp
                        GameWorld.Render.cpp
                        Controller.cpp
                        Technology.cpp
                        Building.cpp
+                       BuildingComponents.cpp
                        BuildingConfig.cpp
                        Game.cpp
                        Resource.cpp

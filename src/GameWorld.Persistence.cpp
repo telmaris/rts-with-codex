@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 12\n";
+    out << "RTS_SAVE 13\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -72,95 +72,105 @@ bool GameWorld::SaveToFile(const std::string& path) const
             << building->transportTime.GetBase() << '\n';
         out << "CONSTRUCTION " << building->buildTime.GetBase() << ' ' << building->constructionRemaining << '\n';
 
-        if (const auto* production = dynamic_cast<const ProductionBuilding*>(building))
+        if (const auto* prod = building->GetComponent<ProductionComponent>())
         {
-            out << "PROD " << static_cast<int>(production->type) << ' '
-                << production->productionTime.GetBase() << ' ' << production->elapsedTime << ' '
-                << production->productionStarted << '\n';
-            out << "WORKERS " << production->workerCapacity.GetBase() << ' ' << production->assignedWorkers << '\n';
-            out << "RECIPE " << production->GetActiveRecipeIndex() << '\n';
-            out << "RESEARCH " << std::quoted(production->GetActiveTechnologyId()) << ' '
-                << production->GetActiveTechnologyRemaining() << ' '
-                << production->GetActiveTechnologyTotal() << '\n';
+            const auto* workers = building->GetComponent<WorkerComponent>();
+            const auto* recipes = building->GetComponent<RecipeComponent>();
+            const auto* research = building->GetComponent<ResearchComponent>();
+            const auto* logistics = building->GetComponent<LogisticsComponent>();
+            if (workers == nullptr || recipes == nullptr || research == nullptr || logistics == nullptr)
+                return false;
 
-            out << "INGREDIENTS " << production->ingredients.size() << '\n';
-            for (const auto& [type, amount] : production->ingredients)
+            out << "PROD " << static_cast<int>(prod->terrainType) << ' '
+                << prod->cycleTime.GetBase() << ' ' << prod->elapsed << ' '
+                << prod->started << '\n';
+            out << "WORKERS " << workers->capacity.GetBase() << ' ' << workers->assigned << '\n';
+            out << "RECIPE " << recipes->activeRecipeIndex << '\n';
+            out << "RESEARCH " << std::quoted(research->technologyId) << ' '
+                << research->remaining << ' '
+                << research->total << '\n';
+
+            out << "INGREDIENTS " << prod->ingredients.size() << '\n';
+            for (const auto& [type, amount] : prod->ingredients)
                 out << "ING " << static_cast<int>(type) << ' ' << amount << '\n';
 
-            out << "PRODUCTS " << production->products.size() << '\n';
-            for (const auto& [type, amount] : production->products)
+            out << "PRODUCTS " << prod->products.size() << '\n';
+            for (const auto& [type, amount] : prod->products)
                 out << "PRODUCT " << static_cast<int>(type) << ' ' << amount << '\n';
 
-            out << "INPUTS " << production->inputBuffers.size() << '\n';
-            for (const auto& [type, buffer] : production->inputBuffers)
+            out << "INPUTS " << prod->inputBuffers.size() << '\n';
+            for (const auto& [type, buffer] : prod->inputBuffers)
                 SaveResourceBuffer(out, "INPUT", buffer);
 
-            out << "OUTPUTS " << production->outputBuffers.size() << '\n';
-            for (const auto& [type, buffer] : production->outputBuffers)
+            out << "OUTPUTS " << prod->outputBuffers.size() << '\n';
+            for (const auto& [type, buffer] : prod->outputBuffers)
                 SaveResourceBuffer(out, "OUTPUT", buffer);
 
             int supplierCount = 0;
-            for (const auto& [type, suppliers] : production->suppliersMap)
-            {
+            for (const auto& [type, suppliers] : logistics->suppliers)
                 for (const auto* supplier : suppliers)
-                {
-                    if (supplier != nullptr)
-                        supplierCount++;
-                }
-            }
+                    if (supplier != nullptr) supplierCount++;
 
             out << "SUPPLIERS " << supplierCount << '\n';
-            for (const auto& [type, suppliers] : production->suppliersMap)
-            {
+            for (const auto& [type, suppliers] : logistics->suppliers)
                 for (const auto* supplier : suppliers)
-                {
                     if (supplier != nullptr)
                         out << "SUP " << static_cast<int>(type) << ' ' << supplier->positionId << '\n';
-                }
-            }
 
-            out << "RECEIVERS " << production->receiversMap.size() << '\n';
-            for (const auto& [type, receiver] : production->receiversMap)
-                out << "REC " << static_cast<int>(type) << ' ' << (receiver != nullptr ? receiver->positionId : -1) << '\n';
+            out << "RECEIVERS " << logistics->receivers.size() << '\n';
+            for (const auto& [type, receiver] : logistics->receivers)
+                out << "REC " << static_cast<int>(type) << ' '
+                    << (receiver != nullptr ? receiver->positionId : -1) << '\n';
+            out << "ALT_RECEIVERS " << logistics->altReceivers.size() << '\n';
+            for (const auto& [type, receiver] : logistics->altReceivers)
+                out << "ALTREC " << static_cast<int>(type) << ' '
+                    << (receiver != nullptr ? receiver->positionId : -1) << '\n';
 
             out << "ENDPROD\n";
         }
 
-        if (const auto* storage = dynamic_cast<const StorageBuilding*>(building))
+        if (const auto* storage = building->GetComponent<StorageComponent>())
         {
-            out << "STOR " << storage->resourceBuffers.size() << '\n';
-            for (const auto& [type, buffer] : storage->resourceBuffers)
+            out << "STOR " << storage->buffers.size() << '\n';
+            for (const auto& [type, buffer] : storage->buffers)
                 SaveResourceBuffer(out, "BUF", buffer);
             out << "ENDSTOR\n";
         }
 
-        if (const auto* headquarters = dynamic_cast<const Headquarters*>(building))
+        if (building->buildingType == BuildingType::Headquarters)
         {
-            out << "HQ " << headquarters->territoryRadius.GetBase() << ' ' << headquarters->hitPoints << ' '
-                << headquarters->maxHitPoints.GetBase() << '\n';
+            const auto* territory = building->GetComponent<TerritoryComponent>();
+            if (territory == nullptr)
+                return false;
+            out << "HQ " << territory->radius.GetBase() << ' ' << territory->hp << ' '
+                << territory->maxHp.GetBase() << '\n';
         }
 
-        if (const auto* village = dynamic_cast<const Village*>(building))
+        if (const auto* pop = building->GetComponent<PopulationComponent>())
         {
-            out << "VIL " << village->manpowerRate.GetBase() << ' ' << village->upkeepTimer << ' '
-                << village->upkeepInterval << ' ' << village->foodPackageUpkeep << ' '
-                << village->hasFood << ' ' << village->populationCap.GetBase() << ' '
-                << village->foodSupplyLevel << ' ' << village->foodSupplyBuffer.bufferSize << ' '
-                << village->foodSupplyBuffer.buffer.size() << '\n';
+            out << "VIL " << pop->manpowerRate.GetBase() << ' ' << pop->upkeepTimer << ' '
+                << pop->upkeepInterval << ' ' << pop->foodPackageUpkeep << ' '
+                << pop->hasFood << ' ' << pop->populationCap.GetBase() << ' '
+                << pop->foodSupplyLevel << ' ' << pop->foodBuffer.bufferSize << ' '
+                << pop->foodBuffer.buffer.size() << '\n';
         }
 
-        if (const auto* military = dynamic_cast<const MilitaryBuilding*>(building))
+        if (const auto* g = building->GetComponent<GarrisonComponent>())
         {
-            int supplyAmount = static_cast<int>(military->supplyBuffer.buffer.size());
-            out << "MIL " << military->territoryRadius.GetBase() << ' ' << military->hitPoints << ' '
-                << military->maxHitPoints.GetBase() << ' ' << military->combatStrength.GetBase() << ' '
-                << military->garrison << ' ' << military->garrisonCapacity.GetBase() << ' '
-                << supplyAmount << ' ' << military->supplyCapacity.GetBase() << ' '
-                << military->militia << ' ' << military->swordsmen << ' '
-                << military->archers << ' ' << static_cast<int>(military->currentOrder) << ' '
-                << military->orderTargetPositionId << ' ' << military->orderCooldown << '\n';
-            out << "DIVS " << military->nextDivisionId << ' ' << military->divisions.size() << '\n';
-            for (const auto& division : military->divisions)
+            const auto* sb = building->GetComponent<SupplyBufferComponent>();
+            const auto* tr = building->GetComponent<TerritoryComponent>();
+            if (sb == nullptr || tr == nullptr)
+                return false;
+            int supplyAmount = static_cast<int>(sb->buffer.buffer.size());
+            out << "MIL " << tr->radius.GetBase() << ' ' << tr->hp << ' '
+                << tr->maxHp.GetBase() << ' ' << g->strength.GetBase() << ' '
+                << g->garrison << ' ' << g->cap.GetBase() << ' '
+                << supplyAmount << ' ' << sb->capacity.GetBase() << ' '
+                << g->militia << ' ' << g->swordsmen << ' '
+                << g->archers << ' ' << static_cast<int>(g->currentOrder) << ' '
+                << g->orderTargetId << ' ' << g->orderCooldown << '\n';
+            out << "DIVS " << g->nextDivisionId << ' ' << g->divisions.size() << '\n';
+            for (const auto& division : g->divisions)
             {
                 out << "DIV " << division.id << ' ' << static_cast<int>(division.type) << ' '
                     << division.manpowerScale << ' ' << division.maxHealth << ' ' << division.health << ' '
@@ -178,10 +188,10 @@ bool GameWorld::SaveToFile(const std::string& path) const
             out << "ENDDIVS\n";
         }
 
-        if (const auto* barracks = dynamic_cast<const Barracks*>(building))
+        if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
         {
-            out << "RECRUIT " << barracks->recruitmentQueue.size() << '\n';
-            for (const auto& job : barracks->recruitmentQueue)
+            out << "RECRUIT " << recruitment->queue.size() << '\n';
+            for (const auto& job : recruitment->queue)
                 out << "JOB " << static_cast<int>(job.type) << ' ' << job.remaining << '\n';
             out << "ENDRECRUIT\n";
         }
@@ -202,7 +212,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
     std::string tag;
     int version = 0;
     in >> tag >> version;
-    if (tag != "RTS_SAVE" || (version < 1 || version > 12))
+    if (tag != "RTS_SAVE" || (version < 1 || version > 13))
         return false;
 
     render = renderer;
@@ -383,227 +393,223 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
             }
             else if (tag == "PROD")
             {
-                auto* production = dynamic_cast<ProductionBuilding*>(placed);
-                if (production == nullptr)
+                auto* prod = placed->GetComponent<ProductionComponent>();
+                auto* workers = placed->GetComponent<WorkerComponent>();
+                auto* recipes = placed->GetComponent<RecipeComponent>();
+                auto* research = placed->GetComponent<ResearchComponent>();
+                auto* logistics = placed->GetComponent<LogisticsComponent>();
+                if (prod == nullptr || workers == nullptr || recipes == nullptr ||
+                    research == nullptr || logistics == nullptr)
                     return false;
 
                 int tileType = 0;
-                in >> tileType >> production->productionTime >> production->elapsedTime >> production->productionStarted;
-                production->type = static_cast<TileType>(tileType);
+                in >> tileType >> prod->cycleTime >> prod->elapsed >> prod->started;
+                prod->terrainType = static_cast<TileType>(tileType);
 
                 int count = 0;
                 in >> tag >> count;
                 if (version >= 5 && tag == "WORKERS")
                 {
-                    in >> production->workerCapacity >> production->assignedWorkers;
+                    in >> workers->capacity >> workers->assigned;
                     in >> tag >> count;
                 }
                 if (version >= 12 && tag == "RECIPE")
                 {
-                    production->SetActiveRecipe(count);
+                    recipes->SetActiveRecipe(count, *placed, *prod, *logistics, *workers);
                     in >> tag;
                 }
                 if (version >= 12 && tag == "RESEARCH")
                 {
-                    in >> std::quoted(production->activeTechnologyId)
-                       >> production->activeTechnologyRemaining
-                       >> production->activeTechnologyTotal;
+                    in >> std::quoted(research->technologyId)
+                       >> research->remaining
+                       >> research->total;
                     in >> tag >> count;
                 }
                 if (tag != "INGREDIENTS")
                     return false;
-                production->ingredients.clear();
+                prod->ingredients.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int amount = 0;
+                    int type = 0, amount = 0;
                     in >> tag >> type >> amount;
-                    if (tag != "ING")
-                        return false;
-                    production->ingredients[static_cast<ResourceType>(type)] = amount;
+                    if (tag != "ING") return false;
+                    prod->ingredients[static_cast<ResourceType>(type)] = amount;
                 }
 
                 in >> tag >> count;
-                if (tag != "PRODUCTS")
-                    return false;
-                production->products.clear();
+                if (tag != "PRODUCTS") return false;
+                prod->products.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int amount = 0;
+                    int type = 0, amount = 0;
                     in >> tag >> type >> amount;
-                    if (tag != "PRODUCT")
-                        return false;
-                    production->products[static_cast<ResourceType>(type)] = amount;
+                    if (tag != "PRODUCT") return false;
+                    prod->products[static_cast<ResourceType>(type)] = amount;
                 }
 
                 in >> tag >> count;
-                if (tag != "INPUTS")
-                    return false;
-                production->inputBuffers.clear();
+                if (tag != "INPUTS") return false;
+                prod->inputBuffers.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int capacity = 0;
-                    int amount = 0;
+                    int type = 0, capacity = 0, amount = 0;
                     in >> tag >> type >> capacity >> amount;
-                    if (tag != "INPUT")
-                        return false;
+                    if (tag != "INPUT") return false;
                     ResourceBuffer buffer{static_cast<ResourceType>(type), capacity};
                     LoadResourceBuffer(buffer, static_cast<ResourceType>(type), capacity, amount);
-                    production->inputBuffers[static_cast<ResourceType>(type)] = std::move(buffer);
+                    prod->inputBuffers[static_cast<ResourceType>(type)] = std::move(buffer);
                 }
 
                 in >> tag >> count;
-                if (tag != "OUTPUTS")
-                    return false;
-                production->outputBuffers.clear();
+                if (tag != "OUTPUTS") return false;
+                prod->outputBuffers.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int capacity = 0;
-                    int amount = 0;
+                    int type = 0, capacity = 0, amount = 0;
                     in >> tag >> type >> capacity >> amount;
-                    if (tag != "OUTPUT")
-                        return false;
+                    if (tag != "OUTPUT") return false;
                     ResourceBuffer buffer{static_cast<ResourceType>(type), capacity};
                     LoadResourceBuffer(buffer, static_cast<ResourceType>(type), capacity, amount);
-                    production->outputBuffers[static_cast<ResourceType>(type)] = std::move(buffer);
+                    prod->outputBuffers[static_cast<ResourceType>(type)] = std::move(buffer);
                 }
 
                 in >> tag >> count;
-                if (tag != "SUPPLIERS")
-                    return false;
-                production->suppliersMap.clear();
+                if (tag != "SUPPLIERS") return false;
+                logistics->suppliers.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int target = -1;
+                    int type = 0, target = -1;
                     in >> tag >> type >> target;
-                    if (tag != "SUP")
-                        return false;
-                    pendingConnections.push_back({positionId, static_cast<ResourceType>(type), target, false});
+                    if (tag != "SUP") return false;
+                    pendingConnections.push_back({positionId, static_cast<ResourceType>(type), target, false, false});
                 }
 
                 in >> tag >> count;
-                if (tag != "RECEIVERS")
-                    return false;
-                production->receiversMap.clear();
+                if (tag != "RECEIVERS") return false;
+                logistics->receivers.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int target = -1;
+                    int type = 0, target = -1;
                     in >> tag >> type >> target;
-                    if (tag != "REC")
-                        return false;
-                    pendingConnections.push_back({positionId, static_cast<ResourceType>(type), target, true});
+                    if (tag != "REC") return false;
+                    pendingConnections.push_back({positionId, static_cast<ResourceType>(type), target, true, false});
                 }
 
                 in >> tag;
-                if (tag != "ENDPROD")
-                    return false;
+                if (version >= 13 && tag == "ALT_RECEIVERS")
+                {
+                    int altCount = 0;
+                    in >> altCount;
+                    logistics->altReceivers.clear();
+                    for (int n = 0; n < altCount; n++)
+                    {
+                        int type = 0, target = -1;
+                        in >> tag >> type >> target;
+                        if (tag != "ALTREC") return false;
+                        pendingConnections.push_back({positionId, static_cast<ResourceType>(type), target, true, true});
+                    }
+                    in >> tag;
+                }
+                if (tag != "ENDPROD") return false;
             }
             else if (tag == "STOR")
             {
-                auto* storage = dynamic_cast<StorageBuilding*>(placed);
-                if (storage == nullptr)
-                    return false;
+                auto* storage = placed->GetComponent<StorageComponent>();
+                if (storage == nullptr) return false;
 
                 int count = 0;
                 in >> count;
-                storage->resourceBuffers.clear();
+                storage->buffers.clear();
                 for (int n = 0; n < count; n++)
                 {
-                    int type = 0;
-                    int capacity = 0;
-                    int amount = 0;
+                    int type = 0, capacity = 0, amount = 0;
                     in >> tag >> type >> capacity >> amount;
-                    if (tag != "BUF")
-                        return false;
+                    if (tag != "BUF") return false;
                     ResourceBuffer buffer{static_cast<ResourceType>(type), capacity};
                     LoadResourceBuffer(buffer, static_cast<ResourceType>(type), capacity, amount);
-                    storage->resourceBuffers[static_cast<ResourceType>(type)] = std::move(buffer);
+                    storage->buffers[static_cast<ResourceType>(type)] = std::move(buffer);
                 }
 
                 in >> tag;
-                if (tag != "ENDSTOR")
-                    return false;
+                if (tag != "ENDSTOR") return false;
             }
             else if (tag == "HQ")
             {
-                auto* headquarters = dynamic_cast<Headquarters*>(placed);
-                if (headquarters == nullptr)
-                    return false;
-                in >> headquarters->territoryRadius >> headquarters->hitPoints >> headquarters->maxHitPoints;
+                auto* territory = placed->GetComponent<TerritoryComponent>();
+                if (territory == nullptr) return false;
+                in >> territory->radius >> territory->hp >> territory->maxHp;
             }
             else if (tag == "VIL")
             {
-                auto* village = dynamic_cast<Village*>(placed);
-                if (village == nullptr)
-                    return false;
-                in >> village->manpowerRate >> village->upkeepTimer >> village->upkeepInterval
-                    >> village->foodPackageUpkeep >> village->hasFood;
+                auto* population = placed->GetComponent<PopulationComponent>();
+                if (population == nullptr) return false;
+                auto& pop = *population;
+                in >> pop.manpowerRate >> pop.upkeepTimer >> pop.upkeepInterval
+                   >> pop.foodPackageUpkeep >> pop.hasFood;
                 if (version >= 5)
-                    in >> village->populationCap;
+                    in >> pop.populationCap;
                 if (version >= 8)
                 {
                     int foodSupplyAmount = 0;
-                    in >> village->foodSupplyLevel >> village->foodSupplyBuffer.bufferSize >> foodSupplyAmount;
-                    village->foodSupplyBuffer.Clear();
-                    village->foodSupplyBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, village->foodSupplyBuffer.bufferSize};
-                    village->foodSupplyBuffer.SetStoredAmount(foodSupplyAmount);
-                    village->hasFood = village->foodSupplyLevel > 0.0;
+                    in >> pop.foodSupplyLevel >> pop.foodBuffer.bufferSize >> foodSupplyAmount;
+                    pop.foodBuffer.Clear();
+                    pop.foodBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, pop.foodBuffer.bufferSize};
+                    pop.foodBuffer.SetStoredAmount(foodSupplyAmount);
+                    pop.hasFood = pop.foodSupplyLevel > 0.0;
                 }
             }
             else if (tag == "MIL")
             {
-                auto* military = dynamic_cast<MilitaryBuilding*>(placed);
-                if (military == nullptr)
-                    return false;
-                in >> military->territoryRadius >> military->hitPoints >> military->maxHitPoints
-                    >> military->combatStrength >> military->garrison >> military->garrisonCapacity
-                    >> military->supply >> military->supplyCapacity;
-                military->supplyBuffer.Clear();
-                military->supplyBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, military->supplyCapacity.GetBase()};
-                military->supplyBuffer.SetStoredAmount(military->supply);
-                military->supply = static_cast<int>(military->supplyBuffer.buffer.size());
+                auto* garrison = placed->GetComponent<GarrisonComponent>();
+                auto* supply = placed->GetComponent<SupplyBufferComponent>();
+                auto* territory = placed->GetComponent<TerritoryComponent>();
+                if (garrison == nullptr || supply == nullptr || territory == nullptr) return false;
+                auto& g  = *garrison;
+                auto& sb = *supply;
+                auto& tr = *territory;
+                int supplyStored = 0;
+                in >> tr.radius >> tr.hp >> tr.maxHp
+                   >> g.strength >> g.garrison >> g.cap
+                   >> supplyStored >> sb.capacity;
+                sb.buffer.Clear();
+                sb.buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, sb.capacity.GetBase()};
+                sb.buffer.SetStoredAmount(supplyStored);
+                sb.stored = static_cast<int>(sb.buffer.buffer.size());
                 if (version >= 6)
                 {
                     int order = 0;
-                    in >> military->militia >> military->swordsmen >> military->archers
-                       >> order >> military->orderTargetPositionId >> military->orderCooldown;
-                    military->currentOrder = static_cast<MilitaryOrderType>(order);
+                    in >> g.militia >> g.swordsmen >> g.archers
+                       >> order >> g.orderTargetId >> g.orderCooldown;
+                    g.currentOrder = static_cast<MilitaryOrderType>(order);
                 }
             }
             else if (tag == "DIVS")
             {
-                auto* military = dynamic_cast<MilitaryBuilding*>(placed);
-                if (military == nullptr || version < 8)
-                    return false;
+                auto* garrison = placed->GetComponent<GarrisonComponent>();
+                if (garrison == nullptr || version < 8) return false;
 
                 int count = 0;
-                in >> military->nextDivisionId >> count;
-                military->divisions.clear();
+                in >> garrison->nextDivisionId >> count;
+                garrison->divisions.clear();
                 for (int n = 0; n < count; n++)
                 {
                     int unitType = 0;
                     int weapon = static_cast<int>(ResourceType::Null);
-                    int armor = static_cast<int>(ResourceType::Null);
+                    int armor  = static_cast<int>(ResourceType::Null);
                     int ranged = static_cast<int>(ResourceType::Null);
-                    int ammo = static_cast<int>(ResourceType::Null);
-                    int order = 0;
+                    int ammo   = static_cast<int>(ResourceType::Null);
+                    int order  = 0;
                     MilitaryDivision division;
                     in >> tag >> division.id >> unitType >> division.manpowerScale
                        >> division.maxHealth >> division.health >> division.endurance
                        >> division.strength >> division.morale >> division.experience
                        >> weapon >> armor >> ranged >> ammo;
-                    if (tag != "DIV")
-                        return false;
+                    if (tag != "DIV") return false;
                     division.type = static_cast<MilitaryUnitType>(unitType);
-                    division.equipment.weapon = static_cast<ResourceType>(weapon);
-                    division.equipment.armor = static_cast<ResourceType>(armor);
+                    division.equipment.weapon       = static_cast<ResourceType>(weapon);
+                    division.equipment.armor        = static_cast<ResourceType>(armor);
                     division.equipment.rangedWeapon = static_cast<ResourceType>(ranged);
-                    division.equipment.ammo = static_cast<ResourceType>(ammo);
+                    division.equipment.ammo         = static_cast<ResourceType>(ammo);
                     if (version >= 9)
                     {
                         in >> division.foodSupply >> division.foodSupplyCapacity
@@ -615,52 +621,38 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
                     }
                     else
                     {
-                        division.foodSupplyCapacity = division.manpowerScale;
-                        division.foodSupply = division.manpowerScale;
-                        division.weaponSupplyCapacity = division.manpowerScale;
-                        division.weaponSupply = division.manpowerScale;
+                        division.foodSupplyCapacity   = division.manpowerScale;
+                        division.foodSupply            = division.manpowerScale;
+                        division.weaponSupplyCapacity  = division.manpowerScale;
+                        division.weaponSupply          = division.manpowerScale;
                     }
-                    military->divisions.push_back(division);
+                    garrison->divisions.push_back(division);
                 }
 
                 in >> tag;
-                if (tag != "ENDDIVS")
-                    return false;
-                military->militia = military->swordsmen = military->archers = 0;
-                for (const auto& division : military->divisions)
-                {
-                    switch (division.type)
-                    {
-                        case MilitaryUnitType::Swordsman: military->swordsmen++; break;
-                        case MilitaryUnitType::Archer: military->archers++; break;
-                        case MilitaryUnitType::Militia:
-                        default: military->militia++; break;
-                    }
-                }
-                military->garrison = military->GetTotalTroops();
+                if (tag != "ENDDIVS") return false;
+                garrison->Recount();
+                garrison->garrison = garrison->GetTotalTroops();
             }
             else if (tag == "RECRUIT")
             {
-                auto* barracks = dynamic_cast<Barracks*>(placed);
-                if (barracks == nullptr || version < 6)
-                    return false;
+                auto* recruitment = placed->GetComponent<RecruitmentComponent>();
+                if (recruitment == nullptr || version < 6) return false;
 
                 int count = 0;
                 in >> count;
-                barracks->recruitmentQueue.clear();
+                recruitment->queue.clear();
                 for (int n = 0; n < count; n++)
                 {
                     int unitType = 0;
                     double remaining = 0.0;
                     in >> tag >> unitType >> remaining;
-                    if (tag != "JOB")
-                        return false;
-                    barracks->recruitmentQueue.push_back({static_cast<MilitaryUnitType>(unitType), remaining});
+                    if (tag != "JOB") return false;
+                    recruitment->queue.push_back({static_cast<MilitaryUnitType>(unitType), remaining});
                 }
 
                 in >> tag;
-                if (tag != "ENDRECRUIT")
-                    return false;
+                if (tag != "ENDRECRUIT") return false;
             }
             else
             {
@@ -701,7 +693,9 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
         if (source == nullptr || target == nullptr || source->IsUnderConstruction() || target->IsUnderConstruction())
             continue;
 
-        if (pending.receiver)
+        if (pending.receiver && pending.alternative)
+            source->SetAlternativeReceiver(pending.resource, target);
+        else if (pending.receiver)
             source->SetReceiver(pending.resource, target);
         else
             source->SetSupplier(pending.resource, target);

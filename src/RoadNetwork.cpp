@@ -59,6 +59,46 @@ bool Transportable::Update(double dt)
             return true;
         }
 
+        if (next->HasComponent<RoadComponent>())
+        {
+            auto* road = static_cast<Road*>(next);
+            if (static_cast<int>(road->transportables.size()) >= road->GetModifiedMaxCapacity())
+            {
+                Building* currentBuilding = map->GetBuilding(currentTileId);
+                auto* currentRoad = currentBuilding != nullptr && currentBuilding->HasComponent<RoadComponent>()
+                    ? static_cast<Road*>(currentBuilding)
+                    : nullptr;
+                if (currentRoad != nullptr)
+                {
+                    auto currentIt = std::find(currentRoad->transportables.begin(), currentRoad->transportables.end(), this);
+                    auto oncomingIt = std::find_if(road->transportables.begin(), road->transportables.end(),
+                        [currentTileId](Transportable* other)
+                        {
+                            return other != nullptr &&
+                                   other->currentPathStep + 1 < static_cast<int>(other->transportPath.size()) &&
+                                   other->transportPath[other->currentPathStep + 1] == currentTileId &&
+                                   other->elapsedTime >= other->transportTime;
+                        });
+
+                    if (currentIt != currentRoad->transportables.end() && oncomingIt != road->transportables.end())
+                    {
+                        Transportable* oncoming = *oncomingIt;
+                        *currentIt = oncoming;
+                        *oncomingIt = this;
+
+                        currentPathStep++;
+                        elapsedTime = 0.0;
+                        transportTime = road->GetModifiedTransportTime();
+
+                        oncoming->currentPathStep++;
+                        oncoming->elapsedTime = 0.0;
+                        oncoming->transportTime = currentRoad->GetModifiedTransportTime();
+                    }
+                }
+                return false;
+            }
+        }
+
         next->ReceptTransport(this);
 
         return true;
@@ -258,19 +298,6 @@ bool RoadNetwork::CanReserveTransportPath(Building* dest, Transportable* res, co
             return false;
     }
 
-    for (int tileId : path)
-    {
-        if (tileId < 0 || tileId >= navMap->map.size())
-            continue;
-
-        auto* road = dynamic_cast<Road*>(navMap->map[tileId].node);
-        if (road == nullptr)
-            continue;
-
-        if (CountReservedRoadCapacity(tileId) >= road->GetModifiedMaxCapacity())
-            return false;
-    }
-
     return true;
 }
 
@@ -297,7 +324,7 @@ int RoadNetwork::CountReservedRoadCapacity(int roadTileId) const
                 continue;
 
             int roadPathIndex = static_cast<int>(std::distance(transportable->transportPath.begin(), it));
-            if (transportable->currentPathStep <= roadPathIndex)
+            if (roadPathIndex == transportable->currentPathStep || roadPathIndex == transportable->currentPathStep + 1)
                 reserved++;
         }
     }

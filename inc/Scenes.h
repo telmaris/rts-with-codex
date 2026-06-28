@@ -13,6 +13,20 @@
 #include <vector>
 
 class TcpGameTransport;
+class GameScene;
+
+// Strategy object for mode-specific gameplay update/render details.
+class IGameRuntimeLoop
+{
+    public:
+        virtual ~IGameRuntimeLoop() = default;
+        virtual void Update(GameScene& scene, double dt) = 0;
+        virtual std::uint64_t SubmitCommand(const GameCommand& command) = 0;
+        virtual std::vector<GameCommandResult> ConsumeCommandResults() = 0;
+        virtual bool IsConnectionClosed() const = 0;
+        virtual std::string GetConnectionStatus() const = 0;
+        virtual std::recursive_mutex* GetWorldMutex() = 0;
+};
 
 // Main menu scene with textured background and primary navigation buttons.
 class MainMenuScene : public Scene
@@ -40,6 +54,8 @@ class MainMenuScene : public Scene
 
     VBox buttonsColumn;
     UiImage menuGraphic;
+    UiLabel statusLabel;
+    double statusTimer{0.0};
 };
 
 // Options scene for display and audio preferences.
@@ -128,13 +144,17 @@ class MultiplayerScene : public Scene
         void OnSendChatPressed();
         void AddLobbyLine(const std::string& line, Color color = Color{190, 205, 224, 255});
         void ResetLobby();
-        void UpdateLobbyMessages();
+        void UpdateLobbyMessages(double dt);
+        void DrawConnectionDialog() const;
         void DrawLobbyLog() const;
         void DrawLobbyPlayerPanels() const;
         void DrawGameSettingsPanel() const;
         void RefreshMultiplayerLabels();
         void SaveMultiplayerSettings() const;
         MapParameters BuildLobbyMapParameters() const;
+        void BroadcastLobbyState(const std::string& infoMessage = "");
+        bool ApplyLobbyState(const std::string& payload);
+        void MaybeBroadcastSettingsChange(const std::string& infoMessage = "");
 
         UiButton backButton;
         UiLabel nicknameLabel;
@@ -172,9 +192,14 @@ class MultiplayerScene : public Scene
         bool showGameSettings{false};
         bool isLobbyHost{false};
         bool lobbyActive{false};
+        bool connectingToLobby{false};
         bool announcedConnection{false};
         bool hasRemoteLobbyPlayer{false};
         int lobbyChatScroll{0};
+        double connectionWaitTimer{0.0};
+        double connectionMessageTimer{0.0};
+        std::string connectionMessage;
+        std::string lastBroadcastLobbyState;
 };
 
 // Save selection scene used to load existing games.
@@ -259,11 +284,17 @@ class GameScene : public Scene
         std::uint64_t SubmitLocalCommand(const GameCommand& command);
         // Returns command results received from the active session.
         std::vector<GameCommandResult> ConsumeCommandResults();
+        // Clears the active runtime and closes owned network transports.
+        void ShutdownActiveGame();
+        // Repositions the small multiplayer diagnostics label.
+        void UpdateNetworkStatusWidget(Vec2i windowSize);
 
         std::unique_ptr<GameWorld> game{nullptr};
-        std::unique_ptr<IGameSession> session{nullptr};
+        std::unique_ptr<IGameRuntimeLoop> runtimeLoop{nullptr};
         std::unique_ptr<GuiController> controller{nullptr};
         InputProcessor inputs;
+        UiLabel networkStatusLabel;
+        GameSnapshot latestSnapshot;
         std::vector<GameCommandResult> commandResults;
 };
 

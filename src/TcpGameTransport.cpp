@@ -17,7 +17,9 @@
 
 #include "../inc/TcpGameTransport.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 
 namespace
 {
@@ -44,6 +46,12 @@ namespace
         return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
     }
 #endif
+
+    long long NowMillis()
+    {
+        using Clock = std::chrono::steady_clock;
+        return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+    }
 }
 
 TcpGameTransport::TcpGameTransport(Mode mode) : mode(mode)
@@ -135,6 +143,35 @@ std::vector<std::string> TcpGameTransport::ReceiveClientResults()
     return Drain(clientResults);
 }
 
+void TcpGameTransport::SendHostFrame(const std::string& payload)
+{
+    if (mode == Mode::Host)
+    {
+        SendLine("F " + payload);
+    }
+}
+
+std::vector<std::string> TcpGameTransport::ReceiveClientFrames()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return Drain(clientFrames);
+}
+
+void TcpGameTransport::SendHostSnapshot(const std::string& payload)
+{
+    if (mode == Mode::Host)
+    {
+        Log::Msg("[TCP]", "Queue host snapshot payload bytes=", payload.size());
+        SendLine("S " + payload);
+    }
+}
+
+std::vector<std::string> TcpGameTransport::ReceiveClientSnapshots()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return Drain(clientSnapshots);
+}
+
 void TcpGameTransport::SendLobbyMessage(const std::string& payload)
 {
     Log::Msg("[TCP]", "Queue lobby message: ", payload);
@@ -180,10 +217,38 @@ void TcpGameTransport::QueueIncomingLine(const std::string& line)
         Log::Msg("[TCP]", "Received host result payload");
         clientResults.push_back(line.substr(2));
     }
+    else if (line[0] == 'F' && line[1] == ' ')
+    {
+        clientFrames.push_back(line.substr(2));
+        while (clientFrames.size() > 120)
+            clientFrames.pop_front();
+    }
     else if (line[0] == 'L' && line[1] == ' ')
     {
         Log::Msg("[TCP]", "Received lobby message: ", line.substr(2));
         lobbyMessages.push_back(line.substr(2));
+    }
+    else if (line[0] == 'S' && line[1] == ' ')
+    {
+        Log::Msg("[TCP]", "Received host snapshot payload");
+        clientSnapshots.push_back(line.substr(2));
+    }
+    else if (line[0] == 'P' && line[1] == ' ')
+    {
+        outboundLines.push_front("O " + line.substr(2) + "\n");
+    }
+    else if (line[0] == 'O' && line[1] == ' ')
+    {
+        try
+        {
+            long long sentAt = std::stoll(line.substr(2));
+            int measuredPing = static_cast<int>(std::max<long long>(0, NowMillis() - sentAt));
+            pingMs = measuredPing;
+        }
+        catch (...)
+        {
+            pingMs = -1;
+        }
     }
 }
 
@@ -265,13 +330,51 @@ void TcpGameTransport::NetworkLoop()
         service.sin_port = htons(port);
         inet_pton(AF_INET, address.c_str(), &service.sin_addr);
 
-        if (connect(socket, reinterpret_cast<sockaddr*>(&service), sizeof(service)) == SOCKET_ERROR)
+        u_long nonBlocking = 1;
+        ioctlsocket(socket, FIONBIO, &nonBlocking);
+        int connectResult = connect(socket, reinterpret_cast<sockaddr*>(&service), sizeof(service));
+        if (connectResult == SOCKET_ERROR && !WouldBlock())
         {
             failed = true;
             status = "Connect failed";
             Log::Msg("[TCP]", status, " to ", address, ":", port);
             CloseSocket(socket);
             return;
+        }
+        if (connectResult == SOCKET_ERROR)
+        {
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            bool connectedNow = false;
+            while (running && std::chrono::steady_clock::now() < deadline)
+            {
+                fd_set writeSet;
+                FD_ZERO(&writeSet);
+                FD_SET(socket, &writeSet);
+                timeval timeout{};
+                timeout.tv_sec = 0;
+                timeout.tv_usec = 100000;
+                int selected = select(0, nullptr, &writeSet, nullptr, &timeout);
+                if (selected > 0 && FD_ISSET(socket, &writeSet))
+                {
+                    int error = 0;
+                    int len = sizeof(error);
+                    getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &len);
+                    if (error == 0)
+                        connectedNow = true;
+                    break;
+                }
+                if (selected == SOCKET_ERROR)
+                    break;
+            }
+
+            if (!connectedNow)
+            {
+                failed = true;
+                status = "Connect timed out";
+                Log::Msg("[TCP]", status, " to ", address, ":", port);
+                CloseSocket(socket);
+                return;
+            }
         }
     }
 
@@ -285,6 +388,8 @@ void TcpGameTransport::NetworkLoop()
 
     u_long nonBlocking = 1;
     ioctlsocket(socket, FIONBIO, &nonBlocking);
+    int noDelay = 1;
+    setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<char*>(&noDelay), sizeof(noDelay));
     connected = true;
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -293,7 +398,11 @@ void TcpGameTransport::NetworkLoop()
     }
 
     std::string incoming;
-    char buffer[2048];
+    char buffer[16384];
+    auto lastPingSent = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    std::deque<std::string> outgoing;
+    std::string activeOutgoingLine;
+    size_t activeOutgoingOffset = 0;
     while (running)
     {
         int received = recv(socket, buffer, sizeof(buffer), 0);
@@ -322,17 +431,61 @@ void TcpGameTransport::NetworkLoop()
             break;
         }
 
-        std::deque<std::string> outgoing;
+        auto now = std::chrono::steady_clock::now();
+        if (now - lastPingSent >= std::chrono::seconds(1))
+        {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                outboundLines.push_front("P " + std::to_string(NowMillis()) + "\n");
+            }
+            lastPingSent = now;
+        }
+
         {
             std::lock_guard<std::mutex> lock(mutex);
-            outgoing.swap(outboundLines);
+            constexpr size_t MaxBufferedLines = 256;
+            while (!outboundLines.empty() && outgoing.size() < MaxBufferedLines)
+            {
+                outgoing.push_back(std::move(outboundLines.front()));
+                outboundLines.pop_front();
+            }
         }
-        while (!outgoing.empty())
+
+        constexpr size_t SendBudgetBytes = 64 * 1024;
+        size_t sendBudget = SendBudgetBytes;
+        while (sendBudget > 0 && running)
         {
-            const std::string& line = outgoing.front();
-            Log::Msg("[TCP]", "Sending line bytes=", line.size());
-            send(socket, line.c_str(), static_cast<int>(line.size()), 0);
-            outgoing.pop_front();
+            if (activeOutgoingLine.empty())
+            {
+                if (outgoing.empty())
+                    break;
+                activeOutgoingLine = std::move(outgoing.front());
+                activeOutgoingOffset = 0;
+                outgoing.pop_front();
+                if (activeOutgoingLine.size() > 2048)
+                    Log::Msg("[TCP]", "Sending large line bytes=", activeOutgoingLine.size());
+            }
+
+            size_t remaining = activeOutgoingLine.size() - activeOutgoingOffset;
+            int requested = static_cast<int>(std::min(remaining, sendBudget));
+            int sent = send(socket, activeOutgoingLine.c_str() + activeOutgoingOffset, requested, 0);
+            if (sent <= 0)
+            {
+                if (WouldBlock())
+                    break;
+                Log::Msg("[TCP]", "Socket send failed");
+                failed = true;
+                running = false;
+                break;
+            }
+
+            activeOutgoingOffset += static_cast<size_t>(sent);
+            sendBudget -= static_cast<size_t>(sent);
+            if (activeOutgoingOffset >= activeOutgoingLine.size())
+            {
+                activeOutgoingLine.clear();
+                activeOutgoingOffset = 0;
+            }
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(8));

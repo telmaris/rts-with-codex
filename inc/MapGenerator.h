@@ -162,7 +162,7 @@ class TileMap
         // Connects a placed building to default supplier and receiver candidates.
         void AutoConnectBuilding(Building* building);
         // Makes one building send compatible outputs to another building.
-        void ConnectReceiver(Building* source, Building* receiver);
+        void ConnectReceiver(Building* source, Building* receiver, bool alternative = false);
         // Marks rounded territory around a source coordinate for one player.
         void SetTerritory(Vec2i source, int size, Player* player);
         // Rebuilds all territory owned by one player from active military buildings.

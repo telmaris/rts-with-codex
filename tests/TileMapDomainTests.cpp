@@ -131,15 +131,15 @@ TEST(TileMapDomainTests, TerritoryRecalculationUsesLivingMilitaryBuildingsWithou
     auto* tower = dynamic_cast<GuardTower*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({3, 3}), &player, std::make_unique<GuardTower>(1)));
     ASSERT_NE(tower, nullptr);
-    tower->territoryRadius = 3;
-    tower->hitPoints = 100;
+    tower->territory.radius = 3;
+    tower->territory.hp = 100;
 
     map.RecalculateTerritory(&player);
 
     EXPECT_EQ(map.tilemap[map.GetIdFromCoords({5, 5})].owner, &enemy);
     EXPECT_EQ(map.tilemap[map.GetIdFromCoords({3, 3})].owner, &player);
 
-    tower->hitPoints = 0;
+    tower->territory.hp = 0;
     map.RecalculateTerritory(&player);
     EXPECT_EQ(map.tilemap[map.GetIdFromCoords({3, 3})].owner, nullptr);
 }

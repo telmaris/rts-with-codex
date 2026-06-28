@@ -4,6 +4,7 @@
 #include "Utils.h"
 #include "Controller.h"
 #include "GameCommand.h"
+#include "GameSnapshot.h"
 #include "MapGenerator.h"
 #include "Player.h"
 #include "Renderer.h"
@@ -49,6 +50,10 @@ class GameWorld
         void UpdateSimulation(double dt);
         // Draws terrain, roads, buildings and territory overlays.
         void DrawMap();
+        // Captures render-safe world state for another thread.
+        GameSnapshot BuildSnapshot() const;
+        // Computes a deterministic low-cost gameplay checksum for mirror validation.
+        std::uint64_t BuildChecksum() const;
         // Returns the player controlled by local UI.
         int GetLocalPlayerId() const { return localPlayerId; }
         // Returns the authoritative simulation tick counter.

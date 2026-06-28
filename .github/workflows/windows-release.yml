@@ -22,7 +22,7 @@ jobs:
 
     env:
       BUILD_TYPE: Release
-      VCPKG_DEFAULT_TRIPLET: x64-windows
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
 
     steps:
       - name: Checkout
@@ -33,15 +33,7 @@ jobs:
       - name: Install raylib
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install raylib:x64-windows
-
-      - name: Install raygui header
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path external\raygui | Out-Null
-          Invoke-WebRequest `
-            -Uri "https://raw.githubusercontent.com/raysan5/raygui/4.0/src/raygui.h" `
-            -OutFile "external\raygui\raygui.h"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install raylib:x64-windows-static
 
       - name: Configure
         shell: pwsh
@@ -49,7 +41,7 @@ jobs:
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DBUILD_TESTING=ON `
-            -Draygui_INCLUDE_DIR="$PWD\external\raygui" `
+            -Draygui_INCLUDE_DIR="$PWD\deps\raygui" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
             -DVCPKG_APPLOCAL_DEPS=ON
@@ -79,12 +71,34 @@ jobs:
         run: |
           $dist = "dist\rts-windows-x64"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          Copy-Item "build\${{ env.BUILD_TYPE }}\rts.exe" $dist
-          if (Test-Path "build\${{ env.BUILD_TYPE }}\*.dll") {
-            Copy-Item "build\${{ env.BUILD_TYPE }}\*.dll" $dist
+
+          $exe = Get-ChildItem -Path build -Recurse -Filter rts.exe |
+            Where-Object { (Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq "${{ env.BUILD_TYPE }}" } |
+            Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path build -Recurse -Filter rts.exe | Select-Object -First 1
           }
+          if (-not $exe) {
+            Write-Host "Build tree:"
+            Get-ChildItem -Path build -Recurse | Select-Object FullName, Length
+            throw "rts.exe not found in build output"
+          }
+
+          Copy-Item $exe.FullName $dist
+
+          # Copy any DLLs sitting next to the exe (with static build there are none,
+          # but kept here as a safety net in case the triplet ever changes back).
+          $exeDir = Split-Path -Parent $exe.FullName
+          Get-ChildItem -Path $exeDir -Filter *.dll | ForEach-Object {
+            Copy-Item $_.FullName $dist
+          }
+
           Copy-Item "assets" "$dist\assets" -Recurse
           New-Item -ItemType Directory -Force -Path "$dist\saves" | Out-Null
+
+          Write-Host "Package contents:"
+          Get-ChildItem -Path $dist -Recurse | Select-Object FullName, Length
+
           Compress-Archive -Path "$dist\*" -DestinationPath "dist\rts-windows-x64.zip" -Force
 
       - name: Upload ZIP artifact
@@ -106,28 +120,25 @@ jobs:
             $shouldRelease = "true"
             $tagName = "${{ github.ref_name }}"
           } elseif ("${{ github.ref }}" -eq "refs/heads/main" -or "${{ github.ref }}" -eq "refs/heads/master") {
-            git fetch --tags --force
-            $latestTag = git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | Select-Object -First 1
-
-            if ([string]::IsNullOrWhiteSpace($latestTag)) {
-              $tagName = "v0.1.0"
-            } else {
-              $match = [regex]::Match($latestTag, '^v(\d+)\.(\d+)\.(\d+)$')
-              if (-not $match.Success) {
-                throw "Latest version tag has invalid format: $latestTag"
-              }
-
-              $major = [int]$match.Groups[1].Value
-              $minor = [int]$match.Groups[2].Value
-              $patch = [int]$match.Groups[3].Value + 1
-              $tagName = "v$major.$minor.$patch"
+            # VERSION file is the single source of truth. Release only when its
+            # version has not been tagged yet (patch bumps come from local builds).
+            $version = (Get-Content "VERSION" -Raw).Trim()
+            if ($version -notmatch '^\d+\.\d+\.\d+$') {
+              throw "VERSION file malformed: '$version' (expected MAJOR.MINOR.PATCH)"
             }
+            $tagName = "v$version"
 
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a $tagName -m "Release $tagName"
-            git push origin $tagName
-            $shouldRelease = "true"
+            git fetch --tags --force
+            $existing = git tag --list $tagName
+            if ([string]::IsNullOrWhiteSpace($existing)) {
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a $tagName -m "Release $tagName"
+              git push origin $tagName
+              $shouldRelease = "true"
+            } else {
+              Write-Host "Tag $tagName already exists; building without a new release."
+            }
           }
 
           "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT

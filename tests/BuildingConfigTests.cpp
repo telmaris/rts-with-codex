@@ -1,4 +1,5 @@
 #include "../inc/BuildingConfig.h"
+#include "../inc/ProductionBuildings.h"
 
 #include <gtest/gtest.h>
 
@@ -69,28 +70,28 @@ TEST(BuildingConfigTests, TerrainSpecificProductionCanBeFound)
 
 TEST(BuildingConfigTests, AppliesDefinitionsToRuntimeBuildings)
 {
-    ProductionBuilding production{1};
+    Woodcutter production{1};
     const auto& mill = GetBuildingDefinition(BuildingType::LumberMill);
     ApplyBuildingDefinition(production, mill);
     ApplyProductionDefinition(production, mill.production);
 
     EXPECT_EQ(production.name, mill.name);
     EXPECT_EQ(production.buildingType, BuildingType::LumberMill);
-    EXPECT_FALSE(production.ingredients.empty());
-    EXPECT_FALSE(production.products.empty());
+    EXPECT_FALSE(production.production.ingredients.empty());
+    EXPECT_FALSE(production.production.products.empty());
 
     StorageBuilding storage{2};
     const auto& hq = GetBuildingDefinition(BuildingType::Headquarters);
     ApplyStorageDefinition(storage, hq);
-    EXPECT_FALSE(storage.resourceBuffers.empty());
+    EXPECT_FALSE(storage.storage.buffers.empty());
 
-    MilitaryBuilding military{3};
+    GuardTower military{3};
     const auto& tower = GetBuildingDefinition(BuildingType::GuardTower);
     ApplyMilitaryDefinition(military, tower);
-    EXPECT_EQ(military.hitPoints, tower.military.hitPoints);
-    EXPECT_EQ(military.GetTotalTroops(), 0);
-    EXPECT_EQ(military.garrison, 0);
-    EXPECT_EQ(military.supply, tower.military.supply);
+    EXPECT_EQ(military.territory.hp, tower.military.hitPoints);
+    EXPECT_EQ(military.garrison.GetTotalTroops(), 0);
+    EXPECT_EQ(military.garrison.garrison, 0);
+    EXPECT_EQ(military.supplyBuffer.stored, tower.military.supply);
 }
 
 TEST(BuildingConfigTests, LoadsBuildingDataFileWithProductionStorageRoadVillageAndMilitarySections)

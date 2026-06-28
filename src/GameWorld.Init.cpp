@@ -26,15 +26,15 @@ namespace
         if (player == nullptr || amount <= 0)
             return;
 
-        for (auto* building : player->GetTrackedBuildings())
+        for (auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
         {
-            auto* headquarters = dynamic_cast<Headquarters*>(building);
-            if (headquarters == nullptr)
+            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+            if (storage == nullptr || building->buildingType != BuildingType::Headquarters)
                 continue;
 
             for (ResourceType type : resourceTypes)
             {
-                auto& buffer = headquarters->resourceBuffers[type];
+                auto& buffer = storage->buffers[type];
                 if (buffer.type == ResourceType::Null)
                     buffer = ResourceBuffer{type, amount};
                 buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);

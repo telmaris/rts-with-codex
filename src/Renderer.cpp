@@ -1,5 +1,22 @@
-#include "../inc/Renderer.h"
+﻿#include "../inc/Renderer.h"
 #include "../inc/Building.h"
+
+#include <algorithm>
+
+namespace
+{
+    float ScreenTopPaddingToRender(float screenPadding)
+    {
+        float scale = std::min(GetScreenWidth() / static_cast<float>(RENDER_WIDTH),
+                               GetScreenHeight() / static_cast<float>(RENDER_HEIGHT));
+        if (scale <= 0.0f)
+            return 0.0f;
+
+        float height = RENDER_HEIGHT * scale;
+        float offsetY = (GetScreenHeight() - height) * 0.5f;
+        return std::clamp((screenPadding - offsetY) / scale, 0.0f, static_cast<float>(RENDER_HEIGHT - 1));
+    }
+}
 
 // Draws all cached world layers and UI widgets to the window.
 void Renderer::Draw(std::vector<UiWidget*> ui, double dt)
@@ -111,12 +128,17 @@ void Renderer::DrawBuildingTexture(Building* building, Vec2f pos)
     if (building == nullptr)
         return;
 
-    auto footprint = building->GetFootprint();
+    DrawBuildingTexture(building->buildingType, building->GetFootprint(), pos);
+}
+
+// Draws a building snapshot with its standalone texture.
+void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos)
+{
     Vec2f drawSize{
         static_cast<float>(footprint.x * TILE_SIZE),
         static_cast<float>(footprint.y * TILE_SIZE)};
 
-    auto textureIt = buildingTextures.find(building->buildingType);
+    auto textureIt = buildingTextures.find(type);
     if (textureIt != buildingTextures.end())
     {
         Texture2D texture = textureIt->second;
@@ -128,7 +150,117 @@ void Renderer::DrawBuildingTexture(Building* building, Vec2f pos)
 
     Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
     DrawRectangleRounded(dest, 0.04f, 8, Color{90, 96, 108, 255});
-    DrawRectangleRoundedLines(dest, 0.04f, 8, Color{170, 180, 196, 255});
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{170, 180, 196, 255});
+}
+
+// Draws terrain, territory and buildings from an immutable game snapshot.
+void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
+{
+    if (!snapshot.IsValid())
+        return;
+
+    bool cameraChanged =
+        cachedSnapshotCameraZoom != camera.zoom ||
+        cachedSnapshotCameraTarget.x != camera.target.x ||
+        cachedSnapshotCameraTarget.y != camera.target.y;
+    bool snapshotChanged = cachedSnapshotTick != snapshot.simulationTick;
+    if (!cameraChanged && !snapshotChanged)
+        return;
+
+    Vec2f worldA = RenderToWorld({0.0f, 0.0f});
+    Vec2f worldB = RenderToWorld({static_cast<float>(RENDER_WIDTH), static_cast<float>(RENDER_HEIGHT)});
+    float minWorldX = std::min(worldA.x, worldB.x);
+    float maxWorldX = std::max(worldA.x, worldB.x);
+    float minWorldY = std::min(worldA.y, worldB.y);
+    float maxWorldY = std::max(worldA.y, worldB.y);
+
+    int minTileX = std::clamp(static_cast<int>(std::floor(minWorldX / TILE_SIZE)) - 2, 0, snapshot.mapSize.x - 1);
+    int maxTileX = std::clamp(static_cast<int>(std::ceil(maxWorldX / TILE_SIZE)) + 2, 0, snapshot.mapSize.x - 1);
+    int minTileY = std::clamp(static_cast<int>(std::floor(minWorldY / TILE_SIZE)) - 2, 0, snapshot.mapSize.y - 1);
+    int maxTileY = std::clamp(static_cast<int>(std::ceil(maxWorldY / TILE_SIZE)) + 2, 0, snapshot.mapSize.y - 1);
+
+    ClearLayer(0);
+    BeginLayer(0);
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
+            DrawAtlasTile(0, tile.terrainTextureId, pos);
+        }
+    }
+    EndLayer();
+
+    ClearLayer(2);
+    BeginLayer(2);
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            if (!tile.hasOwner)
+                continue;
+
+            Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
+            Color border = tile.ownerColor;
+            border.a = 230;
+            if (camera.zoom < 0.75f)
+            {
+                Color fill = tile.ownerColor;
+                fill.a = camera.zoom < 0.45f ? 64 : 38;
+                DrawRectangle(static_cast<int>(pos.x),
+                              static_cast<int>(RENDER_HEIGHT - TILE_SIZE - pos.y),
+                              TILE_SIZE,
+                              TILE_SIZE,
+                              fill);
+            }
+
+            auto hasSameOwner = [&](int nx, int ny)
+            {
+                if (nx < 0 || ny < 0 || nx >= snapshot.mapSize.x || ny >= snapshot.mapSize.y)
+                    return false;
+                const auto& other = snapshot.tiles[static_cast<size_t>(ny * snapshot.mapSize.x + nx)];
+                return other.hasOwner &&
+                       other.ownerColor.r == tile.ownerColor.r &&
+                       other.ownerColor.g == tile.ownerColor.g &&
+                       other.ownerColor.b == tile.ownerColor.b &&
+                       other.ownerColor.a == tile.ownerColor.a;
+            };
+
+            float sx = pos.x;
+            float sy = static_cast<float>(RENDER_HEIGHT - TILE_SIZE - pos.y);
+            if (!hasSameOwner(x, y - 1))
+                DrawLineEx({sx, sy + TILE_SIZE}, {sx + TILE_SIZE, sy + TILE_SIZE}, 4.0f, border);
+            if (!hasSameOwner(x + 1, y))
+                DrawLineEx({sx + TILE_SIZE, sy}, {sx + TILE_SIZE, sy + TILE_SIZE}, 4.0f, border);
+            if (!hasSameOwner(x, y + 1))
+                DrawLineEx({sx, sy}, {sx + TILE_SIZE, sy}, 4.0f, border);
+            if (!hasSameOwner(x - 1, y))
+                DrawLineEx({sx, sy}, {sx, sy + TILE_SIZE}, 4.0f, border);
+        }
+    }
+    EndLayer();
+
+    ClearLayer(1);
+    BeginLayer(1);
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            if (!tile.hasBuilding)
+                continue;
+
+            Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
+            DrawBuildingTexture(tile.buildingType, tile.buildingFootprint, pos);
+        }
+    }
+    EndLayer();
+
+    cachedSnapshotTick = snapshot.simulationTick;
+    cachedSnapshotCameraTarget = {camera.target.x, camera.target.y};
+    cachedSnapshotCameraZoom = camera.zoom;
 }
 
 // Initializes Renderer::ScreenToRender.
@@ -207,17 +339,24 @@ void Renderer::ClampCameraToMap(Vec2i mapSize)
     if (mapW <= 0.0f || mapH <= 0.0f)
         return;
 
-    float minZoom = std::max(RENDER_WIDTH / mapW, RENDER_HEIGHT / mapH);
+    float topRenderPadding = ScreenTopPaddingToRender(topScreenPadding);
+    float usableRenderHeight = std::max(1.0f, static_cast<float>(RENDER_HEIGHT) - topRenderPadding);
+    float minZoom = std::max(RENDER_WIDTH / mapW, usableRenderHeight / mapH);
     camera.zoom = std::clamp(camera.zoom, minZoom, 2.5f);
 
     float visibleW = RENDER_WIDTH / camera.zoom;
-    float visibleH = RENDER_HEIGHT / camera.zoom;
+    float visibleH = usableRenderHeight / camera.zoom;
     float maxX = std::max(0.0f, mapW - visibleW);
     float minY = RENDER_HEIGHT - mapH;
     float maxY = RENDER_HEIGHT - visibleH;
 
     camera.target.x = std::clamp(camera.target.x, 0.0f, maxX);
     camera.target.y = std::clamp(camera.target.y, minY, maxY);
+}
+
+void Renderer::SetTopScreenPadding(float padding)
+{
+    topScreenPadding = std::max(0.0f, padding);
 }
 
 // Adjusts camera or map-space geometry.

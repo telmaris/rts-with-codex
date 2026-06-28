@@ -534,7 +534,7 @@ bool PrimitiveAIModel::TryBuildEconomy(GameWorld& world, Player* player, const A
         if (building->IsProductionStalled())
             stalledBuildings++;
 
-        if (const auto* production = dynamic_cast<const ProductionBuilding*>(building))
+        if (const auto* production = building->GetComponent<ProductionComponent>())
         {
             bool outputFull = false;
             for (const auto& [type, buffer] : production->outputBuffers)
@@ -543,9 +543,9 @@ bool PrimitiveAIModel::TryBuildEconomy(GameWorld& world, Player* player, const A
                 fullOutputBuildings++;
         }
 
-        if (const auto* storageBuilding = dynamic_cast<const StorageBuilding*>(building))
+        if (const auto* storage = building->GetComponent<StorageComponent>())
         {
-            for (const auto& [type, buffer] : storageBuilding->resourceBuffers)
+            for (const auto& [type, buffer] : storage->buffers)
             {
                 totalStored += static_cast<int>(buffer.buffer.size());
                 totalStorageCapacity += buffer.bufferSize;
@@ -1114,7 +1114,7 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
             const Building* building = tile.GetBuilding();
             if (building == nullptr || building->owner == nullptr || building->owner == player || building->IsUnderConstruction())
                 continue;
-            if (dynamic_cast<const IMilitaryBuilding*>(building) != nullptr)
+            if (building->GetHitPoints() > 0)
                 enemyMilitaryBuildings++;
         }
         if (enemyMilitaryBuildings > 0)
@@ -1218,15 +1218,19 @@ int PrimitiveAIModel::CountCompletedOrQueuedBuildings(GameWorld& world, Player* 
 // Initializes PrimitiveAIModel::CountStoredResource.
 int PrimitiveAIModel::CountStoredResource(GameWorld& world, Player* player, ResourceType type) const
 {
+    (void)world;
     int amount = 0;
-    for (const auto& tile : world.tilemap.tilemap)
+    if (player == nullptr)
+        return amount;
+
+    for (const auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
     {
-        const auto* storage = dynamic_cast<const StorageBuilding*>(tile.building.get());
-        if (storage == nullptr || storage->owner != player)
+        const auto* storage = building->GetComponent<StorageComponent>();
+        if (storage == nullptr || building->owner != player)
             continue;
 
-        auto it = storage->resourceBuffers.find(type);
-        if (it != storage->resourceBuffers.end())
+        auto it = storage->buffers.find(type);
+        if (it != storage->buffers.end())
             amount += static_cast<int>(it->second.buffer.size());
     }
     return amount;
@@ -1286,16 +1290,18 @@ AIResourceDiagnosis PrimitiveAIModel::DiagnoseResourceNeed(GameWorld& world, Pla
     bool fullOutput = false;
     bool undermannedProducer = false;
 
-    for (const auto* building : player->GetTrackedBuildings())
+    for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
     {
-        const auto* production = dynamic_cast<const ProductionBuilding*>(building);
-        if (production == nullptr || production->owner != player || production->IsUnderConstruction())
+        const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+        if (production == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
         if (!production->products.contains(resource))
             continue;
         hasProducerBuilding = true;
-        stalledProducer = stalledProducer || production->IsProductionStalled();
-        undermannedProducer = undermannedProducer || production->assignedWorkers < production->GetWorkerCapacity();
+        stalledProducer = stalledProducer || building->IsProductionStalled();
+        const auto* workers = building->GetComponent<WorkerComponent>();
+        undermannedProducer = undermannedProducer ||
+            (workers != nullptr && workers->assigned < workers->GetModifiedCapacity(*building));
         auto bufferIt = production->outputBuffers.find(resource);
         if (bufferIt != production->outputBuffers.end() && bufferIt->second.buffer.size() >= bufferIt->second.bufferSize)
             fullOutput = true;
@@ -1768,19 +1774,21 @@ Building* PrimitiveAIModel::FindBestMilitary(GameWorld& world, Player* player) c
 {
     Building* bestMilitary = nullptr;
     int bestSourceStrength = -1;
-    for (auto& tile : world.tilemap.tilemap)
+    (void)world;
+    if (player == nullptr)
+        return nullptr;
+
+    for (Building* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
     {
-        Building* building = tile.building.get();
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
 
-        auto* military = dynamic_cast<IMilitaryBuilding*>(building);
-        if (military == nullptr || military->GetHitPoints() <= 0)
+        const auto* territory = building->GetComponent<TerritoryComponent>();
+        const auto* garrison = building->GetComponent<GarrisonComponent>();
+        if (territory == nullptr || garrison == nullptr || territory->hp <= 0)
             continue;
 
-        int strength = 35;
-        if (auto* militaryBuilding = dynamic_cast<MilitaryBuilding*>(building))
-            strength = militaryBuilding->GetEffectiveStrength();
+        int strength = garrison->GetEffectiveStrength(*building);
         if (strength > bestSourceStrength)
         {
             bestSourceStrength = strength;
@@ -1801,8 +1809,8 @@ Building* PrimitiveAIModel::FindNearestEnemyMilitary(GameWorld& world, Player* p
         if (building == nullptr || building->owner == player || building->IsUnderConstruction())
             continue;
 
-        auto* targetMilitary = dynamic_cast<IMilitaryBuilding*>(building);
-        if (targetMilitary == nullptr || targetMilitary->GetHitPoints() <= 0)
+        const auto* territory = building->GetComponent<TerritoryComponent>();
+        if (territory == nullptr || territory->hp <= 0)
             continue;
 
         int distance = TileDistance(world.tilemap, source, building);

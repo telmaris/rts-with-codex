@@ -10,12 +10,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
-$WorkspaceRoot = Split-Path -Parent $RepoRoot
-$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT } else { Join-Path $WorkspaceRoot "work\local\raylib" }
+$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT }
+              elseif (Test-Path (Join-Path $RepoRoot "deps\raylib\lib\raylib.lib")) { Join-Path $RepoRoot "deps\raylib" }
+              else { Join-Path (Split-Path -Parent $RepoRoot) "work\local\raylib" }
 
-$RaylibConfig = Join-Path $RaylibRoot "lib\cmake\raylib"
 $RaylibInclude = Join-Path $RaylibRoot "include"
 $RaylibLibrary = Join-Path $RaylibRoot "lib\raylib.lib"
+$RayguiInclude = Join-Path $RepoRoot "deps\raygui"
 $BuildPath = Join-Path $RepoRoot $BuildDir
 
 function Assert-LastCommandSucceeded([string]$StepName) {
@@ -31,9 +32,9 @@ if (-not (Test-Path $RaylibLibrary)) {
 Write-Host "Configuring tests..." -ForegroundColor Cyan
 cmake -S $RepoRoot -B $BuildPath `
     -DBUILD_TESTING=ON `
-    "-Draylib_DIR=$RaylibConfig" `
     "-Draylib_INCLUDE_DIR=$RaylibInclude" `
-    "-Draylib_LIBRARY=$RaylibLibrary"
+    "-Draylib_LIBRARY=$RaylibLibrary" `
+    "-Draygui_INCLUDE_DIR=$RayguiInclude"
 Assert-LastCommandSucceeded "CMake configure"
 
 Write-Host "Building rts_tests ($Config)..." -ForegroundColor Cyan

@@ -62,6 +62,18 @@ struct PlayerDataTracker
 
         buildings.insert(building);
         buildingsByType[building->buildingType].insert(building);
+        IndexComponent<RoadComponent>(building);
+        IndexComponent<ProductionComponent>(building);
+        IndexComponent<LogisticsComponent>(building);
+        IndexComponent<WorkerComponent>(building);
+        IndexComponent<RecipeComponent>(building);
+        IndexComponent<ResearchComponent>(building);
+        IndexComponent<StorageComponent>(building);
+        IndexComponent<TerritoryComponent>(building);
+        IndexComponent<GarrisonComponent>(building);
+        IndexComponent<SupplyBufferComponent>(building);
+        IndexComponent<RecruitmentComponent>(building);
+        IndexComponent<PopulationComponent>(building);
     }
 
     // Removes a building from all player-local indexes.
@@ -78,6 +90,18 @@ struct PlayerDataTracker
             if (byType->second.empty())
                 buildingsByType.erase(byType);
         }
+        UnindexComponent<RoadComponent>(building);
+        UnindexComponent<ProductionComponent>(building);
+        UnindexComponent<LogisticsComponent>(building);
+        UnindexComponent<WorkerComponent>(building);
+        UnindexComponent<RecipeComponent>(building);
+        UnindexComponent<ResearchComponent>(building);
+        UnindexComponent<StorageComponent>(building);
+        UnindexComponent<TerritoryComponent>(building);
+        UnindexComponent<GarrisonComponent>(building);
+        UnindexComponent<SupplyBufferComponent>(building);
+        UnindexComponent<RecruitmentComponent>(building);
+        UnindexComponent<PopulationComponent>(building);
     }
 
     // Records a command accepted by the simulation for later player analytics.
@@ -115,6 +139,47 @@ struct PlayerDataTracker
             if (building != nullptr && !building->IsUnderConstruction())
                 count++;
         return count;
+    }
+
+    template<typename T>
+    const std::set<Building*>& BuildingsWithComponent() const
+    {
+        static const std::set<Building*> empty;
+        constexpr BuildingCapability capability = GetBuildingComponentCapability<T>();
+        if constexpr (capability == BuildingCapability::Count)
+            return empty;
+        else
+        {
+            auto it = buildingsByComponent.find(capability);
+            return it != buildingsByComponent.end() ? it->second : empty;
+        }
+    }
+
+private:
+    std::map<BuildingCapability, std::set<Building*>> buildingsByComponent;
+
+    template<typename T>
+    void IndexComponent(Building* building)
+    {
+        constexpr BuildingCapability capability = GetBuildingComponentCapability<T>();
+        if constexpr (capability != BuildingCapability::Count)
+            if (building->HasComponent<T>())
+                buildingsByComponent[capability].insert(building);
+    }
+
+    template<typename T>
+    void UnindexComponent(Building* building)
+    {
+        constexpr BuildingCapability capability = GetBuildingComponentCapability<T>();
+        if constexpr (capability != BuildingCapability::Count)
+        {
+            auto it = buildingsByComponent.find(capability);
+            if (it == buildingsByComponent.end())
+                return;
+            it->second.erase(building);
+            if (it->second.empty())
+                buildingsByComponent.erase(it);
+        }
     }
 };
 
@@ -161,19 +226,20 @@ public:
 
     void UpdateResearch(double dt)
     {
-        for (auto* building : dataTracker.buildings)
+        for (auto* building : GetTrackedBuildingsWithComponent<ResearchComponent>())
         {
-            auto* university = dynamic_cast<ProductionBuilding*>(building);
-            if (university == nullptr || university->owner != this || university->buildingType != BuildingType::University)
+            auto* research = building != nullptr ? building->GetComponent<ResearchComponent>() : nullptr;
+            if (research == nullptr || building->owner != this ||
+                building->buildingType != BuildingType::University)
                 continue;
 
-            std::string completedTechnology = university->GetActiveTechnologyId();
-            if (completedTechnology.empty() || !university->UpdateTechnologyResearch(dt))
+            std::string completedTechnology = research->technologyId;
+            if (completedTechnology.empty() || !research->Tick(dt))
                 continue;
 
-            university->activeTechnologyId.clear();
-            university->activeTechnologyRemaining = 0.0;
-            university->activeTechnologyTotal = 0.0;
+            research->technologyId.clear();
+            research->remaining = 0.0;
+            research->total = 0.0;
             if (technologies.UnlockTechnology(completedTechnology))
                 RefreshTechnologyModifiers();
         }
@@ -186,12 +252,12 @@ public:
 
     bool IsTechnologyInProgress(const std::string& id) const
     {
-        for (auto* building : dataTracker.buildings)
+        for (auto* building : GetTrackedBuildingsWithComponent<ResearchComponent>())
         {
-            const auto* university = dynamic_cast<const ProductionBuilding*>(building);
-            if (university != nullptr && university->owner == this &&
-                university->buildingType == BuildingType::University &&
-                university->GetActiveTechnologyId() == id)
+            const auto* research = building != nullptr ? building->GetComponent<ResearchComponent>() : nullptr;
+            if (research != nullptr && building->owner == this &&
+                building->buildingType == BuildingType::University &&
+                research->technologyId == id)
                 return true;
         }
         return false;
@@ -219,6 +285,12 @@ public:
     const std::set<Building*>& GetTrackedBuildings() const
     {
         return dataTracker.buildings;
+    }
+
+    template<typename T>
+    const std::set<Building*>& GetTrackedBuildingsWithComponent() const
+    {
+        return dataTracker.BuildingsWithComponent<T>();
     }
 
     // Returns whether the player has a tracked building of this type.
@@ -287,14 +359,14 @@ public:
         for (const auto& cost : costs)
         {
             int available = 0;
-            for (const auto* building : dataTracker.buildings)
+            for (const auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
             {
-                const auto* storage = dynamic_cast<const StorageBuilding*>(building);
-                if (storage == nullptr || storage->owner != this)
+                const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+                if (storage == nullptr || building->owner != this)
                     continue;
 
-                auto it = storage->resourceBuffers.find(cost.type);
-                if (it != storage->resourceBuffers.end())
+                auto it = storage->buffers.find(cost.type);
+                if (it != storage->buffers.end())
                     available += static_cast<int>(it->second.buffer.size());
             }
 
@@ -328,11 +400,11 @@ public:
     int GetPopulationCap() const
     {
         int cap = 0;
-        for (const auto* building : dataTracker.buildings)
+        for (const auto* building : GetTrackedBuildingsWithComponent<PopulationComponent>())
         {
-            const auto* village = dynamic_cast<const Village*>(building);
-            if (village != nullptr && village->owner == this && !village->IsUnderConstruction())
-                cap += ResolveStat(village->populationCap, village);
+            const auto* population = building != nullptr ? building->GetComponent<PopulationComponent>() : nullptr;
+            if (population != nullptr && building->owner == this && !building->IsUnderConstruction())
+                cap += ResolveStat(population->populationCap, building);
         }
         return cap;
     }
@@ -341,31 +413,35 @@ public:
     {
         return strategicResources.Get(StrategicResourceType::Manpower) +
                strategicResources.Get(StrategicResourceType::Workers) +
-               GetArmyRegistry().TotalTroops();
+               strategicResources.Get(StrategicResourceType::Soldiers);
     }
 
     // Aggregates soldiers, queues, supply and combat strength from owned military buildings.
     ArmyRegistry GetArmyRegistry() const
     {
         ArmyRegistry registry;
-        for (const auto* building : dataTracker.buildings)
+        for (const auto* building : GetTrackedBuildingsWithComponent<GarrisonComponent>())
         {
-            const auto* military = dynamic_cast<const MilitaryBuilding*>(building);
-            if (military == nullptr || military->owner != this || military->IsUnderConstruction())
+            const auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+            const auto* supply = building != nullptr ? building->GetComponent<SupplyBufferComponent>() : nullptr;
+            if (garrison == nullptr || building->owner != this || building->IsUnderConstruction())
                 continue;
 
-            registry.militia += military->militia;
-            registry.swordsmen += military->swordsmen;
-            registry.archers += military->archers;
-            registry.garrisonCapacity += military->GetTotalTroops() + military->GetFreeGarrisonSpace();
-            registry.supply += military->supply;
-            registry.supplyCapacity += military->GetSupplyCapacity();
-            registry.supplyConsumption += military->GetSupplyConsumption();
-            registry.strength += military->GetEffectiveStrength();
-
-            if (const auto* barracks = dynamic_cast<const Barracks*>(military))
+            registry.militia += garrison->militia;
+            registry.swordsmen += garrison->swordsmen;
+            registry.archers += garrison->archers;
+            registry.garrisonCapacity += garrison->GetTotalTroops() + garrison->GetFreeGarrisonSpace(*building);
+            if (supply != nullptr)
             {
-                for (const auto& job : barracks->recruitmentQueue)
+                registry.supply += supply->stored;
+                registry.supplyCapacity += supply->GetModifiedCapacity(*building);
+                registry.supplyConsumption += supply->GetSupplyConsumption(*building, *garrison);
+            }
+            registry.strength += garrison->GetEffectiveStrength(*building);
+
+            if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
+            {
+                for (const auto& job : recruitment->queue)
                 {
                     switch (job.type)
                     {
@@ -384,14 +460,14 @@ public:
     {
         int villageCount = 0;
         double productivity = 0.0;
-        for (const auto* building : dataTracker.buildings)
+        for (const auto* building : GetTrackedBuildingsWithComponent<PopulationComponent>())
         {
-            const auto* village = dynamic_cast<const Village*>(building);
-            if (village == nullptr || village->owner != this || village->IsUnderConstruction())
+            const auto* population = building != nullptr ? building->GetComponent<PopulationComponent>() : nullptr;
+            if (population == nullptr || building->owner != this || building->IsUnderConstruction())
                 continue;
 
             villageCount++;
-            productivity += village->GetWorkerProductivity();
+            productivity += population->GetWorkerProductivity();
         }
 
         return villageCount > 0 ? productivity / villageCount : 1.0;
@@ -529,11 +605,13 @@ public:
         return true;
     }
 
-    bool StartTechnologyResearch(const std::string& id, ProductionBuilding* university)
+    bool StartTechnologyResearch(const std::string& id, Building* university)
     {
         const auto* definition = FindTechnologyDefinition(id);
+        auto* research = university != nullptr ? university->GetComponent<ResearchComponent>() : nullptr;
         if (definition == nullptr || university == nullptr || university->owner != this ||
-            university->buildingType != BuildingType::University || !university->GetActiveTechnologyId().empty())
+            university->buildingType != BuildingType::University || research == nullptr ||
+            !research->technologyId.empty())
             return false;
 
         if (!CanResearchTechnology(id))
@@ -548,7 +626,7 @@ public:
             university,
             ResourceType::Null,
             std::nullopt);
-        if (!university->StartTechnologyResearch(id, researchTime))
+        if (!research->Start(id, researchTime))
             return false;
 
         return true;
@@ -625,12 +703,16 @@ public:
         return added;
     }
 
-    int AutoAssignWorkers(ProductionBuilding* building)
+    int AutoAssignWorkers(Building* building)
     {
         if (building == nullptr || building->owner != this)
             return 0;
 
-        int needed = std::max(0, building->GetWorkerCapacity() - building->assignedWorkers);
+        auto* workers = building->GetComponent<WorkerComponent>();
+        if (workers == nullptr)
+            return 0;
+
+        int needed = std::max(0, building->GetWorkerCapacity() - workers->assigned);
         int available = static_cast<int>(std::floor(strategicResources.Get(StrategicResourceType::Manpower)));
         int assigned = std::min(needed, available);
         if (assigned <= 0)
@@ -638,7 +720,7 @@ public:
 
         strategicResources.Consume(StrategicResourceType::Manpower, assigned);
         strategicResources.Add(StrategicResourceType::Workers, assigned);
-        building->assignedWorkers += assigned;
+        workers->assigned += assigned;
         return assigned;
     }
 
@@ -651,14 +733,14 @@ public:
         for (const auto& cost : costs)
         {
             int remaining = cost.amount;
-            for (auto* building : dataTracker.buildings)
+            for (auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
             {
-                auto* storage = dynamic_cast<StorageBuilding*>(building);
-                if (storage == nullptr || storage->owner != this)
+                auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+                if (storage == nullptr || building->owner != this)
                     continue;
 
-                auto it = storage->resourceBuffers.find(cost.type);
-                if (it == storage->resourceBuffers.end())
+                auto it = storage->buffers.find(cost.type);
+                if (it == storage->buffers.end())
                     continue;
 
                 while (remaining > 0 && !it->second.buffer.empty())
@@ -739,28 +821,36 @@ inline ResourceFlowSnapshot PlayerEconomyTelemetry::BuildSnapshot(Player& player
             continue;
         }
 
-        if (const auto* production = dynamic_cast<const ProductionBuilding*>(building))
+        if (const auto* production = building->GetComponent<ProductionComponent>())
         {
-            double workerEfficiency = production->GetWorkerRatio() * player.GetFoodProductivity();
-            double cycleTime = production->GetEffectiveProductionCycleTime();
-            if (cycleTime > 0.0 && workerEfficiency > 0.0 && !production->IsProductionBlocked())
+            const auto* workers = building->GetComponent<WorkerComponent>();
+            double workerRatio = workers != nullptr ? workers->GetRatio() : 1.0;
+            double modifiedCycle = production->GetModifiedCycleTime(*building);
+            double foodProductivity = player.GetFoodProductivity();
+            double workerEfficiency = workerRatio * foodProductivity;
+            double cycleTime = workerEfficiency > 0.0 && modifiedCycle > 0.0
+                ? modifiedCycle / workerEfficiency
+                : 0.0;
+            if (cycleTime > 0.0 && workerEfficiency > 0.0 && !building->IsProductionBlocked())
             {
                 double cyclesPerMinute = 60.0 * workerEfficiency / cycleTime;
                 for (const auto& [type, amount] : production->products)
-                    snapshot.productionRatesPerMinute[type] += static_cast<int>(std::round(production->GetModifiedOutputAmount(type, amount) * cyclesPerMinute));
+                    snapshot.productionRatesPerMinute[type] += static_cast<int>(std::round(production->GetModifiedOutputAmount(*building, type, amount) * cyclesPerMinute));
                 for (const auto& [type, amount] : production->ingredients)
                     snapshot.consumptionRatesPerMinute[type] += static_cast<int>(std::round(amount * cyclesPerMinute));
             }
         }
 
-        if (const auto* village = dynamic_cast<const Village*>(building))
+        if (const auto* population = building->GetComponent<PopulationComponent>())
         {
-            if (village->upkeepInterval > 0.0)
-                snapshot.consumptionRatesPerMinute[ResourceType::FOOD_PROVISIONS] += static_cast<int>(std::ceil(village->foodPackageUpkeep * (60.0 / village->upkeepInterval)));
+            if (population->upkeepInterval > 0.0)
+                snapshot.consumptionRatesPerMinute[ResourceType::FOOD_PROVISIONS] += static_cast<int>(std::ceil(population->foodPackageUpkeep * (60.0 / population->upkeepInterval)));
         }
 
-        if (const auto* military = dynamic_cast<const MilitaryBuilding*>(building))
-            snapshot.consumptionRatesPerMinute[ResourceType::FOOD_PROVISIONS] += military->GetSupplyConsumption();
+        const auto* garrison = building->GetComponent<GarrisonComponent>();
+        const auto* supply = building->GetComponent<SupplyBufferComponent>();
+        if (garrison != nullptr && supply != nullptr)
+            snapshot.consumptionRatesPerMinute[ResourceType::FOOD_PROVISIONS] += supply->GetSupplyConsumption(*building, *garrison);
     }
 
     return snapshot;

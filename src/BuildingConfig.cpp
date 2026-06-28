@@ -732,33 +732,47 @@ void ApplyBuildingDefinition(Building& building, const BuildingDefinition& defin
 }
 
 // Applies parsed configuration to runtime state.
-void ApplyProductionDefinition(ProductionBuilding& building, const ProductionDefinition& definition)
+void ApplyProductionDefinition(Building& building, const ProductionDefinition& definition)
 {
-    building.productionTime = definition.cycleTime;
-    building.ingredients.clear();
-    building.products.clear();
-    building.inputBuffers.clear();
-    building.outputBuffers.clear();
-    building.pendingInputRequests.clear();
+    auto* production = building.GetComponent<ProductionComponent>();
+    auto* workers    = building.GetComponent<WorkerComponent>();
+    auto* logistics  = building.GetComponent<LogisticsComponent>();
+    if (production == nullptr || workers == nullptr || logistics == nullptr)
+        return;
+
+    production->cycleTime = definition.cycleTime;
+    production->ingredients.clear();
+    production->products.clear();
+    production->inputBuffers.clear();
+    production->outputBuffers.clear();
+    logistics->pendingRequests.clear();
 
     for (const auto& input : definition.inputs)
-        building.ingredients[input.type] = input.amount;
+        production->ingredients[input.type] = input.amount;
 
     for (const auto& output : definition.outputs)
-        building.products[output.type] = output.amount;
+        production->products[output.type] = output.amount;
 
     for (const auto& buffer : definition.inputBuffers)
-        building.inputBuffers[buffer.type] = ResourceBuffer{buffer.type, buffer.capacity};
+        production->inputBuffers[buffer.type] = ResourceBuffer{buffer.type, buffer.capacity};
 
     for (const auto& buffer : definition.outputBuffers)
-        building.outputBuffers[buffer.type] = ResourceBuffer{buffer.type, buffer.capacity};
+        production->outputBuffers[buffer.type] = ResourceBuffer{buffer.type, buffer.capacity};
 
-    building.workerCapacity = std::max(0, definition.workerCapacity);
-    building.assignedWorkers = std::min(building.assignedWorkers, building.workerCapacity.GetBase());
+    workers->capacity = std::max(0, definition.workerCapacity);
+    workers->assigned = std::min(workers->assigned, workers->capacity.GetBase());
 }
 
-void ApplyProductionRecipes(ProductionBuilding& building, const BuildingDefinition& definition)
+void ApplyProductionRecipes(Building& building, const BuildingDefinition& definition)
 {
+    auto* recipeComponent = building.GetComponent<RecipeComponent>();
+    auto* production = building.GetComponent<ProductionComponent>();
+    auto* logistics  = building.GetComponent<LogisticsComponent>();
+    auto* workers    = building.GetComponent<WorkerComponent>();
+    if (recipeComponent == nullptr || production == nullptr ||
+        logistics == nullptr || workers == nullptr)
+        return;
+
     std::vector<ProductionRecipeRuntime> recipes;
     if (!definition.recipes.empty())
     {
@@ -773,33 +787,43 @@ void ApplyProductionRecipes(ProductionBuilding& building, const BuildingDefiniti
         recipes.push_back(MakeRuntimeRecipe(recipe));
     }
 
-    building.SetRecipes(std::move(recipes));
+    recipeComponent->SetRecipes(std::move(recipes), building, *production, *logistics, *workers);
 }
 
 // Applies parsed configuration to runtime state.
-void ApplyStorageDefinition(StorageBuilding& building, const BuildingDefinition& definition)
+void ApplyStorageDefinition(Building& building, const BuildingDefinition& definition)
 {
-    building.resourceBuffers.clear();
+    auto* storage = building.GetComponent<StorageComponent>();
+    if (storage == nullptr)
+        return;
+
+    storage->buffers.clear();
     for (const auto& buffer : definition.storageBuffers)
     {
         ResourceBuffer resourceBuffer{buffer.type, buffer.capacity};
         resourceBuffer.SetStoredAmount(buffer.initialAmount);
-        building.resourceBuffers[buffer.type] = std::move(resourceBuffer);
+        storage->buffers[buffer.type] = std::move(resourceBuffer);
     }
 }
 
 // Applies parsed configuration to runtime state.
-void ApplyMilitaryDefinition(MilitaryBuilding& building, const BuildingDefinition& definition)
+void ApplyMilitaryDefinition(Building& building, const BuildingDefinition& definition)
 {
-    building.territoryRadius = definition.military.territoryRadius;
-    building.hitPoints = definition.military.hitPoints;
-    building.maxHitPoints = definition.military.hitPoints;
-    building.combatStrength = definition.military.combatStrength;
-    building.garrison = 0;
-    building.garrisonCapacity = definition.military.garrisonCapacity;
-    building.supplyCapacity = definition.military.supplyCapacity;
-    building.supplyBuffer.Clear();
-    building.supplyBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, building.supplyCapacity.GetBase()};
-    building.supplyBuffer.SetStoredAmount(definition.military.supply);
-    building.supply = static_cast<int>(building.supplyBuffer.buffer.size());
+    auto* territory = building.GetComponent<TerritoryComponent>();
+    auto* garrison  = building.GetComponent<GarrisonComponent>();
+    auto* supply    = building.GetComponent<SupplyBufferComponent>();
+    if (territory == nullptr || garrison == nullptr || supply == nullptr)
+        return;
+
+    territory->radius = definition.military.territoryRadius;
+    territory->hp     = definition.military.hitPoints;
+    territory->maxHp  = definition.military.hitPoints;
+    garrison->strength = definition.military.combatStrength;
+    garrison->garrison = 0;
+    garrison->cap      = definition.military.garrisonCapacity;
+    supply->capacity = definition.military.supplyCapacity;
+    supply->buffer.Clear();
+    supply->buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, supply->capacity.GetBase()};
+    supply->buffer.SetStoredAmount(definition.military.supply);
+    supply->stored = static_cast<int>(supply->buffer.buffer.size());
 }

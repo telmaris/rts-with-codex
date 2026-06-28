@@ -59,6 +59,7 @@ namespace GameWorldInternal
         ResourceType resource{ResourceType::Null};
         int targetPosition{-1};
         bool receiver{false};
+        bool alternative{false};
     };
 
     // Returns the tile-space center of a footprint.

@@ -27,6 +27,37 @@ void GameWorld::Update(double dt)
     DrawMap();
 }
 
+// Captures render-safe world state for another thread.
+GameSnapshot GameWorld::BuildSnapshot() const
+{
+    GameSnapshot snapshot;
+    snapshot.simulationTick = simulationTick;
+    snapshot.localPlayerId = localPlayerId;
+    snapshot.mapSize = {tilemap.params.sizeX, tilemap.params.sizeY};
+    snapshot.tiles.reserve(tilemap.tilemap.size());
+
+    for (const auto& tile : tilemap.tilemap)
+    {
+        GameSnapshotTile view;
+        view.terrainTextureId = tile.terrainTextureId;
+        if (tile.owner != nullptr)
+        {
+            view.hasOwner = true;
+            view.ownerColor = tile.owner->color;
+        }
+
+        if (tile.building != nullptr)
+        {
+            view.hasBuilding = true;
+            view.buildingType = tile.building->buildingType;
+            view.buildingFootprint = tile.building->GetFootprint();
+        }
+        snapshot.tiles.push_back(view);
+    }
+
+    return snapshot;
+}
+
 // Draws cached terrain, territory and building layers.
 void GameWorld::DrawMap()
 {

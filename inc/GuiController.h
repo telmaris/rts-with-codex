@@ -141,7 +141,7 @@ public:
     void Update(double dt) override;
     bool HandleClick(Vec2i point);
 
-    MilitaryBuilding* building{nullptr};
+    Building* building{nullptr};
     int selectedDivisionId{-1};
 };
 
@@ -149,6 +149,7 @@ public:
 class StrategicResourceHudWidget : public UiWidget
 {
 public:
+    void UpdateSize(Vec2i windowSize) override;
     void Update(double dt) override;
 
     GameScene* scene{nullptr};

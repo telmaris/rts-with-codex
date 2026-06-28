@@ -3,88 +3,117 @@
 
 #include "Building.h"
 
+// Concrete production buildings. Each inherits Building directly and is composed
+// of the production component set (production cycle + logistics + workers +
+// recipes + research). Behaviour lives entirely in those components; the classes
+// exist only to assemble the right components and load their data definition.
+//
+// The shared component block is declared per class on purpose — there is no
+// behavioural base type. Terrain-specialised producers override InitBuilding to
+// pick a terrain-specific recipe when placed.
+
+// Components shared by every production building. Research is NOT here on
+// purpose — only the University researches technologies, so it adds a
+// ResearchComponent of its own.
+#define RTS_PRODUCTION_COMPONENTS         \
+    ProductionComponent production;       \
+    LogisticsComponent  logistics;        \
+    WorkerComponent     workers;          \
+    RecipeComponent     recipes
+
 // Terrain-dependent wood producer.
-class Woodcutter : public ProductionBuilding
+class Woodcutter : public Building
 {
     public:
         Woodcutter(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Forest-based meat producer that preserves the forest tile.
-class HuntersHut : public ProductionBuilding
+class HuntersHut : public Building
 {
     public:
         HuntersHut(int);
         void InitBuilding(TileType) override;
-        bool ShouldConsumeTerrainRichness() const override { return false; }
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Converts wood into planks.
-class LumberMill : public ProductionBuilding
+class LumberMill : public Building
 {
     public:
         LumberMill(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Terrain-dependent ore or stone extractor.
-class Mine : public ProductionBuilding
+class Mine : public Building
 {
     public:
         Mine(int);
         void InitBuilding(TileType) override;
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Converts ore and fuel into metal products.
-class Foundry : public ProductionBuilding
+class Foundry : public Building
 {
     public:
         Foundry(int);
-        void SetSupplier(ResourceType, Building*) override;
-        void SetReceiver(ResourceType, Building*) override;
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Extracts unlimited water.
-class Well : public ProductionBuilding
+class Well : public Building
 {
     public:
         Well(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Converts water into grain.
-class WheatFarm : public ProductionBuilding
+class WheatFarm : public Building
 {
     public:
         WheatFarm(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Mills wheat into flour.
-class Windmill : public ProductionBuilding
+class Windmill : public Building
 {
     public:
         Windmill(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Bakes bread from flour and water.
-class Bakery : public ProductionBuilding
+class Bakery : public Building
 {
     public:
         Bakery(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Converts food ingredients into provisions.
-class Inn : public ProductionBuilding
+class Inn : public Building
 {
     public:
         Inn(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
 // Makes paper for research systems.
-class Paperworks : public ProductionBuilding
+class Paperworks : public Building
 {
     public:
         Paperworks(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
-// Produces metal equipment; recipe selection will sit on top of this class later.
-class Smith : public ProductionBuilding
+// Produces metal equipment; recipe selection sits on the recipe component.
+class Smith : public Building
 {
     public:
         Smith(int);
+        RTS_PRODUCTION_COMPONENTS;
 };
-// Placeholder research building that currently consumes paper into abstract output.
-class University : public ProductionBuilding
+// Research building that turns paper into unlocked technologies.
+class University : public Building
 {
     public:
         University(int);
+        RTS_PRODUCTION_COMPONENTS;
+        ResearchComponent research;
 };
 
 #endif

@@ -6,12 +6,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
-$WorkspaceRoot = Split-Path -Parent $RepoRoot
-$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT } else { Join-Path $WorkspaceRoot "work\local\raylib" }
+$RaylibRoot = if ($env:RAYLIB_ROOT) { $env:RAYLIB_ROOT }
+              elseif (Test-Path (Join-Path $RepoRoot "deps\raylib\lib\raylib.lib")) { Join-Path $RepoRoot "deps\raylib" }
+              else { Join-Path (Split-Path -Parent $RepoRoot) "work\local\raylib" }
 
-$RaylibConfig = Join-Path $RaylibRoot "lib\cmake\raylib"
 $RaylibInclude = Join-Path $RaylibRoot "include"
 $RaylibLibrary = Join-Path $RaylibRoot "lib\raylib.lib"
+$RayguiInclude = Join-Path $RepoRoot "deps\raygui"
 
 function Assert-LastCommandSucceeded([string]$StepName) {
     if ($LASTEXITCODE -ne 0) {
@@ -23,10 +24,14 @@ if (-not (Test-Path $RaylibLibrary)) {
     throw "raylib.lib not found. Set RAYLIB_ROOT or build raylib into: $RaylibRoot"
 }
 
+# Auto-increment the patch component on every build (MAJOR.MINOR stay human-driven).
+& (Join-Path $RepoRoot "scripts\bump_version.ps1")
+if (-not $?) { throw "Version bump failed" }
+
 cmake -S $RepoRoot -B (Join-Path $RepoRoot "build") `
-    "-Draylib_DIR=$RaylibConfig" `
     "-Draylib_INCLUDE_DIR=$RaylibInclude" `
-    "-Draylib_LIBRARY=$RaylibLibrary"
+    "-Draylib_LIBRARY=$RaylibLibrary" `
+    "-Draygui_INCLUDE_DIR=$RayguiInclude"
 Assert-LastCommandSucceeded "CMake configure"
 
 cmake --build (Join-Path $RepoRoot "build") --config $Config

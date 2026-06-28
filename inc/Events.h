@@ -73,6 +73,13 @@ struct ChangeSceneEvent : Event
     std::string previousSceneName;
 };
 
+// Shows a one-shot network status message after leaving a multiplayer game.
+struct NetworkStatusEvent : Event
+{
+    NetworkStatusEvent() {msgName = "NetworkStatusEvent";}
+    std::string message;
+};
+
 // Reports a render-size change.
 struct WindowSizeChangedEvent : Event
 {

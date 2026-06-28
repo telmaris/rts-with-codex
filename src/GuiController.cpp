@@ -1,4 +1,4 @@
-#include "../inc/Scenes.h"
+﻿#include "../inc/Scenes.h"
 #include "../inc/BuildingConfig.h"
 #include "../inc/ResearchCatalog.h"
 
@@ -55,7 +55,7 @@ namespace
             bool selected = selectedTag == value;
             bool hover = CheckCollisionPointRec(mouse, rect);
             DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{64, 94, 128, 235} : hover ? Color{45, 55, 69, 235} : Color{31, 37, 47, 220});
-            DrawRectangleRoundedLines(rect, 0.20f, 6, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
+            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
             UiText::DrawFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? RAYWHITE : Color{188, 198, 212, 255});
             if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
@@ -140,28 +140,28 @@ namespace
             return 0;
 
         int amount = 0;
-        for (auto* building : player->GetTrackedBuildings())
+        for (auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
         {
-            auto* storage = dynamic_cast<StorageBuilding*>(building);
-            if (storage == nullptr || storage->owner != player)
+            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+            if (storage == nullptr || building->owner != player)
                 continue;
 
-            auto it = storage->resourceBuffers.find(type);
-            if (it != storage->resourceBuffers.end())
+            auto it = storage->buffers.find(type);
+            if (it != storage->buffers.end())
                 amount += static_cast<int>(it->second.buffer.size());
         }
         return amount;
     }
 
     // Adds a debug resource package to one storage-like building.
-    void GrantResourcesToStorage(StorageBuilding* storage, int amount)
+    void GrantResourcesToStorage(StorageComponent* storage, int amount)
     {
         if (storage == nullptr || amount <= 0)
             return;
 
         for (ResourceType type : resourceTypes)
         {
-            auto& buffer = storage->resourceBuffers[type];
+            auto& buffer = storage->buffers[type];
             if (buffer.type == ResourceType::Null)
                 buffer = ResourceBuffer{type, amount};
             buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
@@ -176,11 +176,12 @@ namespace
         if (scene == nullptr || scene->game == nullptr || !scene->game->tilemap.params.debugMode)
             return;
 
-        auto* headquarters = dynamic_cast<StorageBuilding*>(FindLocalHeadquarters(scene));
-        if (headquarters == nullptr)
+        Building* headquarters = FindLocalHeadquarters(scene);
+        auto* storage = headquarters != nullptr ? headquarters->GetComponent<StorageComponent>() : nullptr;
+        if (storage == nullptr)
             return;
 
-        GrantResourcesToStorage(headquarters, amount);
+        GrantResourcesToStorage(storage, amount);
         Log::Msg("[Debug]", "granted ", amount, " of every resource to local HQ");
     }
 
@@ -219,31 +220,42 @@ namespace
         stats.productionRatesPerMinute = player->economyTelemetry.current.productionRatesPerMinute;
         stats.consumptionRatesPerMinute = player->economyTelemetry.current.consumptionRatesPerMinute;
 
-        for (const auto* building : player->GetTrackedBuildings())
+        for (const auto* building : player->GetTrackedBuildingsWithComponent<PopulationComponent>())
         {
             if (building == nullptr || building->owner != player || building->IsUnderConstruction())
                 continue;
 
-            if (const auto* village = dynamic_cast<const Village*>(building))
-            {
-                double productivity = village->GetManpowerProductivity();
-                stats.manpowerGainPerMinute += player->ResolveStat(village->manpowerRate, village) * productivity * 60.0;
-                if (village->upkeepInterval > 0.0)
-                    stats.villageFoodConsumptionPerMinute += village->foodPackageUpkeep * (60.0 / village->upkeepInterval);
-            }
-            if (const auto* military = dynamic_cast<const MilitaryBuilding*>(building))
-            {
-                stats.militaryFoodConsumptionPerMinute += military->GetSupplyConsumption();
-            }
-            if (const auto* storage = dynamic_cast<const StorageBuilding*>(building))
-            {
-                for (const auto& [type, buffer] : storage->resourceBuffers)
-                    stats.storedResources[type] += static_cast<int>(buffer.buffer.size());
-            }
-            if (const auto* production = dynamic_cast<const ProductionBuilding*>(building))
-            {
-                stats.totalProduced += production->GetTotalProduced();
-            }
+            const auto* population = building->GetComponent<PopulationComponent>();
+            double productivity = population->GetManpowerProductivity();
+            stats.manpowerGainPerMinute += player->ResolveStat(population->manpowerRate, building) * productivity * 60.0;
+            if (population->upkeepInterval > 0.0)
+                stats.villageFoodConsumptionPerMinute += population->foodPackageUpkeep * (60.0 / population->upkeepInterval);
+        }
+        for (const auto* building : player->GetTrackedBuildingsWithComponent<SupplyBufferComponent>())
+        {
+            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+                continue;
+
+            const auto* supply = building->GetComponent<SupplyBufferComponent>();
+            const auto* garrison = building->GetComponent<GarrisonComponent>();
+            if (supply != nullptr && garrison != nullptr)
+                stats.militaryFoodConsumptionPerMinute += supply->GetSupplyConsumption(*building, *garrison);
+        }
+        for (const auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
+        {
+            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+                continue;
+
+            const auto* storage = building->GetComponent<StorageComponent>();
+            for (const auto& [type, buffer] : storage->buffers)
+                stats.storedResources[type] += static_cast<int>(buffer.buffer.size());
+        }
+        for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
+        {
+            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+                continue;
+
+            stats.totalProduced += building->GetTotalProduced();
         }
 
         return stats;
@@ -403,7 +415,7 @@ namespace
             height};
 
         DrawRectangleRounded(box, 0.06f, 8, Color{18, 22, 28, 242});
-        DrawRectangleRoundedLines(box, 0.06f, 8, Color{112, 126, 148, 255});
+        DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, Color{112, 126, 148, 255});
         UiText::DrawFit(option.name, Rectangle{box.x + 12.0f, box.y + 9.0f, box.width - 24.0f, 24.0f}, 22, RAYWHITE);
 
         float y = box.y + titleH + 8.0f;
@@ -418,6 +430,32 @@ namespace
     Vec2i GetMapSize(GameScene* scene)
     {
         return Vec2i{scene->game->tilemap.params.sizeX, scene->game->tilemap.params.sizeY};
+    }
+
+    float StrategicHudHeightForWindow(Vec2i windowSize)
+    {
+        return std::clamp(windowSize.y * 0.066f, 58.0f, 76.0f);
+    }
+
+    float StrategicHudTopPaddingForWindow(Vec2i windowSize)
+    {
+        return StrategicHudHeightForWindow(windowSize) + 6.0f;
+    }
+
+    void UpdateStrategicHudLayout(StrategicResourceHudWidget& hud, Vec2i windowSize)
+    {
+        hud.ChangePosition(0, 0);
+        hud.ChangeSize(windowSize.x, static_cast<int>(StrategicHudHeightForWindow(windowSize)));
+    }
+
+    void ApplyStrategicHudCameraPadding(GameScene* scene)
+    {
+        if (scene == nullptr || scene->game == nullptr)
+            return;
+
+        Vec2i windowSize{GetScreenWidth(), GetScreenHeight()};
+        scene->render.SetTopScreenPadding(StrategicHudTopPaddingForWindow(windowSize));
+        scene->render.ClampCameraToMap(GetMapSize(scene));
     }
 
     // Initializes MoveCamera.
@@ -436,6 +474,7 @@ namespace
         delta.x /= scene->render.camera.zoom;
         delta.y /= scene->render.camera.zoom;
         scene->render.camera.target = Vector2Add(scene->render.camera.target, delta);
+        ApplyStrategicHudCameraPadding(scene);
         scene->render.ClampCameraToMap(GetMapSize(scene));
     }
 
@@ -446,6 +485,7 @@ namespace
         if (wheel == 0.0f)
             return;
 
+        ApplyStrategicHudCameraPadding(scene);
         scene->render.ZoomAtScreenPoint(GetMousePosition(), wheel, GetMapSize(scene));
     }
 
@@ -592,22 +632,41 @@ namespace
         });
     }
 
-    // Returns the clickable stats button area in the strategic HUD.
+    // Returns the clickable resources button area in the strategic HUD.
     Rectangle StatsHudButtonRect(const StrategicResourceHudWidget& hud)
     {
         float height = static_cast<float>(hud.size.y);
-        float button = std::max(28.0f, height - 10.0f);
+        float buttonH = std::max(40.0f, height - 14.0f);
+        float buttonW = 132.0f;
         return Rectangle{
-            static_cast<float>(hud.pos.x + hud.size.x) - button - 8.0f,
-            static_cast<float>(hud.pos.y) + (height - button) * 0.5f,
-            button,
-            button};
+            static_cast<float>(hud.pos.x + hud.size.x) - buttonW - 18.0f,
+            static_cast<float>(hud.pos.y) + (height - buttonH) * 0.5f,
+            buttonW,
+            buttonH};
     }
 
     Rectangle FocusHudButtonRect(const StrategicResourceHudWidget& hud)
     {
         Rectangle stats = StatsHudButtonRect(hud);
-        return Rectangle{stats.x - stats.width - 6.0f, stats.y, stats.width, stats.height};
+        return Rectangle{stats.x - 166.0f - 10.0f, stats.y, 166.0f, stats.height};
+    }
+
+    Rectangle DestroyHudButtonRect(const StrategicResourceHudWidget& hud)
+    {
+        Rectangle focus = FocusHudButtonRect(hud);
+        return Rectangle{focus.x - 110.0f - 10.0f, focus.y, 110.0f, focus.height};
+    }
+
+    Rectangle RoadHudButtonRect(const StrategicResourceHudWidget& hud)
+    {
+        Rectangle destroy = DestroyHudButtonRect(hud);
+        return Rectangle{destroy.x - 92.0f - 10.0f, destroy.y, 92.0f, destroy.height};
+    }
+
+    Rectangle BuildHudButtonRect(const StrategicResourceHudWidget& hud)
+    {
+        Rectangle road = RoadHudButtonRect(hud);
+        return Rectangle{road.x - 92.0f - 10.0f, road.y, 92.0f, road.height};
     }
 
     // Returns true when the stats HUD button is under the current cursor.
@@ -619,6 +678,35 @@ namespace
     bool IsFocusHudButtonHovered(const StrategicResourceHudWidget& hud)
     {
         return CheckCollisionPointRec(GetMousePosition(), FocusHudButtonRect(hud));
+    }
+
+    bool IsDestroyHudButtonHovered(const StrategicResourceHudWidget& hud)
+    {
+        return CheckCollisionPointRec(GetMousePosition(), DestroyHudButtonRect(hud));
+    }
+
+    bool IsRoadHudButtonHovered(const StrategicResourceHudWidget& hud)
+    {
+        return CheckCollisionPointRec(GetMousePosition(), RoadHudButtonRect(hud));
+    }
+
+    bool IsBuildHudButtonHovered(const StrategicResourceHudWidget& hud)
+    {
+        return CheckCollisionPointRec(GetMousePosition(), BuildHudButtonRect(hud));
+    }
+
+    Rectangle PanelCloseButtonRect(Rectangle panel)
+    {
+        return Rectangle{panel.x + panel.width - 44.0f, panel.y + 10.0f, 30.0f, 30.0f};
+    }
+
+    void DrawCloseButton(Rectangle panel)
+    {
+        Rectangle close = PanelCloseButtonRect(panel);
+        bool hover = CheckCollisionPointRec(GetMousePosition(), close);
+        DrawRectangleRounded(close, 0.18f, 8, hover ? Color{110, 58, 64, 245} : Color{54, 42, 48, 230});
+        DrawRectangleRoundedLines(close, 0.18f, 8, 1.0f, hover ? Color{244, 132, 142, 255} : Color{156, 104, 114, 235});
+        UiText::DrawFit("X", Rectangle{close.x + 6.0f, close.y + 4.0f, close.width - 12.0f, close.height - 8.0f}, 20, RAYWHITE);
     }
 
     // Returns a stable chart color for one resource line.
@@ -890,7 +978,7 @@ void BasicMapViewSystem::Update(double dt)
 {
     if (!researchPanel.researchRequested)
     {
-        researchPanel.researchRequested = [this](const std::string& technologyId, ProductionBuilding* university)
+        researchPanel.researchRequested = [this](const std::string& technologyId, Building* university)
         {
             if (scene == nullptr || scene->game == nullptr || university == nullptr)
                 return;
@@ -902,6 +990,7 @@ void BasicMapViewSystem::Update(double dt)
         };
     }
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
     owner->AddUiWidget(&productionWarningWidget);
     owner->AddUiWidget(&militaryOrderWidget);
@@ -933,10 +1022,10 @@ void BasicMapViewSystem::Update(double dt)
 
         owner->AddUiWidget(&selectedBuildingWidget);
         owner->AddUiWidget(activePanel);
-        auto* military = dynamic_cast<MilitaryBuilding*>(activePanel->GetBuilding());
-        if (military != nullptr)
+        Building* selected = activePanel->GetBuilding();
+        if (selected != nullptr && selected->HasComponent<GarrisonComponent>())
         {
-            militaryDivisionBarWidget.building = military;
+            militaryDivisionBarWidget.building = selected;
             owner->AddUiWidget(&militaryDivisionBarWidget);
         }
         else
@@ -1077,6 +1166,7 @@ void BasicMapViewSystem::CenterOnHeadquartersPressed()
     Vec2f hqWorldCenter{
         static_cast<float>((anchor.x + footprint.x * 0.5f) * TILE_SIZE),
         static_cast<float>((anchor.y + footprint.y * 0.5f) * TILE_SIZE)};
+    ApplyStrategicHudCameraPadding(scene);
     scene->render.CenterCameraOnWorld(hqWorldCenter, GetMapSize(scene));
     Log::Msg("[Input]", "space pressed - camera centered on headquarters");
 }
@@ -1086,14 +1176,29 @@ void BasicMapViewSystem::LmbPressed()
 {
     auto mousePos = GetMousePosition();
     Vec2i screenPos{static_cast<int>(mousePos.x), static_cast<int>(mousePos.y)};
-    if (IsFocusHudButtonHovered(strategicHudWidget))
+    if (IsBuildHudButtonHovered(strategicHudWidget))
     {
-        FocusPressed();
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
         return;
     }
     if (IsStatsHudButtonHovered(strategicHudWidget))
     {
         StatsPressed();
+        return;
+    }
+    if (IsFocusHudButtonHovered(strategicHudWidget))
+    {
+        FocusPressed();
         return;
     }
 
@@ -1184,10 +1289,11 @@ void BasicMapViewSystem::RmbPressed()
             auto* receiver = scene->game->tilemap.GetBuilding(tilePos);
             if (selected != nullptr && receiver != nullptr && selected != receiver)
             {
-                auto* selectedMilitary = dynamic_cast<MilitaryBuilding*>(selected);
-                auto* receiverMilitary = dynamic_cast<IMilitaryBuilding*>(receiver);
-                int selectedDivisionId = selectedMilitary != nullptr ? militaryDivisionBarWidget.selectedDivisionId : -1;
-                if (selectedMilitary != nullptr && receiverMilitary != nullptr && selectedDivisionId >= 0)
+                auto* selectedGarrison = selected->GetComponent<GarrisonComponent>();
+                bool receiverHasTerritory = receiver->HasComponent<TerritoryComponent>();
+                bool receiverHasGarrison = receiver->HasComponent<GarrisonComponent>();
+                int selectedDivisionId = selectedGarrison != nullptr ? militaryDivisionBarWidget.selectedDivisionId : -1;
+                if (selectedGarrison != nullptr && receiverHasTerritory && selectedDivisionId >= 0)
                 {
                     if (selected->owner != receiver->owner)
                     {
@@ -1196,7 +1302,7 @@ void BasicMapViewSystem::RmbPressed()
                         return;
                     }
 
-                    if (selected->owner == receiver->owner && dynamic_cast<MilitaryBuilding*>(receiver) != nullptr)
+                    if (selected->owner == receiver->owner && receiverHasGarrison)
                     {
                         scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Support, selected->positionId, receiver->positionId, selectedDivisionId));
                         Log::Msg("[Input]", selected->name, " division #", selectedDivisionId, " support order for ", receiver->name);
@@ -1204,24 +1310,24 @@ void BasicMapViewSystem::RmbPressed()
                     }
                 }
 
-                if (selected->owner != receiver->owner && dynamic_cast<IMilitaryBuilding*>(selected) != nullptr &&
-                    dynamic_cast<IMilitaryBuilding*>(receiver) != nullptr)
+                bool selectedHasMilitary = selectedGarrison != nullptr;
+                if (selected->owner != receiver->owner && selectedHasMilitary && receiverHasTerritory)
                 {
                     scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Attack, selected->positionId, receiver->positionId));
                     Log::Msg("[Input]", selected->name, " attack order against ", receiver->name);
                     return;
                 }
 
-                if (selected->owner == receiver->owner && dynamic_cast<IMilitaryBuilding*>(selected) != nullptr &&
-                    dynamic_cast<IMilitaryBuilding*>(receiver) != nullptr)
+                if (selected->owner == receiver->owner && selectedHasMilitary && receiverHasGarrison)
                 {
                     scene->SubmitLocalCommand(GameCommand::IssueMilitaryOrder(scene->game->GetLocalPlayerId(), MilitaryOrderType::Support, selected->positionId, receiver->positionId));
                     Log::Msg("[Input]", selected->name, " support order for ", receiver->name);
                     return;
                 }
 
-                scene->SubmitLocalCommand(GameCommand::SetReceiver(scene->game->GetLocalPlayerId(), selected->positionId, receiver->positionId));
-                Log::Msg("[Input]", receiver->name, " set as receiver for ", selected->name);
+                bool alternativeReceiver = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                scene->SubmitLocalCommand(GameCommand::SetReceiver(scene->game->GetLocalPlayerId(), selected->positionId, receiver->positionId, alternativeReceiver));
+                Log::Msg("[Input]", receiver->name, alternativeReceiver ? " set as alternative receiver for " : " set as receiver for ", selected->name);
                 return;
             }
         }
@@ -1285,12 +1391,12 @@ void SelectedBuildingWidget::Update(double dt)
 
         Rectangle supplierDest = BuildingScreenRect(scene, supplier.building);
         DrawRectangleRounded(supplierDest, 0.04f, 8, Color{73, 146, 236, 48});
-        DrawRectangleRoundedLines(supplierDest, 0.04f, 8, Color{96, 174, 255, 190});
+        DrawRectangleRoundedLines(supplierDest, 0.04f, 8, 1.0f, Color{96, 174, 255, 190});
     }
 
     Rectangle dest = BuildingScreenRect(scene, building);
     DrawRectangleRounded(dest, 0.04f, 8, Color{88, 196, 124, 55});
-    DrawRectangleRoundedLines(dest, 0.04f, 8, Color{112, 230, 150, 185});
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{112, 230, 150, 185});
 }
 
 // Advances this object's state for one frame.
@@ -1311,7 +1417,7 @@ void ProductionWarningWidget::Update(double dt)
 
         Rectangle dest = BuildingScreenRect(scene, building);
         DrawRectangleRounded(dest, 0.04f, 8, Color{236, 184, 62, 42});
-        DrawRectangleRoundedLines(dest, 0.04f, 8, Color{255, 211, 84, 210});
+        DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{255, 211, 84, 210});
     }
 }
 
@@ -1326,20 +1432,20 @@ void MilitaryOrderWidget::Update(double dt)
     if (localPlayer == nullptr)
         return;
 
-    for (auto* building : localPlayer->GetTrackedBuildings())
+    for (auto* building : localPlayer->GetTrackedBuildingsWithComponent<GarrisonComponent>())
     {
-        auto* military = dynamic_cast<MilitaryBuilding*>(building);
-        if (military == nullptr || military->buildingType == BuildingType::Barracks)
+        auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+        if (garrison == nullptr || building->HasComponent<RecruitmentComponent>())
             continue;
 
-        if (military->currentOrder != MilitaryOrderType::None)
+        if (garrison->currentOrder != MilitaryOrderType::None)
         {
-            Building* target = scene->game->tilemap.GetBuilding(military->orderTargetPositionId);
+            Building* target = scene->game->tilemap.GetBuilding(garrison->orderTargetId);
             if (target != nullptr)
-                DrawOrderArrow(BuildingScreenCenter(scene, military), BuildingScreenCenter(scene, target), MilitaryOrderColor(military->currentOrder));
+                DrawOrderArrow(BuildingScreenCenter(scene, building), BuildingScreenCenter(scene, target), MilitaryOrderColor(garrison->currentOrder));
         }
 
-        for (const auto& division : military->divisions)
+        for (const auto& division : garrison->divisions)
         {
             if (division.currentOrder == MilitaryOrderType::None)
                 continue;
@@ -1348,7 +1454,7 @@ void MilitaryOrderWidget::Update(double dt)
             if (target == nullptr)
                 continue;
 
-            DrawOrderArrow(BuildingScreenCenter(scene, military), BuildingScreenCenter(scene, target), MilitaryOrderColor(division.currentOrder));
+            DrawOrderArrow(BuildingScreenCenter(scene, building), BuildingScreenCenter(scene, target), MilitaryOrderColor(division.currentOrder));
         }
     }
 }
@@ -1356,7 +1462,8 @@ void MilitaryOrderWidget::Update(double dt)
 // Selects one division card in the bottom military strip.
 bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
 {
-    if (building == nullptr || building->divisions.empty() || !ContainsPoint(point))
+    auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+    if (building == nullptr || garrison == nullptr || garrison->divisions.empty() || !ContainsPoint(point))
         return false;
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
@@ -1365,7 +1472,7 @@ bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
     float cardH = std::max(72.0f, bounds.height - 52.0f);
     float x = bounds.x + 14.0f;
     float y = bounds.y + 38.0f;
-    for (const auto& division : building->divisions)
+    for (const auto& division : garrison->divisions)
     {
         Rectangle card{x, y, cardW, cardH};
         if (CheckCollisionPointRec(Vector2{static_cast<float>(point.x), static_cast<float>(point.y)}, card))
@@ -1387,8 +1494,12 @@ void MilitaryDivisionBarWidget::Update(double dt)
     if (building == nullptr)
         return;
 
+    auto* garrison = building->GetComponent<GarrisonComponent>();
+    if (garrison == nullptr)
+        return;
+
     bool selectedStillExists = false;
-    for (const auto& division : building->divisions)
+    for (const auto& division : garrison->divisions)
         if (division.id == selectedDivisionId)
             selectedStillExists = true;
     if (!selectedStillExists)
@@ -1396,11 +1507,11 @@ void MilitaryDivisionBarWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     DrawRectangleRounded(bounds, 0.06f, 8, Color{20, 24, 30, 232});
-    DrawRectangleRoundedLines(bounds, 0.06f, 8, Color{86, 98, 116, 235});
+    DrawRectangleRoundedLines(bounds, 0.06f, 8, 1.0f, Color{86, 98, 116, 235});
     UiText::DrawFit("Divisions stationed in " + building->name,
         Rectangle{bounds.x + 14.0f, bounds.y + 9.0f, bounds.width - 28.0f, 24.0f}, 21, RAYWHITE);
 
-    if (building->divisions.empty())
+    if (garrison->divisions.empty())
     {
         UiText::DrawFit("No trained divisions stationed here",
             Rectangle{bounds.x + 14.0f, bounds.y + 44.0f, bounds.width - 28.0f, 28.0f}, 20, Color{190, 198, 208, 255});
@@ -1414,7 +1525,7 @@ void MilitaryDivisionBarWidget::Update(double dt)
     float cardH = std::max(72.0f, bounds.height - 52.0f);
     float x = bounds.x + 14.0f;
     float y = bounds.y + 38.0f;
-    for (const auto& division : building->divisions)
+    for (const auto& division : garrison->divisions)
     {
         Rectangle card{x, y, cardW, cardH};
         bool isHovered = CheckCollisionPointRec(mouse, card);
@@ -1424,7 +1535,7 @@ void MilitaryDivisionBarWidget::Update(double dt)
 
         Color accent = DivisionColor(division.type);
         DrawRectangleRounded(card, 0.08f, 8, isSelected ? Color{44, 54, 68, 248} : Color{32, 38, 47, 242});
-        DrawRectangleRoundedLines(card, 0.08f, 8, isHovered || isSelected ? accent : Color{76, 88, 104, 235});
+        DrawRectangleRoundedLines(card, 0.08f, 8, 1.0f, isHovered || isSelected ? accent : Color{76, 88, 104, 235});
         DrawCircle(static_cast<int>(card.x + 18.0f), static_cast<int>(card.y + 20.0f), 9.0f, accent);
         UiText::DrawFit("#" + std::to_string(division.id) + " " + MilitaryUnitLabel(division.type),
             Rectangle{card.x + 32.0f, card.y + 8.0f, card.width - 40.0f, 22.0f}, 16, RAYWHITE);
@@ -1490,12 +1601,13 @@ void StrategicResourceHudWidget::Update(double dt)
 
     PlayerStatsSnapshot stats = BuildPlayerStatsSnapshot(player);
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.08f, 8, Color{24, 28, 34, 226});
-    DrawRectangleRoundedLines(bounds, 0.08f, 8, Color{88, 99, 116, 230});
+    DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{21, 25, 31, 238});
+    DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{38, 46, 57, 230}, Color{18, 22, 28, 238});
+    DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, Color{95, 109, 129, 235});
 
-    float iconSize = std::max(24.0f, bounds.height - 14.0f);
+    float iconSize = std::max(26.0f, bounds.height - 20.0f);
     float y = bounds.y + (bounds.height - iconSize) * 0.5f;
-    Rectangle manpowerIcon{bounds.x + 12.0f, y, iconSize, iconSize};
+    Rectangle manpowerIcon{bounds.x + 18.0f, y, iconSize, iconSize};
     Rectangle foodIcon{bounds.x + 150.0f, y, iconSize, iconSize};
 
     auto drawManpowerIcon = [&](Rectangle icon)
@@ -1504,24 +1616,107 @@ void StrategicResourceHudWidget::Update(double dt)
         DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.46f, icon.width * 0.44f, icon.height * 0.38f}, 0.30f, 8, Color{214, 226, 238, 255});
     };
 
-    DrawRectangleRounded(manpowerIcon, 0.16f, 8, Color{38, 44, 52, 235});
-    drawManpowerIcon(manpowerIcon);
-    UiText::Draw(std::to_string(stats.freeManpower), manpowerIcon.x + manpowerIcon.width + 8.0f, bounds.y + 11.0f, 22, RAYWHITE);
+    auto drawStatChip = [&](Rectangle icon, const std::string& text, Color accent, std::function<void(Rectangle)> drawIcon)
+    {
+        Rectangle chip{icon.x - 6.0f, icon.y - 4.0f, 120.0f, icon.height + 8.0f};
+        DrawRectangleRounded(chip, 0.16f, 8, Color{34, 40, 49, 232});
+        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{accent.r, accent.g, accent.b, 170});
+        DrawRectangleRounded(icon, 0.16f, 8, Color{42, 49, 60, 238});
+        drawIcon(icon);
+        UiText::DrawFit(text, Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 14.0f, chip.height - 10.0f}, 22, RAYWHITE);
+    };
 
-    DrawRectangleRounded(foodIcon, 0.16f, 8, Color{38, 44, 52, 235});
-    GuiPanel::DrawResourceIcon(ResourceType::MEAT, Rectangle{foodIcon.x + 4.0f, foodIcon.y + 4.0f, foodIcon.width - 8.0f, foodIcon.height - 8.0f});
-    UiText::Draw(std::to_string(stats.foodSupplyPercent) + "%", foodIcon.x + foodIcon.width + 8.0f, bounds.y + 11.0f, 22, RAYWHITE);
+    auto drawResourceChip = [&](ResourceType type, float x)
+    {
+        Rectangle chip{x, y - 4.0f, 116.0f, iconSize + 8.0f};
+        Rectangle icon{chip.x + 6.0f, y, iconSize, iconSize};
+        int amount = 0;
+        auto it = stats.storedResources.find(type);
+        if (it != stats.storedResources.end())
+            amount = it->second;
+
+        DrawRectangleRounded(chip, 0.16f, 8, Color{33, 39, 48, 228});
+        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{83, 95, 114, 220});
+        GuiPanel::DrawResourceIcon(type, Rectangle{icon.x + 3.0f, icon.y + 3.0f, icon.width - 6.0f, icon.height - 6.0f});
+        UiText::DrawFit(std::to_string(amount), Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 16.0f, chip.height - 10.0f}, 21, Color{229, 235, 242, 255});
+    };
+
+    drawStatChip(manpowerIcon, std::to_string(stats.freeManpower), Color{157, 190, 225, 255}, drawManpowerIcon);
+
+    drawStatChip(foodIcon, std::to_string(stats.foodSupplyPercent) + "%", Color{145, 198, 118, 255}, [&](Rectangle icon)
+    {
+        GuiPanel::DrawResourceIcon(ResourceType::MEAT, Rectangle{icon.x + 4.0f, icon.y + 4.0f, icon.width - 8.0f, icon.height - 8.0f});
+    });
 
     Rectangle statsButton = StatsHudButtonRect(*this);
     Rectangle focusButton = FocusHudButtonRect(*this);
+    Rectangle destroyButton = DestroyHudButtonRect(*this);
+    Rectangle roadButton = RoadHudButtonRect(*this);
+    Rectangle buildButton = BuildHudButtonRect(*this);
+
+    float resourceX = foodIcon.x + 130.0f;
+    float resourceRightLimit = buildButton.x - 12.0f;
+    bool showWood = resourceX + 116.0f <= resourceRightLimit;
+    bool showStone = resourceX + 242.0f <= resourceRightLimit;
+    bool showPlanks = resourceX + 368.0f <= resourceRightLimit;
+    if (showWood)
+        drawResourceChip(ResourceType::WOOD, resourceX);
+    if (showStone)
+        drawResourceChip(ResourceType::STONE, resourceX + 126.0f);
+    if (showPlanks)
+        drawResourceChip(ResourceType::PLANKS, resourceX + 252.0f);
+
     bool statsHovered = CheckCollisionPointRec(GetMousePosition(), statsButton);
     bool focusHovered = CheckCollisionPointRec(GetMousePosition(), focusButton);
-    DrawRectangleRounded(focusButton, 0.16f, 8, focusHovered ? Color{58, 71, 88, 245} : Color{38, 44, 52, 235});
-    DrawRectangleRoundedLines(focusButton, 0.16f, 8, focusHovered ? Color{124, 151, 184, 245} : Color{80, 93, 110, 230});
-    UiText::DrawFit("F", Rectangle{focusButton.x, focusButton.y + 1.0f, focusButton.width, focusButton.height}, 22, RAYWHITE);
-    DrawRectangleRounded(statsButton, 0.16f, 8, statsHovered ? Color{58, 71, 88, 245} : Color{38, 44, 52, 235});
-    DrawRectangleRoundedLines(statsButton, 0.16f, 8, statsHovered ? Color{124, 151, 184, 245} : Color{80, 93, 110, 230});
-    UiText::DrawFit("S", Rectangle{statsButton.x, statsButton.y + 1.0f, statsButton.width, statsButton.height}, 22, RAYWHITE);
+    bool destroyHovered = CheckCollisionPointRec(GetMousePosition(), destroyButton);
+    bool roadHovered = CheckCollisionPointRec(GetMousePosition(), roadButton);
+    bool buildHovered = CheckCollisionPointRec(GetMousePosition(), buildButton);
+    bool focusAvailable = player->focuses.GetActiveFocusId().empty();
+    float focusProgress = static_cast<float>(player->focuses.GetActiveFocusProgress());
+    float pulse = focusAvailable ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.0f)) : 0.0f;
+
+    auto drawHudButton = [&](Rectangle rect, const std::string& label, bool hovered, Color base, Color line)
+    {
+        DrawRectangleRounded(rect, 0.14f, 8, hovered ? Color{
+            static_cast<unsigned char>(std::min(255, base.r + 24)),
+            static_cast<unsigned char>(std::min(255, base.g + 24)),
+            static_cast<unsigned char>(std::min(255, base.b + 24)),
+            246} : base);
+        DrawRectangleRoundedLines(rect, 0.14f, 8, 1.1f, hovered ? Color{
+            static_cast<unsigned char>(std::min(255, line.r + 30)),
+            static_cast<unsigned char>(std::min(255, line.g + 30)),
+            static_cast<unsigned char>(std::min(255, line.b + 30)),
+            248} : line);
+        UiText::DrawFit(label, Rectangle{rect.x + 10.0f, rect.y + 4.0f, rect.width - 20.0f, rect.height - 8.0f}, 20, RAYWHITE);
+    };
+
+    drawHudButton(buildButton, "Build", buildHovered, Color{43, 60, 52, 238}, Color{92, 151, 118, 230});
+    drawHudButton(roadButton, "Road", roadHovered, Color{44, 55, 68, 238}, Color{94, 134, 174, 230});
+    drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
+
+    Color focusFill = focusAvailable
+        ? Color{static_cast<unsigned char>(88 + pulse * 34.0f), static_cast<unsigned char>(68 + pulse * 36.0f), static_cast<unsigned char>(134 + pulse * 52.0f), 246}
+        : Color{61, 48, 91, 238};
+    Color focusLine = focusAvailable
+        ? Color{210, 170, 255, 255}
+        : Color{147, 120, 205, 238};
+    if (focusHovered)
+        focusFill = Color{112, 86, 166, 250};
+    DrawRectangleRounded(focusButton, 0.14f, 8, focusFill);
+    DrawRectangleRoundedLines(focusButton, 0.14f, 8, 1.5f, focusLine);
+    if (focusAvailable)
+        DrawRectangleRounded(Rectangle{focusButton.x + 4.0f, focusButton.y + 4.0f, focusButton.width - 8.0f, focusButton.height - 8.0f}, 0.14f, 8, Color{255, 221, 120, static_cast<unsigned char>(22 + pulse * 48.0f)});
+    UiText::DrawFit("Focus Tree", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21, RAYWHITE);
+    Rectangle focusBar{focusButton.x + 12.0f, focusButton.y + focusButton.height - 9.0f, focusButton.width - 24.0f, 4.0f};
+    DrawRectangleRounded(focusBar, 0.6f, 6, Color{26, 22, 34, 170});
+    Rectangle focusFillBar = focusBar;
+    focusFillBar.width *= std::clamp(focusProgress, 0.0f, 1.0f);
+    if (focusFillBar.width >= 1.0f)
+        DrawRectangleRounded(focusFillBar, 0.6f, 6, focusAvailable ? Color{255, 220, 116, 210} : Color{178, 140, 248, 235});
+
+    DrawRectangleRounded(statsButton, 0.14f, 8, statsHovered ? Color{69, 83, 103, 245} : Color{43, 51, 64, 238});
+    DrawRectangleRoundedLines(statsButton, 0.14f, 8, 1.2f, statsHovered ? Color{139, 166, 202, 245} : Color{88, 103, 124, 230});
+    UiText::DrawFit("Resources", Rectangle{statsButton.x + 12.0f, statsButton.y + 4.0f, statsButton.width - 24.0f, statsButton.height - 8.0f}, 21, RAYWHITE);
 
     Vector2 mouse = GetMousePosition();
     if (CheckCollisionPointRec(mouse, Rectangle{manpowerIcon.x, bounds.y, 125.0f, bounds.height}))
@@ -1548,14 +1743,47 @@ void StrategicResourceHudWidget::Update(double dt)
             "Total consumption: " + FormatOneDecimal(totalConsumption) + " / min"
         }, 290.0f);
     }
+    else if (showWood && CheckCollisionPointRec(mouse, Rectangle{resourceX, bounds.y, 116.0f, bounds.height}))
+    {
+        Tooltip::Draw("Wood", {"Stored: " + std::to_string(stats.storedResources[ResourceType::WOOD])}, 180.0f);
+    }
+    else if (showStone && CheckCollisionPointRec(mouse, Rectangle{resourceX + 126.0f, bounds.y, 116.0f, bounds.height}))
+    {
+        Tooltip::Draw("Stone", {"Stored: " + std::to_string(stats.storedResources[ResourceType::STONE])}, 180.0f);
+    }
+    else if (showPlanks && CheckCollisionPointRec(mouse, Rectangle{resourceX + 252.0f, bounds.y, 116.0f, bounds.height}))
+    {
+        Tooltip::Draw("Planks", {"Stored: " + std::to_string(stats.storedResources[ResourceType::PLANKS])}, 180.0f);
+    }
+    else if (buildHovered)
+    {
+        Tooltip::Draw("Build", {"[Q] Open build menu"}, 210.0f);
+    }
+    else if (roadHovered)
+    {
+        Tooltip::Draw("Road", {"[R] Open road building"}, 220.0f);
+    }
+    else if (destroyHovered)
+    {
+        Tooltip::Draw("Destroy", {"[D] Open destroy mode"}, 220.0f);
+    }
     else if (statsHovered)
     {
-        Tooltip::Draw("Statistics", {"Open economy overview"}, 220.0f);
+        Tooltip::Draw("Resources", {"[S] Open economy overview"}, 240.0f);
     }
     else if (focusHovered)
     {
-        Tooltip::Draw("Focus Tree", {"Open political focus tree"}, 220.0f);
+        Tooltip::Draw("Focus Tree", {
+            "[F] Open political focus tree",
+            focusAvailable ? "No active focus selected" : "Focus is already in progress",
+            "Progress: " + std::to_string(static_cast<int>(std::round(focusProgress * 100.0f))) + "%"
+        }, 240.0f);
     }
+}
+
+void StrategicResourceHudWidget::UpdateSize(Vec2i windowSize)
+{
+    UpdateStrategicHudLayout(*this, windowSize);
 }
 
 // Draws the player-wide economy and strategic statistics panel.
@@ -1576,17 +1804,18 @@ void StatsPanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     DrawRectangleRounded(bounds, 0.025f, 8, Color{20, 24, 30, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, Color{100, 114, 136, 255});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{100, 114, 136, 255});
 
     Rectangle title{bounds.x, bounds.y, bounds.width, 54.0f};
     DrawRectangleRounded(title, 0.025f, 8, Color{38, 48, 62, 255});
     UiText::DrawFit("Statistics", Rectangle{title.x + 20.0f, title.y + 10.0f, title.width * 0.45f, 34.0f}, 30, RAYWHITE);
+    DrawCloseButton(bounds);
 
     constexpr std::array<int, 3> windows{15, 60, 300};
     const char* windowLabels[] = {"15 sec", "1 min", "5 min"};
     Rectangle spin{title.x + title.width - 250.0f, title.y + 10.0f, 220.0f, 34.0f};
     DrawRectangleRounded(spin, 0.12f, 8, Color{24, 30, 38, 255});
-    DrawRectangleRoundedLines(spin, 0.12f, 8, Color{90, 106, 128, 255});
+    DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, Color{90, 106, 128, 255});
     UiText::DrawFit("<", Rectangle{spin.x + 8.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, RAYWHITE);
     UiText::DrawFit(windowLabels[selectedWindowIndex], Rectangle{spin.x + 42.0f, spin.y + 5.0f, spin.width - 84.0f, 24.0f}, 22, RAYWHITE);
     UiText::DrawFit(">", Rectangle{spin.x + spin.width - 32.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, RAYWHITE);
@@ -1598,7 +1827,7 @@ void StatsPanelWidget::Update(double dt)
         Rectangle half{modeToggle.x + i * modeToggle.width * 0.5f, modeToggle.y, modeToggle.width * 0.5f, modeToggle.height};
         bool selected = selectedFlowMode == i;
         DrawRectangleRounded(half, 0.10f, 8, selected ? Color{54, 72, 92, 245} : Color{24, 30, 38, 235});
-        DrawRectangleRoundedLines(half, 0.10f, 8, selected ? Color{130, 166, 210, 245} : Color{76, 88, 106, 220});
+        DrawRectangleRoundedLines(half, 0.10f, 8, 1.0f, selected ? Color{130, 166, 210, 245} : Color{76, 88, 106, 220});
         UiText::DrawFit(modeLabels[i], Rectangle{half.x + 8.0f, half.y + 6.0f, half.width - 16.0f, 22.0f}, 18, RAYWHITE);
     }
 
@@ -1611,7 +1840,7 @@ void StatsPanelWidget::Update(double dt)
     auto drawColumn = [](Rectangle col, const std::string& titleText)
     {
         DrawRectangleRounded(col, 0.035f, 8, Color{29, 34, 42, 232});
-        DrawRectangleRoundedLines(col, 0.035f, 8, Color{74, 86, 104, 255});
+        DrawRectangleRoundedLines(col, 0.035f, 8, 1.0f, Color{74, 86, 104, 255});
         UiText::DrawFit(titleText, Rectangle{col.x + 14.0f, col.y + 12.0f, col.width - 28.0f, 26.0f}, 23, RAYWHITE);
     };
 
@@ -1739,7 +1968,7 @@ void StatsPanelWidget::Update(double dt)
     Rectangle allButton = GetAllFilterButtonRect(chart);
     bool allActive = selectedResources.empty();
     DrawRectangleRounded(allButton, 0.16f, 8, allActive ? Color{55, 80, 64, 245} : Color{31, 37, 46, 240});
-    DrawRectangleRoundedLines(allButton, 0.16f, 8, allActive ? Color{118, 226, 150, 230} : Color{78, 92, 112, 230});
+    DrawRectangleRoundedLines(allButton, 0.16f, 8, 1.0f, allActive ? Color{118, 226, 150, 230} : Color{78, 92, 112, 230});
     UiText::DrawFit("All", Rectangle{allButton.x + 4.0f, allButton.y + 6.0f, allButton.width - 8.0f, 18.0f}, 18, RAYWHITE);
 
     int shown = 0;
@@ -1752,7 +1981,7 @@ void StatsPanelWidget::Update(double dt)
         bool active = std::find(activeResources.begin(), activeResources.end(), type) != activeResources.end();
         bool selected = selectedResources.empty() || selectedResources.contains(type);
         DrawRectangleRounded(slot, 0.12f, 8, selected && active ? Color{42, 52, 64, 245} : Color{24, 29, 36, 210});
-        DrawRectangleRoundedLines(slot, 0.12f, 8, selected && active ? color : Color{70, 78, 90, 210});
+        DrawRectangleRoundedLines(slot, 0.12f, 8, 1.0f, selected && active ? color : Color{70, 78, 90, 210});
         GuiPanel::DrawResourceIcon(type, Rectangle{slot.x + 5.0f, slot.y + 5.0f, 24.0f, 24.0f});
         DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : Color{70, 78, 90, 210});
         if (CheckCollisionPointRec(GetMousePosition(), slot))
@@ -1796,10 +2025,11 @@ void FocusPanelWidget::Update(double dt)
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     DrawRectangleRounded(bounds, 0.025f, 8, Color{26, 30, 37, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, Color{92, 102, 118, 255});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{92, 102, 118, 255});
     Rectangle title{bounds.x, bounds.y, bounds.width, 52.0f};
     DrawRectangleRounded(title, 0.025f, 8, Color{42, 50, 62, 255});
-    UiText::DrawFit("Political Focus Tree", Rectangle{title.x + 18.0f, title.y + 10.0f, title.width - 36.0f, 30.0f}, 28, RAYWHITE);
+    UiText::DrawFit("Political Focus Tree", Rectangle{title.x + 18.0f, title.y + 10.0f, title.width - 86.0f, 30.0f}, 28, RAYWHITE);
+    DrawCloseButton(bounds);
 
     auto nodes = ResearchCatalog::BuildFocusView(*player);
     std::map<std::string, ResearchNodeView*> byId;
@@ -2090,7 +2320,7 @@ void FocusPanelWidget::Update(double dt)
             line.a = 120;
         }
         DrawRectangleRounded(rect, 0.06f, 8, fill);
-        DrawRectangleRoundedLines(rect, 0.06f, 8, tagMatched && !selectedTagFilter.empty() ? Color{112, 208, 172, 255} : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255} : (hover ? Color{190, 215, 255, 255} : line));
+        DrawRectangleRoundedLines(rect, 0.06f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{112, 208, 172, 255} : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255} : (hover ? Color{190, 215, 255, 255} : line));
         DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 7.0f * zoom, rect.width - 20.0f * zoom, 45.0f * zoom}, std::max(15, static_cast<int>(24 * zoom)), RAYWHITE, 2);
         UiText::DrawFit(node.stateText, Rectangle{rect.x + 12.0f * zoom, rect.y + 53.0f * zoom, rect.width - 24.0f * zoom, 21.0f * zoom}, std::max(11, static_cast<int>(18 * zoom)),
             node.researched ? Color{145, 230, 160, 255} : node.available ? Color{190, 215, 255, 255} : Color{180, 186, 196, 255});
@@ -2126,7 +2356,7 @@ void FocusPanelWidget::Update(double dt)
     }
 
     DrawRectangleRounded(statePanel, 0.04f, 8, Color{31, 36, 44, 236});
-    DrawRectangleRoundedLines(statePanel, 0.04f, 8, Color{88, 100, 118, 235});
+    DrawRectangleRoundedLines(statePanel, 0.04f, 8, 1.0f, Color{88, 100, 118, 235});
     UiText::DrawFit("State Overview", Rectangle{statePanel.x + 14.0f, statePanel.y + 14.0f, statePanel.width - 28.0f, 26.0f}, 23, RAYWHITE);
     const auto& stateDefinition = player->stateDevelopment.GetDefinition();
     std::vector<std::pair<std::string, std::string>> placeholders{
@@ -2314,13 +2544,16 @@ void BuildPanelWidget::Update(double dt)
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     Vector2 mouse = GetMousePosition();
     DrawRectangleRounded(bounds, 0.025f, 8, Color{28, 32, 38, 238});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, Color{92, 102, 118, 255});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{92, 102, 118, 255});
 
     int margin = std::max(7, size.x / 64);
     int titleBar = std::max(30, size.y / 17);
     Rectangle titleBounds{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+    Rectangle closeButton = PanelCloseButtonRect(bounds);
     DrawRectangleRounded(titleBounds, 0.025f, 8, Color{44, 52, 65, 255});
-    if (CheckCollisionPointRec(mouse, titleBounds) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (CheckCollisionPointRec(mouse, titleBounds) &&
+        !CheckCollisionPointRec(mouse, closeButton) &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         dragging = true;
         dragOffset = Vec2i{static_cast<int>(mouse.x) - pos.x, static_cast<int>(mouse.y) - pos.y};
@@ -2331,6 +2564,7 @@ void BuildPanelWidget::Update(double dt)
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = Rectangle{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
         titleBounds = Rectangle{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+        closeButton = PanelCloseButtonRect(bounds);
     }
     if (dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
@@ -2338,6 +2572,7 @@ void BuildPanelWidget::Update(double dt)
     int titleFont = std::max(17, std::min(23, titleBar / 2 + 2));
     int titleWidth = UiText::Measure(title, titleFont);
     UiText::Draw(title, bounds.x + (bounds.width - titleWidth) * 0.5f, bounds.y + (titleBar - titleFont) * 0.5f, titleFont, RAYWHITE);
+    DrawCloseButton(bounds);
 
     int columns = 3;
     float gap = 7.0f;
@@ -2408,7 +2643,7 @@ void BuildPanelWidget::Update(double dt)
         auto lockReasons = BuildLockReasons(scene, option);
         bool locked = !lockReasons.empty();
         DrawRectangleRounded(card, 0.04f, 8, locked ? Color{20, 22, 26, 226} : (selected ? Color{48, 68, 58, 245} : Color{36, 41, 49, 235}));
-        DrawRectangleRoundedLines(card, 0.04f, 8, locked ? Color{58, 64, 74, 240} : (selected ? Color{112, 230, 150, 210} : Color{88, 98, 114, 255}));
+        DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? Color{58, 64, 74, 240} : (selected ? Color{112, 230, 150, 210} : Color{88, 98, 114, 255}));
 
         float icon = std::min(card.width * 0.52f, card.height - 14.0f);
         Rectangle dst{card.x + 6.0f, card.y + (card.height - icon) * 0.5f, icon, icon};
@@ -2567,7 +2802,7 @@ void BuildGhostWidget::Update(double dt)
 
     Color tint = canBuild ? Color{88, 196, 124, 62} : Color{220, 80, 80, 70};
     DrawRectangleRounded(dest, 0.04f, 8, tint);
-    DrawRectangleRoundedLines(dest, 0.04f, 8, canBuild ? Color{112, 230, 150, 180} : Color{240, 110, 110, 190});
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, canBuild ? Color{112, 230, 150, 180} : Color{240, 110, 110, 190});
 
     auto textureIt = scene->render.buildingTextures.find(selectedOption->buildingType);
     if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
@@ -2629,6 +2864,7 @@ void BuildGuiSystem::Update(double dt)
     if (scene->game == nullptr)
         return;
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
     RefreshGhost();
     buildPanel.hoveredTile = ghostWidget.tilePos;
@@ -2686,6 +2922,21 @@ void BuildGuiSystem::LmbPressed()
 {
     auto mousePos = GetMousePosition();
     Vec2i screenPos{static_cast<int>(mousePos.x), static_cast<int>(mousePos.y)};
+    if (IsBuildHudButtonHovered(strategicHudWidget))
+    {
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
+        return;
+    }
     if (IsStatsHudButtonHovered(strategicHudWidget))
     {
         StatsPressed();
@@ -2698,6 +2949,17 @@ void BuildGuiSystem::LmbPressed()
     }
     if (buildPanel.ContainsPoint(screenPos))
     {
+        Rectangle panelBounds{
+            static_cast<float>(buildPanel.pos.x),
+            static_cast<float>(buildPanel.pos.y),
+            static_cast<float>(buildPanel.size.x),
+            static_cast<float>(buildPanel.size.y)};
+        if (CheckCollisionPointRec(mousePos, PanelCloseButtonRect(panelBounds)))
+        {
+            ReturnToMapView();
+            return;
+        }
+
         int option = buildPanel.GetOptionAt(screenPos);
         if (option >= 0)
             SelectOption(static_cast<size_t>(option));
@@ -2848,6 +3110,7 @@ void RoadBuildSystem::Update(double dt)
     if (scene->game == nullptr)
         return;
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
     RefreshGhost();
     owner->AddUiWidget(&ghostWidget);
@@ -2858,7 +3121,12 @@ void RoadBuildSystem::Update(double dt)
     {
         auto mousePos = GetMousePosition();
         Vec2i screenPos{static_cast<int>(mousePos.x), static_cast<int>(mousePos.y)};
-        if (!buildPanel.ContainsPoint(screenPos) && !IsStatsHudButtonHovered(strategicHudWidget) && !IsFocusHudButtonHovered(strategicHudWidget))
+        if (!buildPanel.ContainsPoint(screenPos) &&
+            !IsBuildHudButtonHovered(strategicHudWidget) &&
+            !IsRoadHudButtonHovered(strategicHudWidget) &&
+            !IsDestroyHudButtonHovered(strategicHudWidget) &&
+            !IsStatsHudButtonHovered(strategicHudWidget) &&
+            !IsFocusHudButtonHovered(strategicHudWidget))
             TryPlaceRoadAtHovered();
     }
 }
@@ -2882,9 +3150,19 @@ void RoadBuildSystem::LmbPressed()
 {
     auto mousePos = GetMousePosition();
     Vec2i screenPos{static_cast<int>(mousePos.x), static_cast<int>(mousePos.y)};
-    if (IsFocusHudButtonHovered(strategicHudWidget))
+    if (IsBuildHudButtonHovered(strategicHudWidget))
     {
-        FocusPressed();
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
         return;
     }
     if (IsStatsHudButtonHovered(strategicHudWidget))
@@ -2892,8 +3170,25 @@ void RoadBuildSystem::LmbPressed()
         StatsPressed();
         return;
     }
+    if (IsFocusHudButtonHovered(strategicHudWidget))
+    {
+        FocusPressed();
+        return;
+    }
     if (buildPanel.ContainsPoint(screenPos))
     {
+        Rectangle panelBounds{
+            static_cast<float>(buildPanel.pos.x),
+            static_cast<float>(buildPanel.pos.y),
+            static_cast<float>(buildPanel.size.x),
+            static_cast<float>(buildPanel.size.y)};
+        if (CheckCollisionPointRec(mousePos, PanelCloseButtonRect(panelBounds)))
+        {
+            ReturnToMapView();
+            lastRoadDragTile = {-9999, -9999};
+            return;
+        }
+
         int option = buildPanel.GetOptionAt(screenPos);
         if (option >= 0)
             SelectOption(static_cast<size_t>(option));
@@ -2968,6 +3263,7 @@ void DestroyGuiSystem::Update(double dt)
     if (scene->game == nullptr)
         return;
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
 
     Vec2i tilePos = ScreenToTile(scene, GetMousePosition());
@@ -3038,14 +3334,29 @@ void DestroyGuiSystem::FocusPressed()
 // Initializes DestroyGuiSystem::LmbPressed.
 void DestroyGuiSystem::LmbPressed()
 {
-    if (IsFocusHudButtonHovered(strategicHudWidget))
+    if (IsBuildHudButtonHovered(strategicHudWidget))
     {
-        FocusPressed();
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
         return;
     }
     if (IsStatsHudButtonHovered(strategicHudWidget))
     {
         StatsPressed();
+        return;
+    }
+    if (IsFocusHudButtonHovered(strategicHudWidget))
+    {
+        FocusPressed();
         return;
     }
 
@@ -3135,6 +3446,7 @@ void StatsGuiSystem::Update(double dt)
     if (scene->game == nullptr)
         return;
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
     owner->AddUiWidget(&statsPanel);
     owner->AddUiWidget(&strategicHudWidget);
@@ -3193,9 +3505,19 @@ void StatsGuiSystem::FocusPressed()
 // Handles clicks on the statistics overlay.
 void StatsGuiSystem::LmbPressed()
 {
-    if (IsFocusHudButtonHovered(strategicHudWidget))
+    if (IsBuildHudButtonHovered(strategicHudWidget))
     {
-        FocusPressed();
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
         return;
     }
     if (IsStatsHudButtonHovered(strategicHudWidget))
@@ -3203,8 +3525,24 @@ void StatsGuiSystem::LmbPressed()
         StatsPressed();
         return;
     }
+    if (IsFocusHudButtonHovered(strategicHudWidget))
+    {
+        FocusPressed();
+        return;
+    }
 
     Vector2 mouse = GetMousePosition();
+    Rectangle panelBounds{
+        static_cast<float>(statsPanel.pos.x),
+        static_cast<float>(statsPanel.pos.y),
+        static_cast<float>(statsPanel.size.x),
+        static_cast<float>(statsPanel.size.y)};
+    if (CheckCollisionPointRec(mouse, PanelCloseButtonRect(panelBounds)))
+    {
+        EscPressed();
+        return;
+    }
+
     statsPanel.HandleClick(Vec2i{static_cast<int>(mouse.x), static_cast<int>(mouse.y)});
 }
 
@@ -3270,6 +3608,7 @@ void FocusGuiSystem::Update(double dt)
     if (scene->game == nullptr)
         return;
 
+    ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
     owner->AddUiWidget(&focusPanel);
     owner->AddUiWidget(&strategicHudWidget);
@@ -3321,6 +3660,21 @@ void FocusGuiSystem::FocusPressed()
 
 void FocusGuiSystem::LmbPressed()
 {
+    if (IsBuildHudButtonHovered(strategicHudWidget))
+    {
+        BuildPressed();
+        return;
+    }
+    if (IsRoadHudButtonHovered(strategicHudWidget))
+    {
+        RoadBuildPressed();
+        return;
+    }
+    if (IsDestroyHudButtonHovered(strategicHudWidget))
+    {
+        DestroyPressed();
+        return;
+    }
     if (IsStatsHudButtonHovered(strategicHudWidget))
     {
         StatsPressed();
@@ -3329,6 +3683,18 @@ void FocusGuiSystem::LmbPressed()
     if (IsFocusHudButtonHovered(strategicHudWidget))
     {
         FocusPressed();
+        return;
+    }
+
+    Vector2 mouse = GetMousePosition();
+    Rectangle panelBounds{
+        static_cast<float>(focusPanel.pos.x),
+        static_cast<float>(focusPanel.pos.y),
+        static_cast<float>(focusPanel.size.x),
+        static_cast<float>(focusPanel.size.y)};
+    if (CheckCollisionPointRec(mouse, PanelCloseButtonRect(panelBounds)))
+    {
+        EscPressed();
         return;
     }
 }

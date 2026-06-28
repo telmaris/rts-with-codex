@@ -98,9 +98,9 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     ASSERT_NE(roadA, nullptr);
     ASSERT_NE(roadB, nullptr);
 
-    source->resourceBuffers.clear();
-    destination->resourceBuffers.clear();
-    destination->resourceBuffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
+    source->storage.buffers.clear();
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
 
     Resource wood{ResourceType::WOOD};
     ASSERT_TRUE(network.BeginTransport(source, destination, &wood));
@@ -112,6 +112,85 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     EXPECT_FALSE(wood.transportPath.empty());
 }
 
+TEST(RoadNetworkTests, RoadCapacityLimitsEntryAndQueuesOverflowAtSource)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedMap(map, &player);
+    RoadNetwork network{map};
+
+    auto* source = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
+    auto* destination = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
+    auto* roadA = PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
+    auto* roadB = PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    roadA->road.maxCapacity.SetBase(1);
+    roadB->road.maxCapacity.SetBase(1);
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 4};
+
+    Resource woodA{ResourceType::WOOD};
+    Resource woodB{ResourceType::WOOD};
+    Resource woodC{ResourceType::WOOD};
+    ASSERT_TRUE(network.BeginTransport(source, destination, &woodA));
+    ASSERT_TRUE(network.BeginTransport(source, destination, &woodB));
+    ASSERT_TRUE(network.BeginTransport(source, destination, &woodC));
+
+    source->UpdateTransportables(1.1);
+
+    EXPECT_EQ(roadA->transportables.size(), 1u);
+    EXPECT_EQ(source->transportables.size(), 2u);
+}
+
+TEST(RoadNetworkTests, OpposingFullRoadSegmentsSwapToBreakDeadlock)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedMap(map, &player);
+    RoadNetwork network{map};
+
+    auto* leftStorage = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
+    auto* rightStorage = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
+    auto* roadA = PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
+    auto* roadB = PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4);
+    ASSERT_NE(leftStorage, nullptr);
+    ASSERT_NE(rightStorage, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    roadA->road.maxCapacity.SetBase(1);
+    roadB->road.maxCapacity.SetBase(1);
+    leftStorage->storage.buffers.clear();
+    rightStorage->storage.buffers.clear();
+    leftStorage->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 4};
+    rightStorage->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 4};
+
+    Resource eastbound{ResourceType::WOOD};
+    Resource westbound{ResourceType::WOOD};
+    ASSERT_TRUE(network.BeginTransport(leftStorage, rightStorage, &eastbound));
+    ASSERT_TRUE(network.BeginTransport(rightStorage, leftStorage, &westbound));
+
+    leftStorage->UpdateTransportables(1.1);
+    rightStorage->UpdateTransportables(1.1);
+    ASSERT_EQ(roadA->transportables.size(), 1u);
+    ASSERT_EQ(roadB->transportables.size(), 1u);
+    ASSERT_EQ(roadA->transportables.front(), &eastbound);
+    ASSERT_EQ(roadB->transportables.front(), &westbound);
+
+    eastbound.elapsedTime = eastbound.transportTime;
+    westbound.elapsedTime = westbound.transportTime;
+    roadA->UpdateTransportables(0.1);
+
+    EXPECT_EQ(roadA->transportables.size(), 1u);
+    EXPECT_EQ(roadB->transportables.size(), 1u);
+    EXPECT_EQ(roadA->transportables.front(), &westbound);
+    EXPECT_EQ(roadB->transportables.front(), &eastbound);
+}
+
 TEST(RoadNetworkTests, HeadquartersAcceptsPaperResource)
 {
     Headquarters destination{2};
@@ -121,8 +200,8 @@ TEST(RoadNetworkTests, HeadquartersAcceptsPaperResource)
     Resource paper{ResourceType::PAPER};
     destination.AddResource(&paper);
 
-    auto paperIt = destination.resourceBuffers.find(ResourceType::PAPER);
-    ASSERT_NE(paperIt, destination.resourceBuffers.end());
+    auto paperIt = destination.storage.buffers.find(ResourceType::PAPER);
+    ASSERT_NE(paperIt, destination.storage.buffers.end());
     EXPECT_EQ(paperIt->second.buffer.size(), 1u);
 }
 
@@ -140,14 +219,14 @@ TEST(RoadNetworkTests, BeginTransportRejectsFullDestination)
     ASSERT_NE(source, nullptr);
     ASSERT_NE(destination, nullptr);
 
-    destination->resourceBuffers.clear();
-    destination->resourceBuffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 1};
-    destination->resourceBuffers[ResourceType::WOOD].SetStoredAmount(1);
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 1};
+    destination->storage.buffers[ResourceType::WOOD].SetStoredAmount(1);
 
     Resource wood{ResourceType::WOOD};
     EXPECT_FALSE(network.BeginTransport(source, destination, &wood));
     EXPECT_TRUE(source->transportables.empty());
-    destination->resourceBuffers[ResourceType::WOOD].Clear();
+    destination->storage.buffers[ResourceType::WOOD].Clear();
 }
 
 TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
@@ -165,10 +244,10 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
     ASSERT_NE(source, nullptr);
     ASSERT_NE(destination, nullptr);
 
-    source->resourceBuffers.clear();
-    source->resourceBuffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
-    destination->resourceBuffers.clear();
-    destination->resourceBuffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
+    source->storage.buffers.clear();
+    source->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
 
     Resource wood{ResourceType::WOOD};
     ASSERT_TRUE(network.BeginTransport(source, destination, &wood));
@@ -176,6 +255,6 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
 
     map.tilemap[wood.transportPath.front()].owner = &enemy;
     EXPECT_TRUE(wood.Update(0.1));
-    EXPECT_EQ(source->resourceBuffers[ResourceType::WOOD].buffer.size(), 1u);
-    source->resourceBuffers[ResourceType::WOOD].Clear();
+    EXPECT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
+    source->storage.buffers[ResourceType::WOOD].Clear();
 }

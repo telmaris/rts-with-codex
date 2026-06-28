@@ -194,7 +194,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (source->IsUnderConstruction() || target->IsUnderConstruction())
             return false;
 
-        tilemap.ConnectReceiver(source, target);
+        tilemap.ConnectReceiver(source, target, command.alternativeReceiver);
         return acceptCommand();
     }
 
@@ -209,19 +209,14 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (source->IsUnderConstruction() || target->IsUnderConstruction())
             return false;
 
-        auto* attacker = dynamic_cast<IMilitaryBuilding*>(source);
-        auto* defender = dynamic_cast<IMilitaryBuilding*>(target);
-        if (attacker == nullptr || defender == nullptr || defender->GetHitPoints() <= 0)
+        auto* targetTerritory = target->GetComponent<TerritoryComponent>();
+        if (targetTerritory == nullptr || targetTerritory->hp <= 0)
             return false;
 
-        if (auto* military = dynamic_cast<MilitaryBuilding*>(source))
-        {
-            if (dynamic_cast<Barracks*>(military) != nullptr)
-                return false;
-            military->IssueOrder(MilitaryOrderType::Attack, target->positionId);
-        }
-        else
+        auto* garrison = source->GetComponent<GarrisonComponent>();
+        if (garrison == nullptr || source->HasComponent<RecruitmentComponent>())
             return false;
+        garrison->IssueOrder(MilitaryOrderType::Attack, target->positionId);
         Log::Msg("[Combat]", source->name, " received attack order against ", target->name);
         return acceptCommand();
     }
@@ -235,9 +230,9 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (source->owner != player || source->IsUnderConstruction() || target->IsUnderConstruction())
             return false;
 
-        auto* military = dynamic_cast<MilitaryBuilding*>(source);
-        auto* targetMilitary = dynamic_cast<IMilitaryBuilding*>(target);
-        if (military == nullptr || targetMilitary == nullptr)
+        auto* garrison = source->GetComponent<GarrisonComponent>();
+        auto* targetTerritory = target->GetComponent<TerritoryComponent>();
+        if (garrison == nullptr || targetTerritory == nullptr || targetTerritory->hp <= 0)
             return false;
 
         if (command.militaryOrderType == MilitaryOrderType::Attack && target->owner == player)
@@ -245,19 +240,20 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if ((command.militaryOrderType == MilitaryOrderType::Support || command.militaryOrderType == MilitaryOrderType::Defend) &&
             target->owner != player)
             return false;
-        if (command.militaryOrderType == MilitaryOrderType::Support && dynamic_cast<MilitaryBuilding*>(target) == nullptr)
+        if (command.militaryOrderType == MilitaryOrderType::Support &&
+            target->GetComponent<GarrisonComponent>() == nullptr)
             return false;
 
         if (command.divisionId >= 0)
         {
-            if (!military->IssueDivisionOrder(command.divisionId, command.militaryOrderType, target->positionId))
+            if (!garrison->IssueDivisionOrder(command.divisionId, command.militaryOrderType, target->positionId, *source))
                 return false;
         }
         else
         {
-            if (dynamic_cast<Barracks*>(military) != nullptr)
+            if (source->HasComponent<RecruitmentComponent>())
                 return false;
-            military->IssueOrder(command.militaryOrderType, target->positionId);
+            garrison->IssueOrder(command.militaryOrderType, target->positionId);
         }
         return acceptCommand();
     }
@@ -268,11 +264,12 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (source == nullptr || source->owner != player || source->IsUnderConstruction())
             return false;
 
-        auto* barracks = dynamic_cast<Barracks*>(source);
-        if (barracks == nullptr)
+        auto* recruitment = source->GetComponent<RecruitmentComponent>();
+        auto* garrison = source->GetComponent<GarrisonComponent>();
+        if (recruitment == nullptr || garrison == nullptr)
             return false;
 
-        if (!barracks->QueueRecruitment(command.militaryUnitType))
+        if (!recruitment->QueueUnit(command.militaryUnitType, *source, *garrison))
             return false;
         return acceptCommand();
     }
@@ -293,14 +290,14 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (source == nullptr || source->owner != player || source->IsUnderConstruction())
             return false;
 
-        auto* university = dynamic_cast<ProductionBuilding*>(source);
-        if (university == nullptr || university->buildingType != BuildingType::University)
+        if (source->buildingType != BuildingType::University ||
+            source->GetComponent<ResearchComponent>() == nullptr)
             return false;
 
         if (command.researchId.empty() || !player->CanResearchTechnology(command.researchId))
             return false;
 
-        if (!player->StartTechnologyResearch(command.researchId, university))
+        if (!player->StartTechnologyResearch(command.researchId, source))
             return false;
         return acceptCommand();
     }
