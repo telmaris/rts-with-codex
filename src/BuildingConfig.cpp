@@ -1,7 +1,7 @@
 #include "../inc/BuildingConfig.h"
+#include "../inc/RtsDataFile.h"
 
 #include <algorithm>
-#include <cctype>
 
 namespace
 {
@@ -267,6 +267,17 @@ namespace
                 {},
                 {15, 1600, 140, 80, 160, 200, 400}},
             BuildingDefinition{
+                BuildingType::SupplyHub,
+                "Supply Hub",
+                "[SupplyHub]",
+                "assets/textures/building/storage.png",
+                "Cost TBD",
+                {{ResourceType::WOOD, 60}, {ResourceType::STONE, 35}, {ResourceType::PLANKS, 25}, {ResourceType::IRON, 10}},
+                {3, 3},
+                4,
+                20.0,
+                0.0},
+            BuildingDefinition{
                 BuildingType::Road,
                 "Road",
                 "[Road]",
@@ -294,67 +305,6 @@ namespace
         {1, 1},
         0};
 
-    // Initializes TokenizeLine.
-    std::vector<std::string> TokenizeLine(const std::string& line)
-    {
-        std::vector<std::string> tokens;
-        std::string token;
-        bool inQuote = false;
-
-        for (char c : line)
-        {
-            if (!inQuote && c == '#')
-                break;
-
-            if (c == '"')
-            {
-                if (inQuote)
-                {
-                    tokens.push_back(token);
-                    token.clear();
-                }
-                inQuote = !inQuote;
-                continue;
-            }
-
-            if (!inQuote && std::isspace(static_cast<unsigned char>(c)))
-            {
-                if (!token.empty())
-                {
-                    tokens.push_back(token);
-                    token.clear();
-                }
-                continue;
-            }
-
-            token.push_back(c);
-        }
-
-        if (!token.empty())
-            tokens.push_back(token);
-
-        return tokens;
-    }
-
-    // Initializes ReadDataLines.
-    std::vector<std::vector<std::string>> ReadDataLines(const std::string& path)
-    {
-        std::ifstream file(path);
-        std::vector<std::vector<std::string>> lines;
-        if (!file.is_open())
-            return lines;
-
-        std::string line;
-        while (std::getline(file, line))
-        {
-            auto tokens = TokenizeLine(line);
-            if (!tokens.empty())
-                lines.push_back(std::move(tokens));
-        }
-
-        return lines;
-    }
-
     // Initializes ParseBuildingType.
     BuildingType ParseBuildingType(const std::string& value)
     {
@@ -378,6 +328,7 @@ namespace
         if (value == "Fortress") return BuildingType::Fortress;
         if (value == "Castle") return BuildingType::Castle;
         if (value == "Barracks") return BuildingType::Barracks;
+        if (value == "SupplyHub") return BuildingType::SupplyHub;
         if (value == "Road") return BuildingType::Road;
         return BuildingType::Building;
     }
@@ -415,6 +366,14 @@ namespace
         if (value == "BOW") return ResourceType::BOW;
         if (value == "ARROWS") return ResourceType::ARROWS;
         if (value == "HORSE") return ResourceType::HORSE;
+        if (value == "BRONZE_SWORD") return ResourceType::BRONZE_SWORD;
+        if (value == "SPEAR") return ResourceType::SPEAR;
+        if (value == "CROSSBOW") return ResourceType::CROSSBOW;
+        if (value == "BOLTS") return ResourceType::BOLTS;
+        if (value == "WOODEN_SHIELD") return ResourceType::WOODEN_SHIELD;
+        if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
+        if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
+        if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
         return ResourceType::Null;
     }
 
@@ -650,7 +609,7 @@ namespace
 // Loads building definitions from a specific data file.
 std::vector<BuildingDefinition> LoadBuildingDefinitionsFromFile(const std::string& path)
 {
-    return ParseBuildingDefinitions(ReadDataLines(path));
+    return ParseBuildingDefinitions(ReadRtsDataLines(path));
 }
 
 // Returns all loaded building definitions.
@@ -692,6 +651,7 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::StorageBuilding,
         BuildingType::Village,
         BuildingType::Barracks,
+        BuildingType::SupplyHub,
         BuildingType::GuardTower,
         BuildingType::Fortress,
         BuildingType::Castle};

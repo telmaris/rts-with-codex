@@ -501,6 +501,19 @@ building Barracks
     military territory_radius 0 hit_points 600 strength 15 garrison 0 garrison_capacity 80 supply 0 supply_capacity 120
 end
 
+building SupplyHub
+    name "Supply Hub"
+    tag "[SupplyHub]"
+    texture "assets/textures/building/storage.png"
+    build_cost WOOD 60
+    build_cost STONE 35
+    build_cost PLANKS 25
+    build_cost IRON 10
+    build_time 20.0
+    footprint 3 3
+    texture_id 4
+end
+
 building Road
     name "Road"
     tag "[Road]"

@@ -24,6 +24,8 @@ enum InputMap
     LEFT_BUTTON_UP,
     RIGHT_BUTTON_DOWN,
     RIGHT_BUTTON_UP,
+    MIDDLE_BUTTON_DOWN,
+    MIDDLE_BUTTON_UP,
     MOUSE_SCROLL,
 
 
@@ -75,6 +77,8 @@ inline void InputProcessor::Init(GuiController* gui)
     actionInputs[LEFT_BUTTON_UP].button = MOUSE_BUTTON_LEFT;
     actionInputs[RIGHT_BUTTON_DOWN].button = MOUSE_BUTTON_RIGHT;
     actionInputs[RIGHT_BUTTON_UP].button = MOUSE_BUTTON_RIGHT;
+    actionInputs[MIDDLE_BUTTON_DOWN].button = MOUSE_BUTTON_MIDDLE;
+    actionInputs[MIDDLE_BUTTON_UP].button = MOUSE_BUTTON_MIDDLE;
 }
 
 

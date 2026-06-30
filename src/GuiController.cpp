@@ -2,6 +2,8 @@
 #include "../inc/BuildingConfig.h"
 #include "../inc/ResearchCatalog.h"
 #include "../inc/Player.h"
+#include "../inc/DivisionSector.h"
+#include "../inc/SectorGraph.h"
 
 #include <algorithm>
 #include <array>
@@ -117,6 +119,35 @@ namespace
         }
     }
 
+    const char* ResourceChipShortName(ResourceType type)
+    {
+        switch (type)
+        {
+            case ResourceType::WOOD: return "Wood";
+            case ResourceType::PLANKS: return "Plank";
+            case ResourceType::COAL: return "Coal";
+            case ResourceType::IRON_ORE: return "Ore";
+            case ResourceType::IRON: return "Iron";
+            case ResourceType::STONE: return "Stone";
+            case ResourceType::WHEAT: return "Wheat";
+            case ResourceType::FLOUR: return "Flour";
+            case ResourceType::BREAD: return "Bread";
+            case ResourceType::MEAT: return "Meat";
+            case ResourceType::WATER: return "Water";
+            case ResourceType::BEER: return "Beer";
+            case ResourceType::PAPER: return "Paper";
+            case ResourceType::TOOLS: return "Tools";
+            case ResourceType::FOOD_PROVISIONS: return "Food";
+            case ResourceType::WEAPON_SUPPLY: return "Weapon";
+            case ResourceType::COPPER_SWORD: return "CuSw";
+            case ResourceType::IRON_SWORD: return "FeSw";
+            case ResourceType::STEEL_SWORD: return "StSw";
+            case ResourceType::BOW: return "Bow";
+            case ResourceType::ARROWS: return "Arr";
+            default: return "Res";
+        }
+    }
+
     // Finds the local player's headquarters building.
     Building* FindLocalHeadquarters(GameScene* scene)
     {
@@ -201,6 +232,8 @@ namespace
         std::map<ResourceType, int> storedResources;
         std::map<ResourceType, int> productionRatesPerMinute;
         std::map<ResourceType, int> consumptionRatesPerMinute;
+        int buildingCount{0};
+        int roadCount{0};
         int totalProduced{0};
     };
 
@@ -220,6 +253,16 @@ namespace
         stats.foodSupplyPercent = static_cast<int>(std::round(player->GetFoodProductivity() * 100.0));
         stats.productionRatesPerMinute = player->economyTelemetry.current.productionRatesPerMinute;
         stats.consumptionRatesPerMinute = player->economyTelemetry.current.consumptionRatesPerMinute;
+
+        for (const auto* building : player->GetTrackedBuildings())
+        {
+            if (building == nullptr || building->owner != player)
+                continue;
+            if (building->buildingType == BuildingType::Road)
+                stats.roadCount++;
+            else
+                stats.buildingCount++;
+        }
 
         for (const auto* building : player->GetTrackedBuildingsWithComponent<PopulationComponent>())
         {
@@ -324,6 +367,7 @@ namespace
             case BuildingType::GuardTower:
             case BuildingType::Fortress:
             case BuildingType::Castle:
+            case BuildingType::SupplyHub:
                 return "MILITARY";
             case BuildingType::StorageBuilding:
             case BuildingType::Village:
@@ -464,7 +508,7 @@ namespace
     {
         if (!cameraMovement.isMoving)
             return;
-        if (!IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+        if (!IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
         {
             cameraMovement.isMoving = false;
             return;
@@ -504,6 +548,46 @@ namespace
             return {-1, -1};
 
         return tilePos;
+    }
+
+    // Assigns up to `count` distinct, free tiles in the clicked 2x2 sector. The
+    // sector is clipped to owned territory and blockers, so border corners become
+    // 3-tile L-shapes, strips or single-tile positions.
+    std::vector<Vec2i> AssignSectorTiles(GameScene* scene, Player* player, Vec2i targetTile,
+                                         int count, const std::vector<int>& movingDivisionIds)
+    {
+        std::vector<Vec2i> result;
+        if (scene == nullptr || scene->game == nullptr || player == nullptr || count <= 0)
+            return result;
+
+        TileMap& map = scene->game->tilemap;
+        DivisionSector sector = ResolveDivisionSector(map, targetTile, player);
+        if (!sector.IsValid())
+            return result;
+
+        auto freeForGroup = [&](Vec2i t)
+        {
+            int occupant = DivisionOnTile(*player, t, -1);
+            return occupant < 0 ||
+                   std::find(movingDivisionIds.begin(), movingDivisionIds.end(), occupant) != movingDivisionIds.end();
+        };
+
+        auto addIfFree = [&](Vec2i tile)
+        {
+            if (static_cast<int>(result.size()) >= count)
+                return;
+            if (!map.IsInside(tile) || SectorCellOf(tile) != sector.cell)
+                return;
+            if (!freeForGroup(tile))
+                return;
+            if (std::find(result.begin(), result.end(), tile) == result.end())
+                result.push_back(tile);
+        };
+
+        addIfFree(targetTile);
+        for (int tileId : sector.TileIds(map))
+            addIfFree(map.GetCoordsFromId(tileId));
+        return result;
     }
 
     template <typename T>
@@ -557,6 +641,7 @@ namespace
             case BuildingType::Fortress: return MakeBuildOption<Fortress>(scene, definition);
             case BuildingType::Castle: return MakeBuildOption<Castle>(scene, definition);
             case BuildingType::Barracks: return MakeBuildOption<Barracks>(scene, definition);
+            case BuildingType::SupplyHub: return MakeBuildOption<SupplyHub>(scene, definition);
             case BuildingType::Road: return MakeBuildOption<Road>(scene, definition);
             default: return {};
         }
@@ -943,6 +1028,10 @@ void InputProcessor::HandleInputs()
         controller->MakeAction("rmbp");
     if (IsActionReleased(RIGHT_BUTTON_DOWN))
         controller->MakeAction("rmbr");
+    if (IsActionPressed(MIDDLE_BUTTON_DOWN))
+        controller->MakeAction("mmbp");
+    if (IsActionReleased(MIDDLE_BUTTON_DOWN))
+        controller->MakeAction("mmbr");
     if (GetMouseWheelMove() != 0.0f)
         controller->MakeAction("scroll");
 }
@@ -951,12 +1040,16 @@ void InputProcessor::HandleInputs()
 void GuiController::Init(GameScene *s)
 {
     scene = s;
+    divisionMapOverlay = std::make_unique<DivisionMapWidget>();
+    divisionMapOverlay->scene = scene;
 }
 
 // Advances this object's state for one frame.
 void GuiController::Update(double dt)
 {
     ui.clear();
+    if (divisionMapOverlay != nullptr)
+        AddUiWidget(divisionMapOverlay.get());
     activeSystem->Update(dt);
 }
 
@@ -995,7 +1088,34 @@ void BasicMapViewSystem::Update(double dt)
     MoveCamera(scene, cameraMovement);
     owner->AddUiWidget(&productionWarningWidget);
     owner->AddUiWidget(&militaryOrderWidget);
-    owner->AddUiWidget(&divisionMapWidget);
+
+    // Track drag-box selection.
+    moveTargetWidget.drawBox = false;
+    if (pendingBox && IsMouseButtonDown(MOUSE_LEFT_BUTTON))
+    {
+        Vector2 m = GetMousePosition();
+        boxEnd = {static_cast<int>(m.x), static_cast<int>(m.y)};
+        int dx = boxEnd.x - boxStart.x;
+        int dy = boxEnd.y - boxStart.y;
+        if (dx * dx + dy * dy > 36)
+            boxActive = true;
+        if (boxActive)
+        {
+            moveTargetWidget.drawBox = true;
+            moveTargetWidget.boxRect = {
+                static_cast<float>(std::min(boxStart.x, boxEnd.x)),
+                static_cast<float>(std::min(boxStart.y, boxEnd.y)),
+                static_cast<float>(std::abs(dx)),
+                static_cast<float>(std::abs(dy))};
+        }
+    }
+
+    owner->AddUiWidget(&armyBarWidget);   // persistent bottom army strip
+
+    bool hasSelection = militaryDivisionBarWidget.building != nullptr &&
+                        !militaryDivisionBarWidget.selectedDivisionIds.empty();
+    if (hasSelection || moveTargetWidget.drawBox)
+        owner->AddUiWidget(&moveTargetWidget);
 
     if (selectedBattleId >= 0 && scene != nullptr && scene->game != nullptr)
     {
@@ -1075,6 +1195,7 @@ void BasicMapViewSystem::UpdateUiWidgets(Vec2i size)
     battleInfoPanel.UpdateSize(size);
     statsPanel.UpdateSize(size);
     militaryDivisionBarWidget.UpdateSize(size);
+    armyBarWidget.UpdateSize(size);
     strategicHudWidget.UpdateSize(size);
     divisionMapWidget.UpdateSize(size);
 }
@@ -1087,6 +1208,15 @@ void BasicMapViewSystem::EscPressed()
         isBuildingSelected = false;
         buildingInfoPanel.SetBuilding(nullptr);
         researchPanel.SetBuilding(nullptr);
+        return;
+    }
+
+    // Close the division / army selection panel before opening the game menu.
+    if (isDivisionOnlyMode || !militaryDivisionBarWidget.selectedDivisionIds.empty())
+    {
+        isDivisionOnlyMode = false;
+        militaryDivisionBarWidget.selectedDivisionIds.clear();
+        militaryDivisionBarWidget.building = nullptr;
         return;
     }
 
@@ -1243,18 +1373,39 @@ void BasicMapViewSystem::LmbPressed()
         Log::Msg("[Input]", "building info panel clicked");
         return;
     }
-    if (isBuildingSelected && militaryDivisionBarWidget.building != nullptr && militaryDivisionBarWidget.ContainsPoint(screenPos))
+    if ((isBuildingSelected || isDivisionOnlyMode) && militaryDivisionBarWidget.building != nullptr &&
+        militaryDivisionBarWidget.ContainsPoint(screenPos))
     {
         militaryDivisionBarWidget.HandleClick(screenPos);
         Log::Msg("[Input]", "military division bar clicked");
         return;
     }
 
+    // Army strip (bottom) handles its own clicks: form / select armies. Only the
+    // cards and the "+" consume the click — empty space falls through to the map.
+    if (armyBarWidget.HandleClick(screenPos))
+    {
+        // Selecting an army opens the division side panel so its units are visible.
+        if (militaryDivisionBarWidget.building != nullptr &&
+            !militaryDivisionBarWidget.selectedDivisionIds.empty())
+        {
+            isDivisionOnlyMode = true;
+            isBuildingSelected = false;
+            buildingInfoPanel.SetBuilding(nullptr);
+            researchPanel.SetBuilding(nullptr);
+        }
+        return;
+    }
+
     // Check division map markers before tile selection
     {
         bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-        const DivisionMapMarker* hit = divisionMapWidget.HitTest(screenPos);
-        if (hit != nullptr && hit->homeBuilding != nullptr)
+        const DivisionMapMarker* hit = owner->divisionMapOverlay != nullptr
+            ? owner->divisionMapOverlay->HitTest(screenPos)
+            : nullptr;
+        auto localPlayerIt = scene->game->playerHandler.players.find(scene->game->GetLocalPlayerId());
+        Player* localPlayer = localPlayerIt != scene->game->playerHandler.players.end() ? localPlayerIt->second.get() : nullptr;
+        if (hit != nullptr && hit->homeBuilding != nullptr && hit->owner == localPlayer)
         {
             Building* home = hit->homeBuilding;
             // Division-only mode: show only garrison bar, not full building panel
@@ -1264,22 +1415,33 @@ void BasicMapViewSystem::LmbPressed()
             buildingInfoPanel.SetBuilding(nullptr);
             researchPanel.SetBuilding(nullptr);
             militaryDivisionBarWidget.building = home;
+            // A counter is a stack of divisions — selecting it takes the whole stack.
             if (ctrl)
             {
-                auto it = std::find(militaryDivisionBarWidget.selectedDivisionIds.begin(),
-                                    militaryDivisionBarWidget.selectedDivisionIds.end(), hit->divisionId);
-                if (it != militaryDivisionBarWidget.selectedDivisionIds.end())
-                    militaryDivisionBarWidget.selectedDivisionIds.erase(it);
-                else
-                    militaryDivisionBarWidget.selectedDivisionIds.push_back(hit->divisionId);
+                for (int id : hit->divisionIds)
+                {
+                    auto it = std::find(militaryDivisionBarWidget.selectedDivisionIds.begin(),
+                                        militaryDivisionBarWidget.selectedDivisionIds.end(), id);
+                    if (it != militaryDivisionBarWidget.selectedDivisionIds.end())
+                        militaryDivisionBarWidget.selectedDivisionIds.erase(it);
+                    else
+                        militaryDivisionBarWidget.selectedDivisionIds.push_back(id);
+                }
             }
             else
             {
-                militaryDivisionBarWidget.selectedDivisionIds = {hit->divisionId};
+                militaryDivisionBarWidget.selectedDivisionIds = hit->divisionIds;
             }
-            Log::Msg("[Input]", "Division #", hit->divisionId, " selected via map marker (garrison-only mode)");
+            Log::Msg("[Input]", hit->divisionIds.size(), " division(s) selected via map counter");
             return;
         }
+    }
+
+    // Field-battle circle → open its details panel.
+    if (const FieldBattleMarker* fb = militaryOrderWidget.HitTest(screenPos))
+    {
+        militaryOrderWidget.SelectBattle(*fb);
+        return;
     }
 
     // Check battle indicator circles before tile selection
@@ -1312,6 +1474,7 @@ void BasicMapViewSystem::LmbPressed()
     // Clicking on the map clears battle + division-only selection
     selectedBattleId = -1;
     isDivisionOnlyMode = false;
+    militaryOrderWidget.CloseDetails();
 
     Vec2i tilePos = ScreenToTile(scene, mousePos);
     if (tilePos.x < 0 || tilePos.y < 0)
@@ -1322,6 +1485,22 @@ void BasicMapViewSystem::LmbPressed()
     Log::Msg("[Input]", "Tile ID: ", tile.id, " clicked!");
 
     auto building = tile.GetBuilding();
+    if (building != nullptr)
+    {
+        // Circular click hitbox: only register a building hit near its footprint
+        // centre (diameter 0.85 of the footprint side), so corner clicks feel like
+        // clicking the ground rather than the building.
+        Vec2i anchor = scene->game->tilemap.GetCoordsFromId(building->positionId);
+        Vec2i fp = building->GetFootprint();
+        Vec2f centerWorld{(anchor.x + fp.x * 0.5f) * TILE_SIZE, (anchor.y + fp.y * 0.5f) * TILE_SIZE};
+        Vec2f centerScreen = scene->render.WorldToScreen(centerWorld);
+        float radiusScreen = 0.425f * std::min(fp.x, fp.y) * TILE_SIZE * scene->render.camera.zoom;
+        float ddx = mousePos.x - centerScreen.x;
+        float ddy = mousePos.y - centerScreen.y;
+        if (ddx * ddx + ddy * ddy > radiusScreen * radiusScreen)
+            building = nullptr;  // outside the circle → treat as an empty-ground click
+    }
+
     if (building != nullptr)
     {
         auto localPlayerIt = scene->game->playerHandler.players.find(scene->game->GetLocalPlayerId());
@@ -1354,12 +1533,72 @@ void BasicMapViewSystem::LmbPressed()
         isBuildingSelected = false;
         buildingInfoPanel.SetBuilding(nullptr);
         researchPanel.SetBuilding(nullptr);
+        // Begin a potential drag-box selection on open ground.
+        pendingBox = true;
+        boxActive = false;
+        boxStart = screenPos;
+        boxEnd = screenPos;
     }
 }
 
-// Initializes BasicMapViewSystem::LmbReleased.
+// Finalizes a drag-box division selection, or clears selection on a plain click.
 void BasicMapViewSystem::LmbReleased()
 {
+    if (!pendingBox)
+        return;
+
+    if (boxActive)
+    {
+        float x0 = static_cast<float>(std::min(boxStart.x, boxEnd.x));
+        float x1 = static_cast<float>(std::max(boxStart.x, boxEnd.x));
+        float y0 = static_cast<float>(std::min(boxStart.y, boxEnd.y));
+        float y1 = static_cast<float>(std::max(boxStart.y, boxEnd.y));
+
+        // Group-select boxed markers. Divisions all share one home building (v1),
+        // matching the move command's single-source model.
+        Building* home = nullptr;
+        std::vector<int> ids;
+        const auto& markers = owner->divisionMapOverlay != nullptr
+            ? owner->divisionMapOverlay->markers
+            : divisionMapWidget.markers;
+        for (const auto& marker : markers)
+        {
+            if (marker.homeBuilding == nullptr)
+                continue;
+            if (marker.screenPos.x < x0 || marker.screenPos.x > x1 ||
+                marker.screenPos.y < y0 || marker.screenPos.y > y1)
+                continue;
+            if (home == nullptr)
+                home = marker.homeBuilding;
+            if (marker.homeBuilding == home)
+                for (int id : marker.divisionIds)
+                    ids.push_back(id);
+        }
+
+        if (home != nullptr && !ids.empty())
+        {
+            militaryDivisionBarWidget.building = home;
+            militaryDivisionBarWidget.selectedDivisionIds = ids;
+            isDivisionOnlyMode = true;
+            isBuildingSelected = false;
+            Log::Msg("[Input]", "Box-selected ", ids.size(), " divisions");
+        }
+        else
+        {
+            militaryDivisionBarWidget.selectedDivisionIds.clear();
+            isDivisionOnlyMode = false;
+        }
+    }
+    else
+    {
+        // Plain click on open ground clears the division selection.
+        militaryDivisionBarWidget.selectedDivisionIds.clear();
+        isDivisionOnlyMode = false;
+    }
+
+    pendingBox = false;
+    boxActive = false;
+    moveTargetWidget.drawBox = false;
 }
 
 // Initializes BasicMapViewSystem::RmbPressed.
@@ -1374,6 +1613,53 @@ void BasicMapViewSystem::RmbPressed()
     {
         cameraMovement.isMoving = false;
         return;
+    }
+
+    // Division attack: RMB on an enemy counter moves selected divisions adjacent
+    // to it; field combat starts once they arrive.
+    {
+        const auto& divIds = militaryDivisionBarWidget.selectedDivisionIds;
+        Building* home = militaryDivisionBarWidget.building;
+        if (!divIds.empty() && home != nullptr &&
+            !militaryDivisionBarWidget.ContainsPoint(screenPos))
+        {
+            Player* localPlayer = LocalPlayer(scene);
+            const DivisionMapMarker* hit = owner->divisionMapOverlay != nullptr
+                ? owner->divisionMapOverlay->HitTest(screenPos)
+                : nullptr;
+            if (hit != nullptr && hit->owner != nullptr && hit->owner != localPlayer && hit->tile.x >= 0)
+            {
+                int targetTileId = scene->game->tilemap.GetIdFromCoords(hit->tile);
+                for (int divId : divIds)
+                {
+                    scene->SubmitLocalCommand(GameCommand::AttackTile(
+                        scene->game->GetLocalPlayerId(), home->positionId, divId, targetTileId));
+                    Log::Msg("[Input]", "division #", divId, " attack order against enemy division at ",
+                             hit->tile.x, ",", hit->tile.y);
+                }
+                cameraMovement.isMoving = false;
+                return;
+            }
+
+            // Division group move: RMB on owned ground spreads them one-per-tile
+            // inside the clicked 2x2 sector. RMB on a building falls through to
+            // order/receiver logic below.
+            Vec2i tilePos = ScreenToTile(scene, mousePos);
+            if (tilePos.x >= 0 && tilePos.y >= 0 &&
+                scene->game->tilemap.GetBuilding(tilePos) == nullptr)
+            {
+                int tileId = scene->game->tilemap.GetIdFromCoords(tilePos);
+                for (int divId : divIds)
+                {
+                    scene->SubmitLocalCommand(GameCommand::MoveDivision(
+                        scene->game->GetLocalPlayerId(), home->positionId, divId, tileId));
+                    Log::Msg("[Input]", "division #", divId, " ordered to sector at ",
+                             tilePos.x, ",", tilePos.y);
+                }
+                cameraMovement.isMoving = false;
+                return;
+            }
+        }
     }
 
     if (isBuildingSelected && activePanel->HasBuilding())
@@ -1421,7 +1707,8 @@ void BasicMapViewSystem::RmbPressed()
         }
     }
 
-    cameraMovement.isMoving = true;
+    // Camera panning lives on the middle mouse button now (see mmbp/mmbr), so the
+    // right button is free for movement and combat orders.
 }
 
 // Initializes BasicMapViewSystem::RmbReleased.
@@ -1573,6 +1860,113 @@ void MilitaryOrderWidget::Update(double dt)
         DrawCircleLines((int)mid.x, (int)mid.y, 14.0f, Color{220, 80, 50, 255});
         DrawText("VS", (int)(mid.x - 9), (int)(mid.y - 7), 13, Color{255, 210, 90, 255});
     }
+
+    // Field battles: a circle between every pair of engaged enemy divisions.
+    battleMarkers.clear();
+    struct EngagedUnit { int playerId; int divId; Vec2i tile; Vec2f world; };
+    std::vector<EngagedUnit> engaged;
+    for (auto& [pid, player] : scene->game->playerHandler.players)
+    {
+        if (player == nullptr) continue;
+        for (Building* b : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+        {
+            auto* g = b != nullptr ? b->GetComponent<GarrisonComponent>() : nullptr;
+            if (g == nullptr) continue;
+            for (const auto& d : g->divisions)
+                if (d.engaged && d.occupiedTile.x >= 0 && d.worldPos.x >= 0.0f)
+                    engaged.push_back({pid, d.id, d.occupiedTile, d.worldPos});
+        }
+    }
+    for (size_t i = 0; i < engaged.size(); i++)
+        for (size_t j = i + 1; j < engaged.size(); j++)
+        {
+            if (engaged[i].playerId == engaged[j].playerId) continue;
+            if (std::abs(engaged[i].tile.x - engaged[j].tile.x) > 1 ||
+                std::abs(engaged[i].tile.y - engaged[j].tile.y) > 1) continue;
+
+            Vec2f a = scene->render.WorldToScreen(engaged[i].world);
+            Vec2f b = scene->render.WorldToScreen(engaged[j].world);
+            Vector2 mid{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
+            float pulse = 13.0f + 2.0f * std::sin(static_cast<float>(GetTime()) * 6.0f);
+            DrawCircle((int)mid.x, (int)mid.y, pulse + 2.0f, Color{30, 16, 16, 210});
+            DrawCircleLines((int)mid.x, (int)mid.y, pulse, Color{235, 90, 55, 255});
+            // Crossed-swords icon (two diagonal strokes).
+            Color blade{255, 215, 110, 255};
+            DrawLineEx({mid.x - 6, mid.y - 6}, {mid.x + 6, mid.y + 6}, 2.0f, blade);
+            DrawLineEx({mid.x + 6, mid.y - 6}, {mid.x - 6, mid.y + 6}, 2.0f, blade);
+
+            battleMarkers.push_back({mid, engaged[i].playerId, engaged[i].divId,
+                                     engaged[j].playerId, engaged[j].divId});
+        }
+
+    // Battle details panel (opened by clicking a circle).
+    if (detailsOpen)
+    {
+        auto find = [&](int playerId, int divId, Player*& ownerOut) -> const SoldierDivision*
+        {
+            auto pit = scene->game->playerHandler.players.find(playerId);
+            Player* p = pit != scene->game->playerHandler.players.end() ? pit->second.get() : nullptr;
+            if (p == nullptr) return nullptr;
+            for (Building* bb : p->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+            {
+                auto* g = bb != nullptr ? bb->GetComponent<GarrisonComponent>() : nullptr;
+                if (g == nullptr) continue;
+                for (const auto& d : g->divisions)
+                    if (d.id == divId) { ownerOut = p; return &d; }
+            }
+            return nullptr;
+        };
+
+        Player* ownerA = nullptr;
+        Player* ownerB = nullptr;
+        const SoldierDivision* dA = find(selPlayerA, selDivA, ownerA);
+        const SoldierDivision* dB = find(selPlayerB, selDivB, ownerB);
+        if (dA == nullptr || dB == nullptr)
+        {
+            detailsOpen = false;  // a participant is gone — battle over
+        }
+        else
+        {
+            float w = 340.0f, h = 132.0f;
+            Rectangle panel{GetScreenWidth() * 0.5f - w * 0.5f, GetScreenHeight() * 0.15f, w, h};
+            DrawRectangleRounded(panel, 0.06f, 8, Color{18, 22, 30, 240});
+            DrawRectangleRoundedLines(panel, 0.06f, 8, 1.0f, Color{170, 100, 80, 235});
+            DrawText("FIELD BATTLE", (int)(panel.x + 12), (int)(panel.y + 8), 16, Color{240, 160, 120, 255});
+            DrawText("VS", (int)(panel.x + w * 0.5f - 9), (int)(panel.y + 58), 16, Color{240, 160, 120, 255});
+
+            auto drawSide = [&](const SoldierDivision* d, Player* owner, float x)
+            {
+                Color col = owner != nullptr ? owner->color : WHITE;
+                std::string name = "#" + std::to_string(d->id) + " " + MilitaryUnitLabel(d->type);
+                DrawText(name.c_str(), (int)x, (int)(panel.y + 34), 14, col);
+                float ratio = d->maxHealth > 0 ? std::clamp(d->health / (float)d->maxHealth, 0.0f, 1.0f) : 0.0f;
+                Rectangle bar{x, panel.y + 56, w * 0.38f, 8};
+                DrawRectangleRec(bar, Color{20, 24, 30, 255});
+                Rectangle fill = bar; fill.width *= ratio;
+                DrawRectangleRec(fill, Color{89, 197, 121, 255});
+                DrawText(("HP " + std::to_string(std::max(0, d->health)) + "/" + std::to_string(d->maxHealth)).c_str(),
+                         (int)x, (int)(panel.y + 70), 12, RAYWHITE);
+                DivisionCombatStats cs = ComputeDivisionCombatStats(*d, owner != nullptr ? &owner->balanceModifiers : nullptr);
+                DrawText(("Atk " + std::to_string((int)std::lround(cs.lightAttack)) +
+                          "  Def " + std::to_string((int)std::lround(cs.defense))).c_str(),
+                         (int)x, (int)(panel.y + 88), 12, Color{205, 212, 224, 255});
+            };
+            drawSide(dA, ownerA, panel.x + 14.0f);
+            drawSide(dB, ownerB, panel.x + w * 0.5f + 10.0f);
+        }
+    }
+}
+
+const FieldBattleMarker* MilitaryOrderWidget::HitTest(Vec2i point) const
+{
+    for (const auto& m : battleMarkers)
+    {
+        float dx = point.x - m.screenPos.x;
+        float dy = point.y - m.screenPos.y;
+        if (dx * dx + dy * dy <= 18.0f * 18.0f)
+            return &m;
+    }
+    return nullptr;
 }
 
 // Returns true if a division is in the current selection group.
@@ -1592,16 +1986,14 @@ bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
         return false;
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    float cardGap = 8.0f;
-    float cardW = 112.0f;
-    float cardH = std::max(72.0f, bounds.height - 52.0f);
-    float x = bounds.x + 14.0f;
-    float y = bounds.y + 38.0f;
+    const float stripH = 28.0f;
+    const float gap = 4.0f;
+    float y = bounds.y + 36.0f;
     bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
     for (const auto& division : garrison->divisions)
     {
-        Rectangle card{x, y, cardW, cardH};
-        if (CheckCollisionPointRec(Vector2{static_cast<float>(point.x), static_cast<float>(point.y)}, card))
+        Rectangle strip{bounds.x + 8.0f, y, bounds.width - 16.0f, stripH};
+        if (CheckCollisionPointRec(Vector2{static_cast<float>(point.x), static_cast<float>(point.y)}, strip))
         {
             if (ctrl)
             {
@@ -1617,8 +2009,8 @@ bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
             }
             return true;
         }
-        x += cardW + cardGap;
-        if (x + cardW > bounds.x + bounds.width - 14.0f)
+        y += stripH + gap;
+        if (y + stripH > bounds.y + bounds.height - 8.0f)
             break;
     }
 
@@ -1653,82 +2045,68 @@ void MilitaryDivisionBarWidget::Update(double dt)
         selectedDivisionIds.end());
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.06f, 8, Color{20, 24, 30, 232});
-    DrawRectangleRoundedLines(bounds, 0.06f, 8, 1.0f, Color{86, 98, 116, 235});
-    UiText::DrawFit("Divisions stationed in " + building->name,
-        Rectangle{bounds.x + 14.0f, bounds.y + 9.0f, bounds.width - 28.0f, 24.0f}, 21, RAYWHITE);
+    DrawRectangleRounded(bounds, 0.04f, 8, Color{20, 24, 30, 232});
+    DrawRectangleRoundedLines(bounds, 0.04f, 8, 1.0f, Color{86, 98, 116, 235});
+    UiText::DrawFit("Divisions — " + building->name,
+        Rectangle{bounds.x + 12.0f, bounds.y + 8.0f, bounds.width - 24.0f, 22.0f}, 18, RAYWHITE);
 
     if (garrison->divisions.empty())
     {
-        UiText::DrawFit("No trained divisions stationed here",
-            Rectangle{bounds.x + 14.0f, bounds.y + 44.0f, bounds.width - 28.0f, 28.0f}, 20, Color{190, 198, 208, 255});
+        UiText::DrawFit("No divisions",
+            Rectangle{bounds.x + 12.0f, bounds.y + 40.0f, bounds.width - 24.0f, 24.0f}, 16, Color{190, 198, 208, 255});
         return;
     }
 
+    // HOI4-style vertical list: one thin strip per division.
     Vector2 mouse = GetMousePosition();
     const MilitaryDivision* hovered = nullptr;
-    float cardGap = 8.0f;
-    float cardW = 112.0f;
-    float cardH = std::max(72.0f, bounds.height - 52.0f);
-    float x = bounds.x + 14.0f;
-    float y = bounds.y + 38.0f;
+    const float stripH = 28.0f;
+    const float gap = 4.0f;
+    float y = bounds.y + 36.0f;
     for (const auto& division : garrison->divisions)
     {
-        Rectangle card{x, y, cardW, cardH};
-        bool isHovered = CheckCollisionPointRec(mouse, card);
+        if (y + stripH > bounds.y + bounds.height - 8.0f)
+            break;
+
+        Rectangle strip{bounds.x + 8.0f, y, bounds.width - 16.0f, stripH};
+        bool isHovered = CheckCollisionPointRec(mouse, strip);
         bool isSelected = IsSelected(division.id);
         if (isHovered)
             hovered = &division;
 
         Color accent = DivisionColor(division.type);
-        DrawRectangleRounded(card, 0.08f, 8, isSelected ? Color{44, 54, 68, 248} : Color{32, 38, 47, 242});
-        DrawRectangleRoundedLines(card, 0.08f, 8, 1.0f, isHovered || isSelected ? accent : Color{76, 88, 104, 235});
-        DrawCircle(static_cast<int>(card.x + 18.0f), static_cast<int>(card.y + 20.0f), 9.0f, accent);
-        UiText::DrawFit("#" + std::to_string(division.id) + " " + MilitaryUnitLabel(division.type),
-            Rectangle{card.x + 32.0f, card.y + 8.0f, card.width - 40.0f, 22.0f}, 16, RAYWHITE);
+        DrawRectangleRounded(strip, 0.25f, 6, isSelected ? Color{46, 58, 74, 250} : Color{30, 36, 45, 242});
+        DrawRectangleRoundedLines(strip, 0.25f, 6, 1.0f,
+                                  isHovered || isSelected ? accent : Color{70, 80, 96, 230});
+        DrawRectangleRec({strip.x, strip.y + 3.0f, 4.0f, strip.height - 6.0f}, accent);  // unit-type tab
 
-        Rectangle hpBar{card.x + 10.0f, card.y + 38.0f, card.width - 20.0f, 8.0f};
-        DrawRectangleRounded(hpBar, 0.25f, 4, Color{18, 22, 28, 255});
+        std::string label = "#" + std::to_string(division.id) + " " + MilitaryUnitLabel(division.type);
+        UiText::DrawFit(label, Rectangle{strip.x + 12.0f, strip.y + 3.0f, strip.width * 0.52f, 22.0f}, 15, RAYWHITE);
+
+        // March / order badge.
+        if (division.inTransit)
+            UiText::DrawFit("MARCH", Rectangle{strip.x + strip.width * 0.52f, strip.y + 6.0f, 46.0f, 14.0f},
+                            12, Color{130, 200, 255, 255});
+        else if (division.currentOrder != MilitaryOrderType::None)
+            UiText::DrawFit("ORDER", Rectangle{strip.x + strip.width * 0.52f, strip.y + 6.0f, 46.0f, 14.0f},
+                            12, MilitaryOrderColor(division.currentOrder));
+
+        // HP + supply mini-bars on the right.
+        float barW = strip.width * 0.24f;
+        float barX = strip.x + strip.width - barW - 8.0f;
+        Rectangle hpBar{barX, strip.y + 5.0f, barW, 6.0f};
+        Rectangle supBar{barX, strip.y + 15.0f, barW, 6.0f};
+        DrawRectangleRounded(hpBar, 0.4f, 4, Color{18, 22, 28, 255});
+        DrawRectangleRounded(supBar, 0.4f, 4, Color{18, 22, 28, 255});
         Rectangle hpFill = hpBar;
         hpFill.width *= division.HealthRatio();
-        DrawRectangleRounded(hpFill, 0.25f, 4, Color{89, 197, 121, 255});
+        DrawRectangleRounded(hpFill, 0.4f, 4, Color{89, 197, 121, 255});
+        Rectangle supFill = supBar;
+        supFill.width *= division.weaponSupplyCapacity > 0
+            ? std::clamp(division.weaponSupply / static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f) : 0.0f;
+        DrawRectangleRounded(supFill, 0.4f, 4, Color{126, 142, 162, 255});
 
-        UiText::DrawFit("Str " + std::to_string(division.strength) + "  Mor " + std::to_string(division.morale),
-            Rectangle{card.x + 10.0f, card.y + 52.0f, card.width - 20.0f, 18.0f}, 14, Color{216, 224, 236, 255});
-        UiText::DrawFit("Exp " + std::to_string(division.experience) + "  x" + std::to_string(division.manpowerScale),
-            Rectangle{card.x + 10.0f, card.y + 70.0f, card.width - 20.0f, 18.0f}, 14, Color{184, 196, 210, 255});
-
-        Rectangle foodBar{card.x + 10.0f, card.y + card.height - 20.0f, (card.width - 24.0f) * 0.5f, 6.0f};
-        Rectangle weaponBar{foodBar.x + foodBar.width + 4.0f, foodBar.y, foodBar.width, foodBar.height};
-        DrawRectangleRounded(foodBar, 0.25f, 4, Color{18, 22, 28, 255});
-        DrawRectangleRounded(weaponBar, 0.25f, 4, Color{18, 22, 28, 255});
-        Rectangle foodFill = foodBar;
-        foodFill.width *= division.foodSupplyCapacity > 0 ? std::clamp(division.foodSupply / static_cast<float>(division.foodSupplyCapacity), 0.0f, 1.0f) : 0.0f;
-        Rectangle weaponFill = weaponBar;
-        weaponFill.width *= division.weaponSupplyCapacity > 0 ? std::clamp(division.weaponSupply / static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f) : 0.0f;
-        DrawRectangleRounded(foodFill, 0.25f, 4, Color{206, 148, 88, 255});
-        DrawRectangleRounded(weaponFill, 0.25f, 4, Color{126, 142, 162, 255});
-        // Army badge (top-right corner of card)
-        float badgeX = card.x + card.width - 54.0f;
-        if (division.currentOrder != MilitaryOrderType::None)
-        {
-            UiText::DrawFit("ORDER", Rectangle{badgeX, card.y + 8.0f, 44.0f, 16.0f}, 13, MilitaryOrderColor(division.currentOrder));
-            badgeX -= 48.0f;
-        }
-        if (building->owner != nullptr)
-        {
-            const ArmyGroup* army = building->owner->armyGroups.FindArmyByDivision(division.id);
-            if (army != nullptr)
-                UiText::DrawFit(army->name, Rectangle{badgeX - 4.0f, card.y + 28.0f, 60.0f, 14.0f},
-                                12, Color{180, 160, 100, 255});
-        }
-        if (division.inTransit)
-            UiText::DrawFit("MARCH", Rectangle{card.x + 2.0f, card.y + 8.0f, 50.0f, 14.0f},
-                            11, Color{130, 200, 255, 255});
-
-        x += cardW + cardGap;
-        if (x + cardW > bounds.x + bounds.width - 14.0f)
-            break;
+        y += stripH + gap;
     }
 
     if (hovered != nullptr)
@@ -1749,6 +2127,118 @@ void MilitaryDivisionBarWidget::Update(double dt)
             "Ammo: " + EquipmentLabel(hovered->equipment.ammo)
         }, 310.0f);
     }
+}
+
+// ─── ArmyBarWidget ────────────────────────────────────────────────────────────
+
+void ArmyBarWidget::Update(double dt)
+{
+    cardRects.clear();
+    plusRect = {0, 0, 0, 0};
+    contentBounds = {0, 0, 0, 0};
+
+    Player* localPlayer = LocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return;
+
+    // No fixed background panel — a screen-centered HBox of floating cards that
+    // grows symmetrically as armies are added, plus a trailing "+".
+    Vector2 mouse = GetMousePosition();
+
+    const float cardW = 132.0f;
+    const float cardH = static_cast<float>(size.y) - 8.0f;
+    const float gap = 8.0f;
+    const float plusW = 44.0f;
+    const float y = static_cast<float>(pos.y) + 4.0f;
+
+    const auto& armies = localPlayer->armyGroups.GetArmies();
+    float screenW = static_cast<float>(GetScreenWidth());
+    int maxCards = std::max(0, static_cast<int>((screenW - 80.0f - plusW) / (cardW + gap)));
+    int shown = std::min(static_cast<int>(armies.size()), maxCards);
+
+    float contentW = shown * (cardW + gap) + plusW;
+    float x = screenW * 0.5f - contentW * 0.5f;
+    contentBounds = {x - 6.0f, y - 4.0f, contentW + 12.0f, cardH + 8.0f};
+
+    for (int i = 0; i < shown; i++)
+    {
+        const ArmyGroup& army = armies[i];
+        Rectangle card{x, y, cardW, cardH};
+        bool hovered = CheckCollisionPointRec(mouse, card);
+        DrawRectangleRounded(card, 0.18f, 6, hovered ? Color{46, 56, 70, 252} : Color{28, 34, 43, 244});
+        DrawRectangleRoundedLines(card, 0.18f, 6, 1.0f, Color{182, 160, 100, 220});
+        UiText::DrawFit(army.name, Rectangle{card.x + 8.0f, card.y + 5.0f, card.width - 16.0f, 18.0f}, 15, RAYWHITE);
+        UiText::DrawFit(std::to_string(army.divisions.size()) + " divisions",
+                        Rectangle{card.x + 8.0f, card.y + 25.0f, card.width - 16.0f, 16.0f}, 13,
+                        Color{190, 198, 208, 255});
+        cardRects.emplace_back(army.id, card);
+        x += cardW + gap;
+    }
+
+    // Trailing "+" — always present so more armies can be created.
+    bool canForm = bar != nullptr && bar->building != nullptr && !bar->selectedDivisionIds.empty();
+    plusRect = {x, y, plusW, cardH};
+    bool hovered = CheckCollisionPointRec(mouse, plusRect);
+    DrawRectangleRounded(plusRect, 0.2f, 6, hovered ? Color{44, 54, 68, 252} : Color{26, 32, 41, 240});
+    DrawRectangleRoundedLines(plusRect, 0.2f, 6, 1.0f,
+                              canForm ? Color{120, 220, 150, 235} : Color{96, 108, 124, 190});
+    UiText::DrawFit("+", plusRect, 26, canForm ? Color{150, 235, 175, 255} : Color{130, 140, 152, 255});
+}
+
+bool ArmyBarWidget::IsOverContent(Vec2i point) const
+{
+    Vector2 p{static_cast<float>(point.x), static_cast<float>(point.y)};
+    return CheckCollisionPointRec(p, contentBounds);
+}
+
+bool ArmyBarWidget::HandleClick(Vec2i point)
+{
+    Player* localPlayer = LocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return false;
+
+    Vector2 click{static_cast<float>(point.x), static_cast<float>(point.y)};
+
+    // Clicks anywhere on the strip are consumed (so they don't deselect via the
+    // map underneath); only cards / "+" trigger an action.
+    if (!CheckCollisionPointRec(click, contentBounds))
+        return false;
+
+    // "+" groups the current selection into a new army.
+    if (CheckCollisionPointRec(click, plusRect))
+    {
+        if (bar != nullptr && bar->building != nullptr && !bar->selectedDivisionIds.empty())
+        {
+            scene->SubmitLocalCommand(GameCommand::FormArmy(
+                scene->game->GetLocalPlayerId(), bar->building->positionId, bar->selectedDivisionIds));
+            Log::Msg("[Input]", "Form-army requested for ", bar->selectedDivisionIds.size(), " divisions");
+        }
+        return true;
+    }
+
+    // Clicking an army card selects its divisions (single-home v1).
+    for (const auto& [armyId, rect] : cardRects)
+    {
+        if (!CheckCollisionPointRec(click, rect))
+            continue;
+        const ArmyGroup* army = localPlayer->armyGroups.FindArmy(armyId);
+        if (army != nullptr && bar != nullptr && !army->divisions.empty())
+        {
+            Building* home = scene->game->tilemap.GetBuilding(army->divisions.front().homeTileId);
+            if (home != nullptr)
+            {
+                bar->building = home;
+                bar->selectedDivisionIds.clear();
+                for (const auto& ref : army->divisions)
+                    if (ref.homeTileId == home->positionId)
+                        bar->selectedDivisionIds.push_back(ref.divisionId);
+            }
+        }
+        return true;
+    }
+
+    // Clicked the strip but not a card/"+" — still consume so it doesn't deselect.
+    return true;
 }
 
 // Advances this object's state for one frame.
@@ -1975,7 +2465,8 @@ void StatsPanelWidget::Update(double dt)
 
     constexpr std::array<int, 3> windows{15, 60, 300};
     const char* windowLabels[] = {"15 sec", "1 min", "5 min"};
-    Rectangle spin{title.x + title.width - 250.0f, title.y + 10.0f, 220.0f, 34.0f};
+    // Right edge is at title.width - 54, giving a 10px gap before the close button (at title.width - 44).
+    Rectangle spin{title.x + title.width - 244.0f, title.y + 10.0f, 190.0f, 34.0f};
     DrawRectangleRounded(spin, 0.12f, 8, Color{24, 30, 38, 255});
     DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, Color{90, 106, 128, 255});
     UiText::DrawFit("<", Rectangle{spin.x + 8.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, RAYWHITE);
@@ -2026,14 +2517,15 @@ void StatsPanelWidget::Update(double dt)
     drawRow(left, 10, "Training queue", std::to_string(stats.army.TotalQueued()));
     drawRow(left, 11, "Army strength", std::to_string(stats.army.strength));
     drawRow(left, 12, "Army supply", std::to_string(stats.army.supply) + " / " + std::to_string(stats.army.supplyCapacity));
-    drawRow(left, 14, "Buildings", std::to_string(static_cast<int>(player->GetTrackedBuildings().size())));
-    drawRow(left, 15, "Military buildings", std::to_string(
+    drawRow(left, 14, "Buildings", std::to_string(stats.buildingCount));
+    drawRow(left, 15, "Roads", std::to_string(stats.roadCount));
+    drawRow(left, 16, "Military buildings", std::to_string(
         player->GetTrackedBuildingCount(BuildingType::Headquarters, true) +
         player->GetTrackedBuildingCount(BuildingType::GuardTower, true) +
         player->GetTrackedBuildingCount(BuildingType::Fortress, true) +
         player->GetTrackedBuildingCount(BuildingType::Castle, true) +
         player->GetTrackedBuildingCount(BuildingType::Barracks, true)));
-    drawRow(left, 16, "Build commands", std::to_string(player->GetAcceptedCommandCount(GameCommandType::BuildBuilding)));
+    drawRow(left, 17, "Build commands", std::to_string(player->GetAcceptedCommandCount(GameCommandType::BuildBuilding)));
 
     drawColumn(chart, showingConsumption ? "Consumption graph" : "Production graph");
     Rectangle plot{chart.x + 46.0f, chart.y + 64.0f, chart.width - 72.0f, chart.height - 142.0f};
@@ -2056,13 +2548,13 @@ void StatsPanelWidget::Update(double dt)
         DrawLineEx(Vector2{x, plot.y}, Vector2{x, plot.y + plot.height}, 1.0f, tickColor);
     }
 
-    int maxRate = 1;
+    int maxObservedRate = 1;
     std::vector<ResourceType> activeResources;
     for (const auto& [type, rate] : currentRates)
     {
         if (rate > 0)
         {
-            maxRate = std::max(maxRate, rate);
+            maxObservedRate = std::max(maxObservedRate, rate);
             activeResources.push_back(type);
         }
     }
@@ -2077,7 +2569,7 @@ void StatsPanelWidget::Update(double dt)
             auto it = sampleRates.find(type);
             if (it != sampleRates.end() && it->second > 0)
             {
-                maxRate = std::max(maxRate, it->second);
+                maxObservedRate = std::max(maxObservedRate, it->second);
                 visible = true;
             }
         }
@@ -2094,10 +2586,22 @@ void StatsPanelWidget::Update(double dt)
             visibleResources.push_back(type);
     }
 
+    int maxRate = std::max(1, static_cast<int>(std::ceil(maxObservedRate * 1.18)));
+    struct SeriesEndpoint
+    {
+        ResourceType type{ResourceType::Null};
+        Vector2 point{};
+        int rate{0};
+        Color color{};
+    };
+    std::vector<SeriesEndpoint> endpoints;
+
     for (ResourceType type : visibleResources)
     {
         bool hasPrevious = false;
         Vector2 previous{};
+        Vector2 lastPoint{};
+        int lastRate = 0;
         Color color = ResourceChartColor(type);
         std::vector<ResourceFlowSnapshot> samples(flowHistory.begin(), flowHistory.end());
         samples.push_back(player->economyTelemetry.current);
@@ -2118,14 +2622,45 @@ void StatsPanelWidget::Update(double dt)
                 DrawLineEx(previous, point, 2.0f, color);
             DrawCircleV(point, rate > 0 ? 3.0f : 2.0f, rate > 0 ? color : Color{72, 82, 96, 190});
             previous = point;
+            lastPoint = point;
+            lastRate = rate;
             hasPrevious = true;
         }
+        if (hasPrevious && lastRate > 0)
+            endpoints.push_back({type, lastPoint, lastRate, color});
     }
 
     UiText::DrawFit("0", Rectangle{plot.x - 28.0f, plot.y + plot.height - 16.0f, 24.0f, 16.0f}, 16, Color{160, 174, 190, 255});
-    UiText::DrawFit(std::to_string(maxRate) + "/m", Rectangle{plot.x - 42.0f, plot.y - 4.0f, 40.0f, 18.0f}, 16, Color{160, 174, 190, 255});
+    UiText::DrawFit(std::to_string(maxObservedRate) + "/m", Rectangle{plot.x - 42.0f, plot.y - 4.0f, 40.0f, 18.0f}, 16, Color{160, 174, 190, 255});
     UiText::DrawFit("-" + std::string(windowLabels[selectedWindowIndex]), Rectangle{plot.x, plot.y + plot.height + 6.0f, 54.0f, 18.0f}, 16, Color{160, 174, 190, 255});
     UiText::DrawFit("now", Rectangle{plot.x + plot.width - 36.0f, plot.y + plot.height + 6.0f, 36.0f, 18.0f}, 16, Color{160, 174, 190, 255});
+
+    std::sort(endpoints.begin(), endpoints.end(), [](const SeriesEndpoint& a, const SeriesEndpoint& b)
+    {
+        return a.point.y < b.point.y;
+    });
+    float lastLabelY = plot.y - 18.0f;
+    int endpointLabels = 0;
+    for (const auto& endpoint : endpoints)
+    {
+        if (endpointLabels >= 8)
+            break;
+        float labelY = std::clamp(endpoint.point.y - 10.0f, plot.y + 4.0f, plot.y + plot.height - 22.0f);
+        if (labelY < lastLabelY + 22.0f)
+            labelY = std::min(plot.y + plot.height - 22.0f, lastLabelY + 22.0f);
+        lastLabelY = labelY;
+
+        std::string label = std::string(ResourceChipShortName(endpoint.type)) + " " +
+            (showingConsumption ? "-" : "+") + std::to_string(endpoint.rate) + "/m";
+        float labelWidth = std::min(104.0f, std::max(58.0f, static_cast<float>(MeasureText(label.c_str(), 13) + 18)));
+        Rectangle chip{plot.x + plot.width - labelWidth - 6.0f, labelY, labelWidth, 18.0f};
+        DrawLineEx(endpoint.point, Vector2{chip.x, chip.y + chip.height * 0.5f}, 1.0f, Color{endpoint.color.r, endpoint.color.g, endpoint.color.b, 180});
+        DrawRectangleRounded(chip, 0.16f, 8, Color{18, 23, 30, 228});
+        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, endpoint.color);
+        DrawRectangleRounded(Rectangle{chip.x + 5.0f, chip.y + 5.0f, 7.0f, 7.0f}, 0.35f, 4, endpoint.color);
+        UiText::DrawFit(label, Rectangle{chip.x + 15.0f, chip.y + 2.0f, chip.width - 19.0f, 14.0f}, 13, RAYWHITE);
+        endpointLabels++;
+    }
 
     Rectangle allButton = GetAllFilterButtonRect(chart);
     bool allActive = selectedResources.empty();
@@ -2157,22 +2692,6 @@ void StatsPanelWidget::Update(double dt)
     if (visibleResources.empty())
         UiText::DrawFit(showingConsumption ? "No consumption in selected window" : "No production in selected window", Rectangle{plot.x + 20.0f, plot.y + plot.height * 0.45f, plot.width - 40.0f, 24.0f}, 22, Color{190, 201, 216, 255});
 
-    float liveY = chart.y + 48.0f;
-    int liveShown = 0;
-    for (ResourceType type : visibleResources)
-    {
-        auto it = stats.productionRatesPerMinute.find(type);
-        if (it == currentRates.end() || it->second <= 0)
-            continue;
-        Color color = ResourceChartColor(type);
-        Rectangle chip{chart.x + chart.width - 150.0f, liveY + liveShown * 24.0f, 126.0f, 20.0f};
-        DrawRectangleRounded(chip, 0.12f, 8, Color{24, 30, 38, 225});
-        DrawRectangleRounded(Rectangle{chip.x + 6.0f, chip.y + 6.0f, 8.0f, 8.0f}, 0.3f, 4, color);
-        UiText::DrawFit(rt2s(type) + " " + (showingConsumption ? "-" : "+") + std::to_string(it->second) + "/m", Rectangle{chip.x + 18.0f, chip.y + 2.0f, chip.width - 22.0f, 16.0f}, 14, RAYWHITE);
-        liveShown++;
-        if (liveShown >= 6)
-            break;
-    }
 }
 
 void FocusPanelWidget::Update(double dt)
@@ -2652,7 +3171,7 @@ bool StatsPanelWidget::HandleClick(Vec2i point)
 {
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     Rectangle title{bounds.x, bounds.y, bounds.width, 54.0f};
-    Rectangle spin{title.x + title.width - 250.0f, title.y + 10.0f, 220.0f, 34.0f};
+    Rectangle spin{title.x + title.width - 244.0f, title.y + 10.0f, 190.0f, 34.0f};
     Rectangle modeToggle{title.x + title.width - 500.0f, title.y + 10.0f, 220.0f, 34.0f};
     Vector2 mouse{static_cast<float>(point.x), static_cast<float>(point.y)};
     if (CheckCollisionPointRec(mouse, modeToggle))
@@ -2993,6 +3512,8 @@ BuildGuiSystem::BuildGuiSystem(GuiController* con)
     actionMap["lmbr"] = [this] { LmbReleased(); };
     actionMap["rmbp"] = [this] { RmbPressed(); };
     actionMap["rmbr"] = [this] { RmbReleased(); };
+    actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+    actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
     actionMap["scroll"] = [this] { Scroll(); };
 
     buildPanel.ChangePositionAnchor({0.69f, 0.08f});
@@ -3276,15 +3797,13 @@ void RoadBuildSystem::Update(double dt)
     MoveCamera(scene, cameraMovement);
     RefreshGhost();
     owner->AddUiWidget(&ghostWidget);
-    owner->AddUiWidget(&buildPanel);
     owner->AddUiWidget(&strategicHudWidget);
 
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
         auto mousePos = GetMousePosition();
         Vec2i screenPos{static_cast<int>(mousePos.x), static_cast<int>(mousePos.y)};
-        if (!buildPanel.ContainsPoint(screenPos) &&
-            !IsBuildHudButtonHovered(strategicHudWidget) &&
+        if (!IsBuildHudButtonHovered(strategicHudWidget) &&
             !IsRoadHudButtonHovered(strategicHudWidget) &&
             !IsDestroyHudButtonHovered(strategicHudWidget) &&
             !IsStatsHudButtonHovered(strategicHudWidget) &&
@@ -3337,27 +3856,6 @@ void RoadBuildSystem::LmbPressed()
         FocusPressed();
         return;
     }
-    if (buildPanel.ContainsPoint(screenPos))
-    {
-        Rectangle panelBounds{
-            static_cast<float>(buildPanel.pos.x),
-            static_cast<float>(buildPanel.pos.y),
-            static_cast<float>(buildPanel.size.x),
-            static_cast<float>(buildPanel.size.y)};
-        if (CheckCollisionPointRec(mousePos, PanelCloseButtonRect(panelBounds)))
-        {
-            ReturnToMapView();
-            lastRoadDragTile = {-9999, -9999};
-            return;
-        }
-
-        int option = buildPanel.GetOptionAt(screenPos);
-        if (option >= 0)
-            SelectOption(static_cast<size_t>(option));
-        lastRoadDragTile = {-9999, -9999};
-        return;
-    }
-
     TryPlaceRoadAtHovered();
 }
 
@@ -3365,6 +3863,11 @@ void RoadBuildSystem::LmbPressed()
 void RoadBuildSystem::LmbReleased()
 {
     lastRoadDragTile = {-9999, -9999};
+}
+
+void RoadBuildSystem::Scroll()
+{
+    ZoomCamera(scene);
 }
 
 // Initializes RoadBuildSystem::TryPlaceRoadAtHovered.
@@ -3404,6 +3907,8 @@ DestroyGuiSystem::DestroyGuiSystem(GuiController* con)
     actionMap["lmbr"] = [this] { LmbReleased(); };
     actionMap["rmbp"] = [this] { RmbPressed(); };
     actionMap["rmbr"] = [this] { RmbReleased(); };
+    actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+    actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
     actionMap["scroll"] = [this] { Scroll(); };
 
     destroyTargetWidget.scene = scene;
@@ -3583,6 +4088,8 @@ StatsGuiSystem::StatsGuiSystem(GuiController* con)
     actionMap["lmbr"] = [this] { LmbReleased(); };
     actionMap["rmbp"] = [this] { RmbPressed(); };
     actionMap["rmbr"] = [this] { RmbReleased(); };
+    actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+    actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
     actionMap["scroll"] = [this] { Scroll(); };
 
     statsPanel.scene = scene;
@@ -3747,6 +4254,8 @@ FocusGuiSystem::FocusGuiSystem(GuiController* con)
     actionMap["lmbr"] = [this] { LmbReleased(); };
     actionMap["rmbp"] = [this] { RmbPressed(); };
     actionMap["rmbr"] = [this] { RmbReleased(); };
+    actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+    actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
     actionMap["scroll"] = [this] { Scroll(); };
 
     focusPanel.scene = scene;
@@ -4044,74 +4553,220 @@ static Color DivisionMarkerColor(MilitaryUnitType type)
     }
 }
 
-// Builds markers list and draws all local-player division dots on the map.
+// World-space position a division is drawn at: where it stands when deployed,
+// otherwise just above its home building (still garrisoned).
+static Vec2f DivisionRenderWorldPos(GameScene* scene, Building* building, const SoldierDivision& div)
+{
+    if (div.worldPos.x >= 0.0f)
+        return div.worldPos;
+    Vec2i c = scene->game->tilemap.GetCoordsFromId(building->positionId);
+    Vec2i fp = building->GetFootprint();
+    return {(c.x + fp.x * 0.5f) * TILE_SIZE,
+            (c.y + fp.y * 0.5f) * TILE_SIZE - TILE_SIZE * 0.8f};
+}
+
+// Builds the marker list for division counters drawn by GameWorld::DrawMap.
 void DivisionMapWidget::Update(double dt)
 {
     markers.clear();
     if (scene == nullptr || scene->game == nullptr) return;
 
-    auto localPlayerIt = scene->game->playerHandler.players.find(scene->game->GetLocalPlayerId());
-    Player* localPlayer = localPlayerIt != scene->game->playerHandler.players.end()
-        ? localPlayerIt->second.get() : nullptr;
-    if (localPlayer == nullptr) return;
-
-    for (auto* building : localPlayer->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+    struct Stack
     {
-        if (building == nullptr) continue;
-        auto* garrison = building->GetComponent<GarrisonComponent>();
-        if (garrison == nullptr) return;
+        Building* home{nullptr};
+        Player* owner{nullptr};
+        Vec2f world{0.0f, 0.0f};
+        Vec2i tile{-1, -1};
+        std::vector<int> ids;
+        MilitaryUnitType type{MilitaryUnitType::Militia};
+        bool moving{false};
+    };
 
-        // Compute a slot offset above the building for stacked in-building markers
-        Vec2f buildingWorldCenter = {0.0f, 0.0f};
+    for (auto& [playerId, player] : scene->game->playerHandler.players)
+    {
+        if (player == nullptr) continue;
+        for (auto* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
         {
-            Vec2i c = scene->game->tilemap.GetCoordsFromId(building->positionId);
-            Vec2i fp = building->GetFootprint();
-            buildingWorldCenter = {(c.x + fp.x * 0.5f) * TILE_SIZE, (c.y + fp.y * 0.5f) * TILE_SIZE};
-        }
+            if (building == nullptr) continue;
+            auto* garrison = building->GetComponent<GarrisonComponent>();
+            if (garrison == nullptr) continue;
 
-        int slotIdx = 0;
-        for (const auto& div : garrison->divisions)
-        {
-            Vec2f worldPos;
-            if (div.inTransit && div.worldPos.x >= 0.0f)
+            std::map<long long, Stack> stacks;
+            for (const auto& div : garrison->divisions)
             {
-                worldPos = div.worldPos;
+                bool deployed = div.occupiedTile.x >= 0;
+                Vec2f world = DivisionRenderWorldPos(scene, building, div);
+                long long key = -(static_cast<long long>(building->positionId) + 1);
+                if (deployed)
+                {
+                    DivisionSector sector = ResolveDivisionSector(scene->game->tilemap, div.occupiedTile, player.get());
+                    if (sector.IsValid() && !div.inTransit)
+                    {
+                        Vec2f center = sector.CenterTile();
+                        world = {center.x * TILE_SIZE, center.y * TILE_SIZE};
+                    }
+                    key = div.inTransit
+                        ? (1000000000000LL + static_cast<long long>(div.sectorCell.x) * 100000 + div.sectorCell.y)
+                        : (static_cast<long long>(div.sectorCell.x) * 100000 + div.sectorCell.y);
+                }
+
+                Stack& stack = stacks[key];
+                if (stack.ids.empty())
+                {
+                    stack.home = building;
+                    stack.owner = player.get();
+                    stack.world = world;
+                    stack.tile = div.occupiedTile;
+                    stack.type = div.type;
+                }
+                else if (div.inTransit)
+                {
+                    float n = static_cast<float>(stack.ids.size());
+                    stack.world = {
+                        (stack.world.x * n + world.x) / (n + 1.0f),
+                        (stack.world.y * n + world.y) / (n + 1.0f)};
+                }
+                stack.ids.push_back(div.id);
+                if (div.inTransit)
+                    stack.moving = true;
             }
-            else
+
+            for (auto& [key, stack] : stacks)
             {
-                // Stack above the building: offset each slot horizontally
-                float offsetX = (slotIdx - static_cast<float>(garrison->divisions.size() - 1) * 0.5f) * (kMarkerRadius * 2.5f);
-                Vec2f aboveBuilding = {buildingWorldCenter.x + offsetX, buildingWorldCenter.y - TILE_SIZE * 0.8f};
-                worldPos = aboveBuilding;
-                slotIdx++;
+                Vec2f screen = scene->render.WorldToScreen(stack.world);
+                Color color = DivisionMarkerColor(stack.type);
+                markers.push_back({stack.home, stack.owner, stack.ids, stack.tile, {screen.x, screen.y}, color});
+
+                Rectangle rect{screen.x - kMarkerHalfW, screen.y - kMarkerHalfH,
+                               kMarkerHalfW * 2.0f, kMarkerHalfH * 2.0f};
+                Color ownerColor = stack.owner != nullptr ? stack.owner->color : Color{220, 220, 220, 255};
+                DrawRectangleRec(rect, Color{18, 22, 30, 225});
+                DrawRectangleRec({rect.x, rect.y, 4.0f, rect.height}, color);
+                DrawRectangleLinesEx(rect, stack.moving ? 2.0f : 1.0f,
+                                     stack.moving ? Color{255, 255, 255, 210} : ownerColor);
+                UiText::DrawFit(std::to_string(stack.ids.size()),
+                                Rectangle{rect.x + 4.0f, rect.y + 2.0f, rect.width - 6.0f, rect.height - 4.0f},
+                                14, RAYWHITE);
             }
-
-            Vec2f screen = scene->render.WorldToScreen(worldPos);
-            Color col = DivisionMarkerColor(div.type);
-
-            // Draw the dot
-            DrawCircle(static_cast<int>(screen.x), static_cast<int>(screen.y),
-                       kMarkerRadius + 1.5f, Color{10, 14, 20, 200});
-            DrawCircle(static_cast<int>(screen.x), static_cast<int>(screen.y),
-                       kMarkerRadius, col);
-            if (div.inTransit)
-                DrawCircleLines(static_cast<int>(screen.x), static_cast<int>(screen.y),
-                                kMarkerRadius, Color{255, 255, 255, 160});
-
-            markers.push_back({building, div.id, {screen.x, screen.y}});
         }
     }
 }
 
-// Returns the first marker at a screen point, or nullptr.
+// Returns the marker stack at a screen point, or nullptr.
 const DivisionMapMarker* DivisionMapWidget::HitTest(Vec2i screenPoint) const
 {
     for (const auto& m : markers)
     {
-        float dx = screenPoint.x - m.screenPos.x;
-        float dy = screenPoint.y - m.screenPos.y;
-        if (dx * dx + dy * dy <= (kMarkerRadius + 4.0f) * (kMarkerRadius + 4.0f))
+        if (std::abs(screenPoint.x - m.screenPos.x) <= kMarkerHalfW + 3.0f &&
+            std::abs(screenPoint.y - m.screenPos.y) <= kMarkerHalfH + 3.0f)
             return &m;
     }
     return nullptr;
+}
+
+// Highlights the quadrant under the cursor (move destination) and rings the
+// currently selected divisions.
+void MoveTargetWidget::Update(double dt)
+{
+    if (scene == nullptr || scene->game == nullptr || bar == nullptr)
+        return;
+
+    // Drag-selection rectangle.
+    if (drawBox)
+    {
+        DrawRectangleRec(boxRect, Color{120, 200, 255, 40});
+        DrawRectangleLinesEx(boxRect, 1.5f, Color{150, 215, 255, 220});
+    }
+
+    if (bar->building == nullptr || bar->selectedDivisionIds.empty())
+        return;
+
+    auto* garrison = bar->building->GetComponent<GarrisonComponent>();
+    if (garrison == nullptr)
+        return;
+
+    Player* localPlayer = LocalPlayer(scene);
+
+    // Draws a subtle outline (+ optional tint) around a single map tile.
+    auto drawTileOutline = [&](Vec2i pos, Color lineCol, Color fillCol, float thick)
+    {
+        if (!scene->game->tilemap.IsInside(pos))
+            return;
+        Vec2f sTL = scene->render.WorldToScreen({pos.x * static_cast<float>(TILE_SIZE),
+                                                 pos.y * static_cast<float>(TILE_SIZE)});
+        Vec2f sBR = scene->render.WorldToScreen({(pos.x + 1) * static_cast<float>(TILE_SIZE),
+                                                 (pos.y + 1) * static_cast<float>(TILE_SIZE)});
+        Rectangle rect{sTL.x, sTL.y, sBR.x - sTL.x, sBR.y - sTL.y};
+        if (fillCol.a > 0)
+            DrawRectangleRec(rect, fillCol);
+        DrawRectangleLinesEx(rect, thick, lineCol);
+    };
+
+    auto drawSectorOutline = [&](const DivisionSector& sector, Color lineCol, Color fillCol, float thick)
+    {
+        if (!sector.IsValid())
+            return;
+        for (int tileId : sector.TileIds(scene->game->tilemap))
+            drawTileOutline(scene->game->tilemap.GetCoordsFromId(tileId), lineCol, fillCol, thick);
+    };
+
+    // (3) Subtly outline the tile each selected division currently holds.
+    for (int divId : bar->selectedDivisionIds)
+    {
+        for (const auto& div : garrison->divisions)
+        {
+            if (div.id != divId)
+                continue;
+            if (div.occupiedTile.x >= 0)
+            {
+                drawSectorOutline(ResolveDivisionSector(scene->game->tilemap, div.occupiedTile, localPlayer),
+                                  Color{135, 228, 158, 165}, Color{0, 0, 0, 0}, 1.5f);
+            }
+            else
+            {
+                Vec2f sc = scene->render.WorldToScreen(DivisionRenderWorldPos(scene, bar->building, div));
+                DrawRectangleLinesEx({sc.x - 17.0f, sc.y - 12.0f, 34.0f, 24.0f}, 1.5f,
+                                     Color{135, 228, 158, 170});
+            }
+            break;
+        }
+    }
+
+    // (4) Move target under the cursor — single tile, kept subtle.
+    Vector2 mouse = GetMousePosition();
+    Vec2i mouseScreen{static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
+    if (bar->ContainsPoint(mouseScreen) ||
+        (armyBar != nullptr && armyBar->IsOverContent(mouseScreen)))
+        return;
+    Vec2i tile = ScreenToTile(scene, mouse);
+    if (tile.x < 0 || tile.y < 0)
+        return;
+
+    DivisionSector targetSector = ResolveDivisionSector(scene->game->tilemap, tile, localPlayer);
+    bool valid = targetSector.IsValid();
+    bool hasFree = false;
+    if (valid && localPlayer != nullptr)
+    {
+        for (int tileId : targetSector.TileIds(scene->game->tilemap))
+        {
+            Vec2i sectorTile = scene->game->tilemap.GetCoordsFromId(tileId);
+            if (IsTileFree(*localPlayer, sectorTile, -1))
+            {
+                hasFree = true;
+                break;
+            }
+        }
+    }
+
+    Color fill = !valid ? Color{220, 70, 60, 16}
+               : hasFree ? Color{90, 220, 120, 20}
+                         : Color{232, 172, 72, 22};
+    Color line = !valid ? Color{235, 110, 100, 150}
+               : hasFree ? Color{140, 235, 165, 165}
+                         : Color{240, 200, 120, 160};
+
+    if (valid)
+        drawSectorOutline(targetSector, line, fill, 1.5f);
+    else
+        drawTileOutline(tile, line, fill, 1.5f);
 }

@@ -106,6 +106,9 @@ void ArmyGroupRegistry::AddDivision(int armyId, int homeTileId, int divisionId)
     ArmyGroup* army = FindArmy(armyId);
     if (army == nullptr) return;
     army->divisions.push_back({homeTileId, divisionId});
+
+    // Moving a division here may have emptied its previous army.
+    PruneEmptyArmies();
 }
 
 void ArmyGroupRegistry::RemoveDivision(int divisionId)
@@ -116,6 +119,13 @@ void ArmyGroupRegistry::RemoveDivision(int divisionId)
             [divisionId](const ArmyDivisionRef& r) { return r.divisionId == divisionId; });
         army.divisions.erase(it, army.divisions.end());
     }
+}
+
+void ArmyGroupRegistry::PruneEmptyArmies()
+{
+    armies.erase(std::remove_if(armies.begin(), armies.end(),
+        [](const ArmyGroup& a) { return a.divisions.empty(); }),
+        armies.end());
 }
 
 void ArmyGroupRegistry::SetCommander(int armyId, ArmyCommander commander,

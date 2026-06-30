@@ -27,7 +27,23 @@ enum class BalanceStat
     ArmyMarchSpeed,     // tiles/minute off-road; base = 12
     ArmyAttackBonus,    // additive to division attack damage
     ArmyDefenseBonus,   // additive to territory HP (passive defense)
-    ArmyMoraleBonus     // additive to division morale (affects decay)
+    ArmyMoraleBonus,    // additive to division morale (affects decay)
+
+    // Per-unit combat stats (UnitStats) — modifiable by tech/focus/commander/building
+    // bonuses through the same BalanceModifierSet pipeline as everything else.
+    UnitLightAttack,    // damage vs unarmored manpower
+    UnitArmoredAttack,  // damage vs armored manpower
+    UnitShock,          // burst impact that erodes enemy cohesion
+    UnitArmor,          // mitigates incoming light attack
+    UnitPiercing,       // negates a portion of enemy armor
+    UnitDefense,        // general defensive multiplier
+    UnitMaxStrength,    // manpower pool of the unit
+    UnitMaxCohesion,    // organisation pool (how long it holds the line)
+    UnitMorale,         // resistance to cohesion loss
+    UnitSpeed,          // movement speed (tiles/minute baseline)
+    UnitSupplyUse,      // supply consumed per tick
+    UnitFatigueRate,    // how fast the unit tires
+    UnitArmoredShare    // fraction of strength that counts as armored (0..1)
 };
 
 #endif

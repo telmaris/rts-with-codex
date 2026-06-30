@@ -49,8 +49,17 @@ enum class ResourceType : uint8_t
     BOW = 27,
     ARROWS = 28,
     HORSE = 29,
-    // STONE_HAMMER = 34,
-    // ARMOR = 38
+
+    // Equipment categories for the supply/division system (material progression:
+    // stone → copper → bronze → iron → steel). See Equipment.h for the taxonomy.
+    BRONZE_SWORD = 30,
+    SPEAR = 31,
+    CROSSBOW = 32,
+    BOLTS = 33,
+    WOODEN_SHIELD = 34,
+    IRON_SHIELD = 35,
+    LEATHER_ARMOR = 36,
+    IRON_ARMOR = 37
 
 };
 
@@ -79,6 +88,14 @@ constexpr ResourceType resourceTypes[] =
     ResourceType::BOW,
     ResourceType::ARROWS,
     ResourceType::HORSE,
+    ResourceType::BRONZE_SWORD,
+    ResourceType::SPEAR,
+    ResourceType::CROSSBOW,
+    ResourceType::BOLTS,
+    ResourceType::WOODEN_SHIELD,
+    ResourceType::IRON_SHIELD,
+    ResourceType::LEATHER_ARMOR,
+    ResourceType::IRON_ARMOR,
     ResourceType::COPPER_ORE,
     ResourceType::COPPER,
     ResourceType::IRON_ORE,
@@ -125,6 +142,14 @@ inline std::string rt2s(ResourceType s)
         case ResourceType::BOW: return "BOW";
         case ResourceType::ARROWS: return "ARROWS";
         case ResourceType::HORSE: return "HORSE";
+        case ResourceType::BRONZE_SWORD: return "BRONZE_SWORD";
+        case ResourceType::SPEAR: return "SPEAR";
+        case ResourceType::CROSSBOW: return "CROSSBOW";
+        case ResourceType::BOLTS: return "BOLTS";
+        case ResourceType::WOODEN_SHIELD: return "WOODEN_SHIELD";
+        case ResourceType::IRON_SHIELD: return "IRON_SHIELD";
+        case ResourceType::LEATHER_ARMOR: return "LEATHER_ARMOR";
+        case ResourceType::IRON_ARMOR: return "IRON_ARMOR";
 
         default: return "Unknown";
     }

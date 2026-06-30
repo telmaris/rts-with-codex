@@ -1,4 +1,5 @@
 #include "../inc/GameWorldInternal.h"
+#include "../inc/SectorGraph.h"
 
 using namespace GameWorldInternal;
 
@@ -294,6 +295,8 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) c
         {
             const Tile& tile = tilemap[GetIdFromCoords({anchor.x + x, anchor.y + y})];
             if (tile.owner != player || tile.HasBuilding())
+                return false;
+            if (player != nullptr && DivisionOnTile(*player, {anchor.x + x, anchor.y + y}, -1) >= 0)
                 return false;
         }
     }

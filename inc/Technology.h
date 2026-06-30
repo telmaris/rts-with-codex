@@ -14,7 +14,7 @@ struct TechnologyDefinition
     std::string id;
     std::string name;
     std::string description;
-    std::string category{"PRODUCTION"};
+    std::string category{"SCIENCE"};
     double researchTime{0.0};
     std::string governmentId;
     std::vector<std::string> prerequisites;

@@ -1,4 +1,5 @@
 #include "../inc/GameWorldInternal.h"
+#include "../inc/DivisionSector.h"
 
 using namespace GameWorldInternal;
 
@@ -57,6 +58,50 @@ namespace
             player->AddManpower(static_cast<double>(gift));
             Log::Msg("[Debug]", player->name, " received ", gift, " manpower (70% of cap ", cap, ")");
         }
+    }
+
+    // Debug only: drops a small enemy outpost (Guard Tower + a few deployed
+    // divisions) just past the human player's border so combat can be tested.
+    void SpawnDebugEnemyOutpost(TileMap& map, Player* enemy, Vec2i humanHqCenter)
+    {
+        if (enemy == nullptr)
+            return;
+
+        int half = MapGenerator::HeadquartersTerritorySize() / 2;
+        Vec2i towerAnchor{
+            std::clamp(humanHqCenter.x + half + 5, 2, map.params.sizeX - 4),
+            std::clamp(humanHqCenter.y - 1, 2, map.params.sizeY - 4)};
+        Vec2i towerCenter{towerAnchor.x + 1, towerAnchor.y + 1};
+
+        map.SetTerritory(towerCenter, 9, enemy);
+        enemy->Build<GuardTower>(towerAnchor, false);
+        Building* tower = map.GetBuilding(map.GetIdFromCoords(towerAnchor));
+        auto* garrison = tower != nullptr ? tower->GetComponent<GarrisonComponent>() : nullptr;
+        if (garrison == nullptr)
+        {
+            Log::Msg("[Debug]", "enemy outpost build failed (terrain?)");
+            return;
+        }
+
+        int spawned = 0;
+        for (int dy = -1; dy <= 2 && spawned < 4; dy++)
+        {
+            Vec2i tile{towerAnchor.x - 2, towerAnchor.y + dy};  // a line facing the human (-x)
+            if (!map.IsInside(tile) || !IsTileWalkableForDivision(map, tile))
+                continue;
+            if (map.tilemap[map.GetIdFromCoords(tile)].owner != enemy)
+                continue;
+
+            SoldierDivision d = CreateMilitaryDivision(MilitaryUnitType::Swordsman, garrison->nextDivisionId++);
+            d.occupiedTile = tile;
+            d.sectorCell = {tile.x / 2, tile.y / 2};
+            d.worldPos = {(tile.x + 0.5f) * TILE_SIZE, (tile.y + 0.5f) * TILE_SIZE};
+            d.inTransit = false;
+            garrison->divisions.push_back(d);
+            spawned++;
+        }
+        garrison->Recount();
+        Log::Msg("[Debug]", "spawned enemy outpost with ", spawned, " deployed divisions");
     }
 }
 
@@ -175,7 +220,14 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
         occupiedAnchors.push_back(enemyAnchor);
         CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
         if (params.debugMode)
+        {
             enemy->debugMode = true;
+            if (i == 0)
+            {
+                Vec2i humanHqCenter{hqAnchor.x + hqFootprint.x / 2, hqAnchor.y + hqFootprint.y / 2};
+                SpawnDebugEnemyOutpost(tilemap, enemy, humanHqCenter);
+            }
+        }
     }
 
     if (render != nullptr)

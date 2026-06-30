@@ -19,12 +19,15 @@ enum class GameCommandType
     IssueMilitaryOrder,
     RecruitUnit,
     StartFocus,
-    StartTechnologyResearch
+    StartTechnologyResearch,
+    MoveDivision,
+    FormArmy,
+    AttackTile
 };
 
 struct GameCommand
 {
-    static constexpr int WireVersion = 4;
+    static constexpr int WireVersion = 7;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -76,6 +79,46 @@ struct GameCommand
         command.sourceTileId = sourceTileId;
         command.targetTileId = targetTileId;
         command.divisionId = divisionId;
+        return command;
+    }
+
+    static GameCommand MoveDivision(int playerId, int sourceTileId, int divisionId, int targetTileId)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::MoveDivision;
+        command.sourceTileId = sourceTileId;
+        command.divisionId = divisionId;
+        command.targetTileId = targetTileId;
+        return command;
+    }
+
+    static GameCommand AttackTile(int playerId, int sourceTileId, int divisionId, int targetTileId)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::AttackTile;
+        command.sourceTileId = sourceTileId;
+        command.divisionId = divisionId;
+        command.targetTileId = targetTileId;
+        return command;
+    }
+
+    static GameCommand FormArmy(int playerId, int homeTileId, const std::vector<int>& divisionIds)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::FormArmy;
+        command.sourceTileId = homeTileId;
+        // Division ids packed into researchId (comma-separated), reusing the wire field.
+        std::string packed;
+        for (size_t i = 0; i < divisionIds.size(); i++)
+        {
+            if (i > 0)
+                packed += ',';
+            packed += std::to_string(divisionIds[i]);
+        }
+        command.researchId = std::move(packed);
         return command;
     }
 
@@ -206,6 +249,9 @@ struct GameCommand
             case GameCommandType::RecruitUnit:
             case GameCommandType::StartFocus:
             case GameCommandType::StartTechnologyResearch:
+            case GameCommandType::MoveDivision:
+            case GameCommandType::FormArmy:
+            case GameCommandType::AttackTile:
                 return true;
         }
         return false;

@@ -75,6 +75,8 @@ public:
     void AddDivision(int armyId, int homeTileId, int divisionId);
     // Releases a division from whichever army it belongs to.
     void RemoveDivision(int divisionId);
+    // Disbands any army that has no divisions left.
+    void PruneEmptyArmies();
 
     // Sets the commander for an army and rebuilds its modifiers.
     void SetCommander(int armyId, ArmyCommander commander,

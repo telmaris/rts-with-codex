@@ -1,72 +1,23 @@
 #include "../inc/Technology.h"
+#include "../inc/RtsDataFile.h"
 
-#include <cctype>
-#include <fstream>
 #include <algorithm>
+#include <cctype>
 
 namespace
 {
     constexpr const char* technologyDataPath = "assets/data/technologies.rtsdata";
     constexpr const char* focusDataPath = "assets/data/focuses.rtsdata";
 
-    // Splits a data line into tokens while preserving quoted strings.
-    std::vector<std::string> TokenizeLine(const std::string& line)
+    bool IsAllowedResearchTag(const std::string& tag)
     {
-        std::vector<std::string> tokens;
-        std::string token;
-        bool inQuote = false;
-
-        for (char c : line)
-        {
-            if (!inQuote && c == '#')
-                break;
-
-            if (c == '"')
-            {
-                if (inQuote)
-                {
-                    tokens.push_back(token);
-                    token.clear();
-                }
-                inQuote = !inQuote;
-                continue;
-            }
-
-            if (!inQuote && std::isspace(static_cast<unsigned char>(c)))
-            {
-                if (!token.empty())
-                {
-                    tokens.push_back(token);
-                    token.clear();
-                }
-                continue;
-            }
-
-            token.push_back(c);
-        }
-
-        if (!token.empty())
-            tokens.push_back(token);
-
-        return tokens;
-    }
-
-    // Reads tokenized technology data lines from disk.
-    std::vector<std::vector<std::string>> ReadDataLines(const std::string& path)
-    {
-        std::ifstream file(path);
-        std::vector<std::vector<std::string>> lines;
-        if (!file.is_open())
-            return lines;
-
-        std::string line;
-        while (std::getline(file, line))
-        {
-            auto tokens = TokenizeLine(line);
-            if (!tokens.empty())
-                lines.push_back(std::move(tokens));
-        }
-        return lines;
+        return tag == "production" ||
+               tag == "logistics" ||
+               tag == "manpower" ||
+               tag == "expansion" ||
+               tag == "military" ||
+               tag == "government" ||
+               tag == "construction";
     }
 
     // Converts text to a balance stat identifier.
@@ -95,31 +46,65 @@ namespace
 
     void AddTag(std::vector<std::string>& tags, std::string tag)
     {
+        tag.erase(std::remove(tag.begin(), tag.end(), ','), tag.end());
+        if (tag.empty())
+            return;
+
         std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c)
         {
             return static_cast<char>(std::tolower(c));
         });
+        if (!IsAllowedResearchTag(tag))
+            return;
         if (std::find(tags.begin(), tags.end(), tag) == tags.end())
             tags.push_back(std::move(tag));
+    }
+
+    void AddCategoryTag(std::vector<std::string>& tags, const std::string& category)
+    {
+        if (category == "PRODUCTION")
+            AddTag(tags, "production");
+        else if (category == "WARFARE" || category == "MILITARY")
+            AddTag(tags, "military");
+        else if (category == "SOCIAL")
+            AddTag(tags, "manpower");
+        else if (category == "POLITICS")
+            AddTag(tags, "government");
     }
 
     void AddBuildingTags(std::vector<std::string>& tags, BuildingType type)
     {
         switch (type)
         {
-            case BuildingType::Woodcutter: AddTag(tags, "wood"); AddTag(tags, "raw_resource"); break;
-            case BuildingType::LumberMill: AddTag(tags, "planks"); AddTag(tags, "processing"); break;
-            case BuildingType::Mine: AddTag(tags, "stone"); AddTag(tags, "ore"); AddTag(tags, "raw_resource"); break;
-            case BuildingType::Foundry: AddTag(tags, "iron"); AddTag(tags, "processing"); break;
-            case BuildingType::StorageBuilding: AddTag(tags, "storage"); AddTag(tags, "logistics"); break;
+            case BuildingType::Woodcutter:
+            case BuildingType::HuntersHut:
+            case BuildingType::LumberMill:
+            case BuildingType::Mine:
+            case BuildingType::Foundry:
+            case BuildingType::Well:
+            case BuildingType::WheatFarm:
+            case BuildingType::Windmill:
+            case BuildingType::Bakery:
+            case BuildingType::Inn:
+            case BuildingType::Paperworks:
+            case BuildingType::Smith:
+                AddTag(tags, "production");
+                break;
+            case BuildingType::StorageBuilding: AddTag(tags, "logistics"); break;
             case BuildingType::Road: AddTag(tags, "roads"); AddTag(tags, "logistics"); break;
-            case BuildingType::Village: AddTag(tags, "population"); AddTag(tags, "social"); break;
-            case BuildingType::University: AddTag(tags, "research"); break;
+            case BuildingType::Village: AddTag(tags, "manpower"); break;
+            case BuildingType::University: break;
             case BuildingType::Barracks:
+                AddTag(tags, "military");
+                break;
             case BuildingType::GuardTower:
             case BuildingType::Fortress:
             case BuildingType::Castle:
                 AddTag(tags, "military");
+                AddTag(tags, "expansion");
+                break;
+            case BuildingType::Headquarters:
+                AddTag(tags, "expansion");
                 break;
             default:
                 break;
@@ -130,30 +115,26 @@ namespace
     {
         switch (type)
         {
-            case ResourceType::WOOD: AddTag(tags, "wood"); break;
-            case ResourceType::STONE: AddTag(tags, "stone"); break;
-            case ResourceType::PLANKS: AddTag(tags, "planks"); break;
-            case ResourceType::IRON:
-            case ResourceType::IRON_ORE:
-            case ResourceType::COAL:
-                AddTag(tags, "iron");
-                AddTag(tags, "ore");
-                break;
-            case ResourceType::WHEAT:
-            case ResourceType::FLOUR:
-            case ResourceType::BREAD:
             case ResourceType::FOOD_PROVISIONS:
-            case ResourceType::MEAT:
-            case ResourceType::WATER:
-                AddTag(tags, "food");
+                AddTag(tags, "logistics");
+                AddTag(tags, "manpower");
                 break;
-            case ResourceType::PAPER: AddTag(tags, "research"); break;
+            case ResourceType::PAPER: break;
             case ResourceType::WEAPON_SUPPLY:
             case ResourceType::COPPER_SWORD:
+            case ResourceType::BRONZE_SWORD:
             case ResourceType::IRON_SWORD:
             case ResourceType::STEEL_SWORD:
+            case ResourceType::SPEAR:
             case ResourceType::BOW:
+            case ResourceType::CROSSBOW:
             case ResourceType::ARROWS:
+            case ResourceType::BOLTS:
+            case ResourceType::WOODEN_SHIELD:
+            case ResourceType::IRON_SHIELD:
+            case ResourceType::LEATHER_ARMOR:
+            case ResourceType::IRON_ARMOR:
+            case ResourceType::HORSE:
                 AddTag(tags, "military");
                 break;
             default:
@@ -167,7 +148,7 @@ namespace
         definition.tags.clear();
         for (const auto& tag : explicitTags)
             AddTag(definition.tags, tag);
-        AddTag(definition.tags, definition.category);
+        AddCategoryTag(definition.tags, definition.category);
         if (!definition.governmentId.empty())
             AddTag(definition.tags, "government");
 
@@ -179,6 +160,8 @@ namespace
             switch (modifier.stat)
             {
                 case BalanceStat::BuildTime:
+                    AddTag(definition.tags, "construction");
+                    break;
                 case BalanceStat::ProductionCycleTime:
                 case BalanceStat::ProductionOutputAmount:
                 case BalanceStat::WorkerCapacity:
@@ -194,16 +177,20 @@ namespace
                 case BalanceStat::MilitaryStrength:
                 case BalanceStat::AttackDamage:
                 case BalanceStat::HitPoints:
-                case BalanceStat::TerritoryRadius:
                 case BalanceStat::GarrisonCapacity:
                 case BalanceStat::RecruitmentTime:
+                    AddTag(definition.tags, "military");
+                    break;
+                case BalanceStat::TerritoryRadius:
+                    AddTag(definition.tags, "expansion");
+                    break;
                 case BalanceStat::RecruitmentManpowerCost:
                     AddTag(definition.tags, "military");
+                    AddTag(definition.tags, "manpower");
                     break;
                 case BalanceStat::ManpowerRate:
                 case BalanceStat::PopulationCap:
-                    AddTag(definition.tags, "population");
-                    AddTag(definition.tags, "social");
+                    AddTag(definition.tags, "manpower");
                     break;
             }
             if (modifier.buildingType.has_value())
@@ -273,6 +260,14 @@ namespace
         if (value == "BOW") return ResourceType::BOW;
         if (value == "ARROWS") return ResourceType::ARROWS;
         if (value == "HORSE") return ResourceType::HORSE;
+        if (value == "BRONZE_SWORD") return ResourceType::BRONZE_SWORD;
+        if (value == "SPEAR") return ResourceType::SPEAR;
+        if (value == "CROSSBOW") return ResourceType::CROSSBOW;
+        if (value == "BOLTS") return ResourceType::BOLTS;
+        if (value == "WOODEN_SHIELD") return ResourceType::WOODEN_SHIELD;
+        if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
+        if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
+        if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
         return ResourceType::Null;
     }
 
@@ -290,9 +285,9 @@ namespace
         return {
             TechnologyDefinition{
                 "forestry",
-                "Forestry",
-                "Woodcutters work faster and produce more wood.",
-                "PRODUCTION",
+                "Mathematics",
+                "Counting, ratios and measured work create the foundation for every later science.",
+                "SCIENCE",
                 12.0,
                 "",
                 {},
@@ -300,27 +295,33 @@ namespace
                 {
                     BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.85, BalanceModifierScope::Global(), BuildingType::Woodcutter, std::nullopt, std::nullopt, "tech:forestry"},
                     BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Woodcutter, ResourceType::WOOD, std::nullopt, "tech:forestry"}
-                }},
+                },
+                {},
+                "Core Sciences",
+                10},
             TechnologyDefinition{
                 "masonry",
-                "Masonry",
-                "Stonework improves defensive building durability.",
-                "WARFARE",
+                "Physics",
+                "Natural philosophy explains force, weight and materials well enough to improve construction and defense.",
+                "SCIENCE",
                 16.0,
                 "",
-                {},
+                {"forestry"},
                 {{ResourceType::PAPER, 12}, {ResourceType::STONE, 30}},
                 {
                     BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Headquarters, std::nullopt, std::nullopt, "tech:masonry"},
                     BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::GuardTower, std::nullopt, std::nullopt, "tech:masonry"},
                     BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Fortress, std::nullopt, std::nullopt, "tech:masonry"},
                     BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Castle, std::nullopt, std::nullopt, "tech:masonry"}
-                }},
+                },
+                {},
+                "Core Sciences",
+                20},
             TechnologyDefinition{
                 "logistics",
                 "Logistics",
                 "Roads move goods faster and carry more traffic.",
-                "PRODUCTION",
+                "SCIENCE",
                 20.0,
                 "",
                 {"forestry"},
@@ -328,25 +329,31 @@ namespace
                 {
                     BalanceModifier{BalanceStat::RoadSpeed, 0.0, 1.20, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, std::nullopt, "tech:logistics"},
                     BalanceModifier{BalanceStat::RoadCapacity, 2.0, 1.0, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, std::nullopt, "tech:logistics"}
-                }},
+                },
+                {},
+                "Engineering",
+                30},
             TechnologyDefinition{
                 "village_records",
-                "Village Records",
-                "Better records increase population administration.",
-                "SOCIAL",
+                "Social Sciences",
+                "Population records and social observation turn settlement management into a formal field of study.",
+                "SCIENCE",
                 18.0,
                 "",
                 {"forestry"},
                 {{ResourceType::PAPER, 15}, {ResourceType::FOOD_PROVISIONS, 10}},
                 {
                     BalanceModifier{BalanceStat::PopulationCap, 20.0, 1.0, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, std::nullopt, "tech:village_records"},
-                    BalanceModifier{BalanceStat::ManpowerRate, 0.0, 1.10, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, std::nullopt, "tech:village_records"}
-                }},
+                    BalanceModifier{BalanceStat::ManpowerRate, 0.0, 1.10, BalanceModifierScope::Global(), std::nullopt, std::nullopt, std::nullopt, "tech:village_records"}
+                },
+                {},
+                "Social Sciences",
+                40},
             TechnologyDefinition{
                 "sawmill_blades",
                 "Sawmill Blades",
                 "Better saws improve plank production.",
-                "PRODUCTION",
+                "SCIENCE",
                 24.0,
                 "",
                 {"forestry"},
@@ -354,12 +361,15 @@ namespace
                 {
                     BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.80, BalanceModifierScope::Global(), BuildingType::LumberMill, std::nullopt, std::nullopt, "tech:sawmill_blades"},
                     BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::LumberMill, ResourceType::PLANKS, std::nullopt, "tech:sawmill_blades"}
-                }},
+                },
+                {},
+                "Engineering",
+                50},
             TechnologyDefinition{
                 "deep_mining",
                 "Deep Mining",
                 "Mines extract ore and stone more efficiently.",
-                "PRODUCTION",
+                "SCIENCE",
                 30.0,
                 "",
                 {"masonry"},
@@ -368,7 +378,10 @@ namespace
                     BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::IRON_ORE, std::nullopt, "tech:deep_mining"},
                     BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::COAL, std::nullopt, "tech:deep_mining"},
                     BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::STONE, std::nullopt, "tech:deep_mining"}
-                }}
+                },
+                {},
+                "Natural Sciences",
+                60}
         };
     }
 
@@ -398,7 +411,7 @@ namespace
                 {{ResourceType::PAPER, 8}, {ResourceType::FOOD_PROVISIONS, 8}},
                 {
                     BalanceModifier{BalanceStat::GarrisonCapacity, 5.0, 1.0, BalanceModifierScope::Global(), BuildingType::GuardTower, std::nullopt, std::nullopt, "focus:militia_charter"},
-                    BalanceModifier{BalanceStat::RecruitmentTime, 0.0, 0.90, BalanceModifierScope::Global(), BuildingType::Barracks, std::nullopt, MilitaryUnitType::Militia, "focus:militia_charter"}
+                    BalanceModifier{BalanceStat::RecruitmentTime, 0.0, 0.90, BalanceModifierScope::Global(), std::nullopt, std::nullopt, MilitaryUnitType::Militia, "focus:militia_charter"}
                 }},
             TechnologyDefinition{
                 "academic_patronage",
@@ -438,6 +451,12 @@ namespace
             else if (key == "unit")
                 modifier.unitType = ParseMilitaryUnitType(value);
         }
+
+        if (modifier.stat == BalanceStat::ManpowerRate ||
+            modifier.stat == BalanceStat::RecruitmentTime)
+        {
+            modifier.buildingType.reset();
+        }
         return modifier;
     }
 
@@ -475,7 +494,7 @@ namespace
             else if ((command == "tag" || command == "tags") && tokens.size() >= 2)
             {
                 for (size_t tokenIndex = 1; tokenIndex < tokens.size(); tokenIndex++)
-                    definition.tags.push_back(tokens[tokenIndex]);
+                    AddTag(definition.tags, tokens[tokenIndex]);
             }
             else if (command == "requires" && tokens.size() >= 2)
                 definition.prerequisites.push_back(tokens[1]);
@@ -494,7 +513,11 @@ namespace
         std::vector<TechnologyDefinition> defaults)
     {
         if (lines.empty())
+        {
+            for (auto& definition : defaults)
+                InferTags(definition);
             return defaults;
+        }
 
         std::vector<TechnologyDefinition> definitions;
         for (size_t i = 0; i < lines.size(); i++)
@@ -514,12 +537,12 @@ namespace
 // Loads technology definitions from a specific data file.
 std::vector<TechnologyDefinition> LoadTechnologyDefinitionsFromFile(const std::string& path)
 {
-    return ParseTechnologyDefinitions(ReadDataLines(path), MakeDefaultTechnologies());
+    return ParseTechnologyDefinitions(ReadRtsDataLines(path), MakeDefaultTechnologies());
 }
 
 std::vector<TechnologyDefinition> LoadFocusDefinitionsFromFile(const std::string& path)
 {
-    return ParseTechnologyDefinitions(ReadDataLines(path), MakeDefaultFocuses());
+    return ParseTechnologyDefinitions(ReadRtsDataLines(path), MakeDefaultFocuses());
 }
 
 // Returns all loaded technology definitions.

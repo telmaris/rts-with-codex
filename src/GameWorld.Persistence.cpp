@@ -606,6 +606,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
                        >> weapon >> armor >> ranged >> ammo;
                     if (tag != "DIV") return false;
                     division.type = static_cast<MilitaryUnitType>(unitType);
+                    division.stats = MakeDefaultUnitStats(division.type);
                     division.equipment.weapon       = static_cast<ResourceType>(weapon);
                     division.equipment.armor        = static_cast<ResourceType>(armor);
                     division.equipment.rangedWeapon = static_cast<ResourceType>(ranged);

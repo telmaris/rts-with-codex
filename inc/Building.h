@@ -8,6 +8,7 @@
 #include "Resource.h"
 #include "Transport.h"
 #include "Stat.h"
+#include "UnitStats.h"
 #include "BuildingComponents.h"
 
 class Player;
@@ -37,6 +38,7 @@ enum class BuildingType : int
     Fortress = 22,
     Castle = 23,
     Barracks = 24,
+    SupplyHub = 25,
 
     Smith = 31,
     University = 32,
@@ -105,13 +107,26 @@ public:
     double orderCooldown{0.0};
     DivisionEquipment equipment;
 
+    // Combat stat block (Stat<float>, modifiable by tech/focus/commander/buildings).
+    // Bases are always the unit-type defaults, so this is re-derived from `type`
+    // rather than serialized; see MakeDefaultUnitStats / ResolveUnitStat.
+    UnitStats stats{MakeDefaultUnitStats(MilitaryUnitType::Militia)};
+
     // Movement state — transient, not serialized; resets to home building on save/load.
     Vec2f worldPos{-1.0f, -1.0f};      // current world-space position; -1,-1 = home building
+    Vec2i occupiedTile{-1, -1};        // map tile the division stands on / targets (one per tile)
+    Vec2i sectorCell{-1, -1};          // 2x2 quadrant of occupiedTile (occupiedTile/2)
     bool inTransit{false};
+    // Combat state — transient. A battle starts from an attack order and stays
+    // "sticky" while the division remains adjacent to an enemy, even after the
+    // order clears (HoI4-style). Two idle units touching never fight.
+    bool engaged{false};
+    float damageBuffer{0.0f};  // accumulates sub-1 strength loss per tick
     std::vector<int> travelPath;        // road tile ids (empty = direct march)
     int travelPathStep{0};
     double travelElapsed{0.0};
     double travelStepTime{0.0};         // sec/tile (road path) or total sec (direct march)
+    std::vector<double> travelStepDurations; // per-hop seconds (mixed road/off-road); empty = uniform travelStepTime
     Vec2f travelFromPos{0.0f, 0.0f};
     Vec2f travelToPos{0.0f, 0.0f};
 
@@ -343,6 +358,9 @@ public:
     // --- Component members ---
     StorageComponent   storage;
     TerritoryComponent territory;
+    // Fallback home for field divisions whose building was captured/destroyed, so
+    // deployed troops are not deleted along with the lost building.
+    GarrisonComponent  garrison;
 };
 
 // Settlement that generates manpower and consumes food upkeep over time.
@@ -410,6 +428,19 @@ public:
     GarrisonComponent     garrison;
     SupplyBufferComponent supplyBuffer;
     RecruitmentComponent  recruitment;
+};
+
+// Logistics building (pilot): draws finished gear + rations from the player's
+// storage network on demand, converts them into weapon-supply packages and ships
+// them to the front. It owns no storage of its own — it never stockpiles
+// equipment. All behaviour lives in the dedicated SupplyPackageComponent.
+class SupplyHub : public Building
+{
+public:
+    SupplyHub() = default;
+    SupplyHub(int);
+
+    SupplyPackageComponent packaging;
 };
 
 #endif

@@ -2,6 +2,7 @@ technology communal_work_parties
     name "Communal Work Parties"
     description "Organize households into seasonal construction crews."
     category PRODUCTION
+    tags production construction
     layout_order 1100
     research_time 150
     modifier BuildTime multiplier 0.90
@@ -12,6 +13,7 @@ technology forest_lore
     name "Forest Lore"
     description "Preserve practical knowledge of forests and cutting grounds."
     category PRODUCTION
+    tags production
     layout_order 1300
     research_time 165
     modifier ProductionCycleTime multiplier 0.95 building Woodcutter
@@ -22,6 +24,7 @@ technology stone_prospecting
     name "Stone Prospecting"
     description "Identify valuable stone deposits and reliable quarrying grounds."
     category PRODUCTION
+    tags production
     layout_order 1500
     research_time 165
     modifier ProductionCycleTime multiplier 0.95 building Mine
@@ -32,6 +35,7 @@ technology itinerant_craftsmen
     name "Itinerant Craftsmen"
     description "Allow skilled craftsmen to travel between settlements."
     category PRODUCTION
+    tags production
     layout_order 1700
     research_time 180
     modifier ProductionCycleTime multiplier 0.92 building Smith
@@ -42,6 +46,7 @@ technology seasonal_stockpiles
     name "Seasonal Stockpiles"
     description "Gather surplus goods before winters and campaigns."
     category PRODUCTION
+    tags production logistics construction
     layout_order 1900
     research_time 180
     modifier BuildTime multiplier 0.90 building StorageBuilding
@@ -52,11 +57,12 @@ technology emergency_building_season
     name "Emergency Building Season"
     description "Mobilize entire communities for immediate construction."
     category PRODUCTION
+    tags production manpower construction
     layout_order 2010
     research_time 210
     requires communal_work_parties
     modifier BuildTime multiplier 0.76
-    modifier ManpowerRate multiplier 0.88 building Village
+    modifier ManpowerRate multiplier 0.88
     modifier ProductionCycleTime multiplier 1.10
 end
 
@@ -64,6 +70,7 @@ technology planned_construction
     name "Planned Construction"
     description "Assign labor and materials before major projects begin."
     category PRODUCTION
+    tags production construction
     layout_order 2150
     research_time 195
     requires communal_work_parties
@@ -74,6 +81,7 @@ technology organized_logging
     name "Organized Logging"
     description "Assign permanent cutting grounds and coordinated logging crews."
     category PRODUCTION
+    tags production
     layout_order 2350
     research_time 210
     requires forest_lore
@@ -85,6 +93,7 @@ technology quarry_camps
     name "Quarry Camps"
     description "Establish permanent camps around valuable stone deposits."
     category PRODUCTION
+    tags production
     layout_order 2550
     research_time 210
     requires stone_prospecting
@@ -96,6 +105,7 @@ technology workshop_routines
     name "Workshop Routines"
     description "Introduce predictable schedules and shared workshop procedures."
     category PRODUCTION
+    tags production
     layout_order 2750
     research_time 210
     requires itinerant_craftsmen
@@ -107,6 +117,7 @@ technology roadside_caches
     name "Roadside Caches"
     description "Place small supply caches along frequently used paths."
     category PRODUCTION
+    tags production logistics
     layout_order 2850
     research_time 210
     requires seasonal_stockpiles
@@ -118,6 +129,7 @@ technology hidden_reserves
     name "Hidden Reserves"
     description "Disperse emergency supplies through isolated caches."
     category PRODUCTION
+    tags production logistics
     layout_order 2990
     research_time 225
     requires seasonal_stockpiles
@@ -130,6 +142,7 @@ technology selective_felling
     name "Selective Felling"
     description "Exploit the richest woodland areas while diverting tools from quarrying."
     category PRODUCTION
+    tags production expansion military construction
     layout_order 3020
     research_time 240
     requires organized_logging
@@ -142,6 +155,7 @@ technology ruthless_quarrying
     name "Ruthless Quarrying"
     description "Concentrate labor on the richest deposits while neglecting transport."
     category PRODUCTION
+    tags production logistics
     layout_order 3050
     research_time 240
     requires quarry_camps
@@ -154,6 +168,7 @@ technology builders_crews
     name "Builders' Crews"
     description "Maintain permanent construction crews for public works."
     category PRODUCTION
+    tags production logistics construction
     layout_order 3010
     research_time 225
     requires planned_construction
@@ -165,6 +180,7 @@ technology timber_grading
     name "Timber Grading"
     description "Sort timber before processing to reduce mill interruptions."
     category PRODUCTION
+    tags production
     layout_order 3030
     research_time 225
     requires organized_logging
@@ -175,6 +191,7 @@ technology furnace_shifts
     name "Furnace Shifts"
     description "Maintain foundries through scheduled fuel deliveries and shifts."
     category PRODUCTION
+    tags production
     layout_order 3040
     research_time 225
     requires quarry_camps
@@ -185,6 +202,7 @@ technology standardized_tools
     name "Standardized Tools"
     description "Shared tool patterns reduce workshop downtime."
     category PRODUCTION
+    tags production
     layout_order 3060
     research_time 240
     requires workshop_routines
@@ -196,6 +214,7 @@ technology pack_animal_routes
     name "Pack Animal Routes"
     description "Organize regular pack-animal traffic between settlements."
     category PRODUCTION
+    tags production logistics
     layout_order 3900
     research_time 225
     requires roadside_caches
@@ -207,6 +226,7 @@ technology master_craftsmen
     name "Master Craftsmen"
     description "Give exceptional craftsmen broad authority over workshops."
     category PRODUCTION
+    tags production construction
     layout_order 3990
     research_time 240
     requires workshop_routines
@@ -219,6 +239,7 @@ technology civic_projects
     name "Civic Projects"
     description "Coordinate settlement-wide construction and public works."
     category PRODUCTION
+    tags production logistics construction
     layout_order 4200
     research_time 240
     requires builders_crews
@@ -230,6 +251,7 @@ technology processed_materials
     name "Processed Materials"
     description "Coordinate timber and metal processing through shared standards."
     category PRODUCTION
+    tags production
     layout_order 4450
     research_time 270
     requires timber_grading
@@ -242,6 +264,7 @@ technology specialized_crafts
     name "Specialized Crafts"
     description "Divide complex production between dedicated craftsmen."
     category PRODUCTION
+    tags production
     layout_order 4700
     research_time 255
     requires standardized_tools
@@ -253,6 +276,7 @@ technology regional_routes
     name "Regional Routes"
     description "Connect pack-animal paths into predictable regional routes."
     category PRODUCTION
+    tags production logistics
     layout_order 4900
     research_time 255
     requires pack_animal_routes
@@ -264,11 +288,12 @@ technology forced_labor
     name "Forced Labor"
     description "Compel communities to work on major construction."
     category PRODUCTION
+    tags production manpower construction
     layout_order 5010
     research_time 285
     requires civic_projects
     modifier BuildTime multiplier 0.70
-    modifier ManpowerRate multiplier 0.80 building Village
+    modifier ManpowerRate multiplier 0.80
     modifier PopulationCap additive -8 building Village
 end
 
@@ -276,6 +301,7 @@ technology monumental_works
     name "Monumental Works"
     description "Develop the organization required for major construction."
     category PRODUCTION
+    tags production expansion military construction
     layout_order 5200
     research_time 270
     requires civic_projects
@@ -289,6 +315,7 @@ technology regional_workshops
     name "Regional Workshops"
     description "Concentrate processing and craftsmanship in regional centers."
     category PRODUCTION
+    tags production
     layout_order 5500
     research_time 285
     requires processed_materials
@@ -302,6 +329,7 @@ technology heavy_wagon_routes
     name "Heavy Wagon Routes"
     description "Adapt important roads for larger wagons."
     category PRODUCTION
+    tags production logistics
     layout_order 5750
     research_time 270
     requires regional_routes
@@ -314,6 +342,7 @@ technology distributed_storage
     name "Distributed Storage"
     description "Spread smaller depots across the realm."
     category PRODUCTION
+    tags production logistics construction
     layout_order 5900
     research_time 270
     requires regional_routes
@@ -325,6 +354,7 @@ technology builders_realm
     name "Builders' Realm"
     description "Prioritize construction and infrastructure throughout the realm."
     category PRODUCTION
+    tags production logistics construction
     layout_order 6200
     research_time 300
     requires monumental_works
@@ -338,6 +368,7 @@ technology production_ledgers
     name "Production Ledgers"
     description "Track orders, materials and completed goods."
     category PRODUCTION
+    tags production
     layout_order 6400
     research_time 315
     requires regional_workshops
@@ -349,6 +380,7 @@ technology guild_regulations
     name "Guild Regulations"
     description "Recognized guilds preserve expertise and standards."
     category PRODUCTION
+    tags production
     layout_order 6600
     research_time 315
     requires regional_workshops
@@ -361,6 +393,7 @@ technology favored_industry
     name "Favored Industry"
     description "Concentrate state support on smithies and foundries."
     category PRODUCTION
+    tags production logistics
     layout_order 6010
     research_time 300
     requires regional_workshops
@@ -374,6 +407,7 @@ technology regional_supply_centers
     name "Regional Supply Centers"
     description "Connect heavy routes with managed depots."
     category PRODUCTION
+    tags production logistics
     layout_order 6990
     research_time 330
     requires heavy_wagon_routes
@@ -387,6 +421,7 @@ technology merchant_caravans
     name "Merchant Caravans"
     description "Allow merchants to organize long-distance freight."
     category PRODUCTION
+    tags production logistics
     layout_order 6850
     research_time 300
     requires heavy_wagon_routes
@@ -399,6 +434,7 @@ technology guild_monopolies
     name "Guild Monopolies"
     description "Grant selected guilds exclusive production rights."
     category PRODUCTION
+    tags production construction
     layout_order 7400
     research_time 345
     requires guild_regulations
@@ -412,6 +448,7 @@ technology relentless_industry
     name "Relentless Industry"
     description "Demand uninterrupted output from major workshops."
     category PRODUCTION
+    tags production logistics construction
     layout_order 7010
     research_time 345
     requires production_ledgers
@@ -427,6 +464,7 @@ technology integrated_logistics
     name "Integrated Logistics"
     description "Coordinate roads, depots and transport schedules."
     category PRODUCTION
+    tags production logistics
     layout_order 7600
     research_time 345
     requires regional_supply_centers
@@ -440,6 +478,7 @@ technology centralized_warehousing
     name "Centralized Warehousing"
     description "Concentrate goods in enormous regional depots."
     category PRODUCTION
+    tags production logistics construction
     layout_order 7990
     research_time 345
     requires regional_supply_centers
@@ -452,6 +491,7 @@ technology integrated_economy
     name "Integrated Economy"
     description "Unify production and logistics into one economic system."
     category PRODUCTION
+    tags production logistics
     layout_order 8500
     research_time 375
     requires relentless_industry
@@ -465,16 +505,18 @@ technology warrior_custom
     name "Warrior Custom"
     description "Treat military service as an honored clan duty."
     category MILITARY
+    tags military
     layout_order 1150
     research_time 150
     modifier MilitaryStrength multiplier 1.05
-    modifier RecruitmentTime multiplier 0.96 building Barracks
+    modifier RecruitmentTime multiplier 0.96
 end
 
 technology hunter_logistics
     name "Hunter Logistics"
     description "Support armies through hunting and simple provisions."
     category MILITARY
+    tags logistics military
     layout_order 1350
     research_time 165
     modifier SupplyConsumption multiplier 0.72
@@ -485,6 +527,7 @@ technology hunting_warbands
     name "Hunting Warbands"
     description "Organize hunters and scouts into fast offensive bands."
     category MILITARY
+    tags expansion military
     layout_order 1550
     research_time 165
     modifier AttackDamage multiplier 1.10
@@ -495,6 +538,7 @@ technology clan_watch
     name "Clan Watch"
     description "Assign families to local watches and frontier defense."
     category MILITARY
+    tags expansion military
     layout_order 1750
     research_time 165
     modifier GarrisonCapacity additive 3 building GuardTower
@@ -505,24 +549,26 @@ technology emergency_muster
     name "Emergency Muster"
     description "Simplify equipment to raise fighters immediately."
     category MILITARY
+    tags manpower military
     layout_order 2010
     research_time 195
     requires warrior_custom
-    modifier RecruitmentTime multiplier 0.62 building Barracks
+    modifier RecruitmentTime multiplier 0.62
     modifier RecruitmentManpowerCost multiplier 0.68
     modifier MilitaryStrength multiplier 0.80
-    modifier ManpowerRate multiplier 0.84 building Village
+    modifier ManpowerRate multiplier 0.84
 end
 
 technology clan_warbands
     name "Clan Warbands"
     description "Raise lightly equipped formations from individual clans."
     category MILITARY
+    tags manpower military
     layout_order 2200
     research_time 180
     requires warrior_custom
     modifier RecruitmentManpowerCost multiplier 0.72
-    modifier RecruitmentTime multiplier 0.84 building Barracks
+    modifier RecruitmentTime multiplier 0.84
     modifier MilitaryStrength multiplier 0.92
     modifier AttackDamage multiplier 1.06
 end
@@ -531,6 +577,7 @@ technology mobile_encampments
     name "Mobile Encampments"
     description "Keep military camps simple and ready to move."
     category MILITARY
+    tags logistics military
     layout_order 2400
     research_time 180
     requires hunter_logistics
@@ -543,18 +590,20 @@ technology blooded_warriors
     name "Blooded Warriors"
     description "Place veterans and proven fighters at the army's core."
     category MILITARY
+    tags military
     layout_order 2600
     research_time 180
     requires hunting_warbands
     modifier MilitaryStrength multiplier 1.08
     modifier AttackDamage multiplier 1.05
-    modifier RecruitmentTime multiplier 1.08 building Barracks
+    modifier RecruitmentTime multiplier 1.08
 end
 
 technology hilltop_watchposts
     name "Hilltop Watchposts"
     description "Place towers on commanding ground."
     category MILITARY
+    tags expansion military
     layout_order 2800
     research_time 195
     requires clan_watch
@@ -566,6 +615,7 @@ technology berserker_cults
     name "Berserker Cults"
     description "Encourage extreme warrior traditions."
     category MILITARY
+    tags manpower military
     layout_order 2980
     research_time 195
     requires hunting_warbands
@@ -578,18 +628,20 @@ technology border_militias
     name "Border Militias"
     description "Place frontier communities under defensive obligation."
     category MILITARY
+    tags expansion military
     layout_order 2990
     research_time 195
     requires clan_watch
     modifier TerritoryRadius additive 3 building GuardTower
     modifier GarrisonCapacity additive 5 building GuardTower
-    modifier RecruitmentTime multiplier 1.14 building Barracks
+    modifier RecruitmentTime multiplier 1.14
 end
 
 technology raiding_season
     name "Raiding Season"
     description "Structure the year around short aggressive campaigns."
     category MILITARY
+    tags production logistics military
     layout_order 3200
     research_time 210
     requires clan_warbands
@@ -602,6 +654,7 @@ technology forage_parties
     name "Forage Parties"
     description "Send dedicated groups ahead to gather supplies."
     category MILITARY
+    tags logistics military
     layout_order 3400
     research_time 210
     requires mobile_encampments
@@ -614,17 +667,19 @@ technology oath_bound_host
     name "Oath-Bound Host"
     description "Bind warriors through personal military oaths."
     category MILITARY
+    tags military
     layout_order 3600
     research_time 210
     requires blooded_warriors
     modifier MilitaryStrength multiplier 1.10
-    modifier RecruitmentTime multiplier 1.06 building Barracks
+    modifier RecruitmentTime multiplier 1.06
 end
 
 technology timber_fortifications
     name "Timber Fortifications"
     description "Raise defensive positions from timber."
     category MILITARY
+    tags expansion military construction
     layout_order 3800
     research_time 225
     requires hilltop_watchposts
@@ -636,6 +691,7 @@ technology shock_assaults
     name "Shock Assaults"
     description "Commit troops to concentrated breakthrough attacks."
     category MILITARY
+    tags logistics military
     layout_order 4200
     research_time 240
     requires raiding_season
@@ -648,6 +704,7 @@ technology lean_campaigns
     name "Lean Campaigns"
     description "Limit baggage to preserve operational mobility."
     category MILITARY
+    tags logistics military
     layout_order 4400
     research_time 240
     requires forage_parties
@@ -660,6 +717,7 @@ technology field_drills
     name "Field Drills"
     description "Introduce regular formation and movement practice."
     category MILITARY
+    tags military
     layout_order 4600
     research_time 240
     requires oath_bound_host
@@ -671,6 +729,7 @@ technology deep_border_patrols
     name "Deep Border Patrols"
     description "Extend patrol routes beyond settled territory."
     category MILITARY
+    tags logistics expansion military
     layout_order 4800
     research_time 240
     requires timber_fortifications
@@ -683,6 +742,7 @@ technology total_raiding_warfare
     name "Total Raiding Warfare"
     description "Orient the military toward rapid destructive raids."
     category MILITARY
+    tags production logistics expansion military
     layout_order 5010
     research_time 255
     requires shock_assaults
@@ -696,6 +756,7 @@ technology baggage_free_armies
     name "Baggage-Free Armies"
     description "Discard heavy stores to maximize mobility."
     category MILITARY
+    tags logistics military
     layout_order 5020
     research_time 255
     requires lean_campaigns
@@ -708,6 +769,7 @@ technology assault_columns
     name "Assault Columns"
     description "Organize formations for concentrated attacks."
     category MILITARY
+    tags manpower military
     layout_order 5200
     research_time 255
     requires shock_assaults
@@ -719,6 +781,7 @@ technology campaign_baggage
     name "Campaign Baggage"
     description "Provide organized wagon trains and field reserves."
     category MILITARY
+    tags logistics military
     layout_order 5400
     research_time 270
     requires lean_campaigns
@@ -731,10 +794,11 @@ technology organized_musters
     name "Organized Musters"
     description "Prepare regular procedures for assembling armies."
     category MILITARY
+    tags manpower military
     layout_order 5600
     research_time 255
     requires field_drills
-    modifier RecruitmentTime multiplier 0.88 building Barracks
+    modifier RecruitmentTime multiplier 0.88
     modifier MilitaryStrength multiplier 1.04
     modifier RecruitmentManpowerCost multiplier 0.92
 end
@@ -743,23 +807,25 @@ technology permanent_garrisons
     name "Permanent Garrisons"
     description "Maintain dedicated defenders in important towers."
     category MILITARY
+    tags expansion military
     layout_order 5800
     research_time 255
     requires deep_border_patrols
     modifier GarrisonCapacity additive 4 building GuardTower
     modifier HitPoints multiplier 1.08 building GuardTower
-    modifier RecruitmentTime multiplier 1.05 building Barracks
+    modifier RecruitmentTime multiplier 1.05
 end
 
 technology iron_discipline
     name "Iron Discipline"
     description "Enforce severe discipline and relentless drilling."
     category MILITARY
+    tags manpower military
     layout_order 5980
     research_time 255
     requires field_drills
     modifier MilitaryStrength multiplier 1.20
-    modifier RecruitmentTime multiplier 1.20 building Barracks
+    modifier RecruitmentTime multiplier 1.20
     modifier RecruitmentManpowerCost multiplier 1.18
 end
 
@@ -767,6 +833,7 @@ technology fortress_society
     name "Fortress Society"
     description "Organize frontier communities around fortified service."
     category MILITARY
+    tags logistics expansion military
     layout_order 5990
     research_time 255
     requires deep_border_patrols
@@ -779,6 +846,7 @@ technology professional_retinues
     name "Professional Retinues"
     description "Maintain experienced permanent soldiers."
     category MILITARY
+    tags logistics manpower military
     layout_order 6400
     research_time 285
     requires assault_columns
@@ -793,6 +861,7 @@ technology fortress_network
     name "Fortress Network"
     description "Connect mustering centers and garrisons."
     category MILITARY
+    tags expansion military
     layout_order 6600
     research_time 285
     requires organized_musters
@@ -806,26 +875,28 @@ technology elite_only_recruitment
     name "Elite-Only Recruitment"
     description "Reject mass armies in favor of exceptional soldiers."
     category MILITARY
+    tags manpower military
     layout_order 7010
     research_time 315
     requires professional_retinues
     modifier MilitaryStrength multiplier 1.26
     modifier AttackDamage multiplier 1.14
     modifier RecruitmentManpowerCost multiplier 1.45
-    modifier RecruitmentTime multiplier 1.28 building Barracks
+    modifier RecruitmentTime multiplier 1.28
 end
 
 technology army_of_the_realm
     name "Army of the Realm"
     description "Coordinate professional troops and fortified positions."
     category MILITARY
+    tags logistics military
     layout_order 7500
     research_time 330
     requires professional_retinues
     requires fortress_network
     modifier MilitaryStrength multiplier 1.08
     modifier AttackDamage multiplier 1.06
-    modifier RecruitmentTime multiplier 0.94 building Barracks
+    modifier RecruitmentTime multiplier 0.94
     modifier SupplyCapacity multiplier 1.10
 end
 
@@ -833,13 +904,14 @@ technology unbroken_frontier
     name "Unbroken Frontier"
     description "Fill the border with overlapping towers and garrisons."
     category MILITARY
+    tags expansion military
     layout_order 7990
     research_time 315
     requires fortress_network
     modifier TerritoryRadius additive 4 building GuardTower
     modifier GarrisonCapacity additive 8 building GuardTower
     modifier HitPoints multiplier 1.20 building GuardTower
-    modifier RecruitmentTime multiplier 1.15 building Barracks
+    modifier RecruitmentTime multiplier 1.15
 end
 
 
@@ -847,6 +919,7 @@ technology communal_land
     name "Communal Land"
     description "Preserve shared access to fields, pastures and woodland."
     category POLITICS
+    tags manpower government construction
     layout_order 1100
     research_time 165
     modifier PopulationCap additive 12 building Village
@@ -857,9 +930,10 @@ technology sacred_customs
     name "Sacred Customs"
     description "Bind the clans through shared rites and law."
     category POLITICS
+    tags production manpower government
     layout_order 1250
     research_time 165
-    modifier ManpowerRate multiplier 1.08 building Village
+    modifier ManpowerRate multiplier 1.08
     modifier ProductionCycleTime multiplier 1.06 building University
 end
 
@@ -867,6 +941,7 @@ technology council_of_elders
     name "Council of Elders"
     description "Gather elders to coordinate neighboring settlements."
     category POLITICS
+    tags manpower government
     layout_order 1400
     research_time 150
     modifier PopulationCap additive 6 building Village
@@ -876,6 +951,7 @@ technology warrior_elite
     name "Warrior Elite"
     description "Grant political influence to proven fighters."
     category POLITICS
+    tags military government construction
     layout_order 1550
     research_time 165
     modifier MilitaryStrength multiplier 1.08
@@ -886,6 +962,7 @@ technology aggressive_expansion
     name "Aggressive Expansion"
     description "Drive borders outward through camps and permanent claims."
     category POLITICS
+    tags logistics expansion military government
     layout_order 1700
     research_time 165
     modifier TerritoryRadius additive 5 building Headquarters
@@ -897,10 +974,11 @@ technology clan_independence
     name "Clan Independence"
     description "Protect the autonomy of individual clans."
     category POLITICS
+    tags logistics manpower government
     layout_order 1850
     research_time 165
     modifier PopulationCap additive 8 building Village
-    modifier ManpowerRate multiplier 1.05 building Village
+    modifier ManpowerRate multiplier 1.05
     modifier RoadCapacity additive -1 building Road
 end
 
@@ -910,6 +988,7 @@ technology nomadic_customs
     name "Nomadic Customs"
     description "Preserve a highly mobile way of life."
     category POLITICS
+    tags logistics government construction
     layout_order 2010
     research_time 210
     requires communal_land
@@ -922,6 +1001,7 @@ technology shared_pastures
     name "Shared Pastures"
     description "Protect communal grazing grounds and reserves."
     category POLITICS
+    tags logistics manpower government
     layout_order 2150
     research_time 195
     requires communal_land
@@ -933,11 +1013,12 @@ technology sacred_war
     name "Sacred War"
     description "Present warfare as a sacred obligation."
     category POLITICS
+    tags production military government
     layout_order 2200
     research_time 210
     requires sacred_customs
     modifier MilitaryStrength multiplier 1.14
-    modifier RecruitmentTime multiplier 0.82 building Barracks
+    modifier RecruitmentTime multiplier 0.82
     modifier ProductionCycleTime multiplier 1.20 building University
 end
 
@@ -945,17 +1026,19 @@ technology seasonal_gathering
     name "Seasonal Gathering"
     description "Hold regular assemblies for judgment and planning."
     category POLITICS
+    tags manpower military government
     layout_order 2300
     research_time 180
     requires council_of_elders
-    modifier ManpowerRate multiplier 1.06 building Village
-    modifier RecruitmentTime multiplier 0.94 building Barracks
+    modifier ManpowerRate multiplier 1.06
+    modifier RecruitmentTime multiplier 0.94
 end
 
 technology blood_price_law
     name "Blood-Price Law"
     description "Replace vengeance with recognized compensation."
     category POLITICS
+    tags manpower military government
     layout_order 2450
     research_time 195
     requires sacred_customs
@@ -967,11 +1050,12 @@ technology warrior_households
     name "Warrior Households"
     description "Require households to equip a number of fighters."
     category POLITICS
+    tags manpower military government
     layout_order 2600
     research_time 195
     requires warrior_elite
     modifier RecruitmentManpowerCost multiplier 0.82
-    modifier RecruitmentTime multiplier 0.92 building Barracks
+    modifier RecruitmentTime multiplier 0.92
     modifier MilitaryStrength multiplier 0.96
 end
 
@@ -979,6 +1063,7 @@ technology clan_pacts
     name "Clan Pacts"
     description "Formalize cooperation between autonomous clans."
     category POLITICS
+    tags logistics military government
     layout_order 2950
     research_time 195
     requires clan_independence
@@ -990,6 +1075,7 @@ technology spoils_of_war
     name "Spoils of War"
     description "Promise warriors captured goods and land."
     category POLITICS
+    tags production manpower military government
     layout_order 2800
     research_time 210
     requires warrior_elite
@@ -1002,6 +1088,7 @@ technology frontier_settlements
     name "Frontier Settlements"
     description "Encourage clans to settle disputed borders."
     category POLITICS
+    tags manpower expansion military government
     layout_order 2900
     research_time 195
     requires aggressive_expansion
@@ -1013,11 +1100,12 @@ technology communal_abundance
     name "Communal Abundance"
     description "Coordinate shared land and food reserves."
     category POLITICS
+    tags logistics manpower government
     layout_order 3150
     research_time 210
     requires shared_pastures
     modifier PopulationCap additive 12 building Village
-    modifier ManpowerRate multiplier 1.08 building Village
+    modifier ManpowerRate multiplier 1.08
     modifier SupplyConsumption multiplier 0.94
 end
 
@@ -1025,10 +1113,11 @@ technology ancestral_order
     name "Ancestral Order"
     description "Combine customary law and ritual obligations."
     category POLITICS
+    tags production logistics manpower government
     layout_order 3300
     research_time 225
     requires blood_price_law
-    modifier ManpowerRate multiplier 1.10 building Village
+    modifier ManpowerRate multiplier 1.10
     modifier SupplyConsumption multiplier 0.88
     modifier ProductionCycleTime multiplier 1.08 building University
 end
@@ -1037,6 +1126,7 @@ technology united_clans
     name "United Clans"
     description "Turn seasonal gatherings into a permanent agreement."
     category POLITICS
+    tags manpower military government
     layout_order 3450
     research_time 210
     requires seasonal_gathering
@@ -1048,6 +1138,7 @@ technology clan_host
     name "Clan Host"
     description "Coordinate household warriors as a larger host."
     category POLITICS
+    tags logistics manpower military government
     layout_order 3600
     research_time 225
     requires warrior_households
@@ -1060,6 +1151,7 @@ technology tribal_confederation
     name "Tribal Confederation"
     description "Turn clan pacts into a durable confederation."
     category POLITICS
+    tags logistics manpower military government
     layout_order 3750
     research_time 225
     requires clan_pacts
@@ -1072,6 +1164,7 @@ technology frontier_hegemony
     name "Frontier Hegemony"
     description "Use settlements and patrols to enforce distant claims."
     category POLITICS
+    tags expansion military government
     layout_order 3900
     research_time 225
     requires frontier_settlements
@@ -1083,6 +1176,7 @@ technology tribal_granaries
     name "Tribal Granaries"
     description "Maintain shared reserves without central administration."
     category POLITICS
+    tags logistics government construction
     layout_order 4150
     research_time 240
     requires communal_abundance
@@ -1094,6 +1188,7 @@ technology proclaim_chiefdom
     name "Proclaim Chiefdom"
     description "Recognize a permanent high chief."
     category POLITICS
+    tags manpower government construction
     layout_order 4300
     research_time 240
     requires united_clans
@@ -1106,10 +1201,11 @@ technology keepers_of_tradition
     name "Keepers of Tradition"
     description "Entrust law and ritual knowledge to hereditary keepers."
     category POLITICS
+    tags manpower military government construction
     layout_order 4450
     research_time 240
     requires ancestral_order
-    modifier ManpowerRate multiplier 1.08 building Village
+    modifier ManpowerRate multiplier 1.08
     modifier RecruitmentManpowerCost multiplier 0.92
     modifier BuildTime multiplier 1.10 building University
 end
@@ -1118,12 +1214,13 @@ technology great_clan_host
     name "Great Clan Host"
     description "Assemble a large army without royal institutions."
     category POLITICS
+    tags logistics military government
     layout_order 4600
     research_time 240
     requires clan_host
     modifier MilitaryStrength multiplier 1.10
     modifier AttackDamage multiplier 1.06
-    modifier RecruitmentTime multiplier 0.86 building Barracks
+    modifier RecruitmentTime multiplier 0.86
     modifier SupplyConsumption multiplier 0.90
 end
 
@@ -1131,6 +1228,7 @@ technology tribal_marches
     name "Tribal Marches"
     description "Entrust frontier clans with permanent border defense."
     category POLITICS
+    tags logistics expansion military government
     layout_order 4750
     research_time 240
     requires frontier_hegemony
@@ -1143,36 +1241,39 @@ technology confederated_council
     name "Confederated Council"
     description "Create a permanent council for the tribal confederation."
     category POLITICS
+    tags manpower government
     layout_order 4900
     research_time 240
     requires tribal_confederation
     modifier PopulationCap additive 10 building Village
-    modifier ManpowerRate multiplier 1.06 building Village
+    modifier ManpowerRate multiplier 1.06
 end
 
 technology rule_through_fear
     name "Rule Through Fear"
     description "Break resistance through exemplary punishment."
     category POLITICS
+    tags manpower military government
     layout_order 5010
     research_time 225
     requires proclaim_chiefdom
-    modifier RecruitmentTime multiplier 0.68 building Barracks
+    modifier RecruitmentTime multiplier 0.68
     modifier MilitaryStrength multiplier 1.12
     modifier PopulationCap additive -12 building Village
-    modifier ManpowerRate multiplier 0.82 building Village
+    modifier ManpowerRate multiplier 0.82
 end
 
 technology confederated_tribes
     name "Confederated Tribes"
     description "Create a durable confederation of autonomous settlements."
     category POLITICS
+    tags logistics manpower government
     layout_order 5150
     research_time 270
     requires tribal_granaries
     requires keepers_of_tradition
     modifier PopulationCap additive 18 building Village
-    modifier ManpowerRate multiplier 1.10 building Village
+    modifier ManpowerRate multiplier 1.10
     modifier SupplyConsumption multiplier 0.86
 end
 
@@ -1180,6 +1281,7 @@ technology tribute_in_kind
     name "Tribute in Kind"
     description "Require settlements to provide labor and goods."
     category POLITICS
+    tags production government construction
     layout_order 5300
     research_time 210
     requires proclaim_chiefdom
@@ -1191,6 +1293,7 @@ technology chiefly_administration
     name "Chiefly Administration"
     description "Create a permanent administrative household."
     category POLITICS
+    tags production government construction
     layout_order 5450
     research_time 210
     requires proclaim_chiefdom
@@ -1202,6 +1305,7 @@ technology chiefs_retinue
     name "Chief's Retinue"
     description "Maintain a permanent household force."
     category POLITICS
+    tags manpower military government
     layout_order 5600
     research_time 210
     requires proclaim_chiefdom
@@ -1214,6 +1318,7 @@ technology protected_markets
     name "Protected Markets"
     description "Guarantee safe places for merchants and craftsmen."
     category POLITICS
+    tags logistics government
     layout_order 5750
     research_time 210
     requires proclaim_chiefdom
@@ -1225,6 +1330,7 @@ technology chiefly_foragers
     name "Chiefly Foragers"
     description "Organize tribute and foraging parties."
     category POLITICS
+    tags logistics government
     layout_order 5900
     research_time 210
     requires proclaim_chiefdom
@@ -1236,6 +1342,7 @@ technology league_of_clans
     name "League of Clans"
     description "Expand the confederated council into a permanent league."
     category POLITICS
+    tags manpower military government
     layout_order 5950
     research_time 270
     requires confederated_council
@@ -1247,6 +1354,7 @@ technology warband_hegemony
     name "Warband Hegemony"
     description "Allow dominant clan hosts to control the frontier."
     category POLITICS
+    tags expansion military government
     layout_order 5970
     research_time 270
     requires great_clan_host
@@ -1260,24 +1368,26 @@ technology merchant_chiefdom
     name "Merchant Chiefdom"
     description "Give merchants a privileged place in the chiefdom."
     category POLITICS
+    tags logistics military government
     layout_order 5990
     research_time 225
     requires proclaim_chiefdom
     modifier RoadSpeed multiplier 1.20 building Road
     modifier RoadCapacity additive 2 building Road
     modifier TransportTime multiplier 0.74
-    modifier RecruitmentTime multiplier 1.14 building Barracks
+    modifier RecruitmentTime multiplier 1.14
 end
 
 technology ancient_confederacy
     name "Ancient Confederacy"
     description "Perfect a decentralized tribal political order."
     category POLITICS
+    tags logistics manpower government
     layout_order 6100
     research_time 300
     requires confederated_tribes
     modifier PopulationCap additive 20 building Village
-    modifier ManpowerRate multiplier 1.12 building Village
+    modifier ManpowerRate multiplier 1.12
     modifier SupplyConsumption multiplier 0.84
 end
 
@@ -1285,6 +1395,7 @@ technology chiefly_storehouses
     name "Chiefly Storehouses"
     description "Concentrate tribute in guarded depots."
     category POLITICS
+    tags logistics government construction
     layout_order 6300
     research_time 225
     requires tribute_in_kind
@@ -1296,6 +1407,7 @@ technology hereditary_rule
     name "Hereditary Rule"
     description "Make the chief's office permanent in one household."
     category POLITICS
+    tags manpower government construction
     layout_order 6450
     research_time 225
     requires chiefly_administration
@@ -1307,11 +1419,12 @@ technology hostages_and_oaths
     name "Hostages and Oaths"
     description "Secure subordinate clans through guarantees and hostages."
     category POLITICS
+    tags manpower military government
     layout_order 6600
     research_time 225
     requires chiefs_retinue
     modifier MilitaryStrength multiplier 1.07
-    modifier RecruitmentTime multiplier 0.92 building Barracks
+    modifier RecruitmentTime multiplier 0.92
     modifier PopulationCap additive -4 building Village
 end
 
@@ -1319,6 +1432,7 @@ technology toll_roads
     name "Toll Roads"
     description "Place important routes under chiefly authority."
     category POLITICS
+    tags logistics government
     layout_order 6750
     research_time 225
     requires protected_markets
@@ -1330,6 +1444,7 @@ technology host_supply_columns
     name "Host Supply Columns"
     description "Create baggage columns for larger hosts."
     category POLITICS
+    tags logistics government
     layout_order 6900
     research_time 225
     requires chiefly_foragers
@@ -1342,6 +1457,7 @@ technology empire_of_clans
     name "Empire of Clans"
     description "Rule a vast territory through clan loyalty and prestige."
     category POLITICS
+    tags expansion military government
     layout_order 6950
     research_time 300
     requires warband_hegemony
@@ -1354,11 +1470,12 @@ technology great_tribal_league
     name "Great Tribal League"
     description "Unite autonomous clans through a permanent league."
     category POLITICS
+    tags logistics manpower government
     layout_order 6990
     research_time 300
     requires league_of_clans
     modifier PopulationCap additive 18 building Village
-    modifier ManpowerRate multiplier 1.10 building Village
+    modifier ManpowerRate multiplier 1.10
     modifier RoadCapacity additive 1 building Road
 end
 
@@ -1366,6 +1483,7 @@ technology tribute_economy
     name "Tribute Economy"
     description "Coordinate storehouses and obligations as one economy."
     category POLITICS
+    tags production logistics government construction
     layout_order 7200
     research_time 240
     requires chiefly_storehouses
@@ -1378,6 +1496,7 @@ technology royal_claim
     name "Royal Claim"
     description "Transform hereditary chiefly rule into monarchy."
     category POLITICS
+    tags manpower government construction
     layout_order 7400
     research_time 255
     requires hereditary_rule
@@ -1390,17 +1509,19 @@ technology council_of_chiefs
     name "Council of Chiefs"
     description "Create a permanent council of subordinate chiefs."
     category POLITICS
+    tags manpower government
     layout_order 7600
     research_time 240
     requires hostages_and_oaths
     modifier PopulationCap additive 12 building Village
-    modifier ManpowerRate multiplier 1.06 building Village
+    modifier ManpowerRate multiplier 1.06
 end
 
 technology controlled_routes
     name "Controlled Routes"
     description "Coordinate toll collection and chiefly roads."
     category POLITICS
+    tags logistics government
     layout_order 7800
     research_time 240
     requires toll_roads
@@ -1412,6 +1533,7 @@ technology chiefly_columns
     name "Chiefly Columns"
     description "Organize permanent transport and supply detachments."
     category POLITICS
+    tags logistics government
     layout_order 7900
     research_time 240
     requires host_supply_columns
@@ -1423,6 +1545,7 @@ technology conquest_state
     name "Conquest State"
     description "Organize royal government around expansion and war."
     category POLITICS
+    tags production expansion military government
     layout_order 8010
     research_time 270
     requires royal_claim
@@ -1436,6 +1559,7 @@ technology palace_economy
     name "Palace Economy"
     description "Control tribute and major production from the chief's hall."
     category POLITICS
+    tags production logistics government construction
     layout_order 8150
     research_time 270
     requires tribute_economy
@@ -1448,6 +1572,7 @@ technology royal_domain
     name "Royal Domain"
     description "Reserve productive land for direct crown administration."
     category POLITICS
+    tags production government
     layout_order 8300
     research_time 255
     requires royal_claim
@@ -1460,6 +1585,7 @@ technology royal_chancery
     name "Royal Chancery"
     description "Create permanent royal offices and records."
     category POLITICS
+    tags production government construction
     layout_order 8450
     research_time 255
     requires royal_claim
@@ -1471,10 +1597,11 @@ technology crown_levies
     name "Crown Levies"
     description "Standardize military obligations across the kingdom."
     category POLITICS
+    tags manpower military government
     layout_order 8600
     research_time 255
     requires royal_claim
-    modifier RecruitmentTime multiplier 0.84 building Barracks
+    modifier RecruitmentTime multiplier 0.84
     modifier RecruitmentManpowerCost multiplier 1.08
     modifier MilitaryStrength multiplier 1.05
 end
@@ -1483,6 +1610,7 @@ technology provincial_stewards
     name "Provincial Stewards"
     description "Appoint officials responsible for roads and storage."
     category POLITICS
+    tags logistics government construction
     layout_order 8750
     research_time 255
     requires royal_claim
@@ -1495,6 +1623,7 @@ technology standardized_provisions
     name "Standardized Provisions"
     description "Replace improvised foraging with permanent provisioning."
     category POLITICS
+    tags logistics government
     layout_order 8900
     research_time 255
     requires royal_claim
@@ -1507,11 +1636,12 @@ technology confederated_chiefdom
     name "Confederated Chiefdom"
     description "Share power with subordinate chiefs without creating royal law."
     category POLITICS
+    tags manpower military government
     layout_order 8950
     research_time 270
     requires council_of_chiefs
     modifier PopulationCap additive 16 building Village
-    modifier ManpowerRate multiplier 1.08 building Village
+    modifier ManpowerRate multiplier 1.08
     modifier MilitaryStrength multiplier 1.06
 end
 
@@ -1519,6 +1649,7 @@ technology chiefly_hegemony
     name "Chiefly Hegemony"
     description "Combine controlled routes and supply columns."
     category POLITICS
+    tags expansion military government
     layout_order 8970
     research_time 270
     requires controlled_routes
@@ -1532,6 +1663,7 @@ technology fortified_kingdom
     name "Fortified Kingdom"
     description "Place permanent defense above commercial expansion."
     category POLITICS
+    tags logistics expansion military government
     layout_order 8990
     research_time 270
     requires royal_claim
@@ -1544,6 +1676,7 @@ technology royal_monopolies
     name "Royal Monopolies"
     description "Give the crown exclusive control over strategic workshops."
     category POLITICS
+    tags production logistics manpower government construction
     layout_order 9010
     research_time 285
     requires royal_domain
@@ -1557,6 +1690,7 @@ technology great_hall_economy
     name "Great Hall Economy"
     description "Turn the chief's hall into the economic center of the realm."
     category POLITICS
+    tags production logistics government construction
     layout_order 9150
     research_time 300
     requires palace_economy
@@ -1569,6 +1703,7 @@ technology royal_workshops
     name "Royal Workshops"
     description "Place smithies and foundries under royal patronage."
     category POLITICS
+    tags production government
     layout_order 9300
     research_time 270
     requires royal_domain
@@ -1580,17 +1715,19 @@ technology codified_nobility
     name "Codified Nobility"
     description "Define the obligations of a hereditary landed class."
     category POLITICS
+    tags manpower military government
     layout_order 9450
     research_time 270
     requires royal_chancery
     modifier MilitaryStrength multiplier 1.06
-    modifier ManpowerRate multiplier 0.97 building Village
+    modifier ManpowerRate multiplier 0.97
 end
 
 technology standing_garrisons
     name "Standing Garrisons"
     description "Maintain permanent defenders at strategic positions."
     category POLITICS
+    tags manpower expansion military government
     layout_order 9600
     research_time 270
     requires crown_levies
@@ -1603,6 +1740,7 @@ technology royal_roads
     name "Royal Roads"
     description "Standardize major roads throughout the kingdom."
     category POLITICS
+    tags logistics government
     layout_order 9750
     research_time 285
     requires provincial_stewards
@@ -1615,6 +1753,7 @@ technology royal_granaries
     name "Royal Granaries"
     description "Maintain permanent strategic reserves."
     category POLITICS
+    tags logistics government construction
     layout_order 9850
     research_time 285
     requires standardized_provisions
@@ -1627,11 +1766,12 @@ technology league_of_chiefs
     name "League of Chiefs"
     description "Create a durable league of chiefly territories."
     category POLITICS
+    tags logistics manpower government
     layout_order 9870
     research_time 300
     requires confederated_chiefdom
     modifier PopulationCap additive 18 building Village
-    modifier ManpowerRate multiplier 1.10 building Village
+    modifier ManpowerRate multiplier 1.10
     modifier RoadCapacity additive 1 building Road
 end
 
@@ -1639,6 +1779,7 @@ technology conquerors_chiefdom
     name "Conqueror's Chiefdom"
     description "Perfect an aggressive chiefly state."
     category POLITICS
+    tags expansion military government
     layout_order 9890
     research_time 300
     requires chiefly_hegemony
@@ -1652,6 +1793,7 @@ technology scholars_at_court
     name "Scholars at Court"
     description "Invite renowned scholars into royal service."
     category POLITICS
+    tags production logistics government construction
     layout_order 9990
     research_time 285
     requires royal_chancery
@@ -1664,6 +1806,7 @@ technology crown_contracts
     name "Crown Contracts"
     description "Guarantee large orders to royal workshops."
     category POLITICS
+    tags production government
     layout_order 10300
     research_time 300
     requires royal_workshops
@@ -1676,6 +1819,7 @@ technology aristocratic_settlement
     name "Aristocratic Settlement"
     description "Establish a lasting balance between crown and nobility."
     category POLITICS
+    tags manpower military government
     layout_order 10450
     research_time 300
     requires codified_nobility
@@ -1687,18 +1831,20 @@ technology royal_army
     name "Royal Army"
     description "Combine levies and garrisons under royal command."
     category POLITICS
+    tags military government
     layout_order 10600
     research_time 300
     requires standing_garrisons
     modifier MilitaryStrength multiplier 1.10
     modifier AttackDamage multiplier 1.06
-    modifier RecruitmentTime multiplier 0.90 building Barracks
+    modifier RecruitmentTime multiplier 0.90
 end
 
 technology crown_infrastructure
     name "Crown Infrastructure"
     description "Treat roads and depots as permanent royal duties."
     category POLITICS
+    tags logistics government construction
     layout_order 10750
     research_time 300
     requires royal_roads
@@ -1711,6 +1857,7 @@ technology royal_supply_service
     name "Royal Supply Service"
     description "Create permanent officials for stores and transport."
     category POLITICS
+    tags logistics government
     layout_order 10900
     research_time 300
     requires royal_granaries
@@ -1723,6 +1870,7 @@ technology university_privileges
     name "University Privileges"
     description "Grant universities permanent funding and autonomy."
     category POLITICS
+    tags production logistics government construction
     layout_order 11010
     research_time 315
     requires aristocratic_settlement
@@ -1735,6 +1883,7 @@ technology royal_industry
     name "Royal Industry"
     description "Coordinate royal workshops as one production system."
     category POLITICS
+    tags production government
     layout_order 11300
     research_time 330
     requires crown_contracts
@@ -1747,6 +1896,7 @@ technology aristocratic_state
     name "Aristocratic State"
     description "Bind crown and nobility into a durable aristocratic order."
     category POLITICS
+    tags manpower military government
     layout_order 11450
     research_time 330
     requires aristocratic_settlement
@@ -1759,6 +1909,7 @@ technology professional_royal_army
     name "Professional Royal Army"
     description "Replace irregular levies with a permanent force."
     category POLITICS
+    tags logistics manpower military government
     layout_order 11600
     research_time 330
     requires royal_army
@@ -1772,6 +1923,7 @@ technology centralized_kingdom
     name "Centralized Kingdom"
     description "Coordinate infrastructure and supply under royal authority."
     category POLITICS
+    tags logistics expansion government construction
     layout_order 11800
     research_time 330
     requires crown_infrastructure
@@ -1786,6 +1938,7 @@ technology kings_highway
     name "King's Highway"
     description "Concentrate resources on an exceptional road network."
     category POLITICS
+    tags logistics government
     layout_order 11990
     research_time 315
     requires crown_infrastructure
@@ -1798,12 +1951,13 @@ technology serfdom
     name "Serfdom"
     description "Bind rural populations to noble estates."
     category POLITICS
+    tags production logistics manpower government construction
     layout_order 12010
     research_time 300
     requires aristocratic_state
     modifier ProductionCycleTime multiplier 0.82
     modifier BuildTime multiplier 0.80 building StorageBuilding
-    modifier ManpowerRate multiplier 0.72 building Village
+    modifier ManpowerRate multiplier 0.72
     modifier PopulationCap additive -14 building Village
 end
 
@@ -1811,6 +1965,7 @@ technology productive_monarchy
     name "Productive Monarchy"
     description "Turn the crown into the principal organizer of production."
     category POLITICS
+    tags production logistics government construction
     layout_order 12150
     research_time 360
     requires royal_industry
@@ -1823,18 +1978,20 @@ technology estate_workshops
     name "Estate Workshops"
     description "Concentrate production within wealthy estates."
     category POLITICS
+    tags production manpower government
     layout_order 12300
     research_time 285
     requires aristocratic_state
     modifier ProductionCycleTime multiplier 0.82 building Smith
     modifier ProductionCycleTime multiplier 0.84 building Foundry
-    modifier ManpowerRate multiplier 0.95 building Village
+    modifier ManpowerRate multiplier 0.95
 end
 
 technology landed_nobility
     name "Landed Nobility"
     description "Recognize the aristocracy as a permanent governing class."
     category POLITICS
+    tags manpower military government
     layout_order 12450
     research_time 285
     requires aristocratic_state
@@ -1847,6 +2004,7 @@ technology scholarly_competition
     name "Scholarly Competition"
     description "Encourage noble competition through academies."
     category POLITICS
+    tags production government
     layout_order 12600
     research_time 285
     requires aristocratic_state
@@ -1858,6 +2016,7 @@ technology noble_courts
     name "Noble Courts"
     description "Allow estates to administer local law."
     category POLITICS
+    tags manpower government construction
     layout_order 12750
     research_time 285
     requires aristocratic_state
@@ -1869,6 +2028,7 @@ technology grand_logistics
     name "Grand Logistics"
     description "Coordinate private noble supply systems."
     category POLITICS
+    tags logistics government
     layout_order 12900
     research_time 285
     requires aristocratic_state
@@ -1881,6 +2041,7 @@ technology military_monarchy
     name "Military Monarchy"
     description "Organize the kingdom around a permanent royal army."
     category POLITICS
+    tags manpower expansion military government
     layout_order 12930
     research_time 360
     requires professional_royal_army
@@ -1894,6 +2055,7 @@ technology administrative_monarchy
     name "Administrative Monarchy"
     description "Create a centralized system of roads and officials."
     category POLITICS
+    tags production logistics government
     layout_order 12960
     research_time 360
     requires centralized_kingdom
@@ -1907,11 +2069,12 @@ technology salon_culture
     name "Salon Culture"
     description "Make noble courts centers of scholarship."
     category POLITICS
+    tags production military government construction
     layout_order 12990
     research_time 300
     requires aristocratic_state
     modifier ProductionCycleTime multiplier 0.70 building University
-    modifier RecruitmentTime multiplier 1.16 building Barracks
+    modifier RecruitmentTime multiplier 1.16
     modifier BuildTime multiplier 1.12
 end
 
@@ -1919,6 +2082,7 @@ technology estate_monopolies
     name "Estate Monopolies"
     description "Grant powerful families exclusive industrial rights."
     category POLITICS
+    tags production government construction
     layout_order 13300
     research_time 300
     requires estate_workshops
@@ -1931,6 +2095,7 @@ technology feudal_retinues
     name "Feudal Retinues"
     description "Require great lords to maintain trained households."
     category POLITICS
+    tags logistics manpower military government
     layout_order 13450
     research_time 300
     requires landed_nobility
@@ -1944,6 +2109,7 @@ technology noble_academies
     name "Noble Academies"
     description "Establish prestigious schools for administration and war."
     category POLITICS
+    tags production government construction
     layout_order 13600
     research_time 300
     requires scholarly_competition
@@ -1955,6 +2121,7 @@ technology grand_estates
     name "Grand Estates"
     description "Consolidate land and infrastructure into vast domains."
     category POLITICS
+    tags production logistics manpower government construction
     layout_order 13750
     research_time 300
     requires noble_courts
@@ -1967,6 +2134,7 @@ technology private_supply_trains
     name "Private Supply Trains"
     description "Allow houses to maintain dedicated military wagons."
     category POLITICS
+    tags logistics government
     layout_order 13900
     research_time 300
     requires grand_logistics
@@ -1979,19 +2147,21 @@ technology knightly_caste
     name "Knightly Caste"
     description "Turn noble warriors into a closed hereditary caste."
     category POLITICS
+    tags manpower military government
     layout_order 14010
     research_time 315
     requires feudal_retinues
     modifier MilitaryStrength multiplier 1.24
     modifier AttackDamage multiplier 1.16
     modifier RecruitmentManpowerCost multiplier 1.55
-    modifier RecruitmentTime multiplier 1.20 building Barracks
+    modifier RecruitmentTime multiplier 1.20
 end
 
 technology aristocratic_economy
     name "Aristocratic Economy"
     description "Combine estate monopolies and great domains."
     category POLITICS
+    tags production logistics government construction
     layout_order 14300
     research_time 330
     requires estate_monopolies
@@ -2005,6 +2175,7 @@ technology armored_aristocracy
     name "Armored Aristocracy"
     description "Invest heavily in noble military equipment."
     category POLITICS
+    tags logistics manpower military government
     layout_order 14450
     research_time 315
     requires feudal_retinues
@@ -2018,6 +2189,7 @@ technology aristocratic_renaissance
     name "Aristocratic Renaissance"
     description "Turn noble rivalry toward scholarship and technique."
     category POLITICS
+    tags production government construction
     layout_order 14600
     research_time 330
     requires noble_academies
@@ -2030,6 +2202,7 @@ technology magnificent_hosts
     name "Magnificent Hosts"
     description "Maintain armies displaying aristocratic wealth."
     category POLITICS
+    tags logistics manpower military government
     layout_order 14750
     research_time 330
     requires private_supply_trains
@@ -2043,6 +2216,7 @@ technology grand_libraries
     name "Grand Libraries"
     description "Build vast private manuscript collections."
     category POLITICS
+    tags production logistics government
     layout_order 14990
     research_time 315
     requires noble_academies
@@ -2054,18 +2228,20 @@ technology estate_capitalism
     name "Estate Capitalism"
     description "Give estates broad control over investment and production."
     category POLITICS
+    tags production logistics manpower government construction
     layout_order 15200
     research_time 360
     requires aristocratic_economy
     modifier ProductionCycleTime multiplier 0.74
     modifier BuildTime multiplier 1.10 building Road
-    modifier ManpowerRate multiplier 0.82 building Village
+    modifier ManpowerRate multiplier 0.82
 end
 
 technology feudal_war_machine
     name "Feudal War Machine"
     description "Organize estates around permanent military service."
     category POLITICS
+    tags logistics manpower expansion military government
     layout_order 15400
     research_time 360
     requires armored_aristocracy
@@ -2080,6 +2256,7 @@ technology high_learning
     name "High Learning"
     description "Turn noble schools into advanced scholarly centers."
     category POLITICS
+    tags production government
     layout_order 15600
     research_time 360
     requires aristocratic_renaissance
@@ -2091,6 +2268,7 @@ technology household_armies
     name "Household Armies"
     description "Allow great houses to maintain independent armies."
     category POLITICS
+    tags logistics manpower military government
     layout_order 15800
     research_time 360
     requires magnificent_hosts
@@ -2104,19 +2282,21 @@ technology realm_of_estates
     name "Realm of Estates"
     description "Make great estates the primary economic structure."
     category POLITICS
+    tags production logistics manpower government construction
     layout_order 16200
     research_time 390
     requires estate_capitalism
     modifier ProductionCycleTime multiplier 0.86
     modifier BuildTime multiplier 0.84 building StorageBuilding
     modifier RoadCapacity additive 2 building Road
-    modifier ManpowerRate multiplier 0.90 building Village
+    modifier ManpowerRate multiplier 0.90
 end
 
 technology age_of_chivalry
     name "Age of Chivalry"
     description "Make aristocratic warfare the supreme cultural ideal."
     category POLITICS
+    tags logistics manpower military government
     layout_order 16400
     research_time 390
     requires feudal_war_machine
@@ -2130,6 +2310,7 @@ technology golden_age
     name "Golden Age"
     description "Concentrate wealth on scholarship and cultural prestige."
     category POLITICS
+    tags production logistics military government
     layout_order 16600
     research_time 390
     requires high_learning
@@ -2142,6 +2323,7 @@ technology private_army_system
     name "Private Army System"
     description "Coordinate household armies under aristocratic law."
     category POLITICS
+    tags logistics manpower military government
     layout_order 16800
     research_time 390
     requires household_armies
@@ -2155,6 +2337,7 @@ technology high_aristocratic_culture
     name "High Aristocratic Culture"
     description "Combine estate wealth and advanced scholarship."
     category POLITICS
+    tags production logistics military government
     layout_order 17350
     research_time 420
     requires realm_of_estates
@@ -2169,6 +2352,7 @@ technology aristocratic_war_state
     name "Aristocratic War State"
     description "Bind chivalric culture and private armies together."
     category POLITICS
+    tags logistics expansion military government
     layout_order 17650
     research_time 420
     requires age_of_chivalry

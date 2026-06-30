@@ -76,6 +76,30 @@ TEST(PlayerEconomyTests, AutoAssignWorkersMovesManpowerIntoProductionBuilding)
     EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Workers), 3.0);
 }
 
+TEST(PlayerEconomyTests, NewPlayerStartsWithTribalStateModifiers)
+{
+    TileMap map;
+    Player player{0, map};
+
+    EXPECT_EQ(player.stateDevelopment.GetDefinition().id, "tribal_society");
+    EXPECT_GT(player.ModifyBalance(BalanceStat::ManpowerRate, 1.0, BuildingType::Building), 1.0);
+    EXPECT_LT(player.ModifyBalance(BalanceStat::RecruitmentTime, 10.0, BuildingType::Building), 10.0);
+}
+
+TEST(PlayerEconomyTests, TribalManpowerGrowthAppliesToPopulationComponent)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    auto* village = dynamic_cast<Village*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Village>(1)));
+    ASSERT_NE(village, nullptr);
+    village->population.manpowerRate = 0.2;
+
+    EXPECT_NEAR(player.ResolveStat(village->population.manpowerRate, village), 0.224, 0.0001);
+}
+
 TEST(PlayerEconomyTests, TechnologyModifiersRefreshIntoBalanceSet)
 {
     TileMap map;
@@ -119,4 +143,97 @@ TEST(PlayerEconomyTests, TechnologyOutputBonusIsVisibleInBuildingBufferViews)
     });
     ASSERT_NE(woodAfter, after.end());
     EXPECT_EQ(woodAfter->recipeAmount, baseAmount + 1);
+}
+
+TEST(PlayerEconomyTests, TelemetryDoesNotReportTheoreticalProduction)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    Woodcutter woodcutter{7};
+    woodcutter.owner = &player;
+    woodcutter.workers.assigned = woodcutter.workers.capacity.GetBase();
+
+    player.UpdateEconomyTelemetry(1.0);
+
+    EXPECT_FALSE(player.economyTelemetry.current.productionRatesPerMinute.contains(ResourceType::WOOD));
+}
+
+TEST(PlayerEconomyTests, TelemetryRecordsActualProductionAndInputConsumption)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    LumberMill lumberMill{7};
+    lumberMill.owner = &player;
+    lumberMill.workers.assigned = lumberMill.workers.capacity.GetBase();
+
+    const int woodPerCycle = lumberMill.production.ingredients[ResourceType::WOOD];
+    ASSERT_GT(woodPerCycle, 0);
+    lumberMill.production.inputBuffers[ResourceType::WOOD].SetStoredAmount(woodPerCycle);
+
+    lumberMill.production.Produce(lumberMill, 0.01);
+    player.UpdateEconomyTelemetry(1.0);
+
+    EXPECT_GE(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::WOOD],
+              woodPerCycle * 60);
+    EXPECT_FALSE(player.economyTelemetry.current.productionRatesPerMinute.contains(ResourceType::PLANKS));
+
+    lumberMill.production.elapsed = lumberMill.production.GetModifiedCycleTime(lumberMill);
+    lumberMill.production.Produce(lumberMill, 0.01);
+    player.UpdateEconomyTelemetry(1.0);
+
+    EXPECT_GT(player.economyTelemetry.current.productionRatesPerMinute[ResourceType::PLANKS], 0);
+}
+
+TEST(PlayerEconomyTests, TelemetryRecordsBuildCostConsumption)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    auto* storage = dynamic_cast<Headquarters*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
+    ASSERT_NE(storage, nullptr);
+    storage->storage.buffers[ResourceType::WOOD].SetStoredAmount(5);
+
+    ASSERT_TRUE(player.TryPayBuildCost({{ResourceType::WOOD, 3}}));
+    player.UpdateEconomyTelemetry(1.0);
+
+    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::WOOD], 180);
+}
+
+TEST(PlayerEconomyTests, TelemetryRecordsBuildingPlacementCostConsumption)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    auto* storage = dynamic_cast<Headquarters*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({4, 4}), &player, std::make_unique<Headquarters>(1)));
+    ASSERT_NE(storage, nullptr);
+    storage->storage.buffers[ResourceType::STONE] = ResourceBuffer{ResourceType::STONE, 10};
+    storage->storage.buffers[ResourceType::STONE].SetStoredAmount(10);
+
+    const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
+    ASSERT_FALSE(roadDefinition.buildCosts.empty());
+    ASSERT_NE(player.Build<Road>(map.GetIdFromCoords({0, 0})), nullptr);
+    player.UpdateEconomyTelemetry(1.0);
+
+    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::STONE], 120);
+}
+
+TEST(PlayerEconomyTests, TelemetryRecordsTechnologyMilestones)
+{
+    TileMap map;
+    map.params.debugMode = true;
+    Player player{0, map};
+
+    ASSERT_TRUE(player.UnlockTechnology("forestry"));
+
+    ASSERT_EQ(player.economyTelemetry.researchMilestones.size(), 1u);
+    EXPECT_EQ(player.economyTelemetry.researchMilestones.front().type, ResearchMilestoneType::Technology);
+    EXPECT_EQ(player.economyTelemetry.researchMilestones.front().id, "forestry");
 }

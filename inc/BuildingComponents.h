@@ -3,6 +3,8 @@
 
 #include "Resource.h"
 #include "Stat.h"
+#include "Equipment.h"
+#include "SupplyPackage.h"
 
 #include <bitset>
 #include <cstddef>
@@ -21,6 +23,7 @@ using MilitaryDivision = SoldierDivision;
 struct ResourceBufferView;
 struct BuildingConnectionView;
 struct SupplyBufferComponent;
+struct DivisionSector;
 
 struct ProductionRecipeRuntime
 {
@@ -47,6 +50,7 @@ enum class BuildingCapability : std::size_t
     Recruitment,
     Population,
     Road,
+    SupplyPackaging,
     Count
 };
 
@@ -217,6 +221,7 @@ struct TerritoryComponent : IBuildingComponent
     int hp{0};
     Stat<int> maxHp{BalanceStat::HitPoints, 0};
     int baseStrength{0};
+    float siegeBuffer{0.0f};  // accumulates sub-1 siege damage per tick
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Territory; }
     int GetRadius(const Building& self) const;
@@ -248,6 +253,15 @@ struct GarrisonComponent : IBuildingComponent
     bool IssueDivisionOrder(int divisionId, MilitaryOrderType order, int targetId,
                              Building& self);
     void StartAllDivisionsMovement(Building& self, Building& target);
+
+    // Orders a division (or all when divisionId < 0) to march to a specific free
+    // map tile (one division per tile), planning a road-aware path. Clears any
+    // combat order. Returns true if any division was set in motion. The actual
+    // stepping runs in Update each tick.
+    bool MoveDivisionTo(int divisionId, Vec2i targetTile, Building& self,
+                        bool requireOwnedTerritory = true,
+                        bool snapToSector = true);
+
     void ClearOrder();
     bool HasActiveDivisionOrders() const;
     int GetTotalTroops() const;
@@ -298,6 +312,66 @@ struct RecruitmentComponent : IBuildingComponent
     bool QueueUnit(MilitaryUnitType type, Building& self, GarrisonComponent& garrison);
 };
 
+// --- SupplyPackageComponent ---
+// The SupplyHub is a *converter*, not a warehouse: it owns no storage and hoards
+// no equipment. Each cycle it surveys the player's logistics network for finished
+// gear, draws just enough of the *best available* item per requested category to
+// fill one package (so upgrading your production chain copper → iron → steel
+// automatically upgrades what reaches the front), bundles it with rations, and
+// keeps a small queue of ready weapon-supply packages. When an army at the front
+// runs low it ships those packages out and re-equips the divisions. Because it
+// stops drawing once the ready queue is full, weapons stay in your warehouses
+// until the troops actually need them.
+struct SupplyPackageComponent : IBuildingComponent
+{
+    // Equipment categories a finished package should try to include. Each soldier
+    // gets at most one item per category.
+    std::vector<EquipmentCategory> requestedCategories{
+        EquipmentCategory::Sword, EquipmentCategory::Shield,
+        EquipmentCategory::Armor, EquipmentCategory::Ammo};
+
+    int soldiersPerPackage{10};        // package equips this many soldiers
+    int rationsPerPackage{10};         // FOOD_PROVISIONS bundled per package
+    double assembleInterval{5.0};      // seconds between assembly attempts
+    double timer{0.0};
+
+    std::deque<SupplyPackage> readyPackages;  // weapon supply ready to ship
+    int totalPackagesAssembled{0};
+    int totalPackagesDelivered{0};
+    int maxReadyPackages{4};           // stop drawing from warehouses past this
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::SupplyPackaging; }
+    void Update(Building& self, double dt) override;
+
+    // Draws gear from the network and assembles one package; true when produced.
+    bool AssemblePackage(Building& self);
+
+    // Ships ready packages to friendly military buildings that need supply.
+    // Instant for now (delivery over roads is a later milestone).
+    void DeliverPackages(Building& self);
+
+    int ReadyPackageCount() const { return static_cast<int>(readyPackages.size()); }
+};
+
+// Surveys equipment + rations available across a player's storage buildings
+// (does not consume). Keyed by ResourceType → total count.
+std::map<ResourceType, int> SurveyNetworkSupplies(Building& hub);
+
+// Removes up to `amount` of `type` from the player's storage buildings; returns
+// the amount actually taken.
+int TakeFromNetwork(Building& hub, ResourceType type, int amount);
+
+// True when a military building's garrison or food buffer is below capacity.
+bool MilitaryNeedsSupply(Building& target);
+
+// Total weapon-supply shortfall across a building's divisions (priority score).
+int MilitaryWeaponDeficit(Building& target);
+
+// Applies a finished package to one military building: tops up its food buffer
+// and equips/resupplies its garrisoned divisions from the package contents.
+// Consumes from the package; returns true when anything was used.
+bool ApplyPackageToMilitary(SupplyPackage& package, Building& target);
+
 // --- PopulationComponent ---
 // Manpower generation and food-supply tracking for Village buildings.
 struct PopulationComponent : IBuildingComponent
@@ -338,5 +412,6 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<SupplyBuf
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<PopulationComponent>() { return BuildingCapability::Population; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadComponent>() { return BuildingCapability::Road; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<SupplyPackageComponent>() { return BuildingCapability::SupplyPackaging; }
 
 #endif

@@ -436,6 +436,11 @@ MainMenuScene::MainMenuScene()
     optionsButton->func = std::bind(&MainMenuScene::OnOptionsPressed, this);
     buttonsColumn.AddChild(optionsButton);
 
+    auto controlsButton = std::make_shared<UiButton>();
+    controlsButton->ChangeText("Controls");
+    controlsButton->func = std::bind(&MainMenuScene::OnControlsPressed, this);
+    buttonsColumn.AddChild(controlsButton);
+
     auto quitButton = std::make_shared<UiButton>();
     quitButton->ChangeText("Quit");
     quitButton->func = std::bind(&MainMenuScene::OnQuitPressed, this);
@@ -480,6 +485,16 @@ void MainMenuScene::OnOptionsPressed()
     auto msg = std::make_shared<ChangeSceneEvent>();
     msg->sender = this;
     msg->sceneName = "OptionsScene";
+    msg->previousSceneName = name;
+    broker->Broadcast(msg);
+}
+
+// Handles the UI action represented by OnControlsPressed.
+void MainMenuScene::OnControlsPressed()
+{
+    auto msg = std::make_shared<ChangeSceneEvent>();
+    msg->sender = this;
+    msg->sceneName = "ControlsScene";
     msg->previousSceneName = name;
     broker->Broadcast(msg);
 }
@@ -603,6 +618,45 @@ NewGameScene::NewGameScene()
     startGame.ChangeText("Start game");
     startGame.ChangePositionAnchor(Vec2f{0.30f, 0.84f});
     startGame.func = std::bind(&NewGameScene::OnStartPressed, this);
+
+    tooltipWidget.func = [this](double)
+    {
+        Vector2 mouse = GetMousePosition();
+        Vec2i mp{static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
+        if (gameName.ContainsPoint(mp))
+            Tooltip::Draw("World name", {"Name of the save file for this world.", "Used as the filename — special characters will be replaced."});
+        else if (sizeButton.ContainsPoint(mp))
+            Tooltip::Draw("Map size", {
+                "Sets the tile dimensions of the generated world.",
+                "{separator}",
+                "S 301x301 — fast to generate, good for testing",
+                "M 501x501 — standard game",
+                "L 701x701 — large, longer game",
+                "XL 1001x1001 — very large, expect long generation"});
+        else if (difficultyButton.ContainsPoint(mp))
+            Tooltip::Draw("AI difficulty", {
+                "Controls how aggressively and intelligently the AI plays.",
+                "{separator}",
+                "Primitive — barely reacts, no expansion",
+                "Easy — slow expansion, weak army",
+                "Normal — balanced AI opponent",
+                "Hard — fast expansion, strong military pressure"});
+        else if (resourceDensity.ContainsPoint(mp))
+            Tooltip::Draw("Resource density", {"How frequently resource deposits are scattered across the map.", "{bonus}Higher values = more deposits, easier economy.", "{penalty}Lower values = sparse resources, tighter logistics required."});
+        else if (resourceFieldSize.ContainsPoint(mp))
+            Tooltip::Draw("Resource field size", {"How large each individual resource deposit is.", "{bonus}Higher values = bigger fields, longer before depletion.", "{penalty}Lower values = small pockets scattered around."});
+        else if (resourceRichness.ContainsPoint(mp))
+            Tooltip::Draw("Resource richness", {"Total amount of resources in each deposit.", "{bonus}Higher values = more total resources per field.", "{penalty}Lower values = deposits run out faster."});
+        else if (aiOpponents.ContainsPoint(mp))
+            Tooltip::Draw("AI opponents", {"Number of AI-controlled enemy players (0 to 5).", "Each opponent starts at a random location on the map."});
+        else if (debugMode.ContainsPoint(mp))
+            Tooltip::Draw("Debug mode", {"Forces a tiny 101x101 map with 1 AI opponent and preset resource values.", "Useful for rapid testing — skips the generation wait."});
+        else if (startGame.ContainsPoint(mp))
+            Tooltip::Draw("Start game", {"Generate the world and begin playing.", "Map generation may take several seconds for larger sizes."});
+        else if (backButton.ContainsPoint(mp))
+            Tooltip::Draw("Back", {"Return to the main menu without starting a game."});
+    };
+
     RefreshOptionLabels();
 
     Vec2i windowSize{GetScreenWidth(), GetScreenHeight()};
@@ -632,7 +686,8 @@ void NewGameScene::Update(double dt)
                  &aiOpponents,
                  &debugMode,
                  &startGame,
-                 &backButton}, dt);
+                 &backButton,
+                 &tooltipWidget}, dt);
 }
 
 // Handles the UI action represented by OnBackPressed.
@@ -1503,6 +1558,129 @@ void MultiplayerScene::DrawGameSettingsPanel() const
         Color{190, 205, 224, 255});
 }
 
+// Initializes ControlsScene::ControlsScene.
+ControlsScene::ControlsScene()
+{
+    backButton.ChangeText("Back");
+    backButton.ChangePositionAnchor(Vec2f{0.44f, 0.88f});
+    backButton.ChangeSizeAnchor(Vec2f{0.12f, 0.055f});
+    backButton.func = std::bind(&ControlsScene::OnBackPressed, this);
+
+    Vec2i windowSize{GetScreenWidth(), GetScreenHeight()};
+    backButton.UpdateSize(windowSize);
+}
+
+namespace
+{
+    void DrawControlsSection(float x, float& y, const char* header,
+                             const std::vector<std::pair<const char*, const char*>>& rows)
+    {
+        UiText::Draw(header, x, y, 22, Color{210, 220, 240, 255});
+        y += 30.0f;
+        for (const auto& [key, desc] : rows)
+        {
+            float keyW = 130.0f;
+            UiText::Draw(key, x + 8.0f, y, 18, Color{255, 220, 120, 255});
+            UiText::Draw(desc, x + keyW, y, 18, Color{190, 200, 216, 255});
+            y += 24.0f;
+        }
+        y += 10.0f;
+    }
+}
+
+// Advances this object's state for one frame.
+void ControlsScene::Update(double dt)
+{
+    BeginDrawing();
+    ClearBackground(BLACK);
+
+    float sw = static_cast<float>(GetScreenWidth());
+    float sh = static_cast<float>(GetScreenHeight());
+
+    float panelW = sw * 0.70f;
+    float panelH = sh * 0.82f;
+    float panelX = (sw - panelW) * 0.5f;
+    float panelY = sh * 0.07f;
+
+    DrawRectangleRounded({panelX, panelY, panelW, panelH}, 0.03f, 8, Color{18, 22, 30, 242});
+    DrawRectangleRoundedLines({panelX, panelY, panelW, panelH}, 0.03f, 8, 1.0f, Color{90, 106, 130, 255});
+
+    UiText::Draw("Controls", panelX + 24.0f, panelY + 16.0f, 30, RAYWHITE);
+    DrawLineEx({panelX + 24.0f, panelY + 54.0f}, {panelX + panelW - 24.0f, panelY + 54.0f}, 1.0f, Color{70, 84, 106, 200});
+
+    float col1X = panelX + 32.0f;
+    float col2X = panelX + panelW * 0.5f + 16.0f;
+    float startY = panelY + 68.0f;
+
+    float y1 = startY;
+    DrawControlsSection(col1X, y1, "Camera & navigation", {
+        {"Space",       "Center on Headquarters"},
+        {"RMB drag",    "Pan camera"},
+        {"Scroll",      "Zoom in / out"},
+        {"ESC",         "Open game menu / cancel mode"},
+    });
+
+    DrawControlsSection(col1X, y1, "Panels", {
+        {"Q",           "Build panel"},
+        {"R",           "Road build mode"},
+        {"D",           "Destroy mode"},
+        {"E",           "Headquarters panel"},
+        {"S",           "Statistics & economy"},
+        {"F",           "Political focus tree"},
+    });
+
+    DrawControlsSection(col1X, y1, "Selection", {
+        {"LMB",         "Select building on map"},
+        {"LMB (build)", "Confirm building placement"},
+        {"LMB drag (road)", "Paint road tiles"},
+    });
+
+    float y2 = startY;
+    DrawControlsSection(col2X, y2, "Military", {
+        {"LMB military", "Open garrison / division bar"},
+        {"LMB division", "Select division"},
+        {"RMB building", "Assign attack / move order"},
+    });
+
+    DrawControlsSection(col2X, y2, "Build panel", {
+        {"LMB on card",  "Select building to place"},
+        {"LMB on map",   "Place selected building"},
+        {"Scroll",       "Scroll build list"},
+        {"ESC / Q",      "Cancel build mode"},
+    });
+
+    DrawControlsSection(col2X, y2, "Research & focus", {
+        {"LMB node",     "Research technology / take focus"},
+        {"RMB drag",     "Pan technology / focus tree"},
+        {"Scroll",       "Zoom tree view"},
+    });
+
+    UiText::Draw("Tip: hover over widgets in the New Game screen for detailed descriptions.",
+                 panelX + 24.0f, panelY + panelH - 32.0f, 16, Color{150, 162, 180, 220});
+
+    backButton.Update(dt);
+
+    EndDrawing();
+}
+
+// Handles the UI action represented by OnBackPressed.
+void ControlsScene::OnBackPressed()
+{
+    auto msg = std::make_shared<ChangeSceneEvent>();
+    msg->sender = this;
+    msg->sceneName = previousSceneName;
+    msg->previousSceneName = name;
+    broker->Broadcast(msg);
+}
+
+// Handles the requested event or transfer.
+void ControlsScene::HandleEvent(std::shared_ptr<Event> e)
+{
+    auto ptr = std::dynamic_pointer_cast<WindowSizeChangedEvent>(e);
+    if (ptr != nullptr)
+        backButton.UpdateSize(ptr->windowSize);
+}
+
 // Loads the requested data into runtime state.
 LoadGameScene::LoadGameScene()
 {
@@ -2240,6 +2418,18 @@ void GameMenuScene::OnQuitPressed()
 // Advances this object's state for one frame.
 void GameMenuScene::Update(double dt)
 {
+    // ESC returns to the game — but only once the key that opened the menu has
+    // been released, so a single press can't open and immediately close it.
+    if (!escArmed)
+    {
+        if (!IsKeyDown(KEY_ESCAPE))
+            escArmed = true;
+    }
+    else if (IsKeyPressed(KEY_ESCAPE))
+    {
+        OnBackPressed();
+        return;
+    }
     render.Draw({&vbox}, dt);
 }
 

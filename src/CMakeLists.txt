@@ -19,6 +19,7 @@ include_directories(../inc)
                        Resource.cpp
                        RoadNetwork.cpp
                        MapGenerator.cpp
+                       RtsDataFile.cpp
                        TcpGameTransport.cpp
                        GameWindow.cpp
                        Scenes.cpp
@@ -27,4 +28,10 @@ include_directories(../inc)
                        Renderer.cpp
                        GuiController.cpp
                        Battle.cpp
-                       ArmyGroup.cpp)
+                       ArmyGroup.cpp
+                       Equipment.cpp
+                       UnitStats.cpp
+                       DivisionSector.cpp
+                       MovementPlanner.cpp
+                       SectorGraph.cpp
+                       Player.cpp)

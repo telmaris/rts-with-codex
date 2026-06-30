@@ -46,6 +46,8 @@ class MainMenuScene : public Scene
     void OnLoadGamePressed();
     // Opens the options scene.
     void OnOptionsPressed();
+    // Opens the controls reference scene.
+    void OnControlsPressed();
     // Requests application shutdown.
     void OnQuitPressed();
 
@@ -109,6 +111,7 @@ class NewGameScene : public Scene
         SliderBar aiOpponents;
         CheckBox debugMode;
         UiButton startGame;
+        FuncWidget tooltipWidget;
         MapSizePreset selectedSize{MapSizePreset::S};
         int selectedDifficulty{0};
 };
@@ -298,6 +301,23 @@ class GameScene : public Scene
         std::vector<GameCommandResult> commandResults;
 };
 
+// Static controls reference scene shown from the main menu.
+class ControlsScene : public Scene
+{
+    public:
+
+        ControlsScene();
+        // Draws the controls reference card.
+        void Update(double dt) override;
+        // Handles resize and navigation events.
+        void HandleEvent(std::shared_ptr<Event>) override;
+
+        // Returns to the main menu.
+        void OnBackPressed();
+
+        UiButton backButton;
+};
+
 // In-game pause/menu scene.
 class GameMenuScene : public Scene
 {
@@ -306,6 +326,8 @@ class GameMenuScene : public Scene
         GameMenuScene();
         // Updates menu widgets.
         void Update(double dt) override;
+        // Re-arms the ESC guard so the key that opened the menu can't close it.
+        void OnActivated() override { escArmed = false; }
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
 
@@ -323,6 +345,7 @@ class GameMenuScene : public Scene
         void OnQuitPressed();
 
         VBox vbox;
+        bool escArmed{false};  // ESC only closes after being released once
 };
 
 #endif

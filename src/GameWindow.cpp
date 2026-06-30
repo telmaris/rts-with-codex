@@ -22,6 +22,7 @@ void GameWindow::LaunchGame()
     AddScene<LoadGameScene>("LoadGameScene");
     AddScene<SaveGameScene>("SaveGameScene");
     AddScene<GameMenuScene>("GameMenuScene");
+    AddScene<ControlsScene>("ControlsScene");
 
     MainLoop();
 

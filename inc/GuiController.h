@@ -18,6 +18,7 @@
 
 class GameScene;
 class GuiController;
+class DivisionMapWidget;
 
 // Mutable camera drag state shared by map interaction systems.
 struct CameraMovement
@@ -88,6 +89,7 @@ public:
     std::shared_ptr<GuiSystem> activeSystem;
 
     std::vector<UiWidget*> ui;
+    std::unique_ptr<DivisionMapWidget> divisionMapOverlay;
     GameScene *scene{nullptr};
 };
 
@@ -125,13 +127,38 @@ public:
     GameScene* scene{nullptr};
 };
 
+// A clickable field-battle marker: the screen point of the circle plus the two
+// engaged divisions (by player + division id) so the panel can show live details.
+struct FieldBattleMarker
+{
+    Vector2 screenPos{0.0f, 0.0f};
+    int playerA{-1};
+    int divisionA{-1};
+    int playerB{-1};
+    int divisionB{-1};
+};
+
 // Draws visible military orders and active battle indicators for the local player.
 class MilitaryOrderWidget : public UiWidget
 {
 public:
     void Update(double dt) override;
+    // Returns the battle circle hit at a screen point, or nullptr.
+    const FieldBattleMarker* HitTest(Vec2i point) const;
+    // Opens / closes the battle details panel.
+    void SelectBattle(const FieldBattleMarker& m)
+    {
+        detailsOpen = true;
+        selPlayerA = m.playerA; selDivA = m.divisionA;
+        selPlayerB = m.playerB; selDivB = m.divisionB;
+    }
+    void CloseDetails() { detailsOpen = false; }
 
     GameScene* scene{nullptr};
+    std::vector<FieldBattleMarker> battleMarkers;  // rebuilt each frame
+
+    bool detailsOpen{false};
+    int selPlayerA{-1}, selDivA{-1}, selPlayerB{-1}, selDivB{-1};
 };
 
 // Shows parameters of an active or recently ended battle.
@@ -148,15 +175,18 @@ public:
     int activeBattleId{-1};
 };
 
-// Pickable map marker for a single division.
+// Pickable map marker for a stack of co-located divisions (HOI4-style counter).
 struct DivisionMapMarker
 {
     Building* homeBuilding{nullptr};
-    int divisionId{-1};
+    Player* owner{nullptr};
+    std::vector<int> divisionIds;   // all divisions drawn under this one symbol
+    Vec2i tile{-1, -1};
     Vector2 screenPos{0.0f, 0.0f};
+    Color color{200, 200, 200, 255};
 };
 
-// Draws all local-player division markers on the map and exposes pick data.
+// Rebuilds pick data for division counters drawn on the world layer.
 class DivisionMapWidget : public UiWidget
 {
 public:
@@ -167,7 +197,25 @@ public:
 
     GameScene* scene{nullptr};
     std::vector<DivisionMapMarker> markers; // rebuilt each frame in Update()
-    static constexpr float kMarkerRadius = 10.0f;
+    static constexpr float kMarkerHalfW = 16.0f;
+    static constexpr float kMarkerHalfH = 11.0f;
+};
+
+class MilitaryDivisionBarWidget;
+class ArmyBarWidget;
+
+// When divisions are selected, highlights the 2x2 quadrant under the cursor (the
+// destination for a right-click move order) and rings the selected divisions.
+class MoveTargetWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+    MilitaryDivisionBarWidget* bar{nullptr};  // source of the current selection
+    ArmyBarWidget* armyBar{nullptr};          // suppress highlight over this panel
+    bool drawBox{false};                      // draw the drag-selection rectangle
+    Rectangle boxRect{0, 0, 0, 0};
 };
 
 // Bottom army strip listing divisions stationed in the selected military building.
@@ -181,6 +229,28 @@ public:
     Building* building{nullptr};
     Building* prevBuilding{nullptr};
     std::vector<int> selectedDivisionIds;
+};
+
+// Bottom army strip (HOI4-style): floating cards, one per army, that grow with
+// the army count — no fixed background panel. A trailing "+" always groups the
+// currently selected divisions into a new army.
+class ArmyBarWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+    // Returns true only when the click actually hit a card or the "+" button.
+    bool HandleClick(Vec2i point);
+    // True when the point is over an army card or the "+" button (for highlight
+    // suppression) — not the whole nominal widget rectangle.
+    bool IsOverContent(Vec2i point) const;
+
+    GameScene* scene{nullptr};
+    MilitaryDivisionBarWidget* bar{nullptr};  // current division selection source
+
+    // Rebuilt each frame in Update() so HandleClick uses the exact drawn layout.
+    std::vector<std::pair<int, Rectangle>> cardRects;  // armyId -> rect
+    Rectangle plusRect{0, 0, 0, 0};
+    Rectangle contentBounds{0, 0, 0, 0};  // bounding box of the whole strip
 };
 
 // Top-screen strategic resource summary for the local player.
@@ -271,6 +341,8 @@ public:
         actionMap["lmbr"] = [this] { LmbReleased(); };
         actionMap["rmbp"] = [this] { RmbPressed(); };
         actionMap["rmbr"] = [this] { RmbReleased(); };
+        actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+        actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
         actionMap["scroll"] = [this] { Scroll(); };
 
         buildingInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
@@ -278,8 +350,11 @@ public:
         selectedBuildingWidget.scene = scene;
         productionWarningWidget.scene = scene;
         militaryOrderWidget.scene = scene;
-        militaryDivisionBarWidget.ChangePositionAnchor({0.18f, 0.80f});
-        militaryDivisionBarWidget.ChangeSizeAnchor({0.46f, 0.17f});
+        // Division panel sits top-left (under the resource HUD) as a vertical
+        // HOI4-style list; the bottom of the screen is reserved for the future
+        // army (grouped-divisions) bar.
+        militaryDivisionBarWidget.ChangePositionAnchor({0.012f, 0.085f});
+        militaryDivisionBarWidget.ChangeSizeAnchor({0.23f, 0.58f});
         strategicHudWidget.scene = scene;
         strategicHudWidget.ChangePositionAnchor({0.012f, 0.012f});
         strategicHudWidget.ChangeSizeAnchor({0.42f, 0.055f});
@@ -290,6 +365,14 @@ public:
         battleInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
         battleInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
         divisionMapWidget.scene = scene;
+        armyBarWidget.scene = scene;
+        armyBarWidget.bar = &militaryDivisionBarWidget;
+        // Bottom-center HOI4-style army strip.
+        armyBarWidget.ChangePositionAnchor({0.30f, 0.88f});
+        armyBarWidget.ChangeSizeAnchor({0.40f, 0.10f});
+        moveTargetWidget.scene = scene;
+        moveTargetWidget.bar = &militaryDivisionBarWidget;
+        moveTargetWidget.armyBar = &armyBarWidget;
         buildingInfoPanel.recruitRequested = [this](Building* building, MilitaryUnitType unitType)
         {
             SubmitRecruitCommand(building, unitType);
@@ -340,6 +423,8 @@ public:
     MilitaryOrderWidget militaryOrderWidget;
     DivisionMapWidget divisionMapWidget;
     MilitaryDivisionBarWidget militaryDivisionBarWidget;
+    ArmyBarWidget armyBarWidget;
+    MoveTargetWidget moveTargetWidget;
     StrategicResourceHudWidget strategicHudWidget;
     StatsPanelWidget statsPanel;
     FocusPanelWidget focusPanel;
@@ -347,6 +432,12 @@ public:
     bool isBuildingSelected{false};
     bool isDivisionOnlyMode{false}; // garrison bar only, no building info panel
     int selectedBattleId{-1};
+
+    // Drag-box selection state (box-select divisions on the map).
+    bool pendingBox{false};   // LMB pressed on open ground, may become a box drag
+    bool boxActive{false};    // dragged far enough to be a box selection
+    Vec2i boxStart{0, 0};
+    Vec2i boxEnd{0, 0};
 };
 
 // Build interaction mode for placeable buildings.
@@ -426,6 +517,7 @@ public:
     void LmbPressed() override;
     // Ends road drag placement.
     void LmbReleased() override;
+    void Scroll() override;
 
 private:
     bool TryPlaceRoadAtHovered();

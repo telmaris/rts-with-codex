@@ -488,6 +488,7 @@ SoldierDivision CreateMilitaryDivision(MilitaryUnitType type, int id)
             div.equipment.weapon = ResourceType::WEAPON_SUPPLY;
             break;
     }
+    div.stats = MakeDefaultUnitStats(type);
     return div;
 }
 
@@ -610,6 +611,7 @@ Headquarters::Headquarters(int actualId)
     id = actualId;
     RegisterComponent(&storage);
     RegisterComponent(&territory);
+    RegisterComponent(&garrison);
     const auto& def = GetBuildingDefinition(BuildingType::Headquarters);
     ApplyBuildingDefinition(*this, def);
     ApplyStorageDefinition(*this, def);
@@ -680,6 +682,16 @@ Barracks::Barracks(int actualId)
     const auto& def = GetBuildingDefinition(BuildingType::Barracks);
     ApplyBuildingDefinition(*this, def);
     ApplyMilitaryDefinition(*this, def);
+}
+
+// ─── SupplyHub ───────────────────────────────────────────────────────────────
+
+SupplyHub::SupplyHub(int actualId)
+{
+    id = actualId;
+    RegisterComponent(&packaging);
+    const auto& def = GetBuildingDefinition(BuildingType::SupplyHub);
+    ApplyBuildingDefinition(*this, def);
 }
 
 // ─── Concrete ProductionBuilding subclasses ───────────────────────────────────

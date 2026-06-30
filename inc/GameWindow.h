@@ -9,6 +9,8 @@ class Scene : public EventClient
     public:
     // Updates and draws the scene for one frame.
     virtual void Update(double dt) = 0;
+    // Called by GameWindow each time this scene becomes the active scene.
+    virtual void OnActivated() {}
 
     std::string name;
     std::string previousSceneName;
@@ -52,10 +54,11 @@ class GameWindow : public EventBroker
     void MainLoop();
 
     // Activates a registered scene and records where navigation came from.
-    inline void ChangeScene(std::string name, std::string previousSceneName) 
+    inline void ChangeScene(std::string name, std::string previousSceneName)
     {
         activeScene = scenes[name];
         activeScene->previousSceneName = previousSceneName;
+        activeScene->OnActivated();
     }
 
     std::map<std::string, std::shared_ptr<Scene>> scenes;

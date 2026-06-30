@@ -1,6 +1,306 @@
 #include "../inc/GameWorldInternal.h"
+#include "../inc/SectorGraph.h"
+#include "../inc/DivisionSector.h"
+
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <set>
+#include <vector>
 
 using namespace GameWorldInternal;
+
+namespace
+{
+    // One deployed division standing on the map, snapshotted for combat resolution.
+    struct FieldUnit
+    {
+        int playerId{0};
+        Player* player{nullptr};
+        SoldierDivision* div{nullptr};
+        Vec2i tile{-1, -1};
+        DivisionCombatStats stats;
+    };
+
+    bool TilesAdjacent(Vec2i a, Vec2i b)
+    {
+        return (a.x != b.x || a.y != b.y) && std::abs(a.x - b.x) <= 1 && std::abs(a.y - b.y) <= 1;
+    }
+
+    long long TileKey(Vec2i t) { return static_cast<long long>(t.x) * 100000 + t.y; }
+
+    Building* FindHeadquarters(Player* player)
+    {
+        if (player == nullptr) return nullptr;
+        for (Building* b : player->GetTrackedBuildings())
+            if (b != nullptr && b->buildingType == BuildingType::Headquarters)
+                return b;
+        return nullptr;
+    }
+
+    // Flips a captured military building to `attacker`. The defender's divisions
+    // homed there are relocated to their HQ so deployed troops on the map are not
+    // deleted with the building; ownership + territory are recomputed.
+    void CaptureBuilding(GameWorld& world, int positionId, Player* attacker)
+    {
+        Building* b = world.tilemap.GetBuilding(positionId);
+        if (b == nullptr || attacker == nullptr || b->owner == attacker)
+            return;
+
+        Player* defender = b->owner;
+        if (auto* captured = b->GetComponent<GarrisonComponent>())
+        {
+            Building* defenderHq = FindHeadquarters(defender);
+            auto* hqGarrison = defenderHq != nullptr ? defenderHq->GetComponent<GarrisonComponent>() : nullptr;
+            if (hqGarrison != nullptr && defenderHq != b)
+                for (const auto& d : captured->divisions)
+                    hqGarrison->divisions.push_back(d);
+            captured->divisions.clear();
+            captured->Recount();
+        }
+
+        if (defender != nullptr)
+            defender->UnregisterBuilding(b);
+        b->owner = attacker;
+        attacker->RegisterBuilding(b);
+
+        if (auto* territory = b->GetComponent<TerritoryComponent>())
+        {
+            territory->hp = territory->GetMaxHp(*b);
+            territory->siegeBuffer = 0.0f;
+        }
+        world.tilemap.RecalculateTerritory(attacker);
+        if (defender != nullptr)
+            world.tilemap.RecalculateTerritory(defender);
+    }
+
+    // Enemy building (with territory) on any 8-neighbour of `tile`, owned by another
+    // player; nullptr when none.
+    Building* AdjacentEnemyBuilding(GameWorld& world, Vec2i tile, const Player* owner)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dy == 0) continue;
+                Vec2i n{tile.x + dx, tile.y + dy};
+                if (!world.tilemap.IsInside(n)) continue;
+                Building* b = world.tilemap.GetBuilding(n);
+                if (b != nullptr && b->owner != owner && b->GetComponent<TerritoryComponent>() != nullptr)
+                    return b;
+            }
+        return nullptr;
+    }
+
+    // Order-to-start-then-sticky field combat. A division only fights once a battle
+    // has begun — battles start from an Attack order while adjacent to an enemy
+    // (division or building), then persist (engaged) while the division stays
+    // adjacent to a live enemy, even after the order clears. Idle units touching
+    // never fight. Deterministic (sorted + simultaneous apply) for lockstep.
+    void RunFieldCombat(GameWorld& world, double dt)
+    {
+        std::vector<FieldUnit> units;
+        for (auto& [pid, player] : world.playerHandler.players)
+        {
+            if (player == nullptr) continue;
+            for (Building* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+            {
+                auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+                if (garrison == nullptr) continue;
+                for (auto& div : garrison->divisions)
+                {
+                    if (div.occupiedTile.x < 0) continue;  // only deployed divisions fight
+                    units.push_back({pid, player.get(), &div, div.occupiedTile,
+                                     ComputeDivisionCombatStats(div, &player->balanceModifiers)});
+                }
+            }
+        }
+
+        std::sort(units.begin(), units.end(), [](const FieldUnit& a, const FieldUnit& b)
+        {
+            if (a.playerId != b.playerId) return a.playerId < b.playerId;
+            if (a.tile.x != b.tile.x) return a.tile.x < b.tile.x;
+            if (a.tile.y != b.tile.y) return a.tile.y < b.tile.y;
+            return a.div->id < b.div->id;
+        });
+
+        std::map<long long, int> tileToUnit;
+        for (size_t i = 0; i < units.size(); i++)
+            tileToUnit[TileKey(units[i].tile)] = static_cast<int>(i);
+        auto enemyUnitAt = [&](Vec2i tile, int ownerId) -> int
+        {
+            auto it = tileToUnit.find(TileKey(tile));
+            if (it == tileToUnit.end() || units[it->second].playerId == ownerId) return -1;
+            return it->second;
+        };
+
+        // Phase 1 — start engagements from active Attack orders.
+        for (auto& U : units)
+        {
+            SoldierDivision* div = U.div;
+            if (div->currentOrder != MilitaryOrderType::Attack || div->orderTargetPositionId < 0)
+                continue;
+
+            Vec2i targetTile = world.tilemap.GetCoordsFromId(div->orderTargetPositionId);
+            Building* tb = world.tilemap.GetBuilding(div->orderTargetPositionId);
+            if (tb != nullptr && tb->owner != U.player && tb->GetComponent<TerritoryComponent>() != nullptr)
+            {
+                if (AdjacentEnemyBuilding(world, U.tile, U.player) != nullptr)
+                    div->engaged = true;     // adjacent to an enemy structure
+            }
+            else
+            {
+                int v = enemyUnitAt(targetTile, U.playerId);
+                if (v >= 0 && TilesAdjacent(U.tile, units[v].tile))
+                    div->engaged = true;     // adjacent to the targeted enemy division
+                else if (v < 0 && AdjacentEnemyBuilding(world, U.tile, U.player) == nullptr)
+                {
+                    div->currentOrder = MilitaryOrderType::None;  // target gone
+                    div->orderTargetPositionId = -1;
+                }
+            }
+        }
+
+        // Phase 2 — spread engagement to adjacent enemies (battles drag neighbours in).
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (size_t i = 0; i < units.size(); i++)
+            {
+                if (!units[i].div->engaged) continue;
+                for (size_t j = 0; j < units.size(); j++)
+                {
+                    if (units[i].playerId == units[j].playerId) continue;
+                    if (units[j].div->engaged) continue;
+                    if (TilesAdjacent(units[i].tile, units[j].tile))
+                    {
+                        units[j].div->engaged = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        // Phase 3 — resolve damage (simultaneous).
+        std::map<SoldierDivision*, float> divLosses;
+        std::map<int, float> buildingDamage;
+        std::map<int, Player*> buildingAttacker;  // positionId -> capturing player
+
+        for (size_t i = 0; i < units.size(); i++)
+        {
+            for (size_t j = i + 1; j < units.size(); j++)
+            {
+                if (units[i].playerId == units[j].playerId) continue;
+                if (!units[i].div->engaged || !units[j].div->engaged) continue;
+                if (!TilesAdjacent(units[i].tile, units[j].tile)) continue;
+                DivisionDuelResult duel = ResolveDivisionDuel(units[i].stats, units[j].stats, dt);
+                divLosses[units[i].div] += duel.attackerStrengthLoss;
+                divLosses[units[j].div] += duel.defenderStrengthLoss;
+            }
+        }
+
+        for (const auto& U : units)
+        {
+            if (!U.div->engaged) continue;
+            std::set<int> hitBuildings;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    Vec2i n{U.tile.x + dx, U.tile.y + dy};
+                    if (!world.tilemap.IsInside(n)) continue;
+                    Building* b = world.tilemap.GetBuilding(n);
+                    if (b == nullptr || b->owner == U.player) continue;
+                    if (b->GetComponent<TerritoryComponent>() == nullptr) continue;
+                    if (!hitBuildings.insert(b->positionId).second) continue;
+                    buildingDamage[b->positionId] += U.stats.lightAttack * static_cast<float>(dt);
+                    buildingAttacker.emplace(b->positionId, U.player);  // first (sorted) attacker captures
+                }
+        }
+
+        // Phase 4 — apply. Damage accumulates in float buffers so sub-1-per-tick
+        // attrition is not lost to integer rounding.
+        for (auto& [div, loss] : divLosses)
+        {
+            div->damageBuffer += loss;
+            int whole = static_cast<int>(div->damageBuffer);
+            if (whole > 0)
+            {
+                div->health -= whole;
+                div->damageBuffer -= static_cast<float>(whole);
+            }
+        }
+
+        std::set<int> razedBuildings;
+        for (auto& [positionId, damage] : buildingDamage)
+        {
+            Building* b = world.tilemap.GetBuilding(positionId);
+            auto* territory = b != nullptr ? b->GetComponent<TerritoryComponent>() : nullptr;
+            if (territory == nullptr) continue;
+            territory->siegeBuffer += damage;
+            int whole = static_cast<int>(territory->siegeBuffer);
+            if (whole > 0)
+            {
+                territory->ReceiveDamage(whole);
+                territory->siegeBuffer -= static_cast<float>(whole);
+            }
+            if (territory->hp <= 0 && b->buildingType != BuildingType::Headquarters)
+                razedBuildings.insert(positionId);   // captured below, not deleted
+        }
+
+        // Phase 5 — disengage units no longer next to a live enemy (battle ended).
+        for (auto& U : units)
+        {
+            if (!U.div->engaged) continue;
+            bool stillFighting = false;
+            for (int dy = -1; dy <= 1 && !stillFighting; dy++)
+                for (int dx = -1; dx <= 1 && !stillFighting; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    Vec2i n{U.tile.x + dx, U.tile.y + dy};
+                    int v = enemyUnitAt(n, U.playerId);
+                    if (v >= 0 && units[v].div->health > 0)
+                        stillFighting = true;
+                    Building* b = world.tilemap.IsInside(n) ? world.tilemap.GetBuilding(n) : nullptr;
+                    if (b != nullptr && b->owner != U.player &&
+                        b->GetComponent<TerritoryComponent>() != nullptr &&
+                        razedBuildings.find(b->positionId) == razedBuildings.end())
+                        stillFighting = true;
+                }
+            if (!stillFighting)
+                U.div->engaged = false;
+        }
+
+        // Phase 6 — remove destroyed divisions (release from armies).
+        for (auto& [pid, player] : world.playerHandler.players)
+        {
+            if (player == nullptr) continue;
+            bool removedAny = false;
+            for (Building* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+            {
+                auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+                if (garrison == nullptr) continue;
+                auto& divs = garrison->divisions;
+                for (const auto& d : divs)
+                    if (d.health <= 0)
+                    {
+                        player->armyGroups.RemoveDivision(d.id);
+                        removedAny = true;
+                    }
+                divs.erase(std::remove_if(divs.begin(), divs.end(),
+                    [](const SoldierDivision& d) { return d.health <= 0; }), divs.end());
+            }
+            if (removedAny)
+                player->armyGroups.PruneEmptyArmies();
+        }
+
+        // Capture (flip ownership of) defeated military buildings — HQ is spared,
+        // that's a game-over path. Done last so combat's unit pointers stay valid.
+        for (int positionId : razedBuildings)
+            CaptureBuilding(world, positionId, buildingAttacker.count(positionId) ? buildingAttacker[positionId] : nullptr);
+    }
+
+}
 
 // Advances authoritative gameplay state for one simulation tick.
 void GameWorld::UpdateSimulation(double dt)
@@ -16,6 +316,7 @@ void GameWorld::UpdateSimulation(double dt)
     ProcessCommands();
     tilemap.UpdateBuildings(dt);
     battles.Update(tilemap, dt);
+    RunFieldCombat(*this, dt);
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->UpdateEconomyTelemetry(dt);

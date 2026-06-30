@@ -668,6 +668,7 @@ namespace
             case BuildingType::Fortress: return "Fortress";
             case BuildingType::Castle: return "Castle";
             case BuildingType::Barracks: return "Barracks";
+            case BuildingType::SupplyHub: return "Supply hub";
             case BuildingType::Road: return "Road";
             default: return "Building";
         }
@@ -932,10 +933,12 @@ namespace
 
         auto laneRank = [](const std::string& lane)
         {
-            if (lane == "PRODUCTION") return 0;
-            if (lane == "WARFARE" || lane == "MILITARY") return 1;
-            if (lane == "SOCIAL") return 2;
-            if (lane == "POLITICS") return 3;
+            if (lane == "Core Sciences") return 0;
+            if (lane == "Natural Sciences") return 1;
+            if (lane == "Engineering") return 2;
+            if (lane == "Medicine") return 3;
+            if (lane == "Social Sciences") return 4;
+            if (lane == "Military Science") return 5;
             return 10;
         };
 
@@ -1666,6 +1669,46 @@ void GuiPanel::Update(double dt)
         return;
     }
 
+    if (auto* packaging = building->GetComponent<SupplyPackageComponent>())
+    {
+        UiText::Draw("Supply hub", contentX, y, 22, Color{190, 198, 208, 255});
+        y += 30;
+
+        // Survey what the network can currently feed the hub (does not consume).
+        int weaponsAvailable = 0;
+        int rationsAvailable = 0;
+        for (const auto& [type, amount] : SurveyNetworkSupplies(*building))
+        {
+            if (type == ResourceType::FOOD_PROVISIONS)
+                rationsAvailable += amount;
+            else
+                weaponsAvailable += amount;
+        }
+
+        std::vector<std::string> stats{
+            "Packages ready: " + std::to_string(packaging->ReadyPackageCount()) + "/" + std::to_string(packaging->maxReadyPackages),
+            "Assembled (total): " + std::to_string(packaging->totalPackagesAssembled),
+            "Delivered to front: " + std::to_string(packaging->totalPackagesDelivered),
+            "Gear in network: " + std::to_string(weaponsAvailable),
+            "Rations in network: " + std::to_string(rationsAvailable)};
+
+        for (const auto& stat : stats)
+        {
+            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, RAYWHITE);
+            y += 24;
+        }
+
+        y += 8;
+        DrawTextFit("Draws the best available gear + rations from your",
+                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 16.0f}, 13, Color{170, 178, 188, 255});
+        y += 18;
+        DrawTextFit("storage network and ships weapon supply to the front.",
+                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 16.0f}, 13, Color{170, 178, 188, 255});
+
+        drawDestroyButton();
+        return;
+    }
+
     if (building->IsStorageLike())
     {
         UiText::Draw("Storage", contentX, y, 22, Color{190, 198, 208, 255});
@@ -1771,15 +1814,26 @@ void GuiPanel::Update(double dt)
         UiText::Draw(barracks ? "Military training" : "Military", contentX, y, 22, Color{190, 198, 208, 255});
         y += 32;
 
+        const BalanceModifierSet* unitMods =
+            building->owner != nullptr ? &building->owner->balanceModifiers : nullptr;
+
         int weaponSupply = 0;
         int weaponSupplyCapacity = 0;
         int activeDivisionOrders = 0;
+        DivisionCombatStats combatSum{};
         for (const auto& division : garrison->divisions)
         {
             weaponSupply += division.weaponSupply;
             weaponSupplyCapacity += division.weaponSupplyCapacity;
             if (division.currentOrder != MilitaryOrderType::None)
                 activeDivisionOrders++;
+
+            DivisionCombatStats cs = ComputeDivisionCombatStats(division, unitMods);
+            combatSum.lightAttack += cs.lightAttack;
+            combatSum.armoredAttack += cs.armoredAttack;
+            combatSum.defense += cs.defense;
+            combatSum.morale += cs.morale;
+            combatSum.equipmentQuality += cs.equipmentQuality;
         }
 
         std::vector<std::string> stats{
@@ -1791,6 +1845,17 @@ void GuiPanel::Update(double dt)
             stats.insert(stats.begin(), "Recruitment creates divisions");
         else
             stats.push_back("Active orders: " + std::to_string(activeDivisionOrders + (garrison->currentOrder != MilitaryOrderType::None ? 1 : 0)));
+
+        if (int divCount = static_cast<int>(garrison->divisions.size()); divCount > 0)
+        {
+            auto round1 = [](float v) { return std::to_string(static_cast<int>(std::lround(v))); };
+            stats.push_back("Atk L/A: " + round1(combatSum.lightAttack / divCount) + "/" +
+                            round1(combatSum.armoredAttack / divCount) +
+                            "  Def: " + round1(combatSum.defense / divCount));
+            stats.push_back("Morale: " + round1(combatSum.morale / divCount) +
+                            "  Gear: " + std::to_string(static_cast<int>(std::lround(
+                                combatSum.equipmentQuality / divCount * 100.0f))) + "%");
+        }
 
         int line = 20;
         for (const auto& stat : stats)

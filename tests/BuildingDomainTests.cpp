@@ -555,14 +555,14 @@ TEST(BuildingDomainTests, VillageGeneratesManpowerAndFoodShortageReducesProducti
 
     village->Update(1.0);
     EXPECT_TRUE(village->population.hasFood);
-    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 1.0);
+    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 1.12);
     EXPECT_DOUBLE_EQ(village->activeTime, 1.0);
 
     village->Update(1.0);
     EXPECT_TRUE(village->population.hasFood);
     EXPECT_NEAR(village->GetFoodSupplyRatio(), 0.67, 0.0001);
     EXPECT_NEAR(village->GetWorkerProductivity(), 0.769, 0.0001);
-    EXPECT_NEAR(player.strategicResources.Get(StrategicResourceType::Manpower), 1.67, 0.0001);
+    EXPECT_NEAR(player.strategicResources.Get(StrategicResourceType::Manpower), 1.8704, 0.0001);
     EXPECT_NEAR(village->activeTime, 1.67, 0.0001);
     village->population.foodBuffer.Clear();
 }

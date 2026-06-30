@@ -408,6 +408,14 @@ class UiImage : public UiWidget
         bool cover{false};
 };
 
+// Calls a user-supplied function each frame — useful for inline custom draws inside render.Draw().
+class FuncWidget : public UiWidget
+{
+public:
+    void Update(double dt) override { if (func) func(dt); }
+    std::function<void(double)> func;
+};
+
 // Texture atlas used by UI panels to render resource icons.
 struct ResourceIconAtlas
 {

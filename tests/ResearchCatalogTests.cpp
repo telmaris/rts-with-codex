@@ -38,7 +38,8 @@ TEST(ResearchCatalogTests, BuildsPlayerSpecificResearchNodeState)
         return node.id == "forestry";
     });
     ASSERT_NE(forestry, nodes.end());
-    EXPECT_EQ(forestry->category, "PRODUCTION");
+    EXPECT_EQ(forestry->category, "SCIENCE");
+    EXPECT_EQ(forestry->layoutLane, "Core Sciences");
     EXPECT_TRUE(forestry->available);
     EXPECT_EQ(forestry->stateText, "Available");
 
