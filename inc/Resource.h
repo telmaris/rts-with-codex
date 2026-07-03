@@ -59,7 +59,25 @@ enum class ResourceType : uint8_t
     WOODEN_SHIELD = 34,
     IRON_SHIELD = 35,
     LEATHER_ARMOR = 36,
-    IRON_ARMOR = 37
+    IRON_ARMOR = 37,
+
+    // Resource & world expansion (see docs/resource_world_design.md).
+    // Raw deposits:
+    TIN_ORE = 38,
+    SAND = 39,
+    SULFUR = 40,
+    SALTPETER = 41,
+    // Smelted / processed:
+    TIN = 42,
+    BRONZE = 43,
+    COKE = 44,
+    STEEL = 45,
+    GLASS = 46,
+    GUNPOWDER = 47,
+
+    // Firearms (Phase 3 — steampunk chemistry consumer):
+    MUSKET = 48,
+    CARTRIDGE = 49
 
 };
 
@@ -103,7 +121,19 @@ constexpr ResourceType resourceTypes[] =
     ResourceType::SILVER_ORE,
     ResourceType::SILVER,
     ResourceType::GOLD_ORE,
-    ResourceType::GOLD
+    ResourceType::GOLD,
+    ResourceType::TIN_ORE,
+    ResourceType::SAND,
+    ResourceType::SULFUR,
+    ResourceType::SALTPETER,
+    ResourceType::TIN,
+    ResourceType::BRONZE,
+    ResourceType::COKE,
+    ResourceType::STEEL,
+    ResourceType::GLASS,
+    ResourceType::GUNPOWDER,
+    ResourceType::MUSKET,
+    ResourceType::CARTRIDGE
 };
 
 // Converts resource type to a readable debug label.
@@ -150,6 +180,18 @@ inline std::string rt2s(ResourceType s)
         case ResourceType::IRON_SHIELD: return "IRON_SHIELD";
         case ResourceType::LEATHER_ARMOR: return "LEATHER_ARMOR";
         case ResourceType::IRON_ARMOR: return "IRON_ARMOR";
+        case ResourceType::TIN_ORE: return "TIN_ORE";
+        case ResourceType::SAND: return "SAND";
+        case ResourceType::SULFUR: return "SULFUR";
+        case ResourceType::SALTPETER: return "SALTPETER";
+        case ResourceType::TIN: return "TIN";
+        case ResourceType::BRONZE: return "BRONZE";
+        case ResourceType::COKE: return "COKE";
+        case ResourceType::STEEL: return "STEEL";
+        case ResourceType::GLASS: return "GLASS";
+        case ResourceType::GUNPOWDER: return "GUNPOWDER";
+        case ResourceType::MUSKET: return "MUSKET";
+        case ResourceType::CARTRIDGE: return "CARTRIDGE";
 
         default: return "Unknown";
     }

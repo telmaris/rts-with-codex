@@ -78,6 +78,72 @@ enum class AIGovernmentPreference
     Aristocracy
 };
 
+// TIER 1 — long-horizon intent. One goal is active at a time, chosen from axis scores.
+enum class AIStrategicGoal
+{
+    StabilizeEconomy,
+    ExpandTerritory,
+    DevelopInfrastructure,
+    BuildMilitary,
+    LaunchOffensive,
+    Fortify
+};
+
+const char* AIStrategicGoalLabel(AIStrategicGoal goal);
+
+// TIER 2 — a milestone is one prerequisite step inside a goal's chain.
+enum class AIMilestoneKind
+{
+    BuildingCount,    // own >= threshold buildings of 'building'
+    ProductionRate,   // produce >= threshold/min of 'resource'
+    ResourceStock,    // store >= threshold of 'resource'
+    ArmyStrength,     // army.strength >= threshold
+    TechWithTag,      // unlocked >= threshold technologies tagged 'tag'
+    AttackReady       // army supplied + strength threshold + enemy reachable
+};
+
+struct AIMilestone
+{
+    AIMilestoneKind kind{AIMilestoneKind::BuildingCount};
+    BuildingType building{BuildingType::Building};
+    ResourceType resource{ResourceType::Null};
+    std::string tag;
+    int threshold{1};
+    std::string label;
+};
+
+// TIER 3 — a concrete, immediately executable action competing in one scoring pool.
+enum class AIActionKind
+{
+    Build,
+    Research,
+    Focus,
+    Attack,
+    Recruit
+};
+
+struct AIActionCandidate
+{
+    AIActionKind kind{AIActionKind::Build};
+    BuildingType building{BuildingType::Building};
+    TileType terrain{TileType::GRASS};
+    std::string researchId;
+    int sourceTileId{-1};
+    int targetTileId{-1};
+    MilitaryUnitType unitType{};
+    double score{0.0};
+    std::string debugLabel;
+};
+
+struct AIGoalState
+{
+    AIStrategicGoal goal{AIStrategicGoal::StabilizeEconomy};
+    std::vector<AIMilestone> chain;
+    int activeMilestone{0};
+    double timeInGoal{0.0};
+    bool initialized{false};
+};
+
 struct AIPersonality
 {
     float aggression{0.25f};
@@ -106,6 +172,7 @@ struct AIStrategySnapshot
 {
     std::vector<AIStrategySignal> signals;
     AIStrategicPlan selectedPlan{AIStrategicPlan::RecoverEconomy};
+    std::array<float, 8> axisScores{};  // indexed by static_cast<int>(AIStrategyAxis), range [-1, 1]
 
     float GetUrgency(AIStrategyAxis axis) const
     {
@@ -115,6 +182,18 @@ struct AIStrategySnapshot
                 result = std::max(result, signal.urgency);
         return result;
     }
+
+    // Signed evaluation: -1 = crisis, 0 = neutral, +1 = thriving.
+    float GetAxisScore(AIStrategyAxis axis) const
+    {
+        return axisScores[static_cast<int>(axis)];
+    }
+
+    // Converts signed score to urgency pressure [0,1]: crisis=1, thriving=0.
+    float GetPressure(AIStrategyAxis axis) const
+    {
+        return (1.0f - axisScores[static_cast<int>(axis)]) * 0.5f;
+    }
 };
 
 struct AIStrategyAxisCache
@@ -123,6 +202,7 @@ struct AIStrategyAxisCache
     double interval{10.0};
     double timeUntilRefresh{0.0};
     std::vector<AIStrategySignal> signals;
+    float score{0.0f};
 };
 
 struct AIActionUtility
@@ -190,17 +270,13 @@ public:
     void Update(GameWorld& world, Player* player, double dt, const AIModelSettings& settings) override;
 
 private:
-    bool TryBuildEconomy(GameWorld& world, Player* player, const AIModelSettings& settings);
+    bool TryBuildEconomy(GameWorld& world, Player* player, const AIModelSettings& settings);  // legacy economic fallback
     bool TryBuildRoads(GameWorld& world, Player* player);
-    bool TryBuildMilitary(GameWorld& world, Player* player, const AIModelSettings& settings);
-    bool TryStartStrategicFocus(GameWorld& world, Player* player, const AIStrategySnapshot& strategy, const AIModelSettings& settings);
-    bool TryBuildStrategicStep(GameWorld& world, Player* player, const AIModelSettings& settings);
     int CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingType type) const;
     AIMapAssessment AssessMap(GameWorld& world, Player* player) const;
     AIStrategySnapshot UpdateStrategyPipeline(GameWorld& world, Player* player, double dt, const AIModelSettings& settings);
     std::vector<AIStrategySignal> AnalyzeAxis(GameWorld& world, Player* player, AIStrategyAxis axis, const AIModelSettings& settings) const;
     AIStrategicPlan SelectStrategicPlan(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
-    bool IsEconomyStable(GameWorld& world, Player* player) const;
     int CountOwnedBuildings(GameWorld& world, Player* player, BuildingType type) const;
     int CountStoredResource(GameWorld& world, Player* player, ResourceType type) const;
     int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type) const;
@@ -216,15 +292,43 @@ private:
     bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source, const Building* target);
     Building* FindBestMilitary(GameWorld& world, Player* player) const;
     Building* FindNearestEnemyMilitary(GameWorld& world, Player* player, const Building* source) const;
+    float EvaluateAxis(GameWorld& world, Player* player, AIStrategyAxis axis, const AIModelSettings& settings) const;
+
+    // TIER 1 — goal selection with hysteresis.
+    AIStrategicGoal SelectStrategicGoal(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    void UpdateGoalState(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings, double dt);
+
+    // TIER 2 — milestone chains.
+    std::vector<AIMilestone> BuildMilestoneChain(AIStrategicGoal goal, const AIModelSettings& settings) const;
+    bool IsMilestoneComplete(GameWorld& world, Player* player, const AIMilestone& milestone) const;
+    double MilestoneProgress(GameWorld& world, Player* player, const AIMilestone& milestone) const;
+    int FindActiveMilestone(GameWorld& world, Player* player, const std::vector<AIMilestone>& chain) const;
+
+    // TIER 3 — unified action scoring.
+    bool RunUnifiedDecision(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings);
+    std::vector<AIActionCandidate> GatherActionCandidates(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    double ScoreAction(GameWorld& world, Player* player, const AIActionCandidate& candidate, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    bool ExecuteAction(GameWorld& world, Player* player, const AIActionCandidate& candidate);
+
+    // Planning helpers.
+    double ForecastSecondsToAfford(GameWorld& world, Player* player, const std::vector<ResourceAmountDefinition>& costs) const;
+    double MilestoneAlignment(const AIActionCandidate& candidate, const AIMilestone* activeMilestone) const;
+    Building* FindUniversity(GameWorld& world, Player* player) const;
+    std::string SelectResearchTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    std::string SelectFocusTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    Building* FindRecruitmentBarracks(GameWorld& world, Player* player) const;
 
     double roadTimer{0.0};
     double economyTimer{0.0};
     double militaryTimer{4.0};
     double attackTimer{30.0};
+    double decisionTimer{0.0};
     std::vector<AIStrategyAxisCache> strategyAxisCache;
     AIStrategicPlan activePlan{AIStrategicPlan::RecoverEconomy};
+    AIGoalState goalState;
     std::map<int, double> reservedRoadTiles;
     std::map<BuildingType, double> recentBuildOrders;
+    std::map<std::string, double> recentResearchOrders;
 };
 
 class AIController : public IController

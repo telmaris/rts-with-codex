@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 13\n";
+    out << "RTS_SAVE 16\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -29,15 +29,26 @@ bool GameWorld::SaveToFile(const std::string& path) const
     out << "PLAYERS " << playerHandler.players.size() << '\n';
     for (const auto& [id, player] : playerHandler.players)
     {
+        int diploCount = 0;
+        for (const auto& [otherId, rel] : player->diplomatic.relations)
+            if (rel != DiplomaticRelation::Neutral) diploCount++;
+        int warCount = static_cast<int>(player->diplomatic.wars.size());
         out << "PLAYER " << id << ' ' << player->strategicResources.values.size() << ' '
             << player->technologies.GetUnlocked().size() << ' '
-            << player->focuses.GetUnlocked().size() << '\n';
+            << player->focuses.GetUnlocked().size() << ' '
+            << diploCount << ' ' << warCount << '\n';
         for (const auto& [type, value] : player->strategicResources.values)
             out << "STRAT " << static_cast<int>(type) << ' ' << value << '\n';
         for (const auto& techId : player->technologies.GetUnlocked())
             out << "TECH " << std::quoted(techId) << '\n';
         for (const auto& focusId : player->focuses.GetUnlocked())
             out << "FOCUS " << std::quoted(focusId) << '\n';
+        for (const auto& [otherId, rel] : player->diplomatic.relations)
+            if (rel != DiplomaticRelation::Neutral)
+                out << "DIPLO " << otherId << ' ' << static_cast<int>(rel) << '\n';
+        for (const auto& w : player->diplomatic.wars)
+            out << "WAR " << w.id << ' ' << w.attackerId << ' ' << w.defenderId << ' '
+                << w.startTime << ' ' << static_cast<int>(w.active) << '\n';
         out << "ENDPLAYER\n";
     }
 
@@ -46,7 +57,8 @@ bool GameWorld::SaveToFile(const std::string& path) const
     {
         int ownerId = tile.owner != nullptr ? tile.owner->id : -1;
         out << "T " << tile.id << ' ' << static_cast<int>(tile.tileType) << ' '
-            << tile.terrainTextureId << ' ' << ownerId << ' ' << tile.resourceRichness << '\n';
+            << tile.terrainTextureId << ' ' << ownerId << ' ' << tile.resourceRichness << ' '
+            << static_cast<int>(tile.biome) << '\n';
     }
 
     int buildingCount = 0;
@@ -170,8 +182,9 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << g->archers << ' ' << static_cast<int>(g->currentOrder) << ' '
                 << g->orderTargetId << ' ' << g->orderCooldown << '\n';
             out << "DIVS " << g->nextDivisionId << ' ' << g->divisions.size() << '\n';
-            for (const auto& division : g->divisions)
+            for (const auto& divisionPtr : g->divisions)
             {
+                const auto& division = *divisionPtr;
                 out << "DIV " << division.id << ' ' << static_cast<int>(division.type) << ' '
                     << division.manpowerScale << ' ' << division.maxHealth << ' ' << division.health << ' '
                     << division.endurance << ' ' << division.strength << ' ' << division.morale << ' '
@@ -203,7 +216,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
 }
 
 // Loads the requested data into runtime state.
-bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
+bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioSystem* a)
 {
     std::ifstream in(path);
     if (!in.is_open())
@@ -212,10 +225,11 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
     std::string tag;
     int version = 0;
     in >> tag >> version;
-    if (tag != "RTS_SAVE" || (version < 1 || version > 13))
+    if (tag != "RTS_SAVE" || (version < 1 || version > 15))
         return false;
 
     render = renderer;
+    audio  = a;
 
     in >> tag >> std::quoted(worldName);
     if (tag != "WORLD")
@@ -259,6 +273,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
         int strategicCount = 0;
         int technologyCount = 0;
         int focusCount = 0;
+        int diploCount = 0;
+        int warCount = 0;
         in >> tag >> playerId >> strategicCount;
         if (tag != "PLAYER")
             return false;
@@ -266,6 +282,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
             in >> technologyCount;
         if (version >= 11)
             in >> focusCount;
+        if (version >= 14)
+            in >> diploCount;
+        if (version >= 15)
+            in >> warCount;
 
         auto player = std::make_unique<Player>(playerId, tilemap);
         player->name = playerId == localPlayerId ? "Player" : "AI Opponent";
@@ -296,6 +316,24 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
             if (tag != "FOCUS")
                 return false;
             player->focuses.RestoreFocus(focusId);
+        }
+        for (int d = 0; d < diploCount; d++)
+        {
+            int otherId = 0;
+            int rel = 0;
+            in >> tag >> otherId >> rel;
+            if (tag != "DIPLO")
+                return false;
+            player->diplomatic.SetRelation(otherId, static_cast<DiplomaticRelation>(rel));
+        }
+        for (int w = 0; w < warCount; w++)
+        {
+            int wid = 0, atk = 0, def = 0, active = 0;
+            double startTime = 0.0;
+            in >> tag >> wid >> atk >> def >> startTime >> active;
+            if (tag != "WAR")
+                return false;
+            player->diplomatic.wars.push_back({wid, atk, def, startTime, active != 0});
         }
         player->RefreshTechnologyModifiers();
 
@@ -330,6 +368,12 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
             in >> tile.resourceRichness;
         else
             tile.resourceRichness = tile.tileType == TileType::GRASS ? 0 : tilemap.params.resourceRichness;
+        if (version >= 16)
+        {
+            int biome = 0;
+            in >> biome;
+            tile.biome = static_cast<BiomeType>(biome);
+        }
         auto ownerIt = playerHandler.players.find(ownerId);
         tile.owner = ownerIt != playerHandler.players.end() ? ownerIt->second.get() : nullptr;
         tilemap.tilemap[id] = std::move(tile);
@@ -599,14 +643,19 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
                     int ranged = static_cast<int>(ResourceType::Null);
                     int ammo   = static_cast<int>(ResourceType::Null);
                     int order  = 0;
-                    MilitaryDivision division;
-                    in >> tag >> division.id >> unitType >> division.manpowerScale
+                    int id = 0;
+                    in >> tag >> id >> unitType;
+                    if (tag != "DIV") return false;
+
+                    // Reconstruct the concrete subclass from the saved type tag.
+                    auto divisionPtr = CreateMilitaryDivision(static_cast<MilitaryUnitType>(unitType), id);
+                    MilitaryDivision& division = *divisionPtr;
+
+                    in >> division.manpowerScale
                        >> division.maxHealth >> division.health >> division.endurance
                        >> division.strength >> division.morale >> division.experience
                        >> weapon >> armor >> ranged >> ammo;
-                    if (tag != "DIV") return false;
-                    division.type = static_cast<MilitaryUnitType>(unitType);
-                    division.stats = MakeDefaultUnitStats(division.type);
+                    division.stats = division.BaseStats();
                     division.equipment.weapon       = static_cast<ResourceType>(weapon);
                     division.equipment.armor        = static_cast<ResourceType>(armor);
                     division.equipment.rangedWeapon = static_cast<ResourceType>(ranged);
@@ -627,7 +676,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer)
                         division.weaponSupplyCapacity  = division.manpowerScale;
                         division.weaponSupply          = division.manpowerScale;
                     }
-                    garrison->divisions.push_back(division);
+                    // Divisions are owned by the player; AddForce homes it at this
+                    // building and updates the garrison view.
+                    if (placed->owner != nullptr)
+                        placed->owner->AddForce(std::move(divisionPtr), placed->positionId);
                 }
 
                 in >> tag;

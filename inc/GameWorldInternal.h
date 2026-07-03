@@ -27,6 +27,9 @@ namespace GameWorldInternal
             case BuildingType::Inn: return std::make_unique<Inn>(id);
             case BuildingType::Paperworks: return std::make_unique<Paperworks>(id);
             case BuildingType::Smith: return std::make_unique<Smith>(id);
+            case BuildingType::Mint: return std::make_unique<Mint>(id);
+            case BuildingType::Glassworks: return std::make_unique<Glassworks>(id);
+            case BuildingType::Powderworks: return std::make_unique<Powderworks>(id);
             case BuildingType::University: return std::make_unique<University>(id);
             case BuildingType::GuardTower: return std::make_unique<GuardTower>(id);
             case BuildingType::Fortress: return std::make_unique<Fortress>(id);

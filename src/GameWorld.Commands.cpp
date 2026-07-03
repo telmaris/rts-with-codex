@@ -1,9 +1,11 @@
 #include "../inc/GameWorldInternal.h"
+#include "../inc/AudioSystem.h"
 #include "../inc/DivisionSector.h"
 #include "../inc/SectorGraph.h"
 
 #include <algorithm>
 #include <limits>
+#include <set>
 
 using namespace GameWorldInternal;
 
@@ -23,8 +25,9 @@ namespace
             if (garrison == nullptr)
                 continue;
 
-            for (auto& division : garrison->divisions)
+            for (auto& divisionPtr : garrison->divisions)
             {
+                auto& division = *divisionPtr;
                 if (!division.inTransit || division.occupiedTile.x < 0)
                     continue;
                 garrison->MoveDivisionTo(division.id, division.occupiedTile, *building);
@@ -34,9 +37,9 @@ namespace
 
     SoldierDivision* FindDivision(GarrisonComponent& garrison, int divisionId)
     {
-        for (auto& division : garrison.divisions)
-            if (division.id == divisionId)
-                return &division;
+        for (auto* division : garrison.divisions)
+            if (division->id == divisionId)
+                return division;
         return nullptr;
     }
 
@@ -56,14 +59,79 @@ namespace
                     continue;
                 for (const auto& division : garrison->divisions)
                 {
-                    if (pid == excludingPlayerId && division.id == excludingDivisionId)
+                    if (pid == excludingPlayerId && division->id == excludingDivisionId)
                         continue;
-                    if (division.occupiedTile == tile)
+                    if (division->occupiedTile == tile)
                         return true;
                 }
             }
         }
         return false;
+    }
+
+    // Movement is per-QUADRANT (HoI4-style): a single enemy division holding any
+    // tile of a 2x2 quadrant blocks the WHOLE quadrant — the enemy army occupies
+    // the province, so you cannot slip past it through the other three tiles. This
+    // returns every tile of every quadrant held by a division not belonging to
+    // `mover`. Deterministic (std::map + std::set) for lockstep.
+    std::set<int> EnemyOccupiedTiles(const GameWorld& world, const Player* mover)
+    {
+        std::set<int> blocked;
+        if (mover == nullptr)
+            return blocked;
+        for (const auto& [pid, player] : world.playerHandler.players)
+        {
+            if (player == nullptr || player.get() == mover)
+                continue;
+            // No alliances yet: everyone who isn't us blocks. Once diplomacy has
+            // neutral/allied states, filter hostile owners here.
+            for (Building* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
+            {
+                auto* garrison = building != nullptr ? building->GetComponent<GarrisonComponent>() : nullptr;
+                if (garrison == nullptr)
+                    continue;
+                for (const auto& division : garrison->divisions)
+                {
+                    if (division->occupiedTile.x < 0)
+                        continue;
+                    Vec2i cell = SectorCellOf(division->occupiedTile);   // 2x2 quadrant
+                    Vec2i anchor{cell.x * 2, cell.y * 2};
+                    for (int dy = 0; dy < 2; dy++)
+                        for (int dx = 0; dx < 2; dx++)
+                        {
+                            Vec2i t{anchor.x + dx, anchor.y + dy};
+                            if (world.tilemap.IsInside(t))
+                                blocked.insert(world.tilemap.GetIdFromCoords(t));
+                        }
+                }
+            }
+        }
+        return blocked;
+    }
+
+    // Full movement mask for `mover`: an army may only cross ground it owns, an
+    // ally's ground, or the ground of an enemy it is at war with. Neutral/unowned
+    // wilderness and non-hostile third parties are impassable — this stops the
+    // enemy from strolling around your line through no-man's-land. Enemy-held
+    // quadrants (from EnemyOccupiedTiles) are folded in so a hostile army also
+    // physically blocks. Deterministic. (The path's start tile is exempt in the
+    // planner, so a unit standing just outside its territory can still set off.)
+    std::set<int> MovementBlockedTiles(const GameWorld& world, const Player* mover)
+    {
+        std::set<int> blocked = EnemyOccupiedTiles(world, mover);
+        if (mover == nullptr)
+            return blocked;
+        const auto& tiles = world.tilemap.tilemap;
+        for (int id = 0; id < static_cast<int>(tiles.size()); id++)
+        {
+            const Player* o = tiles[id].owner;
+            // Allowed: our own land, or a war-enemy's land (advance the front). Ally
+            // land will be allowed here once diplomacy has an alliance state.
+            const bool allowed = (o == mover) || (o != nullptr && mover->diplomatic.IsAtWar(o->id));
+            if (!allowed)
+                blocked.insert(id);
+        }
+        return blocked;
     }
 
     bool AnyDivisionInFootprint(const GameWorld& world, Vec2i anchor, Vec2i footprint)
@@ -152,6 +220,10 @@ namespace
 
     Vec2i DivisionStartTile(const GameWorld& world, const Building& source, const SoldierDivision& division)
     {
+        // When stopped, use the logical occupiedTile (avoids sector-centre mismatch).
+        if (!division.inTransit && division.occupiedTile.x >= 0)
+            return division.occupiedTile;
+        // When in transit, use physical worldPos (most accurate current position).
         if (division.worldPos.x >= 0.0f)
         {
             return {
@@ -184,15 +256,39 @@ namespace
             return SetDivisionOrder(garrison, divisionId, MilitaryOrderType::Attack, target.positionId);
 
         auto candidates = AdjacentWalkableTilesAroundBuilding(world, target, start);
+        std::set<int> blocked = MovementBlockedTiles(world, source.owner);
         bool moved = false;
         for (Vec2i candidate : candidates)
         {
             if (moved)
                 break;
             moved = garrison.MoveDivisionTo(divisionId, candidate, source,
-                                            false, false);
+                                            false, false, &blocked);
         }
         return moved && SetDivisionOrder(garrison, divisionId, MilitaryOrderType::Attack, target.positionId);
+    }
+
+    bool MoveDivisionToDefendBuilding(GameWorld& world, Building& source, GarrisonComponent& garrison,
+                                     int divisionId, Building& target)
+    {
+        SoldierDivision* division = FindDivision(garrison, divisionId);
+        if (division == nullptr)
+            return false;
+
+        if (division->occupiedTile.x >= 0 && TileAdjacentToBuilding(world, division->occupiedTile, target))
+            return SetDivisionOrder(garrison, divisionId, MilitaryOrderType::Defend, target.positionId);
+
+        Vec2i start = DivisionStartTile(world, source, *division);
+        auto candidates = AdjacentWalkableTilesAroundBuilding(world, target, start);
+        std::set<int> blocked = MovementBlockedTiles(world, source.owner);
+        bool moved = false;
+        for (Vec2i candidate : candidates)
+        {
+            if (moved)
+                break;
+            moved = garrison.MoveDivisionTo(divisionId, candidate, source, false, false, &blocked);
+        }
+        return moved && SetDivisionOrder(garrison, divisionId, MilitaryOrderType::Defend, target.positionId);
     }
 
     bool MoveDivisionToAttackTile(GameWorld& world, Building& source, GarrisonComponent& garrison,
@@ -215,13 +311,15 @@ namespace
         }
 
         auto candidates = AdjacentWalkableTilesAroundTile(world, targetTile, start);
+        std::set<int> blocked = MovementBlockedTiles(world, source.owner);
+        blocked.erase(targetTileId);  // the target enemy tile is the fight, not a wall
         bool moved = false;
         for (Vec2i candidate : candidates)
         {
             if (moved)
                 break;
             moved = garrison.MoveDivisionTo(divisionId, candidate, source,
-                                            false, false);
+                                            false, false, &blocked);
         }
         // March adjacent and carry the attack order so combat starts on arrival.
         return moved && SetDivisionOrder(garrison, divisionId, MilitaryOrderType::Attack, targetTileId);
@@ -336,6 +434,12 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return true;
     };
 
+    auto playFx = [this, &command](const std::string& id, float vol = 1.0f)
+    {
+        if (audio != nullptr && command.playerId == localPlayerId)
+            audio->PlaySound(id, vol);
+    };
+
     if (command.type == GameCommandType::BuildBuilding)
     {
         if (!tilemap.IsInside(command.tilePos))
@@ -347,7 +451,11 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (!tilemap.CanPlaceBuilding(command.buildingType, command.tilePos, preview->GetFootprint(), player))
             return false;
-        if (AnyDivisionInFootprint(*this, command.tilePos, preview->GetFootprint()))
+        // Roads are traversable terrain — armies march on them, so a deployed
+        // division does not block laying a road underneath it. Solid buildings
+        // still cannot be raised on top of troops.
+        if (command.buildingType != BuildingType::Road &&
+            AnyDivisionInFootprint(*this, command.tilePos, preview->GetFootprint()))
         {
             Log::Msg("[GameWorld]", "Command rejected: cannot build on a deployed division");
             return false;
@@ -365,7 +473,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
                 return false;
             }
         }
-        if (chargeCost && !player->TryPayBuildCost(definition.buildCosts))
+        if (chargeCost && !player->TryPayBuildCost(player->GetEffectiveBuildCosts(definition)))
         {
             Log::Msg("[GameWorld]", "Command rejected: not enough resources to build ", definition.name);
             return false;
@@ -392,6 +500,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (placed->IsUnderConstruction())
         {
+            playFx("build");
             return acceptCommand();
         }
 
@@ -401,6 +510,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
                 player->roadNetwork->UpdateNavMap(occupiedTileId, placed);
         }
         tilemap.AutoConnectBuilding(placed);
+        playFx("build");
         return acceptCommand();
     }
 
@@ -415,7 +525,16 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             return false;
         }
 
+        // Cancelling a still-unfinished build refunds what was paid for it —
+        // an under-construction building is always one the player was charged for.
+        if (building->IsUnderConstruction())
+        {
+            const auto& definition = GetBuildingDefinition(building->buildingType);
+            player->RefundBuildCost(player->GetEffectiveBuildCosts(definition));
+        }
+
         tilemap.DestroyBuildingAt(building->positionId);
+        playFx("destroy");
         return acceptCommand();
     }
 
@@ -431,36 +550,6 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             return false;
 
         tilemap.ConnectReceiver(source, target, command.alternativeReceiver);
-        return acceptCommand();
-    }
-
-    if (command.type == GameCommandType::AttackBuilding)
-    {
-        Building* source = tilemap.GetBuilding(command.sourceTileId);
-        Building* target = tilemap.GetBuilding(command.targetTileId);
-        if (source == nullptr || target == nullptr || source == target)
-            return false;
-        if (source->owner != player || target->owner == player)
-            return false;
-        if (source->IsUnderConstruction() || target->IsUnderConstruction())
-            return false;
-
-        auto* targetTerritory = target->GetComponent<TerritoryComponent>();
-        if (targetTerritory == nullptr || targetTerritory->hp <= 0)
-            return false;
-
-        auto* garrison = source->GetComponent<GarrisonComponent>();
-        if (garrison == nullptr || source->HasComponent<RecruitmentComponent>())
-            return false;
-        bool orderedAny = false;
-        for (const auto& division : garrison->divisions)
-            orderedAny = MoveDivisionToAttackBuilding(*this, *source, *garrison, division.id, *target) || orderedAny;
-        if (!orderedAny)
-            return false;
-        garrison->currentOrder = MilitaryOrderType::Attack;
-        garrison->orderTargetId = target->positionId;
-        garrison->orderCooldown = 0.0;
-        Log::Msg("[Combat]", source->name, " received attack order against ", target->name);
         return acceptCommand();
     }
 
@@ -480,18 +569,45 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (command.militaryOrderType == MilitaryOrderType::Attack && target->owner == player)
             return false;
+        // Armies besiege only military targets (defensive works + HQ). Civil
+        // buildings like the Barracks factory are not valid attack destinations.
+        if (command.militaryOrderType == MilitaryOrderType::Attack && !IsMilitaryAttackTarget(*target))
+            return false;
         if ((command.militaryOrderType == MilitaryOrderType::Support || command.militaryOrderType == MilitaryOrderType::Defend) &&
             target->owner != player)
             return false;
         if (command.militaryOrderType == MilitaryOrderType::Support &&
             target->GetComponent<GarrisonComponent>() == nullptr)
             return false;
+        // Only defensive works (tower/fortress/castle) man a garrison. The
+        // Barracks factory and the Headquarters merely home field divisions —
+        // divisions cannot be sent to defend or garrison inside them.
+        if ((command.militaryOrderType == MilitaryOrderType::Support ||
+             command.militaryOrderType == MilitaryOrderType::Defend) &&
+            !IsDefensiveGarrisonBuilding(*target))
+            return false;
+
+        // An attack order is the declaration of war, and it must be flagged
+        // BEFORE the march is planned: movement is territory-gated on IsAtWar,
+        // so until the war exists the enemy's ground is impassable and the
+        // divisions could never set off toward the target.
+        if (command.militaryOrderType == MilitaryOrderType::Attack &&
+            target->owner != nullptr && target->owner != player)
+        {
+            player->diplomatic.DeclareWar(player->id, target->owner->id);
+            target->owner->diplomatic.DeclareWar(player->id, target->owner->id);
+        }
 
         if (command.divisionId >= 0)
         {
             if (command.militaryOrderType == MilitaryOrderType::Attack)
             {
                 if (!MoveDivisionToAttackBuilding(*this, *source, *garrison, command.divisionId, *target))
+                    return false;
+            }
+            else if (command.militaryOrderType == MilitaryOrderType::Defend)
+            {
+                if (!MoveDivisionToDefendBuilding(*this, *source, *garrison, command.divisionId, *target))
                     return false;
             }
             else
@@ -508,7 +624,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             {
                 bool orderedAny = false;
                 for (const auto& division : garrison->divisions)
-                    orderedAny = MoveDivisionToAttackBuilding(*this, *source, *garrison, division.id, *target) || orderedAny;
+                    orderedAny = MoveDivisionToAttackBuilding(*this, *source, *garrison, division->id, *target) || orderedAny;
                 if (!orderedAny)
                     return false;
                 garrison->currentOrder = command.militaryOrderType;
@@ -522,20 +638,10 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             }
         }
 
-        // Register in battle system
-        if (command.militaryOrderType == MilitaryOrderType::Attack)
-        {
-            battles.StartBattle(source->positionId, target->positionId);
-        }
-        else if (command.militaryOrderType == MilitaryOrderType::Support)
-        {
-            auto* b = battles.FindBattleByBuilding(target->positionId);
-            if (b != nullptr)
-            {
-                bool targetIsAttacker = (b->attackerTileId == target->positionId);
-                battles.AddSupport(b->id, source->positionId, targetIsAttacker);
-            }
-        }
+        // Combat is fully division-based (RunFieldCombat); an Attack order only
+        // marches the divisions adjacent (war was declared above). Damage and
+        // engagement are resolved centrally from division adjacency.
+        playFx(command.militaryOrderType == MilitaryOrderType::Attack ? "attack" : "march");
 
         return acceptCommand();
     }
@@ -556,12 +662,36 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (!tilemap.IsInside(target))
             return false;
 
-        DivisionSector sector = ResolveDivisionSector(tilemap, target, player);
-        if (!sector.IsValid())
-            return false;
+        // HoI4 flow: ordering a move INTO a quadrant held by an enemy army IS an
+        // attack on that army. Convert the move instead of rejecting it (the
+        // province is plan-time blocked), so walking onto the enemy declares the
+        // war, marches to contact and starts the battle naturally.
+        Vec2i targetCell = SectorCellOf(target);
+        for (const auto& [pid, other] : playerHandler.players)
+        {
+            if (other == nullptr || other.get() == player)
+                continue;
+            for (const auto& enemyDiv : other->forces)
+            {
+                if (enemyDiv == nullptr || enemyDiv->occupiedTile.x < 0 ||
+                    SectorCellOf(enemyDiv->occupiedTile) != targetCell)
+                    continue;
 
-        if (!garrison->MoveDivisionTo(command.divisionId, target, *source))
+                player->diplomatic.DeclareWar(player->id, other->id);
+                other->diplomatic.DeclareWar(player->id, other->id);
+                if (!MoveDivisionToAttackTile(*this, *source, *garrison, command.divisionId, enemyDiv->occupiedTile))
+                    return false;
+                playFx("attack");
+                return acceptCommand();
+            }
+        }
+
+        // Armies move only within their own / war-enemy / ally territory, and an
+        // enemy army's quadrant blocks the route.
+        std::set<int> blocked = MovementBlockedTiles(*this, player);
+        if (!garrison->MoveDivisionTo(command.divisionId, target, *source, false, true, &blocked))
             return false;
+        playFx("march");
         return acceptCommand();
     }
 
@@ -581,22 +711,29 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (!tilemap.IsInside(target))
             return false;
 
-        bool enemyDivisionOnTarget = false;
+        Player* targetOwner = nullptr;
         for (const auto& [pid, other] : playerHandler.players)
         {
             if (other == nullptr || other.get() == player)
                 continue;
             if (DivisionOnTile(*other, target, -1) >= 0)
             {
-                enemyDivisionOnTarget = true;
+                targetOwner = other.get();
                 break;
             }
         }
-        if (!enemyDivisionOnTarget)
+        if (targetOwner == nullptr)
             return false;
+
+        // Attacking an enemy army is also a declaration of war, flagged BEFORE
+        // the march is planned — movement is territory-gated on IsAtWar, so the
+        // route into enemy ground only opens once the war exists.
+        player->diplomatic.DeclareWar(player->id, targetOwner->id);
+        targetOwner->diplomatic.DeclareWar(player->id, targetOwner->id);
 
         if (!MoveDivisionToAttackTile(*this, *source, *garrison, command.divisionId, target))
             return false;
+        playFx("attack");
         return acceptCommand();
     }
 
@@ -629,6 +766,35 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::AssignToArmy)
+    {
+        Building* home = tilemap.GetBuilding(command.sourceTileId);
+        if (home == nullptr || home->owner != player)
+            return false;
+        const int armyId = command.targetTileId;
+        if (player->armyGroups.FindArmy(armyId) == nullptr)
+            return false;
+
+        std::vector<int> divisionIds;
+        std::stringstream stream(command.researchId);
+        std::string token;
+        while (std::getline(stream, token, ','))
+        {
+            if (token.empty())
+                continue;
+            try { divisionIds.push_back(std::stoi(token)); }
+            catch (...) { return false; }
+        }
+        if (divisionIds.empty())
+            return false;
+
+        for (int divisionId : divisionIds)
+            player->armyGroups.AddDivision(armyId, home->positionId, divisionId);
+        player->armyGroups.RebuildAllModifiers(player->armyModifierSet);
+        Log::Msg("[Army]", "Transferred ", divisionIds.size(), " divisions into army #", armyId);
+        return acceptCommand();
+    }
+
     if (command.type == GameCommandType::RecruitUnit)
     {
         Building* source = tilemap.GetBuilding(command.sourceTileId);
@@ -642,6 +808,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (!recruitment->QueueUnit(command.militaryUnitType, *source, *garrison))
             return false;
+        playFx("recruit");
         return acceptCommand();
     }
 
@@ -652,6 +819,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (!player->StartFocus(command.researchId))
             return false;
+        playFx("research");
         return acceptCommand();
     }
 
@@ -670,6 +838,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         if (!player->StartTechnologyResearch(command.researchId, source))
             return false;
+        playFx("research");
         return acceptCommand();
     }
 

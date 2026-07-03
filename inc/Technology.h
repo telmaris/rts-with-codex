@@ -33,6 +33,10 @@ const std::vector<TechnologyDefinition>& GetFocusDefinitions();
 std::vector<TechnologyDefinition> LoadTechnologyDefinitionsFromFile(const std::string& path);
 std::vector<TechnologyDefinition> LoadFocusDefinitionsFromFile(const std::string& path);
 
+// Reloads definitions from disk (debug tool — replaces the static cache).
+void ReloadTechnologyDefinitions();
+void ReloadFocusDefinitions();
+
 // Finds one technology definition by id.
 const TechnologyDefinition* FindTechnologyDefinition(const std::string& id);
 const TechnologyDefinition* FindFocusDefinition(const std::string& id);

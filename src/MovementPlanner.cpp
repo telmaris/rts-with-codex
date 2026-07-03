@@ -45,7 +45,7 @@ namespace
 }
 
 std::vector<int> PlanDivisionPath(const TileMap& map, Vec2i start, Vec2i goal,
-                                  const MovementCost& cost)
+                                  const MovementCost& cost, const std::set<int>* blockedTiles)
 {
     if (!map.IsInside(start) || !map.IsInside(goal))
         return {};
@@ -56,6 +56,9 @@ std::vector<int> PlanDivisionPath(const TileMap& map, Vec2i start, Vec2i goal,
     const int goalId = map.GetIdFromCoords(goal);
     if (startId == goalId)
         return {startId};
+    // A goal held by an enemy division is unreachable (must be fought, not entered).
+    if (blockedTiles != nullptr && blockedTiles->count(goalId) != 0)
+        return {};
 
     const int width = map.params.sizeX;
     const int height = map.params.sizeY;
@@ -99,6 +102,10 @@ std::vector<int> PlanDivisionPath(const TileMap& map, Vec2i start, Vec2i goal,
             const bool diagonal = d >= 4;
             Vec2i np{cp.x + dirs[d][0], cp.y + dirs[d][1]};
             if (!map.IsInside(np) || !IsTileWalkableForDivision(map, np))
+                continue;
+            // Tiles held by enemy divisions are impassable — route around only if a
+            // gap exists, otherwise the army genuinely blocks the advance.
+            if (blockedTiles != nullptr && blockedTiles->count(map.GetIdFromCoords(np)) != 0)
                 continue;
 
             // No diagonal corner-cutting through blocked tiles or building corners.

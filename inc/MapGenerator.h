@@ -14,7 +14,9 @@ enum class MapSizePreset
     XL
 };
 
-// Parameters controlling one generated resource patch family.
+// Parameters controlling one generated resource patch family. A patch only paints
+// tiles whose biome is listed in allowedBiomes (empty = any biome). See
+// docs/resource_world_design.md. Add a new deposit by appending one of these.
 struct ResourcePatchParameters
 {
     TileType type{TileType::WOOD};
@@ -23,6 +25,19 @@ struct ResourcePatchParameters
     int maxRadius{8};
     float fillChance{0.46f};
     int smoothingPasses{4};
+    std::vector<BiomeType> allowedBiomes{};
+    float richnessScale{1.0f};   // multiplies base resourceRichness for this deposit
+};
+
+// Thresholds shaping the biome pass (all tunable; deterministic on seed).
+struct BiomeParameters
+{
+    float mountainElevation{0.72f};  // elevation above this → MOUNTAINS
+    float hillElevation{0.55f};      // elevation above this → HILLS
+    float desertMoisture{0.30f};     // moisture below this (and warm lowland) → DESERT
+    float wetlandMoisture{0.72f};    // moisture above this (and low ground) → WETLAND
+    float forestMoisture{0.55f};     // moisture above this → FOREST, else PLAINS
+    float noiseScale{0.045f};        // lattice frequency; lower = larger regions
 };
 
 // Parameters controlling world generation and terrain distribution.
@@ -37,11 +52,25 @@ struct MapParameters
     int aiOpponentCount{1};
     int aiDifficulty{0};
     bool debugMode{false};
+    BiomeParameters biome{};
+    // Deposit families. allowedBiomes gates placement so chains stay realistic
+    // (wood in forest, ores in hills/mountains, sand in desert). patchCount scales
+    // with rarity — rare strategic resources get few patches.
     std::vector<ResourcePatchParameters> resourcePatches{
-        {TileType::WOOD, 18, 4, 10, 0.50f, 4},
-        {TileType::COAL, 8, 3, 7, 0.46f, 4},
-        {TileType::IRON_ORE, 8, 3, 7, 0.46f, 4},
-        {TileType::STONE, 8, 3, 8, 0.47f, 4}
+        // Common — widely available.
+        {TileType::WOOD,       18, 4, 10, 0.50f, 4, {BiomeType::FOREST},                       1.0f},
+        {TileType::STONE,       9, 3,  8, 0.47f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::COAL,        8, 3,  7, 0.46f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::IRON_ORE,    8, 3,  7, 0.46f, 4, {BiomeType::MOUNTAINS, BiomeType::HILLS},   1.0f},
+        // Uncommon.
+        {TileType::COPPER_ORE,  5, 2,  6, 0.45f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        // Rare — strategic, drives trade. Few, concentrated patches.
+        {TileType::TIN_ORE,     3, 2,  5, 0.44f, 4, {BiomeType::MOUNTAINS},                     0.8f},
+        {TileType::SILVER_ORE,  3, 2,  4, 0.43f, 4, {BiomeType::MOUNTAINS},                     0.7f},
+        {TileType::GOLD_ORE,    2, 2,  4, 0.42f, 4, {BiomeType::MOUNTAINS},                     0.6f},
+        {TileType::SAND,        4, 3,  8, 0.50f, 4, {BiomeType::DESERT},                        1.0f},
+        {TileType::SULFUR,      3, 2,  5, 0.44f, 4, {BiomeType::DESERT, BiomeType::MOUNTAINS},  0.8f},
+        {TileType::SALTPETER,   3, 2,  5, 0.44f, 4, {BiomeType::WETLAND},                       0.8f}
     };
 };
 
@@ -65,9 +94,11 @@ class MapGenerator
         static void PrepareStartingArea(TileMap&, Vec2i hqAnchor, std::mt19937&);
 
     private:
+        // Assigns a biome to every tile from elevation + moisture noise fields.
+        void GenerateBiomes(TileMap&, const MapParameters&, std::mt19937&);
         // Generates every configured resource patch group.
         void GenerateResourcePatches(TileMap&, const MapParameters&, std::mt19937&);
-        // Generates one organic resource patch.
+        // Generates one organic resource patch, gated by the patch's allowed biomes.
         void GeneratePatch(TileMap&, const ResourcePatchParameters&, std::mt19937&);
 };
 
@@ -100,6 +131,7 @@ class Tile
         std::unique_ptr<Building> building{nullptr};
         Building* buildingRef{nullptr};
         TileType tileType{static_cast<TileType>(0)};
+        BiomeType biome{BiomeType::PLAINS};
         int terrainTextureId{0};
         int resourceRichness{0};
 };
@@ -183,7 +215,15 @@ class TileMap
             {TileType::COAL, {{0, 1},{1, 1},{2, 1}}},
             {TileType::IRON_ORE, {{13, 1},{14, 1},{15, 1}}},
             {TileType::WOOD, {{6, 1},{7, 1},{8, 1}}},
-            {TileType::STONE, {{16, 1},{17, 1},{18, 1}}}
+            {TileType::STONE, {{16, 1},{17, 1},{18, 1}}},
+            // Placeholder visuals (reuse existing ids until dedicated assets exist).
+            {TileType::COPPER_ORE, {{0, 1},{1, 1}}},
+            {TileType::TIN_ORE, {{16, 1},{17, 1}}},
+            {TileType::SILVER_ORE, {{13, 1},{14, 1}}},
+            {TileType::GOLD_ORE, {{14, 1},{15, 1}}},
+            {TileType::SAND, {{9, 1},{10, 1}}},
+            {TileType::SULFUR, {{2, 1}}},
+            {TileType::SALTPETER, {{18, 1}}}
         };
 
         std::vector<Tile> tilemap;

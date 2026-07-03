@@ -15,6 +15,8 @@
 #include "ArmyRegistry.h"
 #include "PlayerDataTracker.h"
 #include "PlayerEconomy.h"
+#include "ConstructionQueue.h"
+#include "DiplomaticState.h"
 #include "raylib.h"
 
 #include <optional>
@@ -22,6 +24,7 @@
 
 class TileMap;
 class Player;
+class SoldierDivision;
 
 enum class PlayerControllerType
 {
@@ -38,8 +41,12 @@ public:
     Player(int i, TileMap& tmap) : tilemap(tmap), id(i), build(this, tilemap, id)
     {
         roadNetwork = std::make_unique<RoadNetwork>(tilemap);
+        diplomatic.ownerId = i;
         RefreshTechnologyModifiers();
     }
+    // Out-of-line (defined in Player.cpp) so the unique_ptr<SoldierDivision> vector
+    // can hold an incomplete type in this header.
+    ~Player();
 
     // Updates player input when an input source is attached.
     void Update(double dt)
@@ -105,7 +112,7 @@ public:
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
-        if (chargeCost && !TryPayBuildCost(definition.buildCosts))
+        if (chargeCost && !TryPayBuildCost(GetEffectiveBuildCosts(definition)))
         {
             Log::Msg("[Player]", "Not enough resources to build ", definition.name);
             return nullptr;
@@ -137,6 +144,19 @@ public:
 
     bool HasBuildResources(const std::vector<ResourceAmountDefinition>& costs) const;
     std::vector<std::string> GetBuildRequirementFailures(const BuildingDefinition& definition, bool ignoreDebugFreeBuild = true) const;
+
+    // Applies BalanceStat::BuildCost modifiers (tech/focus/state) to a building's base resource costs.
+    std::vector<ResourceAmountDefinition> GetEffectiveBuildCosts(const BuildingDefinition& definition) const
+    {
+        std::vector<ResourceAmountDefinition> effective;
+        effective.reserve(definition.buildCosts.size());
+        for (const auto& cost : definition.buildCosts)
+        {
+            int amount = ModifyBalanceInt(BalanceStat::BuildCost, cost.amount, definition.type, cost.type, std::nullopt, 0);
+            effective.push_back({cost.type, amount});
+        }
+        return effective;
+    }
 
     // Returns true when all build unlock requirements and costs are currently satisfied.
     bool CanBuildDefinition(const BuildingDefinition& definition) const
@@ -253,6 +273,9 @@ public:
     // Rebuilds the modifier set entries emitted by unlocked technologies.
     void RefreshTechnologyModifiers();
 
+    // Clears all unlocked tech/focuses and cancels in-progress research (debug helper).
+    void ResetResearchState();
+
     BalanceModifierContext MakeBalanceContext(BalanceStat stat, BuildingType buildingType,
                                               ResourceType resourceType = ResourceType::Null,
                                               std::optional<MilitaryUnitType> unitType = std::nullopt,
@@ -295,12 +318,31 @@ public:
     double AddManpower(double amount);
     int AutoAssignWorkers(Building* building);
     bool TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs);
+    // Returns resources to owned storage (cancelling an in-progress build).
+    // Overflow beyond available storage capacity is dropped.
+    void RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs);
 
     // Starts resource transport through this player's road network.
     bool BeginTransport(Building* src, Building* dest, Resource* res)
     {
         return roadNetwork->BeginTransport(src, dest, res);
     }
+
+    // ── Divisions are owned by the PLAYER, not by buildings ──────────────────
+    // `forces` is the single owner of every division this player has (garrisoned
+    // or deployed in the field). A building's GarrisonComponent only holds a
+    // non-owning *view* of the forces homed at it (SoldierDivision.garrisonBuildingId),
+    // rebuilt by RebuildGarrisonViews(). So capturing/destroying a building never
+    // deletes the player's field army, and a division is decoupled from the
+    // barracks that trained it.
+    std::vector<std::unique_ptr<SoldierDivision>> forces;
+
+    // Returns the player's division with this id, or nullptr.
+    SoldierDivision* FindForce(int id);
+    // Adds a freshly created division to the player, homed at `buildingId`.
+    SoldierDivision* AddForce(std::unique_ptr<SoldierDivision> division, int buildingId);
+    // Rebuilds every garrison building's non-owning division view from `forces`.
+    void RebuildGarrisonViews();
 
     int id;
     std::string name{"Player"};
@@ -323,7 +365,9 @@ public:
     StateDevelopment stateDevelopment;
     BalanceModifierSet balanceModifiers;
     PlayerDataTracker dataTracker;
+    ConstructionQueue construction;
     PlayerEconomyTelemetry economyTelemetry;
+    DiplomaticState diplomatic;
 };
 
 // Local human-controlled player type.

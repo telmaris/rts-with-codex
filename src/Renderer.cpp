@@ -123,20 +123,32 @@ void Renderer::LoadBuildingTexture(BuildingType type, const std::string& path)
 }
 
 // Draws a building texture sized to its footprint.
-void Renderer::DrawBuildingTexture(Building* building, Vec2f pos)
+void Renderer::DrawBuildingTexture(Building* building, Vec2f pos, Color tint)
 {
     if (building == nullptr)
         return;
 
-    DrawBuildingTexture(building->buildingType, building->GetFootprint(), pos);
+    DrawBuildingTexture(building->buildingType, building->GetFootprint(), pos, tint);
 }
 
-// Draws a building snapshot with its standalone texture.
-void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos)
+// Draws a building snapshot with its standalone texture. `tint` modulates the
+// sprite (WHITE = unchanged); a dim tint marks buildings still under construction.
+void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint)
 {
     Vec2f drawSize{
         static_cast<float>(footprint.x * TILE_SIZE),
         static_cast<float>(footprint.y * TILE_SIZE)};
+
+    // Channel-wise multiply so the fallback shapes fade with the same tint the
+    // GPU applies to textured sprites.
+    auto modulate = [&](Color base)
+    {
+        return Color{
+            static_cast<unsigned char>(base.r * tint.r / 255),
+            static_cast<unsigned char>(base.g * tint.g / 255),
+            static_cast<unsigned char>(base.b * tint.b / 255),
+            static_cast<unsigned char>(base.a * tint.a / 255)};
+    };
 
     auto textureIt = buildingTextures.find(type);
     if (textureIt != buildingTextures.end())
@@ -144,13 +156,13 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
         Texture2D texture = textureIt->second;
         Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), -static_cast<float>(texture.height)};
         Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
-        DrawTexturePro(texture, src, dest, {0.0f, 0.0f}, 0.0f, WHITE);
+        DrawTexturePro(texture, src, dest, {0.0f, 0.0f}, 0.0f, tint);
         return;
     }
 
     Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
-    DrawRectangleRounded(dest, 0.04f, 8, Color{90, 96, 108, 255});
-    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{170, 180, 196, 255});
+    DrawRectangleRounded(dest, 0.04f, 8, modulate(Color{90, 96, 108, 255}));
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, modulate(Color{170, 180, 196, 255}));
 }
 
 // Draws terrain, territory and buildings from an immutable game snapshot.

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 
 #include "Utils.h"
 #include "Resource.h"
@@ -43,16 +44,39 @@ enum class BuildingType : int
     Smith = 31,
     University = 32,
     Well = 33,
-    WheatFarm = 34
+    WheatFarm = 34,
+    Mint = 35,
+    Glassworks = 36,
+    Powderworks = 37
 };
 
+// What deposit (if any) sits on a tile — read by Mine/Woodcutter terrain_production.
 enum class TileType : int
 {
     GRASS = 0,
     WOOD = 1,
     COAL = 2,
     IRON_ORE = 3,
-    STONE = 4
+    STONE = 4,
+    COPPER_ORE = 5,
+    TIN_ORE = 6,
+    SILVER_ORE = 7,
+    GOLD_ORE = 8,
+    SAND = 9,
+    SULFUR = 10,
+    SALTPETER = 11
+};
+
+// Coarse terrain region driving resource placement (and, later, ground visuals).
+// See docs/resource_world_design.md.
+enum class BiomeType : int
+{
+    PLAINS = 0,
+    FOREST = 1,
+    HILLS = 2,
+    MOUNTAINS = 3,
+    DESERT = 4,
+    WETLAND = 5
 };
 
 enum class MilitaryOrderType : int
@@ -67,7 +91,9 @@ enum class MilitaryUnitType : int
 {
     Militia = 0,
     Swordsman = 1,
-    Archer = 2
+    Archer = 2,
+    Spearman = 3,
+    Cavalry = 4
 };
 
 const char* MilitaryUnitLabel(MilitaryUnitType type);
@@ -83,12 +109,39 @@ struct DivisionEquipment
     ResourceType ammo{ResourceType::Null};
 };
 
+// Abstract division. Concrete unit classes (militia, swordsmen, spearmen,
+// archers, cavalry) derive from this and supply their own baseline gear/stats
+// in the constructor and their combat identity through the virtual surface.
+// Per-instance state (health, experience, equipment, morale, movement) lives on
+// the base; only class-defining behaviour is virtual. Divisions are held by
+// unique_ptr (polymorphic), so copies go through Clone().
 class SoldierDivision
 {
 public:
-    SoldierDivision() = default;
+    virtual ~SoldierDivision() = default;
+
+    // --- Polymorphic identity: implemented by each concrete unit class ---
+    // Deep copy that preserves the dynamic type.
+    virtual std::unique_ptr<SoldierDivision> Clone() const = 0;
+    // Baseline (unmodified) combat stat block for this unit class.
+    virtual UnitStats BaseStats() const = 0;
+    // Human-readable class name (also the default UI label).
+    virtual const char* ClassName() const = 0;
+    // Whether the class fights primarily at range (archers).
+    virtual bool IsRanged() const { return false; }
+    // Whether the class delivers a mounted shock charge (cavalry).
+    virtual bool IsMounted() const { return false; }
 
     int id{0};
+    // The division is owned by its Player (Player::forces), not by a building.
+    // This records the building it is currently stationed at / homed to (the one it
+    // was trained in, or the garrison it entered): >= 0 when in a building, and it
+    // still functions as the movement source and supply anchor while deployed in
+    // the field. -1 only if it has no home building.
+    int garrisonBuildingId{-1};
+    // Cached discriminant — always equals the concrete class. Kept as a field so
+    // the simulation/UI can switch on it and serialization can reconstruct the
+    // right subclass without RTTI.
     MilitaryUnitType type{MilitaryUnitType::Militia};
     int manpowerScale{10};
     int maxHealth{100};
@@ -108,9 +161,9 @@ public:
     DivisionEquipment equipment;
 
     // Combat stat block (Stat<float>, modifiable by tech/focus/commander/buildings).
-    // Bases are always the unit-type defaults, so this is re-derived from `type`
+    // Bases are always the class defaults, so this is re-derived from `BaseStats()`
     // rather than serialized; see MakeDefaultUnitStats / ResolveUnitStat.
-    UnitStats stats{MakeDefaultUnitStats(MilitaryUnitType::Militia)};
+    UnitStats stats{};
 
     // Movement state — transient, not serialized; resets to home building on save/load.
     Vec2f worldPos{-1.0f, -1.0f};      // current world-space position; -1,-1 = home building
@@ -134,11 +187,69 @@ public:
     {
         return maxHealth > 0 ? std::clamp(health / static_cast<float>(maxHealth), 0.0f, 1.0f) : 0.0f;
     }
+
+protected:
+    explicit SoldierDivision(MilitaryUnitType t) : type(t) {}
+    SoldierDivision(const SoldierDivision&) = default;
+    SoldierDivision& operator=(const SoldierDivision&) = default;
 };
 
 using MilitaryDivision = SoldierDivision;
 
-SoldierDivision CreateMilitaryDivision(MilitaryUnitType type, int id);
+// ─── Concrete unit classes ────────────────────────────────────────────────────
+// Each class seeds its baseline gear and per-instance stats in the constructor
+// and exposes its combat identity through the virtual surface. Balance numbers
+// for the stat block live centrally in MakeDefaultUnitStats().
+
+class MilitiaDivision : public SoldierDivision
+{
+public:
+    MilitiaDivision();
+    std::unique_ptr<SoldierDivision> Clone() const override { return std::make_unique<MilitiaDivision>(*this); }
+    UnitStats BaseStats() const override;
+    const char* ClassName() const override { return "Militia"; }
+};
+
+class SwordsmanDivision : public SoldierDivision
+{
+public:
+    SwordsmanDivision();
+    std::unique_ptr<SoldierDivision> Clone() const override { return std::make_unique<SwordsmanDivision>(*this); }
+    UnitStats BaseStats() const override;
+    const char* ClassName() const override { return "Swordsman"; }
+};
+
+class ArcherDivision : public SoldierDivision
+{
+public:
+    ArcherDivision();
+    std::unique_ptr<SoldierDivision> Clone() const override { return std::make_unique<ArcherDivision>(*this); }
+    UnitStats BaseStats() const override;
+    const char* ClassName() const override { return "Archer"; }
+    bool IsRanged() const override { return true; }
+};
+
+class SpearmanDivision : public SoldierDivision
+{
+public:
+    SpearmanDivision();
+    std::unique_ptr<SoldierDivision> Clone() const override { return std::make_unique<SpearmanDivision>(*this); }
+    UnitStats BaseStats() const override;
+    const char* ClassName() const override { return "Spearman"; }
+};
+
+class CavalryDivision : public SoldierDivision
+{
+public:
+    CavalryDivision();
+    std::unique_ptr<SoldierDivision> Clone() const override { return std::make_unique<CavalryDivision>(*this); }
+    UnitStats BaseStats() const override;
+    const char* ClassName() const override { return "Cavalry"; }
+    bool IsMounted() const override { return true; }
+};
+
+// Factory: builds the concrete subclass for a unit type and assigns its id.
+std::unique_ptr<SoldierDivision> CreateMilitaryDivision(MilitaryUnitType type, int id);
 
 struct ResourceBufferView
 {
@@ -280,6 +391,9 @@ public:
     bool productionBlocked{false};
     Stat<double> buildTime{BalanceStat::BuildTime, 0.0};
     double constructionRemaining{0.0};
+    // False while the building waits in the build queue with no free builder
+    // assigned. Set every tick by the owner's ConstructionQueue::Refresh.
+    bool constructionActive{true};
     double lifetime{0.0};
     double activeTime{0.0};
     int totalProduced{0};
@@ -429,6 +543,28 @@ public:
     SupplyBufferComponent supplyBuffer;
     RecruitmentComponent  recruitment;
 };
+
+// True for defensive works whose garrison physically mans the building. The
+// Barracks (a training factory) and the Headquarters (the capital, and the
+// fallback home for field divisions) deliberately do NOT count: they can be
+// attacked, but divisions never station inside or defend them from within, and
+// the GUI must not present them as garrison buildings.
+inline bool IsDefensiveGarrisonBuilding(const Building& building)
+{
+    return building.buildingType == BuildingType::GuardTower ||
+           building.buildingType == BuildingType::Fortress ||
+           building.buildingType == BuildingType::Castle;
+}
+
+// Buildings an army may besiege and capture: defensive works and the enemy
+// capital (taking the HQ is the conquest path). Civil buildings — the Barracks
+// factory included — are NOT military targets: divisions neither siege them nor
+// do they count as attack destinations for the AI.
+inline bool IsMilitaryAttackTarget(const Building& building)
+{
+    return IsDefensiveGarrisonBuilding(building) ||
+           building.buildingType == BuildingType::Headquarters;
+}
 
 // Logistics building (pilot): draws finished gear + rations from the player's
 // storage network on demand, converts them into weapon-supply packages and ships

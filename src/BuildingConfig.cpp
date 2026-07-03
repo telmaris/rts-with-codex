@@ -323,6 +323,9 @@ namespace
         if (value == "Inn") return BuildingType::Inn;
         if (value == "Paperworks") return BuildingType::Paperworks;
         if (value == "Smith") return BuildingType::Smith;
+        if (value == "Mint") return BuildingType::Mint;
+        if (value == "Glassworks") return BuildingType::Glassworks;
+        if (value == "Powderworks") return BuildingType::Powderworks;
         if (value == "University") return BuildingType::University;
         if (value == "GuardTower") return BuildingType::GuardTower;
         if (value == "Fortress") return BuildingType::Fortress;
@@ -374,6 +377,18 @@ namespace
         if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
         if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
         if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
+        if (value == "TIN_ORE") return ResourceType::TIN_ORE;
+        if (value == "TIN") return ResourceType::TIN;
+        if (value == "SAND") return ResourceType::SAND;
+        if (value == "SULFUR") return ResourceType::SULFUR;
+        if (value == "SALTPETER") return ResourceType::SALTPETER;
+        if (value == "BRONZE") return ResourceType::BRONZE;
+        if (value == "COKE") return ResourceType::COKE;
+        if (value == "STEEL") return ResourceType::STEEL;
+        if (value == "GLASS") return ResourceType::GLASS;
+        if (value == "GUNPOWDER") return ResourceType::GUNPOWDER;
+        if (value == "MUSKET") return ResourceType::MUSKET;
+        if (value == "CARTRIDGE") return ResourceType::CARTRIDGE;
         return ResourceType::Null;
     }
 
@@ -385,6 +400,13 @@ namespace
         if (value == "COAL") return TileType::COAL;
         if (value == "IRON_ORE") return TileType::IRON_ORE;
         if (value == "STONE") return TileType::STONE;
+        if (value == "COPPER_ORE") return TileType::COPPER_ORE;
+        if (value == "TIN_ORE") return TileType::TIN_ORE;
+        if (value == "SILVER_ORE") return TileType::SILVER_ORE;
+        if (value == "GOLD_ORE") return TileType::GOLD_ORE;
+        if (value == "SAND") return TileType::SAND;
+        if (value == "SULFUR") return TileType::SULFUR;
+        if (value == "SALTPETER") return TileType::SALTPETER;
         return TileType::GRASS;
     }
 
@@ -647,6 +669,9 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::Inn,
         BuildingType::Paperworks,
         BuildingType::Smith,
+        BuildingType::Mint,
+        BuildingType::Glassworks,
+        BuildingType::Powderworks,
         BuildingType::University,
         BuildingType::StorageBuilding,
         BuildingType::Village,

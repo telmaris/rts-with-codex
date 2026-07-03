@@ -95,7 +95,9 @@ target_link_libraries(rts game Threads::Threads)
 
 if (WIN32)
     target_link_libraries(game PUBLIC ws2_32)
-    target_link_libraries(rts winmm)
+    # winmm is NOT linked here: winmm.lib exports a "PlaySound" symbol that collides with
+    # raylib's PlaySound(Sound). WinmmStubs.cpp provides timeBeginPeriod/timeEndPeriod
+    # (the only winmm symbols raylib needs) via dynamic LoadLibrary, avoiding the conflict.
     if (MSVC)
         target_link_options(rts PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
     endif()

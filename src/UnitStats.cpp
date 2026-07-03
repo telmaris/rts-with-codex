@@ -22,6 +22,20 @@ UnitStats MakeDefaultUnitStats(MilitaryUnitType type)
             stats.speed         = 12.0f; stats.supplyUse     = 1.0f;  stats.fatigueRate = 1.1f;
             stats.armoredShare  = 0.10f;
             break;
+        case MilitaryUnitType::Spearman:
+            stats.lightAttack   = 10.0f; stats.armoredAttack = 12.0f; stats.shock = 6.0f;
+            stats.armor         = 5.0f;  stats.piercing      = 8.0f;  stats.defense = 14.0f;
+            stats.maxStrength   = 115.0f; stats.maxCohesion  = 38.0f; stats.morale = 66.0f;
+            stats.speed         = 11.0f; stats.supplyUse     = 1.1f;  stats.fatigueRate = 1.0f;
+            stats.armoredShare  = 0.25f;
+            break;
+        case MilitaryUnitType::Cavalry:
+            stats.lightAttack   = 18.0f; stats.armoredAttack = 12.0f; stats.shock = 20.0f;
+            stats.armor         = 5.0f;  stats.piercing      = 4.0f;  stats.defense = 9.0f;
+            stats.maxStrength   = 140.0f; stats.maxCohesion  = 45.0f; stats.morale = 70.0f;
+            stats.speed         = 18.0f; stats.supplyUse     = 1.6f;  stats.fatigueRate = 1.4f;
+            stats.armoredShare  = 0.30f;
+            break;
         default: // Militia
             stats.lightAttack   = 8.0f;  stats.armoredAttack = 4.0f;  stats.shock = 5.0f;
             stats.armor         = 2.0f;  stats.piercing      = 1.0f;  stats.defense = 8.0f;

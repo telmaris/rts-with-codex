@@ -614,6 +614,90 @@ TEST(BuildingDomainTests, VillageRequestsFoodProvisionsFromOwnedStorage)
     storage->storage.buffers[ResourceType::FOOD_PROVISIONS].Clear();
 }
 
+TEST(BuildingDomainTests, ConstructionQueueLimitsActiveBuildersAndTracksPositions)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 12, 8);
+
+    auto place = [&](int id, Vec2i at) -> Road*
+    {
+        auto* road = dynamic_cast<Road*>(
+            map.PlaceLoadedBuilding(map.GetIdFromCoords(at), &player, std::make_unique<Road>(id)));
+        if (road != nullptr)
+        {
+            road->buildTime = 10.0;
+            road->constructionRemaining = 10.0;
+        }
+        return road;
+    };
+
+    // Placed out of id order to prove the queue orders by id (== placement order).
+    Road* second = place(20, {2, 1});
+    Road* first = place(10, {4, 1});
+    Road* third = place(30, {6, 1});
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    ASSERT_NE(third, nullptr);
+
+    // One builder: only the earliest (lowest-id) building actually progresses.
+    player.construction.builders = 1;
+    player.construction.Refresh(player);
+    EXPECT_EQ(player.construction.QueueLength(), 3);
+    EXPECT_EQ(player.construction.QueuePosition(first->id), 1);
+    EXPECT_EQ(player.construction.QueuePosition(second->id), 2);
+    EXPECT_EQ(player.construction.QueuePosition(third->id), 3);
+    EXPECT_TRUE(player.construction.IsActive(first->id));
+    EXPECT_FALSE(player.construction.IsActive(second->id));
+    EXPECT_TRUE(first->constructionActive);
+    EXPECT_FALSE(second->constructionActive);
+
+    // Only the assigned builder advances construction; queued buildings wait.
+    first->Update(1.0);
+    second->Update(1.0);
+    EXPECT_DOUBLE_EQ(first->constructionRemaining, 9.0);
+    EXPECT_DOUBLE_EQ(second->constructionRemaining, 10.0);
+
+    // A BuilderAmount buff (tech / focus / national) widens the active window.
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::BuilderAmount, 1.0, 1.0, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, std::nullopt, "tech:masons"});
+    EXPECT_EQ(player.construction.EffectiveBuilders(player), 2);
+    player.construction.Refresh(player);
+    EXPECT_TRUE(player.construction.IsActive(second->id));
+    EXPECT_FALSE(player.construction.IsActive(third->id));
+
+    // Removing the front building (cancel) renumbers the rest of the queue.
+    player.UnregisterBuilding(first);
+    player.construction.Refresh(player);
+    EXPECT_EQ(player.construction.QueuePosition(first->id), 0);
+    EXPECT_EQ(player.construction.QueuePosition(second->id), 1);
+    EXPECT_EQ(player.construction.QueuePosition(third->id), 2);
+}
+
+TEST(BuildingDomainTests, RefundBuildCostReturnsResourcesToStorageAndDropsOverflow)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+
+    auto* storage = dynamic_cast<StorageBuilding*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({2, 2}), &player, std::make_unique<StorageBuilding>(1)));
+    ASSERT_NE(storage, nullptr);
+    storage->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 10};
+    storage->storage.buffers[ResourceType::WOOD].SetStoredAmount(2);
+
+    // Cancelling a build hands the paid resources back into owned storage.
+    player.RefundBuildCost({{ResourceType::WOOD, 3}});
+    EXPECT_EQ(storage->storage.buffers[ResourceType::WOOD].buffer.size(), 5u);
+
+    // Anything past the buffer capacity spills rather than piling up.
+    player.RefundBuildCost({{ResourceType::WOOD, 100}});
+    EXPECT_EQ(storage->storage.buffers[ResourceType::WOOD].buffer.size(), 10u);
+
+    storage->storage.buffers[ResourceType::WOOD].Clear();
+}
+
 TEST(BuildingDomainTests, MilitaryOrdersAttackSupportAndDefendUpdateCombatState)
 {
     TileMap map;

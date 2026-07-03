@@ -52,6 +52,19 @@ std::uint64_t GameWorld::BuildChecksum() const
             HashInt(hash, static_cast<int>(commandType));
             HashInt(hash, count);
         }
+
+        for (const auto& w : player->diplomatic.wars)
+        {
+            HashInt(hash, w.id);
+            HashInt(hash, w.attackerId);
+            HashInt(hash, w.defenderId);
+            HashInt(hash, w.active ? 1 : 0);
+        }
+        for (const auto& [otherId, rel] : player->diplomatic.relations)
+        {
+            HashInt(hash, otherId);
+            HashInt(hash, static_cast<int>(rel));
+        }
     }
 
     return hash;

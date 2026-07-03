@@ -220,6 +220,9 @@ void TileMap::UpdateBuildings(double dt)
         tile.building->Update(dt);
         if (wasUnderConstruction && !tile.building->IsUnderConstruction() && tile.building->owner != nullptr)
         {
+            // Construction just finished — redraw the cached building layer so the
+            // in-progress shade is replaced by the finished sprite.
+            buildingsDirty = true;
             Player* owner = tile.building->owner;
             if (owner->roadNetwork != nullptr)
             {

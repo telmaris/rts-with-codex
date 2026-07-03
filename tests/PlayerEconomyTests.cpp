@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -223,6 +224,41 @@ TEST(PlayerEconomyTests, TelemetryRecordsBuildingPlacementCostConsumption)
     player.UpdateEconomyTelemetry(1.0);
 
     EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::STONE], 120);
+}
+
+TEST(PlayerEconomyTests, BuildCostModifierReducesEffectiveBuildCosts)
+{
+    TileMap map;
+    Player player{0, map};
+    PrepareOwnedMap(map, &player);
+
+    const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
+    ASSERT_FALSE(roadDefinition.buildCosts.empty());
+    auto baseline = player.GetEffectiveBuildCosts(roadDefinition);
+    ASSERT_EQ(baseline.size(), roadDefinition.buildCosts.size());
+    for (size_t i = 0; i < baseline.size(); i++)
+    {
+        EXPECT_EQ(baseline[i].type, roadDefinition.buildCosts[i].type);
+        EXPECT_EQ(baseline[i].amount, roadDefinition.buildCosts[i].amount);
+    }
+
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::BuildCost,
+        0.0,
+        0.5,
+        BalanceModifierScope::Global(),
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        "test:build_cost_discount"});
+
+    auto discounted = player.GetEffectiveBuildCosts(roadDefinition);
+    ASSERT_EQ(discounted.size(), roadDefinition.buildCosts.size());
+    for (size_t i = 0; i < discounted.size(); i++)
+    {
+        EXPECT_EQ(discounted[i].type, roadDefinition.buildCosts[i].type);
+        EXPECT_EQ(discounted[i].amount, static_cast<int>(std::round(roadDefinition.buildCosts[i].amount * 0.5)));
+    }
 }
 
 TEST(PlayerEconomyTests, TelemetryRecordsTechnologyMilestones)

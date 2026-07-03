@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <deque>
 #include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -18,7 +20,7 @@ class Building;
 enum class TileType : int;
 enum class MilitaryOrderType : int;
 enum class MilitaryUnitType : int;
-struct SoldierDivision;
+class SoldierDivision;
 using MilitaryDivision = SoldierDivision;
 struct ResourceBufferView;
 struct BuildingConnectionView;
@@ -240,7 +242,11 @@ struct GarrisonComponent : IBuildingComponent
     int archers{0};
     int garrison{0};
     int nextDivisionId{1};
-    std::vector<MilitaryDivision> divisions;
+    // NON-OWNING view of the divisions homed at this building. The divisions are
+    // owned by the Player (Player::forces); this is rebuilt by
+    // Player::RebuildGarrisonViews() from SoldierDivision.garrisonBuildingId.
+    // Includes both garrisoned (inside) and deployed (field) divisions homed here.
+    std::vector<SoldierDivision*> divisions;
     MilitaryOrderType currentOrder;
     int orderTargetId{-1};
     double orderCooldown{0.0};
@@ -260,7 +266,8 @@ struct GarrisonComponent : IBuildingComponent
     // stepping runs in Update each tick.
     bool MoveDivisionTo(int divisionId, Vec2i targetTile, Building& self,
                         bool requireOwnedTerritory = true,
-                        bool snapToSector = true);
+                        bool snapToSector = true,
+                        const std::set<int>* blockedTiles = nullptr);
 
     void ClearOrder();
     bool HasActiveDivisionOrders() const;
@@ -327,7 +334,7 @@ struct SupplyPackageComponent : IBuildingComponent
     // Equipment categories a finished package should try to include. Each soldier
     // gets at most one item per category.
     std::vector<EquipmentCategory> requestedCategories{
-        EquipmentCategory::Sword, EquipmentCategory::Shield,
+        EquipmentCategory::Sword, EquipmentCategory::Firearm, EquipmentCategory::Shield,
         EquipmentCategory::Armor, EquipmentCategory::Ammo};
 
     int soldiersPerPackage{10};        // package equips this many soldiers

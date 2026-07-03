@@ -107,6 +107,27 @@ class Smith : public Building
         Smith(int);
         RTS_PRODUCTION_COMPONENTS;
 };
+// Strikes coins from precious metals (recipe selects silver vs gold).
+class Mint : public Building
+{
+    public:
+        Mint(int);
+        RTS_PRODUCTION_COMPONENTS;
+};
+// Melts sand and coke into glass.
+class Glassworks : public Building
+{
+    public:
+        Glassworks(int);
+        RTS_PRODUCTION_COMPONENTS;
+};
+// Combines sulfur, saltpeter and coke into gunpowder.
+class Powderworks : public Building
+{
+    public:
+        Powderworks(int);
+        RTS_PRODUCTION_COMPONENTS;
+};
 // Research building that turns paper into unlocked technologies.
 class University : public Building
 {

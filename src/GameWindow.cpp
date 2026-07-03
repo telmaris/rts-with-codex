@@ -13,6 +13,30 @@ void GameWindow::LaunchGame()
     SetWindowMinSize(960, 540);
     GuiPanel::LoadUiFont("assets/fonts/MarcellusSC-Regular.ttf");
 
+    InitAudioDevice();
+    audio.Init();
+
+    AudioConfig audioConfig = LoadAudioConfig();
+    audio.SetMasterVolume(audioConfig.masterVolume);
+    audio.SetMusicVolume(audioConfig.musicVolume);
+    audio.SetSfxVolume(audioConfig.sfxVolume);
+
+    // Music themes — add .ogg/.mp3 files to assets/audio/music/ to activate them.
+    audio.RegisterMusic("menu",      "assets/music/menu_theme.ogg");
+    audio.RegisterMusic("gameplay",  "assets/music/gameplay_theme.ogg");
+    audio.RegisterMusic("battle",    "assets/music/battle_theme.ogg");
+
+    // Sound effects — add .wav/.ogg files to assets/audio/sfx/ to activate them.
+    audio.RegisterSound("click",        "assets/sfx/mouse_click.wav");
+    audio.RegisterSound("build",        "assets/sfx/button_clicked.mp3");
+    audio.RegisterSound("notification", "assets/sfx/notification.mp3");
+    audio.RegisterSound("error",        "assets/sfx/error.wav");
+    audio.RegisterSound("research",     "assets/sfx/research_ready.mp3");
+    audio.RegisterSound("destroy",      "assets/sfx/destroy.wav");
+    audio.RegisterSound("recruit",      "assets/sfx/recruit.wav");
+    audio.RegisterSound("march",        "assets/sfx/march.wav");
+    audio.RegisterSound("attack",       "assets/sfx/attack.wav");
+
     AddScene<MainMenuScene>("MainScene");
     ChangeScene("MainScene", "");
     AddScene<OptionsScene>("OptionsScene");
@@ -26,6 +50,8 @@ void GameWindow::LaunchGame()
 
     MainLoop();
 
+    audio.Cleanup();
+    CloseAudioDevice();
     CloseWindow();
 }
 
@@ -62,6 +88,7 @@ void GameWindow::MainLoop()
     while (isRunning)
     {
         UpdateWindowSize();
+        audio.Update(GetFrameTime());
         Update(GetFrameTime());
     }
 }

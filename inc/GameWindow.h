@@ -1,6 +1,7 @@
 #ifndef GAMEWINDOW_H
 #define GAMEWINDOW_H
 
+#include "AudioSystem.h"
 #include "Events.h"
 
 // Base scene that owns a renderer and receives events from the window broker.
@@ -12,9 +13,10 @@ class Scene : public EventClient
     // Called by GameWindow each time this scene becomes the active scene.
     virtual void OnActivated() {}
 
-    std::string name;
-    std::string previousSceneName;
-    Renderer render;
+    std::string   name;
+    std::string   previousSceneName;
+    Renderer      render;
+    AudioSystem*  audioSystem{nullptr};  // points to GameWindow::audio; set by AddScene<T>()
 };
 
 // Raylib application shell that owns scenes, window state and the main loop.
@@ -31,10 +33,11 @@ class GameWindow : public EventBroker
         static_assert(std::is_base_of<Scene, T>::value);
 
         auto scene = std::make_shared<T>();
-        scene->broker = this;
-        scene->name = name;
+        scene->broker      = this;
+        scene->name        = name;
+        scene->audioSystem = &audio;
         scenes.insert({name, scene});
-        
+
         AddClient(name, scene.get());
     }
 
@@ -63,6 +66,8 @@ class GameWindow : public EventBroker
 
     std::map<std::string, std::shared_ptr<Scene>> scenes;
     std::shared_ptr<Scene> activeScene;
+
+    AudioSystem audio;
 
     bool isRunning{true};
     const std::string tag{"GameWindow"};

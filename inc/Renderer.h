@@ -91,9 +91,9 @@ class Renderer
     // Loads a standalone building texture for a building type.
     void LoadBuildingTexture(BuildingType, const std::string&);
     // Draws a building with its standalone texture.
-    void DrawBuildingTexture(Building*, Vec2f);
+    void DrawBuildingTexture(Building*, Vec2f, Color tint = WHITE);
     // Draws a building snapshot with its standalone texture.
-    void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos);
+    void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint = WHITE);
     // Draws terrain, territory and buildings from an immutable game snapshot.
     void DrawSnapshot(const GameSnapshot& snapshot);
     // Converts OS screen coordinates to fixed render coordinates.

@@ -68,10 +68,10 @@ int DivisionOccupyingSector(const Player& player, Vec2i cell, int excludingDivis
             continue;
         for (const auto& division : garrison->divisions)
         {
-            if (division.id == excludingDivisionId)
+            if (division->id == excludingDivisionId)
                 continue;
-            if (division.sectorCell.x == cell.x && division.sectorCell.y == cell.y)
-                return division.id;
+            if (division->sectorCell.x == cell.x && division->sectorCell.y == cell.y)
+                return division->id;
         }
     }
     return -1;
@@ -96,10 +96,10 @@ int DivisionOnTile(const Player& player, Vec2i tile, int excludingDivisionId)
             continue;
         for (const auto& division : garrison->divisions)
         {
-            if (division.id == excludingDivisionId)
+            if (division->id == excludingDivisionId)
                 continue;
-            if (division.occupiedTile.x == tile.x && division.occupiedTile.y == tile.y)
-                return division.id;
+            if (division->occupiedTile.x == tile.x && division->occupiedTile.y == tile.y)
+                return division->id;
         }
     }
     return -1;

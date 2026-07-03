@@ -1,6 +1,68 @@
 #include "../inc/MapGenerator.h"
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
+
+namespace
+{
+    // Smoothstep easing for noise interpolation.
+    float Smooth(float t) { return t * t * (3.0f - 2.0f * t); }
+
+    // Deterministic value-noise field in [0,1], one sample per tile. A coarse
+    // random lattice (controlled by 'scale') is bilinearly interpolated to full
+    // resolution — lower scale yields larger, smoother regions.
+    std::vector<float> MakeNoiseField(int w, int h, float scale, std::mt19937& rng)
+    {
+        scale = std::clamp(scale, 0.005f, 0.5f);
+        int gw = std::max(2, static_cast<int>(std::ceil(w * scale)) + 2);
+        int gh = std::max(2, static_cast<int>(std::ceil(h * scale)) + 2);
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        std::vector<float> lattice(static_cast<size_t>(gw) * gh);
+        for (auto& v : lattice)
+            v = dist(rng);
+
+        std::vector<float> field(static_cast<size_t>(w) * h);
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                float gx = x * scale;
+                float gy = y * scale;
+                int x0 = static_cast<int>(gx);
+                int y0 = static_cast<int>(gy);
+                int x1 = std::min(x0 + 1, gw - 1);
+                int y1 = std::min(y0 + 1, gh - 1);
+                float tx = Smooth(gx - x0);
+                float ty = Smooth(gy - y0);
+                float a = lattice[x0 + y0 * gw];
+                float b = lattice[x1 + y0 * gw];
+                float c = lattice[x0 + y1 * gw];
+                float d = lattice[x1 + y1 * gw];
+                float top = a + (b - a) * tx;
+                float bot = c + (d - c) * tx;
+                field[x + y * w] = top + (bot - top) * ty;
+            }
+        }
+        return field;
+    }
+
+    BiomeType ClassifyBiome(float elevation, float moisture, const BiomeParameters& p)
+    {
+        if (elevation >= p.mountainElevation)
+            return BiomeType::MOUNTAINS;
+        if (elevation >= p.hillElevation)
+            return BiomeType::HILLS;
+        // Lowland: split by moisture.
+        if (moisture <= p.desertMoisture)
+            return BiomeType::DESERT;
+        if (moisture >= p.wetlandMoisture)
+            return BiomeType::WETLAND;
+        if (moisture >= p.forestMoisture)
+            return BiomeType::FOREST;
+        return BiomeType::PLAINS;
+    }
+}
 
 // Initializes MapGenerator::GenerateTileMap.
 void MapGenerator::GenerateTileMap(TileMap& tilemap, MapParameters& params)
@@ -29,7 +91,28 @@ void MapGenerator::GenerateTileMap(TileMap& tilemap, MapParameters& params)
         tilemap.tilemap.back().terrainTextureId = tilemap.PickTerrainTexture(tilemap.tilemap.back().tileType, rng);
     }
 
+    GenerateBiomes(tilemap, params, rng);
     GenerateResourcePatches(tilemap, params, rng);
+}
+
+// Assigns a biome to every tile from elevation + moisture noise. Biomes gate where
+// resource patches can spawn so the map stays geographically coherent.
+void MapGenerator::GenerateBiomes(TileMap& tilemap, const MapParameters& params, std::mt19937& rng)
+{
+    int w = params.sizeX;
+    int h = params.sizeY;
+    const BiomeParameters& bp = params.biome;
+
+    // Two octaves of elevation for more organic mountain/coast shapes; one moisture band.
+    std::vector<float> elevLow  = MakeNoiseField(w, h, bp.noiseScale, rng);
+    std::vector<float> elevHigh = MakeNoiseField(w, h, bp.noiseScale * 2.3f, rng);
+    std::vector<float> moisture = MakeNoiseField(w, h, bp.noiseScale * 1.4f, rng);
+
+    for (int i = 0; i < w * h; i++)
+    {
+        float elevation = elevLow[i] * 0.65f + elevHigh[i] * 0.35f;
+        tilemap.tilemap[i].biome = ClassifyBiome(elevation, moisture[i], bp);
+    }
 }
 
 // Initializes MapGenerator::SizeFromPreset.
@@ -157,9 +240,14 @@ void MapGenerator::GeneratePatch(TileMap& tilemap, const ResourcePatchParameters
                     continue;
 
                 auto& tile = tilemap[mapPos];
+                // Biome gate: keep deposits geographically plausible.
+                if (!patch.allowedBiomes.empty() &&
+                    std::find(patch.allowedBiomes.begin(), patch.allowedBiomes.end(), tile.biome) == patch.allowedBiomes.end())
+                    continue;
+
                 tile.tileType = patch.type;
                 tile.terrainTextureId = tilemap.PickTerrainTexture(patch.type, rng);
-                tile.resourceRichness = std::max(1, tilemap.params.resourceRichness);
+                tile.resourceRichness = std::max(1, static_cast<int>(std::round(tilemap.params.resourceRichness * patch.richnessScale)));
             }
         }
     }
@@ -183,6 +271,7 @@ void MapGenerator::PrepareStartingArea(TileMap& tilemap, Vec2i hqAnchor, std::mt
 
             auto& tile = tilemap[pos];
             tile.tileType = TileType::GRASS;
+            tile.biome = BiomeType::PLAINS;
             tile.terrainTextureId = tilemap.PickTerrainTexture(TileType::GRASS, rng);
             tile.resourceRichness = 0;
         }

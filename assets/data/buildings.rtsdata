@@ -180,6 +180,55 @@ building Mine
         output STONE 1
         output_buffer STONE 8
     end
+
+    terrain_production COPPER_ORE
+        workers 8
+        cycle_time 12.0
+        output COPPER_ORE 2
+        output_buffer COPPER_ORE 10
+    end
+
+    terrain_production TIN_ORE
+        workers 8
+        cycle_time 14.0
+        output TIN_ORE 2
+        output_buffer TIN_ORE 10
+    end
+
+    terrain_production SILVER_ORE
+        workers 8
+        cycle_time 16.0
+        output SILVER_ORE 1
+        output_buffer SILVER_ORE 8
+    end
+
+    terrain_production GOLD_ORE
+        workers 8
+        cycle_time 20.0
+        output GOLD_ORE 1
+        output_buffer GOLD_ORE 8
+    end
+
+    terrain_production SAND
+        workers 6
+        cycle_time 6.0
+        output SAND 2
+        output_buffer SAND 12
+    end
+
+    terrain_production SULFUR
+        workers 8
+        cycle_time 14.0
+        output SULFUR 1
+        output_buffer SULFUR 8
+    end
+
+    terrain_production SALTPETER
+        workers 8
+        cycle_time 14.0
+        output SALTPETER 1
+        output_buffer SALTPETER 8
+    end
 end
 
 building Foundry
@@ -242,6 +291,44 @@ building Foundry
         input_buffer GOLD_ORE 8
         input_buffer COAL 8
         output_buffer GOLD 16
+    end
+    recipe "Tin"
+        workers 12
+        cycle_time 2.2
+        input TIN_ORE 1
+        input COAL 1
+        output TIN 2
+        input_buffer TIN_ORE 8
+        input_buffer COAL 8
+        output_buffer TIN 16
+    end
+    recipe "Coke"
+        workers 10
+        cycle_time 3.0
+        input COAL 2
+        output COKE 1
+        input_buffer COAL 12
+        output_buffer COKE 12
+    end
+    recipe "Bronze"
+        workers 12
+        cycle_time 2.5
+        input COPPER 2
+        input TIN 1
+        output BRONZE 3
+        input_buffer COPPER 12
+        input_buffer TIN 8
+        output_buffer BRONZE 16
+    end
+    recipe "Steel"
+        workers 12
+        cycle_time 4.0
+        input IRON 2
+        input COKE 1
+        output STEEL 2
+        input_buffer IRON 12
+        input_buffer COKE 8
+        output_buffer STEEL 16
     end
 end
 
@@ -421,6 +508,132 @@ building Smith
         input_buffer IRON 12
         input_buffer WOOD 8
         output_buffer IRON_SWORD 8
+    end
+    recipe "Bronze Sword"
+        workers 10
+        cycle_time 11.0
+        input BRONZE 2
+        input WOOD 1
+        output BRONZE_SWORD 2
+        input_buffer BRONZE 12
+        input_buffer WOOD 8
+        output_buffer BRONZE_SWORD 8
+    end
+    recipe "Steel Sword"
+        workers 10
+        cycle_time 20.0
+        input STEEL 3
+        input WOOD 1
+        output STEEL_SWORD 1
+        input_buffer STEEL 12
+        input_buffer WOOD 8
+        output_buffer STEEL_SWORD 8
+    end
+    recipe "Musket"
+        workers 10
+        cycle_time 24.0
+        input STEEL 2
+        input GUNPOWDER 1
+        input WOOD 1
+        output MUSKET 1
+        input_buffer STEEL 12
+        input_buffer GUNPOWDER 8
+        input_buffer WOOD 8
+        output_buffer MUSKET 8
+    end
+    recipe "Cartridge"
+        workers 8
+        cycle_time 8.0
+        input GUNPOWDER 1
+        input PAPER 1
+        output CARTRIDGE 4
+        input_buffer GUNPOWDER 10
+        input_buffer PAPER 10
+        output_buffer CARTRIDGE 20
+    end
+end
+
+building Mint
+    name "Mint"
+    tag "[Mint]"
+    texture "assets/textures/building/foundry.png"
+    build_cost WOOD 40
+    build_cost STONE 60
+    build_cost PLANKS 40
+    build_cost IRON 20
+    build_time 26.0
+    footprint 2 2
+    texture_id 3
+    production
+        workers 8
+        cycle_time 4.0
+        input SILVER 1
+        output COINS 4
+        input_buffer SILVER 12
+        output_buffer COINS 40
+    end
+    recipe "Silver Coins"
+        workers 8
+        cycle_time 4.0
+        input SILVER 1
+        output COINS 4
+        input_buffer SILVER 12
+        output_buffer COINS 40
+    end
+    recipe "Gold Coins"
+        workers 8
+        cycle_time 5.0
+        input GOLD 1
+        output COINS 10
+        input_buffer GOLD 12
+        output_buffer COINS 60
+    end
+end
+
+building Glassworks
+    name "Glassworks"
+    tag "[Glassworks]"
+    texture "assets/textures/building/smith.png"
+    build_cost WOOD 40
+    build_cost STONE 50
+    build_cost PLANKS 35
+    build_time 22.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 10
+        cycle_time 5.0
+        input SAND 2
+        input COKE 1
+        output GLASS 2
+        input_buffer SAND 12
+        input_buffer COKE 8
+        output_buffer GLASS 16
+    end
+end
+
+building Powderworks
+    name "Powderworks"
+    tag "[Powderworks]"
+    texture "assets/textures/building/smith.png"
+    build_cost WOOD 50
+    build_cost STONE 60
+    build_cost PLANKS 40
+    build_cost IRON 15
+    build_time 30.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 10
+        cycle_time 6.0
+        input SULFUR 1
+        input SALTPETER 2
+        input COKE 1
+        output GUNPOWDER 2
+        input_buffer SULFUR 8
+        input_buffer SALTPETER 12
+        input_buffer COKE 8
+        output_buffer GUNPOWDER 16
     end
 end
 

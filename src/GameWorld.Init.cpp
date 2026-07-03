@@ -92,12 +92,12 @@ namespace
             if (map.tilemap[map.GetIdFromCoords(tile)].owner != enemy)
                 continue;
 
-            SoldierDivision d = CreateMilitaryDivision(MilitaryUnitType::Swordsman, garrison->nextDivisionId++);
-            d.occupiedTile = tile;
-            d.sectorCell = {tile.x / 2, tile.y / 2};
-            d.worldPos = {(tile.x + 0.5f) * TILE_SIZE, (tile.y + 0.5f) * TILE_SIZE};
-            d.inTransit = false;
-            garrison->divisions.push_back(d);
+            auto d = CreateMilitaryDivision(MilitaryUnitType::Swordsman, garrison->nextDivisionId++);
+            d->occupiedTile = tile;
+            d->sectorCell = {tile.x / 2, tile.y / 2};
+            d->worldPos = {(tile.x + 0.5f) * TILE_SIZE, (tile.y + 0.5f) * TILE_SIZE};
+            d->inTransit = false;
+            enemy->AddForce(std::move(d), tower->positionId);  // player owns; homed at the tower
             spawned++;
         }
         garrison->Recount();
@@ -191,10 +191,11 @@ Vec2i GameWorld::CreateStartingBase(Player* player, Vec2i hqAnchor, unsigned int
 }
 
 // Initializes runtime state for this object.
-void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
+void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapParameters params)
 {
     worldName = name;
     render = r;
+    audio  = a;
 
     tilemap.generator.GenerateTileMap(tilemap, params);
 
@@ -244,10 +245,11 @@ void GameWorld::InitWorld(std::string name, Renderer* r, MapParameters params)
 }
 
 // Initializes deterministic multiplayer runtime state with server-assigned slots.
-void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, MapParameters params, int localId, bool authoritativeHost)
+void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem* a, MapParameters params, int localId, bool authoritativeHost)
 {
     worldName = name;
     render = r;
+    audio  = a;
 
     tilemap.generator.GenerateTileMap(tilemap, params);
 

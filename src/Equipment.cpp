@@ -18,6 +18,7 @@ namespace
             case EquipmentMaterial::Bronze:  return 1.2f;
             case EquipmentMaterial::Iron:    return 1.5f;
             case EquipmentMaterial::Steel:   return 1.9f;
+            case EquipmentMaterial::Blackpowder: return 2.4f;
             default:                         return 0.0f;
         }
     }
@@ -38,9 +39,11 @@ namespace
             // Ranged
             {ResourceType::BOW,           EquipmentCategory::Bow,      EquipmentMaterial::Wood},
             {ResourceType::CROSSBOW,      EquipmentCategory::Crossbow, EquipmentMaterial::Iron},
+            {ResourceType::MUSKET,        EquipmentCategory::Firearm,  EquipmentMaterial::Blackpowder},
             // Ammo
             {ResourceType::ARROWS,        EquipmentCategory::Ammo,     EquipmentMaterial::Wood},
             {ResourceType::BOLTS,         EquipmentCategory::Ammo,     EquipmentMaterial::Iron},
+            {ResourceType::CARTRIDGE,     EquipmentCategory::Ammo,     EquipmentMaterial::Blackpowder},
             // Shields
             {ResourceType::WOODEN_SHIELD, EquipmentCategory::Shield,   EquipmentMaterial::Wood},
             {ResourceType::IRON_SHIELD,   EquipmentCategory::Shield,   EquipmentMaterial::Iron},
@@ -96,6 +99,7 @@ const char* EquipmentCategoryLabel(EquipmentCategory category)
         case EquipmentCategory::Spear:    return "Spear";
         case EquipmentCategory::Bow:      return "Bow";
         case EquipmentCategory::Crossbow: return "Crossbow";
+        case EquipmentCategory::Firearm:  return "Firearm";
         case EquipmentCategory::Shield:   return "Shield";
         case EquipmentCategory::Armor:    return "Armor";
         case EquipmentCategory::Ammo:     return "Ammo";
@@ -114,6 +118,7 @@ const char* EquipmentMaterialLabel(EquipmentMaterial material)
         case EquipmentMaterial::Bronze:  return "Bronze";
         case EquipmentMaterial::Iron:    return "Iron";
         case EquipmentMaterial::Steel:   return "Steel";
+        case EquipmentMaterial::Blackpowder: return "Blackpowder";
         default:                         return "None";
     }
 }
@@ -181,7 +186,8 @@ namespace
     bool IsPrimaryWeapon(EquipmentCategory category)
     {
         return category == EquipmentCategory::Sword || category == EquipmentCategory::Spear ||
-               category == EquipmentCategory::Bow   || category == EquipmentCategory::Crossbow;
+               category == EquipmentCategory::Bow   || category == EquipmentCategory::Crossbow ||
+               category == EquipmentCategory::Firearm;
     }
 
     // Highest-quality available resource of a category, or Null.

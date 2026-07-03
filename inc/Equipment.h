@@ -23,6 +23,7 @@ enum class EquipmentCategory : uint8_t
     Spear,      // primary melee, anti-cavalry flavour later
     Bow,        // primary ranged
     Crossbow,   // primary ranged, higher piercing
+    Firearm,    // primary ranged, gunpowder — highest tier (Phase 3)
     Shield,     // defensive
     Armor,      // defensive
     Ammo,       // consumed by ranged weapons
@@ -41,6 +42,7 @@ enum class EquipmentMaterial : uint8_t
     Bronze,
     Iron,
     Steel,
+    Blackpowder,   // gunpowder-era firearms, above steel (Phase 3)
     Count
 };
 

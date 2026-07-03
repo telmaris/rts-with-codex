@@ -36,9 +36,8 @@ target_link_libraries(rts_tests
         Threads::Threads
 )
 
-if (WIN32)
-    target_link_libraries(rts_tests PRIVATE winmm)
-endif()
+# winmm is not linked here: WinmmStubs.cpp (in game) provides timeBeginPeriod/timeEndPeriod
+# via dynamic loading, avoiding the PlaySound symbol conflict with raylib.
 
 target_include_directories(rts_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/inc

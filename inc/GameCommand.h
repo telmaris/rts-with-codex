@@ -15,19 +15,19 @@ enum class GameCommandType
     BuildBuilding,
     DestroyBuilding,
     SetReceiver,
-    AttackBuilding,
     IssueMilitaryOrder,
     RecruitUnit,
     StartFocus,
     StartTechnologyResearch,
     MoveDivision,
     FormArmy,
-    AttackTile
+    AttackTile,
+    AssignToArmy
 };
 
 struct GameCommand
 {
-    static constexpr int WireVersion = 7;
+    static constexpr int WireVersion = 9;  // + AssignToArmy (transfer divisions between armies)
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -57,16 +57,6 @@ struct GameCommand
         command.sourceTileId = sourceTileId;
         command.targetTileId = targetTileId;
         command.alternativeReceiver = alternativeReceiver;
-        return command;
-    }
-
-    static GameCommand AttackBuilding(int playerId, int sourceTileId, int targetTileId)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::AttackBuilding;
-        command.sourceTileId = sourceTileId;
-        command.targetTileId = targetTileId;
         return command;
     }
 
@@ -101,6 +91,25 @@ struct GameCommand
         command.sourceTileId = sourceTileId;
         command.divisionId = divisionId;
         command.targetTileId = targetTileId;
+        return command;
+    }
+
+    // Moves the given divisions (home building = homeTileId) into an existing army.
+    static GameCommand AssignToArmy(int playerId, int armyId, int homeTileId, const std::vector<int>& divisionIds)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::AssignToArmy;
+        command.sourceTileId = homeTileId;
+        command.targetTileId = armyId;  // reuse target field for the destination army id
+        std::string packed;
+        for (size_t i = 0; i < divisionIds.size(); i++)
+        {
+            if (i > 0)
+                packed += ',';
+            packed += std::to_string(divisionIds[i]);
+        }
+        command.researchId = std::move(packed);
         return command;
     }
 
@@ -244,7 +253,6 @@ struct GameCommand
             case GameCommandType::BuildBuilding:
             case GameCommandType::DestroyBuilding:
             case GameCommandType::SetReceiver:
-            case GameCommandType::AttackBuilding:
             case GameCommandType::IssueMilitaryOrder:
             case GameCommandType::RecruitUnit:
             case GameCommandType::StartFocus:
@@ -252,6 +260,7 @@ struct GameCommand
             case GameCommandType::MoveDivision:
             case GameCommandType::FormArmy:
             case GameCommandType::AttackTile:
+            case GameCommandType::AssignToArmy:
                 return true;
         }
         return false;

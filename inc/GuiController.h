@@ -3,11 +3,8 @@
 
 #include "Gui.h"
 #include "BuildingConfig.h"
-#include "ProductionBuildings.h"
 #include "raylib.h"
-#include "raymath.h"
 
-#include <deque>
 #include <functional>
 #include <limits>
 #include <map>
@@ -19,6 +16,14 @@
 class GameScene;
 class GuiController;
 class DivisionMapWidget;
+
+// Implementations are split across thematic translation units:
+//   src/GuiController.cpp   - controller core, input routing, BasicMapViewSystem
+//   src/GuiMapWidgets.cpp   - military/map overlay widgets (divisions, battles)
+//   src/GuiHudPanels.cpp    - strategic HUD, statistics panel + StatsGuiSystem
+//   src/GuiResearchTree.cpp - research tree panel + Focus/Tech systems
+//   src/GuiBuildModes.cpp   - build/road/destroy interaction modes
+//   src/GuiCommon.cpp       - helpers shared by the TUs above (src/GuiInternal.h)
 
 // Mutable camera drag state shared by map interaction systems.
 struct CameraMovement
@@ -78,8 +83,8 @@ public:
         systems[name] = std::make_shared<T>(this);
     }
 
-    // Switches active interaction system.
-    void ChangeSystem(std::string name) {activeSystem = systems[name];}
+    // Switches active interaction system. Refuses to open "tech" without a completed University.
+    void ChangeSystem(std::string name);
     // Returns widgets that should be drawn by the renderer.
     inline std::vector<UiWidget*> GetUiWidgets() { return ui; }
     // Adds a widget to the current draw list.
@@ -92,6 +97,8 @@ public:
     std::unique_ptr<DivisionMapWidget> divisionMapOverlay;
     GameScene *scene{nullptr};
 };
+
+// ─── Map overlay widgets ─────────────────────────────────────────────────────
 
 // Draws the ghost preview for the currently selected build option.
 class BuildGhostWidget : public UiWidget
@@ -127,15 +134,28 @@ public:
     GameScene* scene{nullptr};
 };
 
-// A clickable field-battle marker: the screen point of the circle plus the two
-// engaged divisions (by player + division id) so the panel can show live details.
+// One engaged division in a field battle, identified by player + division id.
+struct FieldBattleParticipant
+{
+    int playerId{-1};
+    int divisionId{-1};
+};
+
+// A clickable field-battle marker: every division consolidated into one fight
+// (divisions touching the same melee) plus the screen point of its static bubble.
 struct FieldBattleMarker
 {
     Vector2 screenPos{0.0f, 0.0f};
-    int playerA{-1};
-    int divisionA{-1};
-    int playerB{-1};
-    int divisionB{-1};
+    float radius{14.0f};
+    std::vector<FieldBattleParticipant> participants;
+
+    bool Contains(int playerId, int divisionId) const
+    {
+        for (const auto& p : participants)
+            if (p.playerId == playerId && p.divisionId == divisionId)
+                return true;
+        return false;
+    }
 };
 
 // Draws visible military orders and active battle indicators for the local player.
@@ -145,34 +165,24 @@ public:
     void Update(double dt) override;
     // Returns the battle circle hit at a screen point, or nullptr.
     const FieldBattleMarker* HitTest(Vec2i point) const;
-    // Opens / closes the battle details panel.
+    // Opens the battle details panel for a consolidated field battle.
     void SelectBattle(const FieldBattleMarker& m)
     {
         detailsOpen = true;
-        selPlayerA = m.playerA; selDivA = m.divisionA;
-        selPlayerB = m.playerB; selDivB = m.divisionB;
+        selectedParticipants = m.participants;
     }
-    void CloseDetails() { detailsOpen = false; }
+    void CloseDetails() { detailsOpen = false; selectedParticipants.clear(); }
+
+    // Renders the consolidated field-battle details panel for the open fight.
+    void DrawFieldBattlePanel();
 
     GameScene* scene{nullptr};
     std::vector<FieldBattleMarker> battleMarkers;  // rebuilt each frame
 
     bool detailsOpen{false};
-    int selPlayerA{-1}, selDivA{-1}, selPlayerB{-1}, selDivB{-1};
-};
-
-// Shows parameters of an active or recently ended battle.
-class BattleInfoPanel : public UiWidget
-{
-public:
-    void Update(double dt) override;
-    void UpdateSize(Vec2i windowSize) override;
-    bool HasBattle() const { return activeBattleId >= 0; }
-    void SetBattle(int battleId) { activeBattleId = battleId; }
-    void Clear() { activeBattleId = -1; }
-
-    GameScene* scene{nullptr};
-    int activeBattleId{-1};
+    // Sticky selection: the set of divisions in the open battle, refreshed each
+    // frame against live markers so the panel survives divisions joining/leaving.
+    std::vector<FieldBattleParticipant> selectedParticipants;
 };
 
 // Pickable map marker for a stack of co-located divisions (HOI4-style counter).
@@ -197,8 +207,8 @@ public:
 
     GameScene* scene{nullptr};
     std::vector<DivisionMapMarker> markers; // rebuilt each frame in Update()
-    static constexpr float kMarkerHalfW = 16.0f;
-    static constexpr float kMarkerHalfH = 11.0f;
+    static constexpr float kMarkerHalfW = 20.0f;
+    static constexpr float kMarkerHalfH = 14.0f;
 };
 
 class MilitaryDivisionBarWidget;
@@ -226,6 +236,17 @@ public:
     bool HandleClick(Vec2i point);
     bool IsSelected(int divId) const;
 
+    // Replaces the selection (and home building) atomically. Update() wipes the
+    // selection when it sees the building change (user clicked another building);
+    // programmatic selection must sync prevBuilding or its fresh ids get wiped on
+    // the very next frame (the "first drag-select does nothing" bug).
+    void SetSelection(Building* home, std::vector<int> ids)
+    {
+        building = home;
+        prevBuilding = home;
+        selectedDivisionIds = std::move(ids);
+    }
+
     Building* building{nullptr};
     Building* prevBuilding{nullptr};
     std::vector<int> selectedDivisionIds;
@@ -243,6 +264,9 @@ public:
     // True when the point is over an army card or the "+" button (for highlight
     // suppression) — not the whole nominal widget rectangle.
     bool IsOverContent(Vec2i point) const;
+    // Returns the army id whose card contains the point, or -1 if none. Used by the
+    // RMB handler to transfer the current selection into that army.
+    int ArmyIdAt(Vec2i point) const;
 
     GameScene* scene{nullptr};
     MilitaryDivisionBarWidget* bar{nullptr};  // current division selection source
@@ -252,6 +276,8 @@ public:
     Rectangle plusRect{0, 0, 0, 0};
     Rectangle contentBounds{0, 0, 0, 0};  // bounding box of the whole strip
 };
+
+// ─── HUD and full-screen panels ──────────────────────────────────────────────
 
 // Top-screen strategic resource summary for the local player.
 class StrategicResourceHudWidget : public UiWidget
@@ -275,6 +301,11 @@ public:
     int selectedFlowMode{0};
 
 private:
+    // Layout rectangles shared by Update (drawing) and HandleClick (hit tests)
+    // so both always agree on where the controls are.
+    Rectangle GetWindowSpinnerRect() const;
+    Rectangle GetFlowModeToggleRect() const;
+    Rectangle GetChartRect() const;
     Rectangle GetFilterButtonRect(Rectangle chart, int index) const;
     Rectangle GetAllFilterButtonRect(Rectangle chart) const;
 
@@ -282,13 +313,25 @@ private:
     std::vector<ResourceType> filterResources;
 };
 
-class FocusPanelWidget : public UiWidget
+// Which research tree a ResearchTreePanelWidget renders.
+enum class ResearchTreeKind
+{
+    Focus,
+    Technology,
+};
+
+// Full-screen research tree (shared by political focuses and technologies).
+// The two trees differ only in data source, the focus-only state side panel and
+// what happens when an available node is clicked.
+class ResearchTreePanelWidget : public UiWidget
 {
 public:
+    explicit ResearchTreePanelWidget(ResearchTreeKind kind) : kind(kind) {}
     void Update(double dt) override;
     void AdjustTreeZoom(Vec2i point, float wheel);
 
     GameScene* scene{nullptr};
+    ResearchTreeKind kind{ResearchTreeKind::Technology};
     float scrollOffset{0.0f};
     float maxScrollOffset{0.0f};
     Vec2f panOffset{0.0f, 0.0f};
@@ -296,6 +339,10 @@ public:
     bool panning{false};
     Vec2f lastPanMouse{0.0f, 0.0f};
     std::string selectedTagFilter;
+
+private:
+    // Scrollable tree viewport; the focus tree reserves space for the state panel.
+    Rectangle GetTreeArea(Rectangle bounds) const;
 };
 
 // Right-side build panel with selectable building cards.
@@ -320,65 +367,13 @@ public:
     Vec2i dragOffset{0, 0};
 };
 
+// ─── Interaction systems ─────────────────────────────────────────────────────
+
 // Default map interaction mode for selection, camera and logistics assignment.
 class BasicMapViewSystem : public GuiSystem
 {
 public:
-    explicit BasicMapViewSystem(GuiController* con)
-    : GuiSystem(con)
-    {
-        scene = owner->scene;
-
-        actionMap["esc"]  = [this] { EscPressed(); };
-        actionMap["q"]    = [this] { BuildPressed(); };
-        actionMap["r"]    = [this] { RoadBuildPressed(); };
-        actionMap["d"]    = [this] { DestroyPressed(); };
-        actionMap["e"]    = [this] { HeadquartersPressed(); };
-        actionMap["s"]    = [this] { StatsPressed(); };
-        actionMap["f"]    = [this] { FocusPressed(); };
-        actionMap["space"] = [this] { CenterOnHeadquartersPressed(); };
-        actionMap["lmbp"] = [this] { LmbPressed(); };
-        actionMap["lmbr"] = [this] { LmbReleased(); };
-        actionMap["rmbp"] = [this] { RmbPressed(); };
-        actionMap["rmbr"] = [this] { RmbReleased(); };
-        actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
-        actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
-        actionMap["scroll"] = [this] { Scroll(); };
-
-        buildingInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
-        buildingInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
-        selectedBuildingWidget.scene = scene;
-        productionWarningWidget.scene = scene;
-        militaryOrderWidget.scene = scene;
-        // Division panel sits top-left (under the resource HUD) as a vertical
-        // HOI4-style list; the bottom of the screen is reserved for the future
-        // army (grouped-divisions) bar.
-        militaryDivisionBarWidget.ChangePositionAnchor({0.012f, 0.085f});
-        militaryDivisionBarWidget.ChangeSizeAnchor({0.23f, 0.58f});
-        strategicHudWidget.scene = scene;
-        strategicHudWidget.ChangePositionAnchor({0.012f, 0.012f});
-        strategicHudWidget.ChangeSizeAnchor({0.42f, 0.055f});
-        statsPanel.scene = scene;
-        statsPanel.ChangePositionAnchor({0.06f, 0.10f});
-        statsPanel.ChangeSizeAnchor({0.88f, 0.82f});
-        battleInfoPanel.scene = scene;
-        battleInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
-        battleInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
-        divisionMapWidget.scene = scene;
-        armyBarWidget.scene = scene;
-        armyBarWidget.bar = &militaryDivisionBarWidget;
-        // Bottom-center HOI4-style army strip.
-        armyBarWidget.ChangePositionAnchor({0.30f, 0.88f});
-        armyBarWidget.ChangeSizeAnchor({0.40f, 0.10f});
-        moveTargetWidget.scene = scene;
-        moveTargetWidget.bar = &militaryDivisionBarWidget;
-        moveTargetWidget.armyBar = &armyBarWidget;
-        buildingInfoPanel.recruitRequested = [this](Building* building, MilitaryUnitType unitType)
-        {
-            SubmitRecruitCommand(building, unitType);
-        };
-    }
-
+    explicit BasicMapViewSystem(GuiController* con);
     BasicMapViewSystem() = delete;
 
     // Rebuilds map-view widget list.
@@ -394,6 +389,7 @@ public:
     void HeadquartersPressed();
     void StatsPressed();
     void FocusPressed();
+    void TechPressed();
     void CenterOnHeadquartersPressed();
     void OpenHeadquartersPanel();
 
@@ -417,27 +413,28 @@ public:
 
     BuildingInfoPanel buildingInfoPanel;
     ResearchPanel researchPanel;
-    BattleInfoPanel battleInfoPanel;
     SelectedBuildingWidget selectedBuildingWidget;
     ProductionWarningWidget productionWarningWidget;
     MilitaryOrderWidget militaryOrderWidget;
-    DivisionMapWidget divisionMapWidget;
     MilitaryDivisionBarWidget militaryDivisionBarWidget;
     ArmyBarWidget armyBarWidget;
     MoveTargetWidget moveTargetWidget;
     StrategicResourceHudWidget strategicHudWidget;
-    StatsPanelWidget statsPanel;
-    FocusPanelWidget focusPanel;
 
     bool isBuildingSelected{false};
     bool isDivisionOnlyMode{false}; // garrison bar only, no building info panel
-    int selectedBattleId{-1};
 
     // Drag-box selection state (box-select divisions on the map).
     bool pendingBox{false};   // LMB pressed on open ground, may become a box drag
     bool boxActive{false};    // dragged far enough to be a box selection
     Vec2i boxStart{0, 0};
     Vec2i boxEnd{0, 0};
+
+private:
+    // Returns the research panel when it holds a building, else the info panel.
+    GuiPanel* ActivePanel();
+    // Clears building selection and both side panels.
+    void ClearBuildingSelection();
 };
 
 // Build interaction mode for placeable buildings.
@@ -462,6 +459,7 @@ public:
     virtual void HeadquartersPressed();
     virtual void StatsPressed();
     virtual void FocusPressed();
+    virtual void TechPressed();
     // Selects build option or places selected building.
     virtual void LmbPressed();
     // Stops left-button action.
@@ -496,7 +494,6 @@ protected:
     size_t selectedIndex{std::numeric_limits<size_t>::max()};
     std::unique_ptr<Building> selectedPreview;
     BuildGhostWidget ghostWidget;
-    double buildTimePlaceholder{0.0};
 };
 
 // Specialized build mode that only places roads.
@@ -541,6 +538,7 @@ public:
     void HeadquartersPressed();
     void StatsPressed();
     void FocusPressed();
+    void TechPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -549,6 +547,8 @@ public:
 
 private:
     void ReturnToMapView();
+    // Drops the hover target before leaving destroy mode.
+    void ClearHoverTarget();
 
     GameScene* scene{nullptr};
     CameraMovement cameraMovement;
@@ -573,6 +573,7 @@ public:
     void HeadquartersPressed();
     void StatsPressed();
     void FocusPressed();
+    void TechPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -602,6 +603,7 @@ public:
     void HeadquartersPressed();
     void StatsPressed();
     void FocusPressed();
+    void TechPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -611,7 +613,37 @@ public:
 private:
     GameScene* scene{nullptr};
     CameraMovement cameraMovement;
-    FocusPanelWidget focusPanel;
+    ResearchTreePanelWidget focusPanel{ResearchTreeKind::Focus};
+    StrategicResourceHudWidget strategicHudWidget;
+};
+
+class TechGuiSystem : public GuiSystem
+{
+public:
+    explicit TechGuiSystem(GuiController* con);
+    TechGuiSystem() = delete;
+
+    void UpdateUiWidgets(Vec2i) override;
+    void Update(double dt) override;
+
+    void EscPressed();
+    void BuildPressed();
+    void RoadBuildPressed();
+    void DestroyPressed();
+    void HeadquartersPressed();
+    void StatsPressed();
+    void FocusPressed();
+    void TechPressed();
+    void LmbPressed();
+    void LmbReleased();
+    void RmbPressed();
+    void RmbReleased();
+    void Scroll();
+
+private:
+    GameScene* scene{nullptr};
+    CameraMovement cameraMovement;
+    ResearchTreePanelWidget techPanel{ResearchTreeKind::Technology};
     StrategicResourceHudWidget strategicHudWidget;
 };
 

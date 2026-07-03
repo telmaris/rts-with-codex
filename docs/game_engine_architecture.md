@@ -29,7 +29,6 @@ flowchart TD
     World --> Commands["GameCommand queue"]
     World --> Map["TileMap"]
     World --> Players["PlayerHandler"]
-    World --> Battles["BattleRegistry"]
     World --> Controllers["IController"]
 
     Players --> Player["Player"]
@@ -74,7 +73,6 @@ Fixed tick:
 
 - `TileMap tilemap`
 - `PlayerHandler playerHandler`
-- `BattleRegistry battles`
 - `Renderer* render`
 - `pendingCommands`
 - `commandResults`
@@ -95,14 +93,13 @@ To jest najwazniejszy kontrakt silnika. Kod UI, AI i siec powinny skladac intenc
 
 ## Komendy
 
-`GameCommand` jest pozycyjnie serializowanym komunikatem intencji. Obecny `WireVersion` to `5`.
+`GameCommand` jest pozycyjnie serializowanym komunikatem intencji. Obecny `WireVersion` to `8`.
 
 Typy komend:
 
 - `BuildBuilding`
 - `DestroyBuilding`
 - `SetReceiver`
-- `AttackBuilding`
 - `IssueMilitaryOrder`
 - `RecruitUnit`
 - `StartFocus`

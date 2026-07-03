@@ -113,7 +113,7 @@ TEST(GameCommandTests, LocalhostMultiplayerSessionRoundTripsCommandResult)
     GameWorld world;
     MapParameters params;
     params.seed = 12345;
-    world.InitMultiplayerWorld("test", nullptr, params, 0, true);
+    world.InitMultiplayerWorld("test", nullptr, nullptr, params, 0, true);
 
     LocalhostMultiplayerSession session(world);
 
@@ -185,8 +185,8 @@ TEST(GameCommandTests, MultiplayerWorldAssignsStableServerSlotsAndColors)
 
     GameWorld hostWorld;
     GameWorld clientWorld;
-    hostWorld.InitMultiplayerWorld("test", nullptr, params, 0, true);
-    clientWorld.InitMultiplayerWorld("test", nullptr, params, 1, false);
+    hostWorld.InitMultiplayerWorld("test", nullptr, nullptr, params, 0, true);
+    clientWorld.InitMultiplayerWorld("test", nullptr, nullptr, params, 1, false);
 
     ASSERT_EQ(hostWorld.GetLocalPlayerId(), 0);
     ASSERT_EQ(clientWorld.GetLocalPlayerId(), 1);

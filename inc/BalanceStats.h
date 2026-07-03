@@ -5,6 +5,7 @@
 enum class BalanceStat
 {
     BuildTime,
+    BuildCost,
     ProductionCycleTime,
     ProductionOutputAmount,
     WorkerCapacity,
@@ -22,6 +23,7 @@ enum class BalanceStat
     PopulationCap,
     RecruitmentTime,
     RecruitmentManpowerCost,
+    BuilderAmount,      // number of concurrent construction builders a player commands
     // Army-level stats (applied via ArmyGroup / ArmyCommander bonuses)
     ArmyRoadSpeed,      // tiles/minute on roads; base = 60 (1/sec)
     ArmyMarchSpeed,     // tiles/minute off-road; base = 12

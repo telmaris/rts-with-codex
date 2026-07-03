@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 include_directories(../inc)
         target_sources(game
                        PRIVATE
+                       AudioSystem.cpp
+                       WinmmStubs.cpp
                        GameWorld.cpp
                        GameWorld.TileMap.cpp
                        GameWorld.Init.cpp
@@ -27,11 +29,17 @@ include_directories(../inc)
                        ResearchCatalog.cpp
                        Renderer.cpp
                        GuiController.cpp
-                       Battle.cpp
+                       GuiCommon.cpp
+                       GuiMapWidgets.cpp
+                       GuiHudPanels.cpp
+                       GuiResearchTree.cpp
+                       GuiBuildModes.cpp
                        ArmyGroup.cpp
                        Equipment.cpp
                        UnitStats.cpp
                        DivisionSector.cpp
                        MovementPlanner.cpp
                        SectorGraph.cpp
-                       Player.cpp)
+                       Player.cpp
+                       ConstructionQueue.cpp
+                       DiplomaticState.cpp)

@@ -417,6 +417,8 @@ const char* MilitaryUnitLabel(MilitaryUnitType type)
     {
         case MilitaryUnitType::Swordsman: return "Swordsman";
         case MilitaryUnitType::Archer:    return "Archer";
+        case MilitaryUnitType::Spearman:  return "Spearman";
+        case MilitaryUnitType::Cavalry:   return "Cavalry";
         default:                          return "Militia";
     }
 }
@@ -427,6 +429,8 @@ double GetBaseRecruitmentTime(MilitaryUnitType type)
     {
         case MilitaryUnitType::Swordsman: return 12.0;
         case MilitaryUnitType::Archer:    return 10.0;
+        case MilitaryUnitType::Spearman:  return 11.0;
+        case MilitaryUnitType::Cavalry:   return 16.0;
         default:                          return 6.0;
     }
 }
@@ -437,6 +441,8 @@ int GetBaseRecruitmentManpowerCost(MilitaryUnitType type)
     {
         case MilitaryUnitType::Swordsman: return 10;
         case MilitaryUnitType::Archer:    return 10;
+        case MilitaryUnitType::Spearman:  return 10;
+        case MilitaryUnitType::Cavalry:   return 12;
         default:                          return 8;
     }
 }
@@ -449,46 +455,96 @@ std::vector<std::pair<ResourceType, int>> GetBaseRecruitmentResourceCosts(Milita
             return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::WEAPON_SUPPLY, 6}, {ResourceType::IRON_SWORD, 10}};
         case MilitaryUnitType::Archer:
             return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::BOW, 10}, {ResourceType::ARROWS, 20}};
+        case MilitaryUnitType::Spearman:
+            return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::WEAPON_SUPPLY, 6}, {ResourceType::COPPER_SWORD, 10}};
+        case MilitaryUnitType::Cavalry:
+            return {{ResourceType::FOOD_PROVISIONS, 8}, {ResourceType::WEAPON_SUPPLY, 8}, {ResourceType::IRON_SWORD, 12}};
         default:
             return {{ResourceType::FOOD_PROVISIONS, 4}, {ResourceType::WEAPON_SUPPLY, 5}};
     }
 }
 
-SoldierDivision CreateMilitaryDivision(MilitaryUnitType type, int id)
+// ─── Concrete unit-class constructors ─────────────────────────────────────────
+// Each seeds the class's baseline gear and per-instance pools, then derives the
+// combat stat block from BaseStats(). Balance numbers for the stat block itself
+// live centrally in MakeDefaultUnitStats().
+
+MilitiaDivision::MilitiaDivision() : SoldierDivision(MilitaryUnitType::Militia)
 {
-    SoldierDivision div;
-    div.id   = id;
-    div.type = type;
+    manpowerScale = 8;  maxHealth = 100; health = 100;
+    endurance = 50; strength = 10; morale = 55;
+    foodSupplyCapacity = 8; foodSupply = 8;
+    weaponSupplyCapacity = 8; weaponSupply = 8;
+    speedTilesPerMinute = 14.0;
+    equipment.weapon = ResourceType::WEAPON_SUPPLY;
+    stats = BaseStats();
+}
+UnitStats MilitiaDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Militia); }
+
+SwordsmanDivision::SwordsmanDivision() : SoldierDivision(MilitaryUnitType::Swordsman)
+{
+    manpowerScale = 10; maxHealth = 130; health = 130;
+    endurance = 62; strength = 22; morale = 68;
+    foodSupplyCapacity = 10; foodSupply = 10;
+    weaponSupplyCapacity = 10; weaponSupply = 10;
+    speedTilesPerMinute = 10.0;
+    equipment.weapon = ResourceType::IRON_SWORD;
+    equipment.armor  = ResourceType::TOOLS;
+    stats = BaseStats();
+}
+UnitStats SwordsmanDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Swordsman); }
+
+ArcherDivision::ArcherDivision() : SoldierDivision(MilitaryUnitType::Archer)
+{
+    manpowerScale = 10; maxHealth = 90; health = 90;
+    endurance = 58; strength = 17; morale = 64;
+    foodSupplyCapacity = 10; foodSupply = 10;
+    weaponSupplyCapacity = 10; weaponSupply = 10;
+    speedTilesPerMinute = 12.0;
+    equipment.rangedWeapon = ResourceType::BOW;
+    equipment.ammo         = ResourceType::ARROWS;
+    stats = BaseStats();
+}
+UnitStats ArcherDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Archer); }
+
+SpearmanDivision::SpearmanDivision() : SoldierDivision(MilitaryUnitType::Spearman)
+{
+    manpowerScale = 10; maxHealth = 115; health = 115;
+    endurance = 60; strength = 18; morale = 66;
+    foodSupplyCapacity = 10; foodSupply = 10;
+    weaponSupplyCapacity = 10; weaponSupply = 10;
+    speedTilesPerMinute = 11.0;
+    equipment.weapon = ResourceType::COPPER_SWORD;
+    equipment.armor  = ResourceType::TOOLS;
+    stats = BaseStats();
+}
+UnitStats SpearmanDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Spearman); }
+
+CavalryDivision::CavalryDivision() : SoldierDivision(MilitaryUnitType::Cavalry)
+{
+    manpowerScale = 12; maxHealth = 140; health = 140;
+    endurance = 65; strength = 26; morale = 70;
+    foodSupplyCapacity = 12; foodSupply = 12;
+    weaponSupplyCapacity = 12; weaponSupply = 12;
+    speedTilesPerMinute = 18.0;
+    equipment.weapon = ResourceType::IRON_SWORD;
+    equipment.armor  = ResourceType::TOOLS;
+    stats = BaseStats();
+}
+UnitStats CavalryDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Cavalry); }
+
+std::unique_ptr<SoldierDivision> CreateMilitaryDivision(MilitaryUnitType type, int id)
+{
+    std::unique_ptr<SoldierDivision> div;
     switch (type)
     {
-        case MilitaryUnitType::Swordsman:
-            div.manpowerScale = 10; div.maxHealth = 130; div.health = 130;
-            div.endurance = 62; div.strength = 22; div.morale = 68;
-            div.foodSupplyCapacity = 10; div.foodSupply = 10;
-            div.weaponSupplyCapacity = 10; div.weaponSupply = 10;
-            div.speedTilesPerMinute = 10.0;
-            div.equipment.weapon = ResourceType::IRON_SWORD;
-            div.equipment.armor  = ResourceType::TOOLS;
-            break;
-        case MilitaryUnitType::Archer:
-            div.manpowerScale = 10; div.maxHealth = 90; div.health = 90;
-            div.endurance = 58; div.strength = 17; div.morale = 64;
-            div.foodSupplyCapacity = 10; div.foodSupply = 10;
-            div.weaponSupplyCapacity = 10; div.weaponSupply = 10;
-            div.speedTilesPerMinute = 12.0;
-            div.equipment.rangedWeapon = ResourceType::BOW;
-            div.equipment.ammo         = ResourceType::ARROWS;
-            break;
-        default: // Militia
-            div.manpowerScale = 8;  div.maxHealth = 100; div.health = 100;
-            div.endurance = 50; div.strength = 10; div.morale = 55;
-            div.foodSupplyCapacity = 8; div.foodSupply = 8;
-            div.weaponSupplyCapacity = 8; div.weaponSupply = 8;
-            div.speedTilesPerMinute = 14.0;
-            div.equipment.weapon = ResourceType::WEAPON_SUPPLY;
-            break;
+        case MilitaryUnitType::Swordsman: div = std::make_unique<SwordsmanDivision>(); break;
+        case MilitaryUnitType::Archer:    div = std::make_unique<ArcherDivision>();    break;
+        case MilitaryUnitType::Spearman:  div = std::make_unique<SpearmanDivision>();  break;
+        case MilitaryUnitType::Cavalry:   div = std::make_unique<CavalryDivision>();   break;
+        default:                          div = std::make_unique<MilitiaDivision>();   break;
     }
-    div.stats = MakeDefaultUnitStats(type);
+    div->id = id;
     return div;
 }
 
@@ -503,6 +559,8 @@ double Building::BeginOperationalUpdate(double dt)
 {
     if (dt <= 0.0)          return 0.0;
     if (constructionRemaining <= 0.0) { lifetime += dt; return dt; }
+    // Queued but no builder is free to work this one yet — hold construction.
+    if (!constructionActive) return 0.0;
 
     double before = constructionRemaining;
     constructionRemaining = std::max(0.0, constructionRemaining - dt);
@@ -854,6 +912,45 @@ Smith::Smith(int i)
 {
     id = i;
     const auto& def = GetBuildingDefinition(BuildingType::Smith);
+    RegisterComponent(&production);
+    RegisterComponent(&logistics);
+    RegisterComponent(&workers);
+    RegisterComponent(&recipes);
+    ApplyBuildingDefinition(*this, def);
+    ApplyProductionDefinition(*this, def.production);
+    ApplyProductionRecipes(*this, def);
+}
+
+Mint::Mint(int i)
+{
+    id = i;
+    const auto& def = GetBuildingDefinition(BuildingType::Mint);
+    RegisterComponent(&production);
+    RegisterComponent(&logistics);
+    RegisterComponent(&workers);
+    RegisterComponent(&recipes);
+    ApplyBuildingDefinition(*this, def);
+    ApplyProductionDefinition(*this, def.production);
+    ApplyProductionRecipes(*this, def);
+}
+
+Glassworks::Glassworks(int i)
+{
+    id = i;
+    const auto& def = GetBuildingDefinition(BuildingType::Glassworks);
+    RegisterComponent(&production);
+    RegisterComponent(&logistics);
+    RegisterComponent(&workers);
+    RegisterComponent(&recipes);
+    ApplyBuildingDefinition(*this, def);
+    ApplyProductionDefinition(*this, def.production);
+    ApplyProductionRecipes(*this, def);
+}
+
+Powderworks::Powderworks(int i)
+{
+    id = i;
+    const auto& def = GetBuildingDefinition(BuildingType::Powderworks);
     RegisterComponent(&production);
     RegisterComponent(&logistics);
     RegisterComponent(&workers);

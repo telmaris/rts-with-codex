@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "Building.h"
 #include "MapGenerator.h"
 #include "BuildingConfig.h"
 #include "Technology.h"
@@ -6,8 +7,69 @@
 #include <algorithm>
 #include <cmath>
 
+Player::~Player() = default;
+
+SoldierDivision* Player::FindForce(int divisionId)
+{
+    for (auto& f : forces)
+        if (f != nullptr && f->id == divisionId)
+            return f.get();
+    return nullptr;
+}
+
+SoldierDivision* Player::AddForce(std::unique_ptr<SoldierDivision> division, int buildingId)
+{
+    if (division == nullptr)
+        return nullptr;
+    division->garrisonBuildingId = buildingId;
+    forces.push_back(std::move(division));
+    SoldierDivision* added = forces.back().get();
+    // Keep the home building's view current immediately (recruitment happens mid-tick).
+    if (Building* b = tilemap.GetBuilding(buildingId))
+        if (auto* g = b->GetComponent<GarrisonComponent>())
+            g->divisions.push_back(added);
+    return added;
+}
+
+void Player::RebuildGarrisonViews()
+{
+    std::vector<Building*> garrisons;
+    for (Building* b : GetTrackedBuildingsWithComponent<GarrisonComponent>())
+    {
+        if (b == nullptr) continue;
+        if (auto* g = b->GetComponent<GarrisonComponent>())
+        {
+            g->divisions.clear();
+            garrisons.push_back(b);
+        }
+    }
+
+    // Fallback home for orphaned divisions (their home was captured/destroyed):
+    // prefer the HQ, else any garrison building. Keeps every division simulated.
+    Building* fallback = nullptr;
+    for (Building* b : garrisons)
+        if (b->buildingType == BuildingType::Headquarters) { fallback = b; break; }
+    if (fallback == nullptr && !garrisons.empty())
+        fallback = garrisons.front();
+
+    for (auto& f : forces)
+    {
+        if (f == nullptr) continue;
+        Building* home = f->garrisonBuildingId >= 0 ? tilemap.GetBuilding(f->garrisonBuildingId) : nullptr;
+        if (home == nullptr || home->owner != this)
+            home = fallback;
+        if (home == nullptr)
+            continue;  // player has no garrison buildings left — division sits idle
+        f->garrisonBuildingId = home->positionId;
+        if (auto* g = home->GetComponent<GarrisonComponent>())
+            g->divisions.push_back(f.get());
+    }
+}
+
 void Player::UpdateFocus(double dt)
 {
+    if (tilemap.params.debugMode)
+        dt *= 20.0;
     std::string completedFocus = focuses.GetActiveFocusId();
     if (focuses.UpdateActiveFocus(dt))
     {
@@ -19,6 +81,8 @@ void Player::UpdateFocus(double dt)
 
 void Player::UpdateResearch(double dt)
 {
+    if (tilemap.params.debugMode)
+        dt *= 20.0;
     bool territoryChanged = false;
     for (auto* building : GetTrackedBuildingsWithComponent<ResearchComponent>())
     {
@@ -43,6 +107,25 @@ void Player::UpdateResearch(double dt)
     }
     if (territoryChanged)
         tilemap.RecalculateTerritory(this);
+}
+
+void Player::ResetResearchState()
+{
+    technologies.Clear();
+    focuses.Clear();
+    for (auto* building : GetTrackedBuildingsWithComponent<ResearchComponent>())
+    {
+        auto* research = building != nullptr ? building->GetComponent<ResearchComponent>() : nullptr;
+        if (research != nullptr)
+        {
+            research->technologyId.clear();
+            research->remaining = 0.0;
+            research->total = 0.0;
+        }
+    }
+    RefreshTechnologyModifiers();
+    tilemap.RecalculateTerritory(this);
+    Log::Msg("[Debug]", "Research state reset for player ", id);
 }
 
 bool Player::IsTechnologyInProgress(const std::string& id) const
@@ -90,7 +173,7 @@ std::vector<std::string> Player::GetBuildRequirementFailures(const BuildingDefin
     for (const auto& focus : definition.requiredFocuses)
         if (!focuses.HasFocus(focus))
             failures.push_back("Requires focus: " + focus);
-    if ((!tilemap.params.debugMode || !ignoreDebugFreeBuild) && !HasBuildResources(definition.buildCosts))
+    if ((!tilemap.params.debugMode || !ignoreDebugFreeBuild) && !HasBuildResources(GetEffectiveBuildCosts(definition)))
         failures.push_back("Not enough resources");
     return failures;
 }
@@ -332,6 +415,40 @@ bool Player::TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs)
     }
 
     return true;
+}
+
+void Player::RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs)
+{
+    for (const auto& cost : costs)
+    {
+        int remaining = cost.amount;
+        if (remaining <= 0)
+            continue;
+
+        // Pour the resources back into the same kind of storage they were paid
+        // from. Buffers that already hold this type have the capacity we freed at
+        // build time; anything that no longer fits (production refilled it) spills.
+        for (auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+        {
+            if (remaining <= 0)
+                break;
+
+            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+            if (storage == nullptr || building->owner != this)
+                continue;
+
+            auto it = storage->buffers.find(cost.type);
+            if (it == storage->buffers.end())
+                continue;
+
+            while (remaining > 0 &&
+                   static_cast<int>(it->second.buffer.size()) < it->second.bufferSize)
+            {
+                it->second.GenerateResource(cost.type);
+                remaining--;
+            }
+        }
+    }
 }
 
 // ── PlayerEconomyTelemetry ──────────────────────────────────────────────────

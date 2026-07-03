@@ -120,8 +120,15 @@ DivisionSector ResolveDivisionSector(const TileMap& map, Vec2i target, const Pla
         Vec2i pos{sector.anchor.x + kLocalOffsets[i].x, sector.anchor.y + kLocalOffsets[i].y};
         if (!IsTileWalkableForDivision(map, pos))
             continue;
-        // AND with territory: only the owner's tiles count toward the footprint.
-        if (owner != nullptr && map.tilemap[map.GetIdFromCoords(pos)].owner != owner)
+        // AND with territory: only the owner's tiles count toward the footprint —
+        // EXCEPT road tiles, which are neutral infrastructure the army may always
+        // stand on. Roads at the frontier are often outside any tower's radius
+        // (hence unowned); excluding them left a gap in the defensive line exactly
+        // where the road runs, which the enemy then marched straight through.
+        const Tile& tile = map.tilemap[map.GetIdFromCoords(pos)];
+        const Building* b = tile.GetBuilding();
+        const bool isRoad = b != nullptr && b->buildingType == BuildingType::Road;
+        if (owner != nullptr && tile.owner != owner && !isRoad)
             continue;
         sector.mask |= static_cast<std::uint8_t>(1u << i);
     }

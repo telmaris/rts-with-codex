@@ -3,6 +3,7 @@
 
 #include "Utils.h"
 
+#include <set>
 #include <vector>
 
 class TileMap;
@@ -27,7 +28,13 @@ struct MovementCost
 // need not be walkable (a division leaves its building); every other tile on the
 // path must be. Returns empty when the goal is unreachable. start == goal yields
 // a single-element path.
+//
+// `blockedTiles` (optional) is a set of tile ids the path may not pass through —
+// used to make tiles held by ENEMY divisions impassable so an army physically
+// blocks the way instead of being walked through. The start tile is exempt (the
+// mover stands there); a blocked goal is unreachable.
 std::vector<int> PlanDivisionPath(const TileMap& map, Vec2i start, Vec2i goal,
-                                  const MovementCost& cost = {});
+                                  const MovementCost& cost = {},
+                                  const std::set<int>* blockedTiles = nullptr);
 
 #endif

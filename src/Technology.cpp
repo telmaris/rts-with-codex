@@ -1,5 +1,6 @@
 #include "../inc/Technology.h"
 #include "../inc/RtsDataFile.h"
+#include "../inc/Utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -24,6 +25,7 @@ namespace
     BalanceStat ParseBalanceStat(const std::string& value)
     {
         if (value == "BuildTime") return BalanceStat::BuildTime;
+        if (value == "BuildCost") return BalanceStat::BuildCost;
         if (value == "ProductionCycleTime") return BalanceStat::ProductionCycleTime;
         if (value == "ProductionOutputAmount") return BalanceStat::ProductionOutputAmount;
         if (value == "WorkerCapacity") return BalanceStat::WorkerCapacity;
@@ -41,6 +43,7 @@ namespace
         if (value == "PopulationCap") return BalanceStat::PopulationCap;
         if (value == "RecruitmentTime") return BalanceStat::RecruitmentTime;
         if (value == "RecruitmentManpowerCost") return BalanceStat::RecruitmentManpowerCost;
+        if (value == "BuilderAmount") return BalanceStat::BuilderAmount;
         return BalanceStat::BuildTime;
     }
 
@@ -160,6 +163,8 @@ namespace
             switch (modifier.stat)
             {
                 case BalanceStat::BuildTime:
+                case BalanceStat::BuildCost:
+                case BalanceStat::BuilderAmount:
                     AddTag(definition.tags, "construction");
                     break;
                 case BalanceStat::ProductionCycleTime:
@@ -548,14 +553,28 @@ std::vector<TechnologyDefinition> LoadFocusDefinitionsFromFile(const std::string
 // Returns all loaded technology definitions.
 const std::vector<TechnologyDefinition>& GetTechnologyDefinitions()
 {
-    static const std::vector<TechnologyDefinition> definitions = LoadTechnologyDefinitionsFromFile(technologyDataPath);
+    static std::vector<TechnologyDefinition> definitions = LoadTechnologyDefinitionsFromFile(technologyDataPath);
     return definitions;
 }
 
 const std::vector<TechnologyDefinition>& GetFocusDefinitions()
 {
-    static const std::vector<TechnologyDefinition> definitions = LoadFocusDefinitionsFromFile(focusDataPath);
+    static std::vector<TechnologyDefinition> definitions = LoadFocusDefinitionsFromFile(focusDataPath);
     return definitions;
+}
+
+void ReloadTechnologyDefinitions()
+{
+    const_cast<std::vector<TechnologyDefinition>&>(GetTechnologyDefinitions()) =
+        LoadTechnologyDefinitionsFromFile(technologyDataPath);
+    Log::Msg("[Debug]", "Technology definitions reloaded from disk");
+}
+
+void ReloadFocusDefinitions()
+{
+    const_cast<std::vector<TechnologyDefinition>&>(GetFocusDefinitions()) =
+        LoadFocusDefinitionsFromFile(focusDataPath);
+    Log::Msg("[Debug]", "Focus definitions reloaded from disk");
 }
 
 // Finds one technology definition by id.

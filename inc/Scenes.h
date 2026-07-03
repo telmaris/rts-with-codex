@@ -31,12 +31,14 @@ class IGameRuntimeLoop
 // Main menu scene with textured background and primary navigation buttons.
 class MainMenuScene : public Scene
 {
-    public: 
+    public:
 
     MainMenuScene();
 
     // Updates main menu widgets.
     void Update(double dt) override;
+    // Starts the menu music theme.
+    void OnActivated() override;
 
     // Opens the new game scene.
     void OnNewGamePressed();
@@ -68,6 +70,8 @@ class OptionsScene : public Scene
         OptionsScene();
         // Updates options widgets.
         void Update(double dt) override;
+        // Syncs slider to current audio volume.
+        void OnActivated() override;
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
 
@@ -77,6 +81,8 @@ class OptionsScene : public Scene
         UiButton backButton;
         CheckBox fullScreenCheckBox;
         SliderBar masterVolume;
+        SliderBar musicVolume;
+        SliderBar sfxVolume;
 };
 
 // New game form scene.
@@ -299,6 +305,8 @@ class GameScene : public Scene
         UiLabel networkStatusLabel;
         GameSnapshot latestSnapshot;
         std::vector<GameCommandResult> commandResults;
+        std::size_t prevUnlockedTechCount{0};
+        std::size_t prevUnlockedFocusCount{0};
 };
 
 // Static controls reference scene shown from the main menu.

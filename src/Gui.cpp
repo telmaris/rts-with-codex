@@ -584,6 +584,7 @@ namespace
         switch (stat)
         {
             case BalanceStat::BuildTime: return "Build time";
+            case BalanceStat::BuildCost: return "Build cost";
             case BalanceStat::ProductionCycleTime: return "Cycle time";
             case BalanceStat::ProductionOutputAmount: return "Output";
             case BalanceStat::WorkerCapacity: return "Workers";
@@ -601,6 +602,7 @@ namespace
             case BalanceStat::PopulationCap: return "Population cap";
             case BalanceStat::RecruitmentTime: return "Recruitment time";
             case BalanceStat::RecruitmentManpowerCost: return "Recruitment cost";
+            case BalanceStat::BuilderAmount: return "Builders";
             default: return "Effect";
         }
     }
@@ -610,6 +612,7 @@ namespace
         switch (stat)
         {
             case BalanceStat::BuildTime:
+            case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
             case BalanceStat::SupplyConsumption:
@@ -1654,7 +1657,18 @@ void GuiPanel::Update(double dt)
 
     if (building->IsUnderConstruction())
     {
-        UiText::Draw("Under construction", contentX, y, 22, Color{190, 198, 208, 255});
+        int queuePosition = 0;
+        int builderCount = 0;
+        bool builderAssigned = false;
+        if (building->owner != nullptr)
+        {
+            queuePosition = building->owner->construction.QueuePosition(building->id);
+            builderCount = building->owner->construction.EffectiveBuilders(*building->owner);
+            builderAssigned = building->owner->construction.IsActive(building->id);
+        }
+
+        UiText::Draw(builderAssigned ? "Under construction" : "Waiting in build queue",
+                     contentX, y, 22, Color{190, 198, 208, 255});
         y += 34;
         progressBar.pos = Vec2i{contentX, y};
         progressBar.size = Vec2i{contentW, 30};
@@ -1665,7 +1679,25 @@ void GuiPanel::Update(double dt)
 
         std::string remaining = "Remaining: " + std::to_string(static_cast<int>(std::ceil(building->constructionRemaining))) + "s";
         DrawTextFit(remaining, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, Color{190, 198, 208, 255});
-        drawDestroyButton();
+        y += 24;
+
+        if (queuePosition > 0)
+        {
+            std::string queueLine = "Queue position: " + std::to_string(queuePosition) +
+                                    " / " + std::to_string(building->owner->construction.QueueLength()) +
+                                    "   Builders: " + std::to_string(builderCount);
+            DrawTextFit(queueLine, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, Color{170, 178, 188, 255});
+        }
+
+        // The Destroy path already unwinds a placed-but-unfinished building; here it
+        // reads as cancelling the order. Refresh() re-numbers the rest of the queue.
+        if (building->CanBeManuallyDestroyed())
+        {
+            destroyButton.pos = Vec2i{contentX, bottom - destroyButton.size.y};
+            destroyButton.size = Vec2i{contentW, destroyButton.size.y};
+            destroyButton.ChangeText("Remove from queue");
+            destroyButton.Update(dt);
+        }
         return;
     }
 
@@ -1811,50 +1843,58 @@ void GuiPanel::Update(double dt)
     if (garrison != nullptr && territory != nullptr)
     {
         bool barracks = building->HasComponent<RecruitmentComponent>();
+        // Only defensive works (tower/fortress/castle) present garrison state.
+        // The Barracks is a training factory and the HQ a capital — both merely
+        // home field divisions and must not read as garrison buildings.
+        bool defensiveGarrison = IsDefensiveGarrisonBuilding(*building);
         UiText::Draw(barracks ? "Military training" : "Military", contentX, y, 22, Color{190, 198, 208, 255});
         y += 32;
 
-        const BalanceModifierSet* unitMods =
-            building->owner != nullptr ? &building->owner->balanceModifiers : nullptr;
+        std::vector<std::string> stats{
+            "Hit points: " + std::to_string(territory->hp) + "/" + std::to_string(territory->GetMaxHp(*building)),
+            "Territory radius: " + std::to_string(territory->GetRadius(*building))};
+        if (barracks)
+            stats.insert(stats.begin(), "Recruitment creates divisions");
 
         int weaponSupply = 0;
         int weaponSupplyCapacity = 0;
-        int activeDivisionOrders = 0;
-        DivisionCombatStats combatSum{};
-        for (const auto& division : garrison->divisions)
+        if (defensiveGarrison)
         {
-            weaponSupply += division.weaponSupply;
-            weaponSupplyCapacity += division.weaponSupplyCapacity;
-            if (division.currentOrder != MilitaryOrderType::None)
-                activeDivisionOrders++;
+            const BalanceModifierSet* unitMods =
+                building->owner != nullptr ? &building->owner->balanceModifiers : nullptr;
 
-            DivisionCombatStats cs = ComputeDivisionCombatStats(division, unitMods);
-            combatSum.lightAttack += cs.lightAttack;
-            combatSum.armoredAttack += cs.armoredAttack;
-            combatSum.defense += cs.defense;
-            combatSum.morale += cs.morale;
-            combatSum.equipmentQuality += cs.equipmentQuality;
-        }
+            int activeDivisionOrders = 0;
+            DivisionCombatStats combatSum{};
+            for (const auto& divisionPtr : garrison->divisions)
+            {
+                const auto& division = *divisionPtr;
+                weaponSupply += division.weaponSupply;
+                weaponSupplyCapacity += division.weaponSupplyCapacity;
+                if (division.currentOrder != MilitaryOrderType::None)
+                    activeDivisionOrders++;
 
-        std::vector<std::string> stats{
-            "Hit points: " + std::to_string(territory->hp) + "/" + std::to_string(territory->GetMaxHp(*building)),
-            "Effective strength: " + std::to_string(garrison->GetEffectiveStrength(*building)),
-            "Territory radius: " + std::to_string(territory->GetRadius(*building)),
-            "Divisions: " + std::to_string(garrison->divisions.size()) + "/" + std::to_string(garrison->GetDivisionCap(*building))};
-        if (barracks)
-            stats.insert(stats.begin(), "Recruitment creates divisions");
-        else
+                DivisionCombatStats cs = ComputeDivisionCombatStats(division, unitMods);
+                combatSum.lightAttack += cs.lightAttack;
+                combatSum.armoredAttack += cs.armoredAttack;
+                combatSum.defense += cs.defense;
+                combatSum.morale += cs.morale;
+                combatSum.equipmentQuality += cs.equipmentQuality;
+            }
+
+            stats.insert(stats.begin() + 1, "Effective strength: " + std::to_string(garrison->GetEffectiveStrength(*building)));
+            stats.push_back("Divisions: " + std::to_string(garrison->divisions.size()) + "/" + std::to_string(garrison->GetDivisionCap(*building)));
             stats.push_back("Active orders: " + std::to_string(activeDivisionOrders + (garrison->currentOrder != MilitaryOrderType::None ? 1 : 0)));
 
-        if (int divCount = static_cast<int>(garrison->divisions.size()); divCount > 0)
-        {
-            auto round1 = [](float v) { return std::to_string(static_cast<int>(std::lround(v))); };
-            stats.push_back("Atk L/A: " + round1(combatSum.lightAttack / divCount) + "/" +
-                            round1(combatSum.armoredAttack / divCount) +
-                            "  Def: " + round1(combatSum.defense / divCount));
-            stats.push_back("Morale: " + round1(combatSum.morale / divCount) +
-                            "  Gear: " + std::to_string(static_cast<int>(std::lround(
-                                combatSum.equipmentQuality / divCount * 100.0f))) + "%");
+            if (int divCount = static_cast<int>(garrison->divisions.size()); divCount > 0)
+            {
+                auto round1 = [](float v) { return std::to_string(static_cast<int>(std::lround(v))); };
+                stats.push_back("Atk L/A: " + round1(combatSum.lightAttack / divCount) + "/" +
+                                round1(combatSum.armoredAttack / divCount) +
+                                "  Def: " + round1(combatSum.defense / divCount));
+                stats.push_back("Morale: " + round1(combatSum.morale / divCount) +
+                                "  Gear: " + std::to_string(static_cast<int>(std::lround(
+                                    combatSum.equipmentQuality / divCount * 100.0f))) + "%");
+            }
         }
 
         int line = 20;
@@ -1864,33 +1904,36 @@ void GuiPanel::Update(double dt)
             y += line + 4;
         }
 
-        y += 8;
-        auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor)
+        if (defensiveGarrison)
         {
-            DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, Color{190, 198, 208, 255});
-            y += 20;
-            Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 12.0f};
-            DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
-            Rectangle fill = bar;
-            float ratio = capacity > 0 ? std::clamp(value / static_cast<float>(capacity), 0.0f, 1.0f) : 0.0f;
-            fill.width *= ratio;
-            DrawRectangleRounded(fill, 0.2f, 4, fillColor);
-            y += 22;
-        };
+            y += 8;
+            auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor)
+            {
+                DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, Color{190, 198, 208, 255});
+                y += 20;
+                Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 12.0f};
+                DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
+                Rectangle fill = bar;
+                float ratio = capacity > 0 ? std::clamp(value / static_cast<float>(capacity), 0.0f, 1.0f) : 0.0f;
+                fill.width *= ratio;
+                DrawRectangleRounded(fill, 0.2f, 4, fillColor);
+                y += 22;
+            };
 
-        drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255});
-        drawRatio("Food supply",
-                  supplyBuffer != nullptr ? supplyBuffer->stored : 0,
-                  supplyBuffer != nullptr ? supplyBuffer->GetModifiedCapacity(*building) : 0,
-                  Color{206, 148, 88, 255});
-        drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255});
-        if (!barracks && (garrison->currentOrder != MilitaryOrderType::None || garrison->HasActiveDivisionOrders()))
-        {
-            UiText::DrawFit("Orders active",
-                Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f},
-                17,
-                Color{255, 214, 112, 255});
-            y += 24;
+            drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255});
+            drawRatio("Food supply",
+                      supplyBuffer != nullptr ? supplyBuffer->stored : 0,
+                      supplyBuffer != nullptr ? supplyBuffer->GetModifiedCapacity(*building) : 0,
+                      Color{206, 148, 88, 255});
+            drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255});
+            if (garrison->currentOrder != MilitaryOrderType::None || garrison->HasActiveDivisionOrders())
+            {
+                UiText::DrawFit("Orders active",
+                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f},
+                    17,
+                    Color{255, 214, 112, 255});
+                y += 24;
+            }
         }
         if (auto* recruitment = building->GetComponent<RecruitmentComponent>())
         {

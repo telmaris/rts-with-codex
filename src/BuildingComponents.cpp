@@ -59,8 +59,9 @@ namespace
     void RecountDivisionTypes(GarrisonComponent& g)
     {
         g.militia = g.swordsmen = g.archers = 0;
-        for (const auto& div : g.divisions)
+        for (const auto& divPtr : g.divisions)
         {
+            const auto& div = *divPtr;
             switch (div.type)
             {
                 case MilitaryUnitType::Swordsman: g.swordsmen++; break;
@@ -188,23 +189,21 @@ namespace
             if (!div.inTransit) return true;
 
             // First hop starts at the division's real position (travelFromPos) for
-            // a smooth departure; later hops snap to tile centres.
+            // a smooth departure; later hops snap to tile centres. The march aims
+            // its LAST hop straight at the settle point (travelToPos = the quadrant
+            // centre) instead of the goal tile's centre — otherwise the unit walks
+            // into a corner tile and then teleports to the centre on arrival.
+            int pathSize = static_cast<int>(div.travelPath.size());
             Vec2f cur = div.travelPathStep == 0
                 ? div.travelFromPos
-                : TileWorldCenter(tilemap, div.travelPath[div.travelPathStep]);
-            if (div.travelPathStep + 1 < static_cast<int>(div.travelPath.size()))
-            {
-                Vec2f nxt = TileWorldCenter(tilemap, div.travelPath[div.travelPathStep + 1]);
-                float t = static_cast<float>(std::min(1.0, div.travelElapsed / stepDuration(div.travelPathStep)));
-                div.worldPos = {cur.x + (nxt.x - cur.x) * t, cur.y + (nxt.y - cur.y) * t};
-            }
-            else
-            {
-                float t = static_cast<float>(std::min(1.0, div.travelElapsed / stepDuration(div.travelPathStep)));
-                div.worldPos = {
-                    cur.x + (div.travelToPos.x - cur.x) * t,
-                    cur.y + (div.travelToPos.y - cur.y) * t};
-            }
+                : (div.travelPathStep >= pathSize - 1
+                    ? div.travelToPos
+                    : TileWorldCenter(tilemap, div.travelPath[div.travelPathStep]));
+            Vec2f nxt = div.travelPathStep + 1 >= pathSize - 1
+                ? div.travelToPos
+                : TileWorldCenter(tilemap, div.travelPath[div.travelPathStep + 1]);
+            float t = static_cast<float>(std::min(1.0, div.travelElapsed / stepDuration(div.travelPathStep)));
+            div.worldPos = {cur.x + (nxt.x - cur.x) * t, cur.y + (nxt.y - cur.y) * t};
         }
         else
         {
@@ -1003,7 +1002,7 @@ void GarrisonComponent::Update(Building& self, double dt)
 
     for (size_t i = 0; i < divisions.size();)
     {
-        auto& div = divisions[i];
+        auto& div = *divisions[i];
 
         // Advance physical movement
         if (div.inTransit && self.owner != nullptr)
@@ -1057,11 +1056,15 @@ void GarrisonComponent::Update(Building& self, double dt)
 
             if (friendlyGarrison->GetFreeDivisionSpace(*target) > 0)
             {
-                MilitaryDivision moved = div;
-                moved.currentOrder = MilitaryOrderType::None;
-                moved.orderTargetPositionId = -1;
-                moved.orderCooldown = 0.0;
-                friendlyGarrison->divisions.push_back(moved);
+                // Re-home the division to the friendly building (both belong to the
+                // same player; the division stays owned by Player::forces). Update
+                // both non-owning views in place.
+                SoldierDivision* d = divisions[i];
+                d->currentOrder = MilitaryOrderType::None;
+                d->orderTargetPositionId = -1;
+                d->orderCooldown = 0.0;
+                d->garrisonBuildingId = target->positionId;
+                friendlyGarrison->divisions.push_back(d);
                 divisions.erase(divisions.begin() + static_cast<std::ptrdiff_t>(i));
                 RecountDivisionTypes(*this);
                 RecountDivisionTypes(*friendlyGarrison);
@@ -1121,7 +1124,9 @@ void GarrisonComponent::Update(Building& self, double dt)
         bool transferred = false;
         if (friendlyGarrison->GetFreeDivisionSpace(*target) > 0 && !divisions.empty())
         {
-            friendlyGarrison->divisions.push_back(divisions.front());
+            SoldierDivision* d = divisions.front();
+            d->garrisonBuildingId = target->positionId;
+            friendlyGarrison->divisions.push_back(d);
             divisions.erase(divisions.begin());
             RecountDivisionTypes(*this);
             RecountDivisionTypes(*friendlyGarrison);
@@ -1168,8 +1173,9 @@ void GarrisonComponent::IssueOrder(MilitaryOrderType order, int targetId)
     orderTargetId = targetId;
     orderCooldown = 0.0;
     // Cascade combat orders to all stationed divisions (AI path)
-    for (auto& div : divisions)
+    for (auto& divPtr : divisions)
     {
+        auto& div = *divPtr;
         div.currentOrder = order;
         div.orderTargetPositionId = targetId;
         div.orderCooldown = 0.0;
@@ -1179,8 +1185,9 @@ void GarrisonComponent::IssueOrder(MilitaryOrderType order, int targetId)
 bool GarrisonComponent::IssueDivisionOrder(int divisionId, MilitaryOrderType order,
                                              int targetId, Building& self)
 {
-    for (auto& div : divisions)
+    for (auto& divPtr : divisions)
     {
+        auto& div = *divPtr;
         if (div.id != divisionId) continue;
         div.currentOrder = order;
         div.orderTargetPositionId = targetId;
@@ -1198,13 +1205,14 @@ bool GarrisonComponent::IssueDivisionOrder(int divisionId, MilitaryOrderType ord
 
 void GarrisonComponent::StartAllDivisionsMovement(Building& self, Building& target)
 {
-    for (auto& div : divisions)
-        StartDivisionMovement(div, self, target);
+    for (auto& divPtr : divisions)
+        StartDivisionMovement(*divPtr, self, target);
 }
 
 bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Building& self,
                                        bool requireOwnedTerritory,
-                                       bool snapToSector)
+                                       bool snapToSector,
+                                       const std::set<int>* blockedTiles)
 {
     if (self.owner == nullptr)
         return false;
@@ -1294,10 +1302,17 @@ bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Buildin
         return b != nullptr && b->buildingType == BuildingType::Road;
     };
 
+    // When snapping to sector, all divisions follow the same first-candidate path
+    // so they converge visually rather than fanning out to separate tiles.
+    Vec2i sharedPathGoal = (snapToSector && !candidateTargets.empty())
+        ? candidateTargets[0]
+        : Vec2i{-1, -1};
+
     bool movedAny = false;
     std::set<int> claimedTargets;
-    for (auto& div : divisions)
+    for (auto& divPtr : divisions)
     {
+        auto& div = *divPtr;
         if (divisionId >= 0 && div.id != divisionId)
             continue;
 
@@ -1317,7 +1332,11 @@ bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Buildin
             continue;
 
         Vec2i startTile;
-        if (div.worldPos.x >= 0.0f)
+        if (!div.inTransit && div.occupiedTile.x >= 0)
+        {
+            startTile = div.occupiedTile;
+        }
+        else if (div.worldPos.x >= 0.0f)
         {
             startTile = {static_cast<int>(div.worldPos.x / TILE_SIZE),
                          static_cast<int>(div.worldPos.y / TILE_SIZE)};
@@ -1340,7 +1359,14 @@ bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Buildin
             }
         }
 
-        std::vector<int> path = PlanDivisionPath(tilemap, startTile, goalTile);
+        // Divisions converge on the sector's first candidate for a tidy group, but
+        // if that shared goal is unreachable (e.g. an enemy stands on it, or it's
+        // walled off) fall back to this division's own assigned tile — otherwise a
+        // single blocked convergence tile would stop the WHOLE group from moving.
+        Vec2i pathGoal = (sharedPathGoal.x >= 0) ? sharedPathGoal : goalTile;
+        std::vector<int> path = PlanDivisionPath(tilemap, startTile, pathGoal, {}, blockedTiles);
+        if (path.size() < 2 && pathGoal != goalTile)
+            path = PlanDivisionPath(tilemap, startTile, goalTile, {}, blockedTiles);
         if (path.size() < 2)
             continue;
 
@@ -1375,10 +1401,14 @@ bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Buildin
         div.travelStepTime = div.travelStepDurations.front();
         div.worldPos = startWorld;
         div.travelFromPos = startWorld;
-        // Each division settles on its OWN assigned tile (one division per tile),
-        // not a shared sector centroid — otherwise units on outer tiles would drift
-        // to the middle after arriving (the "spinning in circles" on arrival).
-        div.travelToPos = TileWorldCenter(tilemap, tilemap.GetIdFromCoords(goalTile));
+        // All divisions in the same sector converge to the sector centre for a
+        // clean visual grouping. The occupiedTile/startTile logic uses
+        // occupiedTile (not worldPos) so there's no "spinning in circles" drift.
+        {
+            Vec2i sc = SectorCellOf(goalTile);
+            div.travelToPos = {static_cast<float>((sc.x * 2 + 1) * TILE_SIZE),
+                               static_cast<float>((sc.y * 2 + 1) * TILE_SIZE)};
+        }
         div.occupiedTile = goalTile;
         div.sectorCell = SectorCellOf(goalTile);
         div.inTransit = true;
@@ -1400,8 +1430,8 @@ void GarrisonComponent::ClearOrder()
 
 bool GarrisonComponent::HasActiveDivisionOrders() const
 {
-    for (const auto& div : divisions)
-        if (div.currentOrder != MilitaryOrderType::None)
+    for (const auto& divPtr : divisions)
+        if (divPtr->currentOrder != MilitaryOrderType::None)
             return true;
     return false;
 }
@@ -1431,14 +1461,21 @@ int GarrisonComponent::GetDivisionCap(const Building& self) const
 
 int GarrisonComponent::GetFreeDivisionSpace(const Building& self) const
 {
-    return std::max(0, GetDivisionCap(self) - static_cast<int>(divisions.size()));
+    // Only divisions physically stationed inside take garrison space. Deployed
+    // divisions live in the field and merely keep this building as their home,
+    // so a Barracks keeps training while its earlier recruits fight elsewhere.
+    int stationed = 0;
+    for (const auto& d : divisions)
+        if (d->occupiedTile.x < 0)
+            stationed++;
+    return std::max(0, GetDivisionCap(self) - stationed);
 }
 
 int GarrisonComponent::GetAverageMorale() const
 {
     if (divisions.empty()) return 0;
     int total = 0;
-    for (const auto& d : divisions) total += d.morale;
+    for (const auto& d : divisions) total += d->morale;
     return total / static_cast<int>(divisions.size());
 }
 
@@ -1446,7 +1483,7 @@ int GarrisonComponent::GetAverageExperience() const
 {
     if (divisions.empty()) return 0;
     int total = 0;
-    for (const auto& d : divisions) total += d.experience;
+    for (const auto& d : divisions) total += d->experience;
     return total / static_cast<int>(divisions.size());
 }
 
@@ -1458,9 +1495,12 @@ int GarrisonComponent::GetEffectiveStrength(const Building& self) const
 
     if (!divisions.empty())
     {
+        // Only divisions physically stationed inside defend the building — a
+        // deployed division fights in the field, not from these walls.
         int div_strength = 0;
         for (const auto& d : divisions)
-            div_strength += d.strength * d.health / std::max(1, d.maxHealth);
+            if (d->occupiedTile.x < 0)
+                div_strength += d->strength * d->health / std::max(1, d->maxHealth);
         return base + div_strength;
     }
     return base + militia + swordsmen * 4 + archers * 3;
@@ -1549,7 +1589,7 @@ int SupplyBufferComponent::GetSupplyConsumption(const Building& self,
     if (!g.divisions.empty())
     {
         int manpower = 0;
-        for (const auto& d : g.divisions) manpower += d.manpowerScale;
+        for (const auto& d : g.divisions) manpower += d->manpowerScale;
         return self.owner != nullptr
             ? self.owner->ModifyBalanceIntForBuilding(BalanceStat::SupplyConsumption, manpower,
                                                        &self, ResourceType::Null, std::nullopt, 0)
@@ -1563,6 +1603,52 @@ int SupplyBufferComponent::GetSupplyConsumption(const Building& self,
 }
 
 // ─── RecruitmentComponent ────────────────────────────────────────────────────
+
+namespace
+{
+    // Deploys a freshly trained division onto the first free walkable tile around
+    // the building footprint, growing the search ring when the inner one is full.
+    // Row-major scan order → deterministic for lockstep. Returns false when every
+    // nearby tile is taken (the division then stays garrisoned inside as fallback).
+    bool DeployRecruitNextToBuilding(Building& self, SoldierDivision& division)
+    {
+        if (self.owner == nullptr || self.positionId < 0)
+            return false;
+
+        TileMap& map = self.owner->tilemap;
+        if (map.tilemap.empty())
+            return false;
+
+        Vec2i anchor = map.GetCoordsFromId(self.positionId);
+        Vec2i footprint = self.GetFootprint();
+
+        for (int radius = 1; radius <= 3; radius++)
+        {
+            for (int y = anchor.y - radius; y < anchor.y + footprint.y + radius; y++)
+            {
+                for (int x = anchor.x - radius; x < anchor.x + footprint.x + radius; x++)
+                {
+                    bool insideFootprint = x >= anchor.x && x < anchor.x + footprint.x &&
+                                           y >= anchor.y && y < anchor.y + footprint.y;
+                    if (insideFootprint)
+                        continue;
+                    Vec2i tile{x, y};
+                    if (!map.IsInside(tile) || !IsTileWalkableForDivision(map, tile))
+                        continue;
+                    if (DivisionOnTile(*self.owner, tile, division.id) >= 0)
+                        continue;
+
+                    division.occupiedTile = tile;
+                    division.sectorCell = SectorCellOf(tile);
+                    division.worldPos = {(tile.x + 0.5f) * TILE_SIZE, (tile.y + 0.5f) * TILE_SIZE};
+                    division.inTransit = false;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
 
 RecruitmentComponent::Job::Job()
     : type(MilitaryUnitType::Militia)
@@ -1590,9 +1676,22 @@ void RecruitmentComponent::Update(Building& self, double dt)
     if (garrison.GetFreeDivisionSpace(self) <= 0)
         return;
 
-    SoldierDivision div = CreateMilitaryDivision(job.type,
-        self.id * 10000 + garrison.nextDivisionId++);
-    garrison.divisions.push_back(div);
+    // The division is owned by the player, homed at this building. AddForce updates
+    // the home building's view when it is registered in the tilemap; push to this
+    // garrison's view directly too (guarded) so recruitment works for buildings not
+    // in the tilemap (some unit tests) and stays correct before the next rebuild.
+    if (self.owner != nullptr)
+    {
+        SoldierDivision* d = self.owner->AddForce(
+            CreateMilitaryDivision(job.type, self.id * 10000 + garrison.nextDivisionId++), self.positionId);
+        if (d != nullptr && std::find(garrison.divisions.begin(), garrison.divisions.end(), d) == garrison.divisions.end())
+            garrison.divisions.push_back(d);
+        // HoI4-style factory: the freshly trained division deploys straight onto
+        // a free tile beside the building. The Barracks hands units to the
+        // player's field army instead of garrisoning them inside.
+        if (d != nullptr)
+            DeployRecruitNextToBuilding(self, *d);
+    }
     garrison.Recount();
     queue.pop_front();
 }
@@ -1860,8 +1959,8 @@ bool MilitaryNeedsSupply(Building& target)
 
     for (const auto& division : garrison->divisions)
     {
-        if (division.weaponSupply < division.weaponSupplyCapacity ||
-            division.foodSupply < division.foodSupplyCapacity)
+        if (division->weaponSupply < division->weaponSupplyCapacity ||
+            division->foodSupply < division->foodSupplyCapacity)
             return true;
     }
 
@@ -1881,7 +1980,7 @@ int MilitaryWeaponDeficit(Building& target)
 
     int deficit = 0;
     for (const auto& division : garrison->divisions)
-        deficit += std::max(0, division.weaponSupplyCapacity - division.weaponSupply);
+        deficit += std::max(0, division->weaponSupplyCapacity - division->weaponSupply);
     return deficit;
 }
 
@@ -1910,9 +2009,19 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
     ResourceType bestMelee = package.BestOfCategory(EquipmentCategory::Sword);
     if (bestMelee == ResourceType::Null)
         bestMelee = package.BestOfCategory(EquipmentCategory::Spear);
-    ResourceType bestRanged = package.BestOfCategory(EquipmentCategory::Bow);
-    if (bestRanged == ResourceType::Null)
-        bestRanged = package.BestOfCategory(EquipmentCategory::Crossbow);
+    // Best ranged weapon across bow / crossbow / firearm, by quality (firearms win).
+    ResourceType bestRanged = ResourceType::Null;
+    float bestRangedQuality = -1.0f;
+    for (EquipmentCategory rangedCategory : {EquipmentCategory::Bow, EquipmentCategory::Crossbow, EquipmentCategory::Firearm})
+    {
+        ResourceType candidate = package.BestOfCategory(rangedCategory);
+        const EquipmentProfile* profile = candidate != ResourceType::Null ? FindEquipmentProfile(candidate) : nullptr;
+        if (profile != nullptr && profile->quality > bestRangedQuality)
+        {
+            bestRangedQuality = profile->quality;
+            bestRanged = candidate;
+        }
+    }
     ResourceType bestArmor = package.BestOfCategory(EquipmentCategory::Armor);
     ResourceType bestAmmo  = package.BestOfCategory(EquipmentCategory::Ammo);
 
@@ -1925,15 +2034,16 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
         if (profile == nullptr)
             continue;
         if (profile->category == EquipmentCategory::Sword || profile->category == EquipmentCategory::Spear ||
-            profile->category == EquipmentCategory::Bow   || profile->category == EquipmentCategory::Crossbow)
+            profile->category == EquipmentCategory::Bow   || profile->category == EquipmentCategory::Crossbow ||
+            profile->category == EquipmentCategory::Firearm)
             weaponPool += item.amount;
     }
 
     // Distribute to the neediest divisions first (lowest weapon-supply ratio).
     std::vector<SoldierDivision*> order;
     order.reserve(garrison->divisions.size());
-    for (auto& division : garrison->divisions)
-        order.push_back(&division);
+    for (auto* division : garrison->divisions)
+        order.push_back(division);
     std::sort(order.begin(), order.end(), [](const SoldierDivision* a, const SoldierDivision* b)
     {
         float ra = a->weaponSupplyCapacity > 0 ? static_cast<float>(a->weaponSupply) / a->weaponSupplyCapacity : 1.0f;

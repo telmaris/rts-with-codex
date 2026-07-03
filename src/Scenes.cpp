@@ -447,6 +447,13 @@ MainMenuScene::MainMenuScene()
     buttonsColumn.AddChild(quitButton);
 }
 
+// Starts the menu music theme.
+void MainMenuScene::OnActivated()
+{
+    if (audioSystem != nullptr)
+        audioSystem->PlayMusic("menu");
+}
+
 // Advances this object's state for one frame.
 void MainMenuScene::Update(double dt)
 {
@@ -536,14 +543,20 @@ OptionsScene::OptionsScene()
     fullScreenCheckBox.ChangeText("Fullscreen");
     fullScreenCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.4f});
 
-    masterVolume.ChangeText("Music Volume");
-    masterVolume.ChangePositionAnchor(Vec2f{0.4f, 0.5f});
+    masterVolume.ChangeText("Master Volume");
+    masterVolume.ChangePositionAnchor(Vec2f{0.4f, 0.48f});
+
+    musicVolume.ChangeText("Music Volume");
+    musicVolume.ChangePositionAnchor(Vec2f{0.4f, 0.55f});
+
+    sfxVolume.ChangeText("SFX Volume");
+    sfxVolume.ChangePositionAnchor(Vec2f{0.4f, 0.62f});
 }
 
 // Advances this object's state for one frame.
 void OptionsScene::Update(double dt)
 {
-    render.Draw({&backButton, &fullScreenCheckBox, &masterVolume}, dt);
+    render.Draw({&backButton, &fullScreenCheckBox, &masterVolume, &musicVolume, &sfxVolume}, dt);
 
     if (fullScreenCheckBox.HasChanged())
     {
@@ -552,9 +565,46 @@ void OptionsScene::Update(double dt)
         broker->Broadcast(msg);
     }
 
+    bool volumeChanged = false;
     if (masterVolume.HasChanged())
     {
-        Log::Msg("[OptionsScene]", "Master volume: ", masterVolume.GetValue());
+        if (audioSystem != nullptr)
+            audioSystem->SetMasterVolume(masterVolume.GetValue());
+        volumeChanged = true;
+    }
+    if (musicVolume.HasChanged())
+    {
+        if (audioSystem != nullptr)
+            audioSystem->SetMusicVolume(musicVolume.GetValue());
+        volumeChanged = true;
+    }
+    if (sfxVolume.HasChanged())
+    {
+        if (audioSystem != nullptr)
+            audioSystem->SetSfxVolume(sfxVolume.GetValue());
+        volumeChanged = true;
+    }
+
+    if (volumeChanged && audioSystem != nullptr)
+    {
+        SaveAudioConfig(AudioConfig{
+            audioSystem->GetMasterVolume(),
+            audioSystem->GetMusicVolume(),
+            audioSystem->GetSfxVolume()});
+    }
+}
+
+// Syncs the volume sliders to the current audio system state.
+void OptionsScene::OnActivated()
+{
+    if (audioSystem != nullptr)
+    {
+        masterVolume.currentValue  = audioSystem->GetMasterVolume();
+        masterVolume.previousValue = masterVolume.currentValue;
+        musicVolume.currentValue   = audioSystem->GetMusicVolume();
+        musicVolume.previousValue  = musicVolume.currentValue;
+        sfxVolume.currentValue     = audioSystem->GetSfxVolume();
+        sfxVolume.previousValue    = sfxVolume.currentValue;
     }
 }
 
@@ -577,6 +627,8 @@ void OptionsScene::HandleEvent(std::shared_ptr<Event> e)
         backButton.UpdateSize(ptr->windowSize);
         fullScreenCheckBox.UpdateSize(ptr->windowSize);
         masterVolume.UpdateSize(ptr->windowSize);
+        musicVolume.UpdateSize(ptr->windowSize);
+        sfxVolume.UpdateSize(ptr->windowSize);
     }
 }
 
@@ -1911,6 +1963,7 @@ GameScene::GameScene()
     controller->AddSystem<DestroyGuiSystem>("destroy");
     controller->AddSystem<StatsGuiSystem>("stats");
     controller->AddSystem<FocusGuiSystem>("focus");
+    controller->AddSystem<TechGuiSystem>("tech");
     controller->ChangeSystem("default");
     
     inputs.Init(controller.get());
@@ -2005,8 +2058,13 @@ namespace
             std::vector<UiWidget*> widgets = scene.controller->GetUiWidgets();
             AppendDiagnostics(scene, widgets);
 
-            if (worldLock.owns_lock())
-                worldLock.unlock();
+            // Keep the world lock held through widget rendering: every widget's
+            // Update() (called from render.Draw) reads live simulation state —
+            // garrison divisions, battle markers, order arrows — so releasing the
+            // lock before drawing races the sim thread mutating those vectors (with
+            // unique_ptr storage a torn read dereferences a freed pointer → garbage
+            // colours, vanishing markers, flickering arrows). Correctness over the
+            // small sim-thread stall of holding it across the GPU draw.
             scene.render.Draw(widgets, dt);
         }
 
@@ -2111,6 +2169,31 @@ void GameScene::Update(double dt)
     }
 
     runtimeLoop->Update(*this, dt);
+
+    if (audioSystem != nullptr && game != nullptr)
+    {
+        int localId = game->GetLocalPlayerId();
+        for (const auto& result : commandResults)
+        {
+            if (result.playerId != localId)
+                continue;
+            if (!result.accepted)
+                audioSystem->PlaySound("error");
+        }
+
+        auto pit = game->playerHandler.players.find(localId);
+        if (pit != game->playerHandler.players.end())
+        {
+            const Player* p = pit->second.get();
+            std::size_t techCount  = p->technologies.GetUnlocked().size();
+            std::size_t focusCount = p->focuses.GetUnlocked().size();
+            if (techCount > prevUnlockedTechCount || focusCount > prevUnlockedFocusCount)
+                audioSystem->PlaySound("notification");
+            prevUnlockedTechCount  = techCount;
+            prevUnlockedFocusCount = focusCount;
+        }
+    }
+
     commandResults.clear();
 }
 
@@ -2206,8 +2289,12 @@ void GameScene::StartNewGame(std::string name, MapParameters params)
     render.ClearLayers();
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
-    game->InitWorld(worldName, &render, params);
+    game->InitWorld(worldName, &render, audioSystem, params);
     runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
+    prevUnlockedTechCount  = 0;
+    prevUnlockedFocusCount = 0;
+    if (audioSystem != nullptr)
+        audioSystem->PlayMusic("gameplay");
 }
 
 // Creates and hosts a LAN multiplayer world.
@@ -2216,13 +2303,15 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     render.ClearLayers();
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
-    game->InitMultiplayerWorld(worldName, &render, params, 0, true);
+    game->InitMultiplayerWorld(worldName, &render, audioSystem, params, 0, true);
     if (transport == nullptr)
         transport = TcpGameTransport::CreateHost(port);
     bool requireRemoteSync = transport != nullptr && transport->IsConnected();
     Log::Msg("GameScene", "Starting multiplayer host world '", worldName, "' on port ", port);
     runtimeLoop = std::make_unique<MultiplayerHostRuntimeLoop>(
         std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostHostSession>(*game, transport, 1, requireRemoteSync)));
+    if (audioSystem != nullptr)
+        audioSystem->PlayMusic("gameplay");
 }
 
 // Joins a LAN multiplayer world with a local mirror.
@@ -2231,12 +2320,14 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
     render.ClearLayers();
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
-    game->InitMultiplayerWorld(worldName, &render, params, 1, false);
+    game->InitMultiplayerWorld(worldName, &render, audioSystem, params, 1, false);
     if (transport == nullptr)
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
     runtimeLoop = std::make_unique<MultiplayerClientRuntimeLoop>(
         std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostClientSession>(game.get(), transport, 1)));
+    if (audioSystem != nullptr)
+        audioSystem->PlayMusic("gameplay");
 }
 
 // Loads the requested data into runtime state.
@@ -2246,10 +2337,20 @@ bool GameScene::LoadGame(std::string name)
     game = std::make_unique<GameWorld>();
     std::string saveName = SanitizeSaveName(name);
     std::string filename{"saves/" + saveName + ".save"};
-    if (game->LoadFromFile(filename, &render))
+    if (game->LoadFromFile(filename, &render, audioSystem))
     {
         runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
+        {
+            auto pit = game->playerHandler.players.find(game->GetLocalPlayerId());
+            if (pit != game->playerHandler.players.end())
+            {
+                prevUnlockedTechCount  = pit->second->technologies.GetUnlocked().size();
+                prevUnlockedFocusCount = pit->second->focuses.GetUnlocked().size();
+            }
+        }
         Log::Msg("GameScene", "Save ", saveName, " loaded!");
+        if (audioSystem != nullptr)
+            audioSystem->PlayMusic("gameplay");
         return true;
     }
     else
