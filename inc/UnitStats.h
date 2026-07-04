@@ -2,12 +2,14 @@
 #define UNIT_STATS_H
 
 #include "Stat.h"
+#include <cstdint>
 
 // Forward declaration — the full enum lives in Building.h, but UnitStats only
 // needs the type name for the default-stat factory signature.
 enum class MilitaryUnitType : int;
 struct DivisionEquipment;
 class SoldierDivision;
+class Player;
 
 class BalanceModifierSet;
 
@@ -42,6 +44,11 @@ struct UnitStats
 
     // Composition
     Stat<float> armoredShare{BalanceStat::UnitArmoredShare, 0.0f};
+
+    // Combat damage multipliers (balHP/balOrg — Phase C duel formula). Base 1.0;
+    // tuned via tech/focus without touching the formula constants.
+    Stat<float> hpDamageMultiplier{BalanceStat::CombatHpDamageMultiplier, 1.0f};
+    Stat<float> orgDamageMultiplier{BalanceStat::CombatOrgDamageMultiplier, 1.0f};
 };
 
 // Returns the baseline stat block for a unit type (modifiers applied later).
@@ -52,6 +59,13 @@ UnitStats MakeDefaultUnitStats(MilitaryUnitType type);
 // `mods` may be null, in which case the unmodified base value is returned.
 float ResolveUnitStat(const Stat<float>& stat, MilitaryUnitType unitType,
                       const BalanceModifierSet* mods);
+
+// Modifier-resolved pool maxima for a division's own stat block (tech/focus/
+// commander/etc via `mods`). These read `division.stats` directly rather than
+// the unit-type default, so they respect any per-instance stat overrides.
+float ResolveDivisionMaxCohesion(const SoldierDivision& division, const BalanceModifierSet* mods);
+float ResolveDivisionMaxStrength(const SoldierDivision& division, const BalanceModifierSet* mods);
+float ResolveDivisionMorale(const SoldierDivision& division, const BalanceModifierSet* mods);
 
 // Combat parameters of a division after applying modifiers AND the quality of
 // the gear it actually carries. This is what battle/UI should read — not the raw
@@ -67,7 +81,15 @@ struct DivisionCombatStats
     float morale{0.0f};
     float speed{0.0f};
     float maxStrength{0.0f};
+    float maxCohesion{0.0f};
     float equipmentQuality{1.0f};  // 1.0 = baseline gear; >1 better, <1 makeshift
+
+    // Phase C duel inputs (docs/war_system_phase2_design.md).
+    float strength{0.0f};          // current manpower (not the pool maximum)
+    float armoredShare{0.0f};
+    bool isArmored{false};         // armoredShare > 0.3 or a mounted unit class
+    float hpDamageMultiplier{1.0f};
+    float orgDamageMultiplier{1.0f};
 };
 
 // Average effectiveness of the gear a division carries (weapon/armor/ranged/ammo),
@@ -80,19 +102,80 @@ float DivisionEquipmentQuality(const DivisionEquipment& equipment);
 DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
                                                const BalanceModifierSet* mods);
 
-// Strength lost by each side in one tick of a field duel.
+// Cohesion (organization) and strength (manpower/HP) lost by each side in one
+// tick of a field duel — the two HoI4-style bars (see docs/war_system_phase2_design.md
+// Phase C). Cohesion depletes fast and drives retreat; strength drains slowly and
+// is the "real" casualty count.
 struct DivisionDuelResult
 {
+    float attackerCohesionLoss{0.0f};
+    float defenderCohesionLoss{0.0f};
     float attackerStrengthLoss{0.0f};
     float defenderStrengthLoss{0.0f};
 };
 
-// Resolves one tick of a field duel between two divisions from their combat stats.
-// Each side's offense (attack + a fraction of shock) is mitigated by the other's
-// armor + defense, with piercing cancelling part of the armor. `dt` scales the
-// exchange. This is the field-combat adaptation of the old building-vs-building
-// attrition: it operates on division strength rather than building HP.
+// Resolves one tick of a field duel between two divisions from their combat stats,
+// using a DETERMINISTIC adaptation of HoI4's damage algorithm (expected values in
+// place of dice rolls — lockstep MP cannot tolerate RNG). See docs/war_system_phase2_design.md
+// Phase C for the full derivation. `dt` (seconds) is converted to a fraction of a
+// "combat hour" internally.
+//
+// BUG 4 fix: simTick + divisionIds seed a deterministic variance multiplier
+// (±7.5%) so that otherwise-equal fights do not drag on identically forever.
+// The same seed on every lockstep client → no desync. Pass 0/0/0 in tests or
+// when division IDs are not available (disables variance, still correct).
 DivisionDuelResult ResolveDivisionDuel(const DivisionCombatStats& attacker,
-                                       const DivisionCombatStats& defender, double dt);
+                                       const DivisionCombatStats& defender, double dt,
+                                       uint64_t simTick = 0,
+                                       int attackerDivId = 0,
+                                       int defenderDivId = 0);
+
+// Per-tick upkeep for a division's three supply pools (Phase B — see
+// docs/war_system_phase2_design.md). Consumption scales with `strength/maxStrength`
+// and is faster while `engaged` in combat than while merely `deployed` in the
+// field, and slower still for a division sitting in a garrison (neither engaged
+// nor deployed). Sub-1-per-tick amounts accumulate in per-pool buffers so they
+// are not lost to rounding. When `foodSupply` is fully depleted the division
+// starves: `strength` slowly drains (manpower attrition). `supplyConservation`
+// (Phase C, from tech/focus/state — see PlayerSupplyConservation) scales down
+// how much is actually burned: 1.0 conservation would mean free upkeep, so it is
+// capped below that by the caller.
+void ConsumeDivisionSupply(SoldierDivision& division, double dt, bool engaged, bool deployed,
+                           double supplyConservation = 0.0);
+
+// Upper bound for supplyConservation — upkeep and reinforcement can be discounted
+// but never made free (docs/war_system_phase2_design.md Phase C, Supply Conservation).
+constexpr double kMaxSupplyConservation = 0.8;
+
+// Base fraction of `hpDamage` lost from `weaponSupply` when a division takes
+// strength damage (equipment attrition, Phase C). Scaled down by the owner's
+// supply conservation before use.
+constexpr float kEquipmentLossFactor = 0.7f;
+
+// Resolves a player's current Supply Conservation fraction (tech/focus/state
+// development modifiers on BalanceStat::SupplyConservation), clamped to
+// [0, kMaxSupplyConservation].
+double PlayerSupplyConservation(const Player& player);
+
+// Regenerates cohesion toward its (modifier-resolved) max when the division is
+// NOT in combat (Phase C). Full-rate regen needs materiel supply; morale and
+// standing on the owner's own territory (entrenchment) further scale the rate.
+// A no-op once cohesion is already at (or above) max.
+void RegenerateDivisionCohesion(SoldierDivision& division, double dt, bool inOwnTerritory,
+                                const BalanceModifierSet* mods);
+
+// Periodic strength reinforcement (Phase C): a supplied division (food and
+// weapons both > 0) rebuilds `strength` toward its max by drawing manpower from
+// the owner's Manpower pool, discounted by Supply Conservation. No manpower
+// available => no reinforcement (strength stands still, or keeps dropping if
+// still under attrition elsewhere). Returns the whole-point strength actually
+// restored this call (usually 0 — sub-1 gains accumulate in `reinforcementBuffer`).
+int ReinforceDivisionStrength(SoldierDivision& division, Player& owner, double dt,
+                              const BalanceModifierSet* mods);
+
+// Recomputes the legacy `health` field as a pure derivative of `strength` /
+// `maxStrength` (Phase C — health is display-only, never a combat target).
+// Call after any mutation of `strength` so UI/telemetry/saves stay in sync.
+void SyncDerivedHealth(SoldierDivision& division);
 
 #endif

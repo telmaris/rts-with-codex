@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <set>
 #include <vector>
@@ -47,6 +48,15 @@ namespace
         b->owner = attacker;
         attacker->RegisterBuilding(b);
 
+        // Clear all old supplier/receiver connections from the previous owner so the
+        // building doesn't keep pulling resources from the enemy or supplying them.
+        for (const auto& view : b->GetSupplierViews())
+            if (view.building != nullptr)
+                b->RemoveSupplier(view.type, view.building);
+        for (const auto& view : b->GetReceiverViews())
+            if (view.building != nullptr)
+                b->RemoveReceiver(view.type, view.building);
+
         // Fully integrate the captured building into the new owner the same way a
         // freshly-built one is: seed its tiles into the owner's road-network nav map
         // and auto-connect it, otherwise it's owned on paper but invisible to
@@ -54,6 +64,8 @@ namespace
         if (attacker->roadNetwork != nullptr)
             for (int tileId : world.tilemap.GetBuildingTileIds(b))
                 attacker->roadNetwork->UpdateNavMap(tileId, b);
+        else if (!world.tilemap.params.debugMode)
+            Log::Msg("CaptureBuilding", "WARNING: attacker has no road network; captured building not integrated into nav map");
         world.tilemap.AutoConnectBuilding(b);
 
         if (auto* territory = b->GetComponent<TerritoryComponent>())
@@ -154,6 +166,76 @@ namespace
                 }
         }
         return result;
+    }
+
+    // True when the local fight around `U` is currently lost — allied strength
+    // within fighting range of `U`'s quadrant is less than enemy strength there.
+    // This is the trigger for an organized retreat (Phase 4b) rather than
+    // fighting to the last man.
+    bool LosingLocalFight(const FieldUnit& U, const std::vector<FieldUnit>& units)
+    {
+        float own = 0.0f, enemy = 0.0f;
+        for (const auto& E : units)
+        {
+            if (!SectorsFight(U.cell, E.cell)) continue;
+            if (E.playerId == U.playerId) own += static_cast<float>(E.div->strength);
+            else enemy += static_cast<float>(E.div->strength);
+        }
+        return enemy > own;
+    }
+
+    // Falls a broken (cohesion<=0) division back to a legal REAR quadrant: own
+    // territory, cardinally adjacent to its current cell, connected (walkable),
+    // strictly farther from the nearest enemy than it is now, and not already
+    // claimed by another of its own divisions. Candidate order is deterministic
+    // (farthest-from-enemy first, tie-broken by cell coordinates) so MP clients
+    // agree on the outcome. Returns false when no such quadrant exists — the
+    // division is CUT OFF/encircled (HoI4 kocioł) and cannot retreat.
+    bool RetreatDivision(GameWorld& world, SoldierDivision& div, const std::vector<FieldUnit>& units)
+    {
+        Building* home = world.tilemap.GetBuilding(div.garrisonBuildingId);
+        auto* garrison = home != nullptr ? home->GetComponent<GarrisonComponent>() : nullptr;
+        if (garrison == nullptr)
+            return false;   // no home building to organize a retreat toward
+
+        auto nearestEnemyDistSq = [&](Vec2i cell)
+        {
+            int best = std::numeric_limits<int>::max();
+            for (const auto& E : units)
+                if (E.player != home->owner)
+                {
+                    int dx = E.cell.x - cell.x, dy = E.cell.y - cell.y;
+                    best = std::min(best, dx * dx + dy * dy);
+                }
+            return best;
+        };
+
+        const Vec2i cell = div.sectorCell;
+        const int curDist = nearestEnemyDistSq(cell);
+
+        std::vector<Vec2i> valid;
+        for (Vec2i c : SectorCardinalNeighbors(cell))
+            if (world.tilemap.IsInside({c.x * 2, c.y * 2}) &&
+                AreSectorsConnected(world.tilemap, cell, c) &&
+                nearestEnemyDistSq(c) > curDist)
+                valid.push_back(c);
+
+        std::sort(valid.begin(), valid.end(), [&](Vec2i a, Vec2i b)
+        {
+            int da = nearestEnemyDistSq(a), db = nearestEnemyDistSq(b);
+            if (da != db) return da > db;   // farthest from the enemy first
+            if (a.y != b.y) return a.y < b.y;
+            return a.x < b.x;
+        });
+
+        for (Vec2i c : valid)
+        {
+            Vec2i anchorTile{c.x * 2, c.y * 2};
+            if (garrison->MoveDivisionTo(div.id, anchorTile, *home, /*requireOwnedTerritory=*/true,
+                                          /*snapToSector=*/true, nullptr))
+                return true;
+        }
+        return false;
     }
 
     // Order-to-start-then-sticky field combat. Battles start from an Attack order
@@ -261,18 +343,21 @@ namespace
         // standing in the SAME quadrant engage automatically. Walking onto the
         // enemy's province starts the fight, no explicit order needed. (Units in
         // merely adjacent quadrants still need an order or an ongoing battle to
-        // engage — standing at the border does not auto-grind the front.)
+        // engage — standing at the border does not auto-grind the front.) A
+        // division that is actively RETREATING (Phase 4b) is exempt: its body is
+        // still crossing the cell it just broke from, and re-engaging it here
+        // would grind it down before it ever clears the quadrant.
         for (size_t i = 0; i < units.size(); i++)
             for (size_t j = i + 1; j < units.size(); j++)
                 if (units[i].playerId != units[j].playerId &&
                     units[i].cell == units[j].cell)
                 {
-                    units[i].div->engaged = true;
-                    units[j].div->engaged = true;
+                    if (!units[i].div->retreating) units[i].div->engaged = true;
+                    if (!units[j].div->retreating) units[j].div->engaged = true;
                 }
 
         // Phase 2 — spread engagement to enemies in adjacent quadrants (battles drag
-        // neighbouring provinces in).
+        // neighbouring provinces in). Retreating divisions are not dragged back in.
         bool changed = true;
         while (changed)
         {
@@ -283,7 +368,7 @@ namespace
                 for (size_t j = 0; j < units.size(); j++)
                 {
                     if (units[i].playerId == units[j].playerId) continue;
-                    if (units[j].div->engaged) continue;
+                    if (units[j].div->engaged || units[j].div->retreating) continue;
                     if (SectorsFight(units[i].cell, units[j].cell))
                     {
                         units[j].div->engaged = true;
@@ -308,8 +393,12 @@ namespace
             div->sectorCell = U.cell;
         }
 
-        // Phase 3 — resolve damage (simultaneous).
-        std::map<SoldierDivision*, float> divLosses;
+        // Phase 3 — resolve damage (simultaneous). Two bars per division: cohesion
+        // (organization, depletes fast, drives retreat) and strength (manpower,
+        // depletes slowly — the "real" casualties). See docs/war_system_phase2_design.md
+        // Phase C for the deterministic HoI4-style formula in ResolveDivisionDuel.
+        std::map<SoldierDivision*, float> divCohesionLoss;
+        std::map<SoldierDivision*, float> divStrengthLoss;
         std::map<int, float> buildingDamage;
 
         for (size_t i = 0; i < units.size(); i++)
@@ -319,15 +408,23 @@ namespace
                 if (units[i].playerId == units[j].playerId) continue;
                 if (!units[i].div->engaged || !units[j].div->engaged) continue;
                 if (!SectorsFight(units[i].cell, units[j].cell)) continue;
-                DivisionDuelResult duel = ResolveDivisionDuel(units[i].stats, units[j].stats, dt);
-                divLosses[units[i].div] += duel.attackerStrengthLoss;
-                divLosses[units[j].div] += duel.defenderStrengthLoss;
+                DivisionDuelResult duel = ResolveDivisionDuel(units[i].stats, units[j].stats, dt,
+                                                              world.GetSimulationTick(),
+                                                              units[i].div->id, units[j].div->id);
+                divCohesionLoss[units[i].div] += duel.attackerCohesionLoss;
+                divCohesionLoss[units[j].div] += duel.defenderCohesionLoss;
+                divStrengthLoss[units[i].div] += duel.attackerStrengthLoss;
+                divStrengthLoss[units[j].div] += duel.defenderStrengthLoss;
             }
         }
 
         for (const auto& U : units)
         {
             if (!U.div->engaged) continue;
+            // A division whose organization has broken barely presses the siege —
+            // scale siege output by how much fight it has left.
+            const float cohesionRatio = U.stats.maxCohesion > 0.0f
+                ? std::clamp(U.div->cohesion / U.stats.maxCohesion, 0.0f, 1.0f) : 0.0f;
             for (Building* b : SectorAdjacentEnemyBuildings(world, U.cell, U.player))
             {
                 // Undefended works fall without a fight; only a manned garrison
@@ -338,21 +435,42 @@ namespace
                     buildingAttacker.emplace(b->positionId, U.player);
                     continue;
                 }
-                buildingDamage[b->positionId] += U.stats.lightAttack * static_cast<float>(dt);
+                buildingDamage[b->positionId] += U.stats.lightAttack * cohesionRatio * static_cast<float>(dt);
                 buildingAttacker.emplace(b->positionId, U.player);  // first (sorted) attacker captures
             }
         }
 
-        // Phase 4 — apply. Damage accumulates in float buffers so sub-1-per-tick
-        // attrition is not lost to integer rounding.
-        for (auto& [div, loss] : divLosses)
+        // Phase 4 — apply. Strength (int) accumulates in a float buffer so
+        // sub-1-per-tick attrition is not lost to rounding; cohesion is already a
+        // float so it applies directly. Equipment attrition: taking strength
+        // damage also wears down weaponSupply, discounted by Supply Conservation.
+        for (const auto& U : units)
         {
-            div->damageBuffer += loss;
-            int whole = static_cast<int>(div->damageBuffer);
+            SoldierDivision* div = U.div;
+            if (auto it = divCohesionLoss.find(div); it != divCohesionLoss.end())
+                div->cohesion = std::max(0.0f, div->cohesion - it->second);
+
+            auto sIt = divStrengthLoss.find(div);
+            if (sIt == divStrengthLoss.end())
+                continue;
+            const float loss = sIt->second;
+            div->strengthBuffer += loss;
+            int whole = static_cast<int>(div->strengthBuffer);
             if (whole > 0)
             {
-                div->health -= whole;
-                div->damageBuffer -= static_cast<float>(whole);
+                div->strength = std::max(0, div->strength - whole);
+                div->strengthBuffer -= static_cast<float>(whole);
+                SyncDerivedHealth(*div);
+            }
+
+            const double conservation = U.player != nullptr ? PlayerSupplyConservation(*U.player) : 0.0;
+            const float effEquipmentLossFactor = kEquipmentLossFactor * (1.0f - static_cast<float>(conservation));
+            div->weaponSupplyConsumeBuffer += loss * effEquipmentLossFactor;
+            int weaponWhole = static_cast<int>(div->weaponSupplyConsumeBuffer);
+            if (weaponWhole > 0)
+            {
+                div->weaponSupply = std::max(0, div->weaponSupply - weaponWhole);
+                div->weaponSupplyConsumeBuffer -= static_cast<float>(weaponWhole);
             }
         }
 
@@ -372,14 +490,41 @@ namespace
                 razedBuildings.insert(positionId);   // captured below, not deleted
         }
 
+        // Phase 4b — RETREAT (soft loss rule, HoI4-style). A division whose
+        // cohesion has broken falls back to a rear quadrant when it is locally
+        // outnumbered, instead of fighting to the last man. A division with no
+        // legal rear quadrant (own territory, connected, farther from the enemy,
+        // free) is CUT OFF/encircled: it keeps fighting where it stands, and dies
+        // outright in Phase 6 if its strength has also hit zero (the kocioł).
+        for (const auto& U : units)
+        {
+            SoldierDivision* div = U.div;
+            if (!div->engaged || div->cohesion > 0.0f || div->strength <= 0)
+                continue;
+            if (!LosingLocalFight(U, units))
+                continue;   // broken but not actually outmatched — holds the line
+            if (RetreatDivision(world, *div, units))
+            {
+                div->retreating = true;
+                div->engaged = false;
+                // A stale Attack order would otherwise re-assert engagement next
+                // tick (Phase 1) the moment the division is back in range.
+                div->currentOrder = MilitaryOrderType::None;
+                div->orderTargetPositionId = -1;
+            }
+            // else: encircled — stays engaged, Phase 6 handles the kocioł if it
+            // also runs out of strength.
+        }
+
         // Phase 5 — disengage units whose quadrant no longer borders a live enemy
-        // division or an enemy building (battle ended).
+        // division or an enemy building (battle ended); clears `retreating` once
+        // safe too.
         for (auto& U : units)
         {
-            if (!U.div->engaged) continue;
+            if (!U.div->engaged && !U.div->retreating) continue;
             bool stillFighting = false;
             for (const auto& E : units)
-                if (E.playerId != U.playerId && E.div->health > 0 &&
+                if (E.playerId != U.playerId && E.div->strength > 0 &&
                     SectorsFight(U.cell, E.cell))
                 { stillFighting = true; break; }
             if (!stillFighting)
@@ -387,24 +532,50 @@ namespace
                     if (razedBuildings.find(b->positionId) == razedBuildings.end())
                     { stillFighting = true; break; }
             if (!stillFighting)
+            {
                 U.div->engaged = false;
+                U.div->retreating = false;
+            }
+        }
+
+        // Phase 5b — deployed divisions consume supply each tick (Phase B — see
+        // docs/war_system_phase2_design.md task B8), discounted by Supply
+        // Conservation (Phase C). Garrisoned (non-deployed) divisions are handled
+        // separately in GarrisonComponent::Update so nothing is double-counted.
+        // Divisions that are NOT fighting also regenerate cohesion and, while
+        // supplied, reinforce strength from the owner's manpower pool.
+        for (auto& U : units)
+        {
+            const double conservation = U.player != nullptr ? PlayerSupplyConservation(*U.player) : 0.0;
+            ConsumeDivisionSupply(*U.div, dt, U.div->engaged, /*deployed=*/true, conservation);
+
+            if (!U.div->engaged && U.player != nullptr)
+            {
+                const bool inOwnTerritory = world.tilemap.IsInside(U.tile) &&
+                    world.tilemap.tilemap[world.tilemap.GetIdFromCoords(U.tile)].owner == U.player;
+                RegenerateDivisionCohesion(*U.div, dt, inOwnTerritory, &U.player->balanceModifiers);
+                ReinforceDivisionStrength(*U.div, *U.player, dt, &U.player->balanceModifiers);
+            }
         }
 
         // Phase 6 — remove destroyed divisions from the owner's forces (they are
-        // player-owned now, not building-owned).
+        // player-owned now, not building-owned). Soft-loss rule: strength<=0 is
+        // only fatal when the division could not retreat this tick (cut off /
+        // encircled) — see Phase 4b. A division that successfully fell back keeps
+        // whatever strength it has left.
         for (auto& [pid, player] : world.playerHandler.players)
         {
             if (player == nullptr) continue;
             bool removedAny = false;
             for (const auto& f : player->forces)
-                if (f != nullptr && f->health <= 0)
+                if (f != nullptr && f->strength <= 0)
                 {
                     player->armyGroups.RemoveDivision(f->id);
                     removedAny = true;
                 }
             auto& forces = player->forces;
             forces.erase(std::remove_if(forces.begin(), forces.end(),
-                [](const std::unique_ptr<SoldierDivision>& d) { return d == nullptr || d->health <= 0; }), forces.end());
+                [](const std::unique_ptr<SoldierDivision>& d) { return d == nullptr || d->strength <= 0; }), forces.end());
             if (removedAny)
                 player->armyGroups.PruneEmptyArmies();
         }
