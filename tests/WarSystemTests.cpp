@@ -2501,3 +2501,67 @@ TEST(WarSystem, CanBuildFootprintAllowDivisionsFlag)
     EXPECT_FALSE(map.CanBuildFootprint(tile, {1, 1}, &player, /*allowDivisions=*/false));
     EXPECT_TRUE(map.CanBuildFootprint(tile, {1, 1}, &player, /*allowDivisions=*/true));
 }
+
+// ─── BUG 2 regression: enemy division on player tile, tile reclaimed ─────────
+
+TEST(WarSystem, EnemyDivisionOnPlayerTileIsReclaimed)
+{
+    // BUG 2 regression: after BUG 4 fix battles now resolve in finite time.
+    // Verify that once an enemy division that occupied a player tile is destroyed,
+    // ClaimTilesUnderDivisions (called every tick in UpdateSimulation)
+    // returns the tile to the player who still stands on it.
+    //
+    // Setup: 3 attackers vs 1 defender in the same quadrant on attacker's territory.
+    // The defender is completely surrounded (no own territory nearby) so it cannot
+    // retreat (encirclement) — it fights until strength=0 and is removed.
+    // The attackers survive, reclaiming the tile through ClaimTilesUnderDivisions.
+    GameWorld world;
+    auto p0 = std::make_unique<Player>(0, world.tilemap);
+    auto p1 = std::make_unique<Player>(1, world.tilemap);
+    Player* atkPlayer = p0.get();
+    Player* defPlayer = p1.get();
+    world.playerHandler.players[0] = std::move(p0);
+    world.playerHandler.players[1] = std::move(p1);
+
+    // All tiles owned by atkPlayer — enemy has NO territory, cannot retreat.
+    FillGrass(world.tilemap, atkPlayer, 20, 20);
+
+    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
+    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({18, 18}), defPlayer, std::make_unique<GuardTower>(2)));
+    ASSERT_NE(atkTower, nullptr);
+    ASSERT_NE(defTower, nullptr);
+
+    // Three attackers vs one defender in the same 2×2 quadrant (cell {4,4}).
+    // 3:1 manpower ratio ensures the lone defender is outmatched and cannot win.
+    SoldierDivision* atkDiv = DeployDivision(atkTower, 1, {8, 8});
+    DeployDivision(atkTower, 2, {9, 8});
+    DeployDivision(atkTower, 3, {8, 9});
+    DeployDivision(defTower, 9, {9, 9});  // same quadrant as attackers
+
+    // Drive the sim until the defender is destroyed (encircled, cannot retreat).
+    const int kMaxTicks = 30000;  // 300s — more than enough given the floor damage
+    bool defDestroyed = false;
+    for (int i = 0; i < kMaxTicks; i++)
+    {
+        world.UpdateSimulation(0.01);
+        if (defPlayer->forces.empty())
+        { defDestroyed = true; break; }
+    }
+
+    ASSERT_TRUE(defDestroyed) << "Defender should be destroyed (encircled, 3:1 odds) — BUG 4 must be fixed first";
+    ASSERT_FALSE(atkPlayer->forces.empty()) << "Attacker should have survived";
+
+    // Run a couple more ticks so ClaimTilesUnderDivisions can do its job.
+    for (int j = 0; j < 5; j++)
+        world.UpdateSimulation(0.01);
+
+    // The attacker's division is still standing on (or near) its original tile.
+    // ClaimTilesUnderDivisions must have claimed the whole quadrant back.
+    ASSERT_TRUE(atkDiv->occupiedTile.x >= 0) << "Attacker division must be deployed";
+    Vec2i atkTile = atkDiv->occupiedTile;
+    ASSERT_TRUE(world.tilemap.IsInside(atkTile));
+    EXPECT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(atkTile)].owner, atkPlayer)
+        << "Player's tile should be reclaimed once enemy is destroyed (BUG 2 regression)";
+}
