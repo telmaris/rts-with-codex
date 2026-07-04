@@ -170,7 +170,9 @@ class TileMap
         // Returns true when every footprint tile is inside map bounds.
         bool IsInsideFootprint(Vec2i anchor, Vec2i footprint) const;
         // Returns true when a footprint can be placed for the player.
-        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const;
+        // Pass allowDivisions=true for traversable building types (e.g. Road)
+        // so that a deployed friendly division does not block placement.
+        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, bool allowDivisions = false) const;
         // Returns true when terrain requirements for a building type are satisfied.
         bool HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, int minimumTiles = 2) const;
         // Returns true when all gameplay placement rules are satisfied.

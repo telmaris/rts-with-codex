@@ -287,7 +287,7 @@ bool TileMap::IsInsideFootprint(Vec2i anchor, Vec2i footprint) const
 }
 
 // Returns whether this condition is currently true.
-bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const
+bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, bool allowDivisions) const
 {
     if (!IsInsideFootprint(anchor, footprint))
         return false;
@@ -299,7 +299,11 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) c
             const Tile& tile = tilemap[GetIdFromCoords({anchor.x + x, anchor.y + y})];
             if (tile.owner != player || tile.HasBuilding())
                 return false;
-            if (player != nullptr && DivisionOnTile(*player, {anchor.x + x, anchor.y + y}, -1) >= 0)
+            // Roads are traversable terrain — armies march on them, so a deployed
+            // friendly division does not block laying a road. Solid buildings are
+            // still blocked by any division occupying their footprint.
+            if (!allowDivisions && player != nullptr &&
+                DivisionOnTile(*player, {anchor.x + x, anchor.y + y}, -1) >= 0)
                 return false;
         }
     }
@@ -355,7 +359,9 @@ bool TileMap::HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec
 // Returns whether this condition is currently true.
 bool TileMap::CanPlaceBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, Player* player) const
 {
-    if (!CanBuildFootprint(anchor, footprint, player))
+    // Roads are traversable terrain — friendly divisions do not block road placement.
+    const bool allowDivisions = (type == BuildingType::Road);
+    if (!CanBuildFootprint(anchor, footprint, player, allowDivisions))
         return false;
 
     if (!HasRequiredTerrainForBuilding(type, anchor, footprint, 2))

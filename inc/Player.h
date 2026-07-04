@@ -25,6 +25,7 @@
 class TileMap;
 class Player;
 class SoldierDivision;
+enum class EquipmentCategory : uint8_t;  // full definition in Equipment.h
 
 enum class PlayerControllerType
 {
@@ -108,7 +109,8 @@ public:
         static_assert(std::is_base_of<Building, T>::value);
         T preview{0};
         Vec2i anchor = tilemap.GetCoordsFromId(tilePos);
-        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this))
+        const bool allowDivisions = (preview.buildingType == BuildingType::Road);
+        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this, allowDivisions))
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
@@ -321,6 +323,15 @@ public:
     // Returns resources to owned storage (cancelling an in-progress build).
     // Overflow beyond available storage capacity is dropped.
     void RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs);
+
+    // Total count of stored equipment matching an equipment category (any material).
+    int CountEquipmentCategory(EquipmentCategory category) const;
+    // Consumes `amount` of stored equipment of the given category, lowest quality
+    // first (so premium gear is saved for the front). Consumes nothing and returns
+    // false when the network holds too little. `representativeOut`, when given,
+    // receives the highest-quality type actually consumed (what the unit carries).
+    bool TryPayEquipmentCategory(EquipmentCategory category, int amount,
+                                 ResourceType* representativeOut = nullptr);
 
     // Starts resource transport through this player's road network.
     bool BeginTransport(Building* src, Building* dest, Resource* res)
