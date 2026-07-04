@@ -2446,6 +2446,64 @@ TEST(WarSystem, DivisionsArePreservedWhenHQExists)
     EXPECT_EQ(div->garrisonBuildingId, hq->positionId);
 }
 
+// ─── BUG 5A: Mixed-tier equipment recruitment ─────────────────────────────────
+
+TEST(Recruitment, SwordsmanSucceedsWithMixedCopperAndIronSwords)
+{
+    // BUG 5A confirmation: TryPayEquipmentCategory allocates proportionally across
+    // all sword tiers. With 20 COPPER_SWORD + 20 IRON_SWORD in storage, recruiting
+    // a Swordsman (which costs 40 swords of any tier) must succeed and consume ~20
+    // of each type.
+    GameWorld world;
+    auto player = std::make_unique<Player>(0, world.tilemap);
+    Player* playerPtr = player.get();
+    world.playerHandler.players[0] = std::move(player);
+    FillGrass(world.tilemap, playerPtr, 20, 20);
+
+    auto* hq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<Headquarters>(1)));
+    ASSERT_NE(hq, nullptr);
+    hq->constructionRemaining = 0.0;
+
+    // 20 of each sword tier = 40 total, exactly the swordsman establishment.
+    hq->storage.buffers[ResourceType::COPPER_SWORD] = ResourceBuffer{ResourceType::COPPER_SWORD, 30};
+    hq->storage.buffers[ResourceType::COPPER_SWORD].SetStoredAmount(20);
+    hq->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 30};
+    hq->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(20);
+
+    // Plain resource costs for a swordsman (FOOD_PROVISIONS=20, WEAPON_SUPPLY=20).
+    hq->storage.buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 50};
+    hq->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(20);
+    hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 50};
+    hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(20);
+
+    auto* barracks = dynamic_cast<Barracks*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
+    ASSERT_NE(barracks, nullptr);
+    barracks->constructionRemaining = 0.0;
+    barracks->garrison.cap = 50;
+
+    // Manpower cost for a Swordsman = maxStrength = 200.
+    playerPtr->strategicResources.Set(StrategicResourceType::Manpower, 250);
+
+    // QueueRecruitment should succeed (has 40 total swords across two tiers).
+    ASSERT_TRUE(barracks->QueueRecruitment(MilitaryUnitType::Swordsman))
+        << "Recruitment should succeed when 20 COPPER_SWORD + 20 IRON_SWORD are available";
+
+    // Run training to completion.
+    barracks->Update(1000.0);
+    ASSERT_EQ(barracks->garrison.divisions.size(), 1u);
+
+    // Both sword tiers should have been consumed proportionally (~20 each).
+    int copperLeft = static_cast<int>(hq->storage.buffers[ResourceType::COPPER_SWORD].buffer.size());
+    int ironLeft   = static_cast<int>(hq->storage.buffers[ResourceType::IRON_SWORD].buffer.size());
+    EXPECT_EQ(copperLeft + ironLeft, 0) << "All 40 swords should have been consumed";
+    // Each tier contributed roughly equally (proportional allocation).
+    // With 20+20, expected is 20 each; allow ±1 for rounding.
+    EXPECT_NEAR(copperLeft, 0, 1) << "Copper swords should be ~fully consumed";
+    EXPECT_NEAR(ironLeft, 0, 1)   << "Iron swords should be ~fully consumed";
+}
+
 // ─── BUG 1: Road placement under own army ────────────────────────────────────
 
 TEST(WarSystem, RoadCanBePlacedUnderFriendlyDivision)
