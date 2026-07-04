@@ -1,5 +1,6 @@
 #include "../inc/RoadNetwork.h"
 #include "../inc/MapGenerator.h"
+#include "../inc/SupplyTransport.h"
 
 // Advances this object's state for one frame.
 bool Transportable::Update(double dt)
@@ -14,6 +15,12 @@ bool Transportable::Update(double dt)
                 sourceBuilding->ReturnOutgoingResource(resource);
             if (targetBuilding != nullptr)
                 targetBuilding->CancelRequestedResource(resource->type);
+        }
+        else if (auto* pkg = dynamic_cast<SupplyPackageTransportable*>(this))
+        {
+            // Not pool-allocated — flag it so the owning SupplyHub can requeue the
+            // goods (DeliverPackages) instead of losing them.
+            pkg->cancelled = true;
         }
     };
 

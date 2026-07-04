@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 16\n";
+    out << "RTS_SAVE 19\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -169,18 +169,26 @@ bool GameWorld::SaveToFile(const std::string& path) const
 
         if (const auto* g = building->GetComponent<GarrisonComponent>())
         {
+            // Not every garrisoned building keeps its own resupply buffer (e.g. the
+            // Headquarters — it's a fallback home for divisions, not a supply depot),
+            // so the supply fields are written as zero when absent rather than
+            // failing the whole save.
             const auto* sb = building->GetComponent<SupplyBufferComponent>();
             const auto* tr = building->GetComponent<TerritoryComponent>();
-            if (sb == nullptr || tr == nullptr)
+            if (tr == nullptr)
                 return false;
-            int supplyAmount = static_cast<int>(sb->buffer.buffer.size());
+            int supplyAmount = sb != nullptr ? static_cast<int>(sb->buffer.buffer.size()) : 0;
+            double supplyCapacity = sb != nullptr ? sb->capacity.GetBase() : 0.0;
+            int weaponStock   = sb != nullptr ? sb->weaponStock   : 0;
+            int materielStock = sb != nullptr ? sb->materielStock : 0;
             out << "MIL " << tr->radius.GetBase() << ' ' << tr->hp << ' '
                 << tr->maxHp.GetBase() << ' ' << g->strength.GetBase() << ' '
                 << g->garrison << ' ' << g->cap.GetBase() << ' '
-                << supplyAmount << ' ' << sb->capacity.GetBase() << ' '
+                << supplyAmount << ' ' << supplyCapacity << ' '
                 << g->militia << ' ' << g->swordsmen << ' '
                 << g->archers << ' ' << static_cast<int>(g->currentOrder) << ' '
-                << g->orderTargetId << ' ' << g->orderCooldown << '\n';
+                << g->orderTargetId << ' ' << g->orderCooldown << ' '
+                << weaponStock << ' ' << materielStock << '\n';
             out << "DIVS " << g->nextDivisionId << ' ' << g->divisions.size() << '\n';
             for (const auto& divisionPtr : g->divisions)
             {
@@ -196,7 +204,9 @@ bool GameWorld::SaveToFile(const std::string& path) const
                     << division.weaponSupply << ' ' << division.weaponSupplyCapacity << ' '
                     << division.speedTilesPerMinute << ' '
                     << static_cast<int>(division.currentOrder) << ' '
-                    << division.orderTargetPositionId << ' ' << division.orderCooldown << '\n';
+                    << division.orderTargetPositionId << ' ' << division.orderCooldown << ' '
+                    << division.cohesion << ' '
+                    << division.materielSupply << ' ' << division.materielSupplyCapacity << '\n';
             }
             out << "ENDDIVS\n";
         }
@@ -225,7 +235,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     std::string tag;
     int version = 0;
     in >> tag >> version;
-    if (tag != "RTS_SAVE" || (version < 1 || version > 15))
+    if (tag != "RTS_SAVE" || (version < 1 || version > 19))
         return false;
 
     render = renderer;
@@ -253,11 +263,15 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
 
     if (version >= 2)
     {
-        in >> tag >> render->camera.target.x >> render->camera.target.y
-            >> render->camera.zoom >> render->camera.rotation;
+        Camera2D camera{};
+        in >> tag >> camera.target.x >> camera.target.y >> camera.zoom >> camera.rotation;
         if (tag != "CAMERA")
             return false;
-        render->ClampCameraToMap({tilemap.params.sizeX, tilemap.params.sizeY});
+        if (render != nullptr)
+        {
+            render->camera = camera;
+            render->ClampCameraToMap({tilemap.params.sizeX, tilemap.params.sizeY});
+        }
     }
 
     playerHandler.players.clear();
@@ -607,24 +621,41 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 auto* garrison = placed->GetComponent<GarrisonComponent>();
                 auto* supply = placed->GetComponent<SupplyBufferComponent>();
                 auto* territory = placed->GetComponent<TerritoryComponent>();
-                if (garrison == nullptr || supply == nullptr || territory == nullptr) return false;
+                if (garrison == nullptr || territory == nullptr) return false;
                 auto& g  = *garrison;
-                auto& sb = *supply;
                 auto& tr = *territory;
                 int supplyStored = 0;
+                double supplyCapacity = 0.0;
                 in >> tr.radius >> tr.hp >> tr.maxHp
                    >> g.strength >> g.garrison >> g.cap
-                   >> supplyStored >> sb.capacity;
-                sb.buffer.Clear();
-                sb.buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, sb.capacity.GetBase()};
-                sb.buffer.SetStoredAmount(supplyStored);
-                sb.stored = static_cast<int>(sb.buffer.buffer.size());
+                   >> supplyStored >> supplyCapacity;
+                // All military buildings (including Headquarters since v19) have a
+                // SupplyBufferComponent; the two fields above are always present in MIL records.
+                if (supply != nullptr)
+                {
+                    auto& sb = *supply;
+                    sb.capacity = supplyCapacity;
+                    sb.buffer.Clear();
+                    sb.buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, sb.capacity.GetBase()};
+                    sb.buffer.SetStoredAmount(supplyStored);
+                    sb.stored = static_cast<int>(sb.buffer.buffer.size());
+                }
                 if (version >= 6)
                 {
                     int order = 0;
                     in >> g.militia >> g.swordsmen >> g.archers
                        >> order >> g.orderTargetId >> g.orderCooldown;
                     g.currentOrder = static_cast<MilitaryOrderType>(order);
+                }
+                // v19: weapon/materiel stockpile fields (BUG 3a).
+                // Backward-compat: missing in v<19 → default to 0.
+                if (version >= 19 && supply != nullptr)
+                {
+                    in >> supply->weaponStock >> supply->materielStock;
+                    if (supply->weaponStock < 0)   supply->weaponStock   = 0;
+                    if (supply->weaponStock   > SupplyBufferComponent::kStockCap) supply->weaponStock   = SupplyBufferComponent::kStockCap;
+                    if (supply->materielStock < 0) supply->materielStock = 0;
+                    if (supply->materielStock > SupplyBufferComponent::kStockCap) supply->materielStock = SupplyBufferComponent::kStockCap;
                 }
             }
             else if (tag == "DIVS")
@@ -676,6 +707,13 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                         division.weaponSupplyCapacity  = division.manpowerScale;
                         division.weaponSupply          = division.manpowerScale;
                     }
+                    if (version >= 17)
+                        in >> division.cohesion;
+                    else
+                        division.cohesion = division.stats.maxCohesion.GetBase();
+                    if (version >= 18)
+                        in >> division.materielSupply >> division.materielSupplyCapacity;
+                    // else: materiel pool keeps the constructor default (full, per-type).
                     // Divisions are owned by the player; AddForce homes it at this
                     // building and updates the garrison view.
                     if (placed->owner != nullptr)

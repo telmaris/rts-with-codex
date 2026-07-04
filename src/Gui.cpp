@@ -3,6 +3,7 @@
 #include "../inc/Player.h"
 #include "../inc/ResearchCatalog.h"
 #include "../inc/Technology.h"
+#include "../inc/Equipment.h"
 
 #include <algorithm>
 #include <array>
@@ -575,6 +576,8 @@ namespace
         std::string result = std::string(UnitLabel(type)) + ": " + std::to_string(manpower) + " MP, " + timeText.str() + "s";
         for (const auto& [resource, amount] : GetBaseRecruitmentResourceCosts(type))
             result += ", " + std::to_string(amount) + " " + rt2s(resource);
+        for (const auto& [category, amount] : GetBaseRecruitmentEquipmentCosts(type))
+            result += ", " + std::to_string(amount) + " " + EquipmentCategoryLabel(category);
         return result;
     }
 
@@ -1718,7 +1721,10 @@ void GuiPanel::Update(double dt)
         }
 
         std::vector<std::string> stats{
-            "Packages ready: " + std::to_string(packaging->ReadyPackageCount()) + "/" + std::to_string(packaging->maxReadyPackages),
+            "Food ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Food)) + "/" + std::to_string(packaging->maxReadyPackages),
+            "Materiel ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Materiel)) + "/" + std::to_string(packaging->maxReadyPackages),
+            "Weapons ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Weapons)) + "/" + std::to_string(packaging->maxReadyPackages),
+            "In transit: " + std::to_string(packaging->inFlight.size()),
             "Assembled (total): " + std::to_string(packaging->totalPackagesAssembled),
             "Delivered to front: " + std::to_string(packaging->totalPackagesDelivered),
             "Gear in network: " + std::to_string(weaponsAvailable),

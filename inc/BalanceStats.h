@@ -19,6 +19,10 @@ enum class BalanceStat
     GarrisonCapacity,
     SupplyCapacity,
     SupplyConsumption,
+    // Fraction [0, kMaxConservation] of required supply that is waived — from
+    // logistics tech, focuses and state development. See docs/war_system_phase2_design.md
+    // Phase C "Supply Conservation".
+    SupplyConservation,
     ManpowerRate,
     PopulationCap,
     RecruitmentTime,
@@ -45,7 +49,22 @@ enum class BalanceStat
     UnitSpeed,          // movement speed (tiles/minute baseline)
     UnitSupplyUse,      // supply consumed per tick
     UnitFatigueRate,    // how fast the unit tires
-    UnitArmoredShare    // fraction of strength that counts as armored (0..1)
+    UnitArmoredShare,   // fraction of strength that counts as armored (0..1)
+
+    // Combat damage multipliers (balHP/balOrg in the Phase C duel formula) —
+    // start at 1.0, tunable via tech/focus without touching the base constants.
+    CombatHpDamageMultiplier,
+    CombatOrgDamageMultiplier,
+
+    // Supply logistics for deployed divisions (BUG 3 fix).
+    // SupplyRange: maximum Manhattan tile distance a deployed division can draw
+    // supply from a friendly military building / HQ. Base = 20 tiles.
+    SupplyRange,
+
+    // ReinforcementRate: strength points restored per second per deployed division
+    // from the player's global Manpower pool when in range of a supply depot.
+    // Base = 0.5 strength/s (at 100 Hz that is 0.005 per tick).
+    ReinforcementRate
 };
 
 #endif

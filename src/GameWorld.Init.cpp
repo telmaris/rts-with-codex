@@ -84,7 +84,7 @@ namespace
         }
 
         int spawned = 0;
-        for (int dy = -1; dy <= 2 && spawned < 4; dy++)
+        for (int dy = -1; dy <= 2 && spawned < 2; dy++)
         {
             Vec2i tile{towerAnchor.x - 2, towerAnchor.y + dy};  // a line facing the human (-x)
             if (!map.IsInside(tile) || !IsTileWalkableForDivision(map, tile))

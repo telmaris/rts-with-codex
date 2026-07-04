@@ -47,8 +47,8 @@ struct RoadDefinition
 
 struct VillageDefinition
 {
-    double manpowerRate{0.2};
-    int populationCap{80};
+    double manpowerRate{5.0};
+    int populationCap{1000};
     double upkeepInterval{60.0};
     double foodPackageUpkeep{1.0};
 };

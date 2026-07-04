@@ -16,6 +16,18 @@
 //
 // This is the seed of the equipment system; combat does not consume it yet.
 
+// Which of a division's three supply pools a package replenishes. See
+// docs/war_system_phase2_design.md (Phase B) — Food/Materiel/Weapons travel as
+// independent package streams rather than one bundle.
+enum class SupplyCategory : uint8_t { Food, Materiel, Weapons };
+
+// Classifies a resource type into the supply category it belongs to when
+// carried in a package. FOOD_PROVISIONS -> Food; WOOD/PLANKS/TOOLS -> Materiel;
+// anything with an equipment profile -> Weapons. Anything else defaults to
+// Weapons (never referenced in practice — callers only classify resources they
+// already know belong to one of the three streams).
+SupplyCategory CategoryOfResource(ResourceType type);
+
 struct SupplyLineItem
 {
     ResourceType type{ResourceType::Null};
@@ -24,8 +36,9 @@ struct SupplyLineItem
 
 struct SupplyPackage
 {
-    std::vector<SupplyLineItem> items;   // equipment carried by the package
-    int  rations{0};                     // FOOD_PROVISIONS units bundled in
+    SupplyCategory category{SupplyCategory::Weapons};
+    std::vector<SupplyLineItem> items;   // equipment/materiel carried by the package
+    int  rations{0};                     // FOOD_PROVISIONS units bundled in (Food packages)
     int  soldierCapacity{0};             // how many soldiers this package can equip
 
     bool IsEmpty() const { return items.empty() && rations == 0; }
@@ -54,5 +67,13 @@ bool PlanSupplyPackage(const std::map<ResourceType, int>& available,
                        const std::vector<EquipmentCategory>& categories,
                        int soldiersPerPackage, int rationsPerPackage,
                        SupplyPackage& out);
+
+// Plans one package for a single supply category from the gear/goods `available`
+// in the network (does not consume). Food takes up to `soldiers` FOOD_PROVISIONS
+// as rations; Materiel takes up to `soldiers` combined WOOD/PLANKS/TOOLS; Weapons
+// delegates to PlanSupplyPackage (best-per-category, no rations bundled — food
+// travels as its own package now). Returns false when nothing could be planned.
+bool PlanCategoryPackage(const std::map<ResourceType, int>& available,
+                         SupplyCategory category, int soldiers, SupplyPackage& out);
 
 #endif

@@ -97,9 +97,17 @@ enum class MilitaryUnitType : int
 };
 
 const char* MilitaryUnitLabel(MilitaryUnitType type);
+
+enum class EquipmentCategory : uint8_t;  // full definition in Equipment.h
+
 double GetBaseRecruitmentTime(MilitaryUnitType type);
 int GetBaseRecruitmentManpowerCost(MilitaryUnitType type);
+// Plain (non-equipment) resource costs: food + generic supplies.
 std::vector<std::pair<ResourceType, int>> GetBaseRecruitmentResourceCosts(MilitaryUnitType type);
+// Equipment costs expressed as CATEGORIES (Sword, Bow, Ammo, …). Any material /
+// quality of the right category satisfies the cost, so a swordsman can be armed
+// with copper, bronze, iron or steel swords — whatever the network can supply.
+std::vector<std::pair<EquipmentCategory, int>> GetBaseRecruitmentEquipmentCosts(MilitaryUnitType type);
 
 struct DivisionEquipment
 {
@@ -154,6 +162,13 @@ public:
     int foodSupplyCapacity{0};
     int weaponSupply{0};
     int weaponSupplyCapacity{0};
+    // Tools & raw materials (WOOD/PLANKS/TOOLS) pool — fuels cohesion regen /
+    // repair / entrenchment (Phase C). See docs/war_system_phase2_design.md.
+    int materielSupply{0};
+    int materielSupplyCapacity{0};
+    // Organization (HoI4-style) — the fast-depleting combat buffer, distinct from
+    // `strength` (manpower/HP), which drains slowly. See docs/war_system_phase2_design.md.
+    float cohesion{0.0f};
     double speedTilesPerMinute{12.0};
     MilitaryOrderType currentOrder{MilitaryOrderType::None};
     int orderTargetPositionId{-1};
@@ -174,7 +189,18 @@ public:
     // "sticky" while the division remains adjacent to an enemy, even after the
     // order clears (HoI4-style). Two idle units touching never fight.
     bool engaged{false};
-    float damageBuffer{0.0f};  // accumulates sub-1 strength loss per tick
+    float strengthBuffer{0.0f};  // accumulates sub-1 strength loss per tick
+    float reinforcementBuffer{0.0f};  // accumulates sub-1 strength GAIN from reinforcement
+    // Set while the division is executing a Phase-C retreat order to a rear
+    // quadrant (cohesion broke and it is falling back); cleared on disengage.
+    // Transient, not serialized.
+    bool retreating{false};
+    // Per-tick supply upkeep buffers (transient, not serialized) — see
+    // ConsumeDivisionSupply / docs/war_system_phase2_design.md (Phase B).
+    float foodSupplyConsumeBuffer{0.0f};
+    float weaponSupplyConsumeBuffer{0.0f};
+    float materielSupplyConsumeBuffer{0.0f};
+    float strengthAttritionBuffer{0.0f};  // starvation (foodSupply == 0) manpower loss
     std::vector<int> travelPath;        // road tile ids (empty = direct march)
     int travelPathStep{0};
     double travelElapsed{0.0};
@@ -474,7 +500,11 @@ public:
     TerritoryComponent territory;
     // Fallback home for field divisions whose building was captured/destroyed, so
     // deployed troops are not deleted along with the lost building.
-    GarrisonComponent  garrison;
+    GarrisonComponent     garrison;
+    // BUG 3c: HQ is a full supply depot — it receives weapon/food/materiel
+    // packages just like any military building, and deployed divisions in
+    // range can draw from its stockpile.
+    SupplyBufferComponent supplyBuffer;
 };
 
 // Settlement that generates manpower and consumes food upkeep over time.

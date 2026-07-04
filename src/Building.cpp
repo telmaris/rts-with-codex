@@ -3,6 +3,8 @@
 #include "../inc/ProductionBuildings.h"
 #include "../inc/Player.h"
 #include "../inc/MapGenerator.h"
+#include "../inc/SupplyTransport.h"
+#include "../inc/Equipment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -437,30 +439,43 @@ double GetBaseRecruitmentTime(MilitaryUnitType type)
 
 int GetBaseRecruitmentManpowerCost(MilitaryUnitType type)
 {
-    switch (type)
-    {
-        case MilitaryUnitType::Swordsman: return 10;
-        case MilitaryUnitType::Archer:    return 10;
-        case MilitaryUnitType::Spearman:  return 10;
-        case MilitaryUnitType::Cavalry:   return 12;
-        default:                          return 8;
-    }
+    // Recruiting a full division costs its own establishment's worth of manpower.
+    return static_cast<int>(std::lround(MakeDefaultUnitStats(type).maxStrength.GetBase()));
 }
 
 std::vector<std::pair<ResourceType, int>> GetBaseRecruitmentResourceCosts(MilitaryUnitType type)
 {
+    // Plain resources only — the weapon itself is charged by category (see
+    // GetBaseRecruitmentEquipmentCosts) so any material/quality can arm the unit.
     switch (type)
     {
         case MilitaryUnitType::Swordsman:
-            return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::WEAPON_SUPPLY, 6}, {ResourceType::IRON_SWORD, 10}};
+            return {{ResourceType::FOOD_PROVISIONS, 20}, {ResourceType::WEAPON_SUPPLY, 20}};
         case MilitaryUnitType::Archer:
-            return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::BOW, 10}, {ResourceType::ARROWS, 20}};
+            return {{ResourceType::FOOD_PROVISIONS, 12}};
         case MilitaryUnitType::Spearman:
-            return {{ResourceType::FOOD_PROVISIONS, 6}, {ResourceType::WEAPON_SUPPLY, 6}, {ResourceType::COPPER_SWORD, 10}};
+            return {{ResourceType::FOOD_PROVISIONS, 18}, {ResourceType::WEAPON_SUPPLY, 18}};
         case MilitaryUnitType::Cavalry:
-            return {{ResourceType::FOOD_PROVISIONS, 8}, {ResourceType::WEAPON_SUPPLY, 8}, {ResourceType::IRON_SWORD, 12}};
+            return {{ResourceType::FOOD_PROVISIONS, 8}, {ResourceType::WEAPON_SUPPLY, 8}};
         default:
-            return {{ResourceType::FOOD_PROVISIONS, 4}, {ResourceType::WEAPON_SUPPLY, 5}};
+            return {{ResourceType::FOOD_PROVISIONS, 10}, {ResourceType::WEAPON_SUPPLY, 40}};
+    }
+}
+
+std::vector<std::pair<EquipmentCategory, int>> GetBaseRecruitmentEquipmentCosts(MilitaryUnitType type)
+{
+    switch (type)
+    {
+        case MilitaryUnitType::Swordsman:
+            return {{EquipmentCategory::Sword, 40}};
+        case MilitaryUnitType::Archer:
+            return {{EquipmentCategory::Bow, 40}, {EquipmentCategory::Ammo, 80}};
+        case MilitaryUnitType::Spearman:
+            return {{EquipmentCategory::Spear, 40}};
+        case MilitaryUnitType::Cavalry:
+            return {{EquipmentCategory::Sword, 30}};
+        default: // Militia arms itself from the generic WEAPON_SUPPLY pool.
+            return {};
     }
 }
 
@@ -469,67 +484,85 @@ std::vector<std::pair<ResourceType, int>> GetBaseRecruitmentResourceCosts(Milita
 // combat stat block from BaseStats(). Balance numbers for the stat block itself
 // live centrally in MakeDefaultUnitStats().
 
+// Establishment (full equipment loadout) and initial pools are derived from the
+// class's own UnitStats (maxStrength/maxCohesion), so scale changes only need to
+// happen in MakeDefaultUnitStats(). See docs/war_system_phase2_design.md (Phase A).
 MilitiaDivision::MilitiaDivision() : SoldierDivision(MilitaryUnitType::Militia)
 {
-    manpowerScale = 8;  maxHealth = 100; health = 100;
-    endurance = 50; strength = 10; morale = 55;
-    foodSupplyCapacity = 8; foodSupply = 8;
-    weaponSupplyCapacity = 8; weaponSupply = 8;
+    stats = BaseStats();
+    manpowerScale = static_cast<int>(std::lround(stats.maxStrength.GetBase()));
+    maxHealth = manpowerScale; health = manpowerScale;
+    endurance = 50; strength = manpowerScale; morale = 55;
+    cohesion = stats.maxCohesion.GetBase();
+    foodSupplyCapacity = manpowerScale; foodSupply = manpowerScale;
+    weaponSupplyCapacity = 40; weaponSupply = 40;
+    materielSupplyCapacity = manpowerScale / 2; materielSupply = materielSupplyCapacity;
     speedTilesPerMinute = 14.0;
     equipment.weapon = ResourceType::WEAPON_SUPPLY;
-    stats = BaseStats();
 }
 UnitStats MilitiaDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Militia); }
 
 SwordsmanDivision::SwordsmanDivision() : SoldierDivision(MilitaryUnitType::Swordsman)
 {
-    manpowerScale = 10; maxHealth = 130; health = 130;
-    endurance = 62; strength = 22; morale = 68;
-    foodSupplyCapacity = 10; foodSupply = 10;
-    weaponSupplyCapacity = 10; weaponSupply = 10;
+    stats = BaseStats();
+    manpowerScale = static_cast<int>(std::lround(stats.maxStrength.GetBase()));
+    maxHealth = manpowerScale; health = manpowerScale;
+    endurance = 62; strength = manpowerScale; morale = 68;
+    cohesion = stats.maxCohesion.GetBase();
+    foodSupplyCapacity = manpowerScale; foodSupply = manpowerScale;
+    weaponSupplyCapacity = 40; weaponSupply = 40;
+    materielSupplyCapacity = manpowerScale / 2; materielSupply = materielSupplyCapacity;
     speedTilesPerMinute = 10.0;
     equipment.weapon = ResourceType::IRON_SWORD;
     equipment.armor  = ResourceType::TOOLS;
-    stats = BaseStats();
 }
 UnitStats SwordsmanDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Swordsman); }
 
 ArcherDivision::ArcherDivision() : SoldierDivision(MilitaryUnitType::Archer)
 {
-    manpowerScale = 10; maxHealth = 90; health = 90;
-    endurance = 58; strength = 17; morale = 64;
-    foodSupplyCapacity = 10; foodSupply = 10;
-    weaponSupplyCapacity = 10; weaponSupply = 10;
+    stats = BaseStats();
+    manpowerScale = static_cast<int>(std::lround(stats.maxStrength.GetBase()));
+    maxHealth = manpowerScale; health = manpowerScale;
+    endurance = 58; strength = manpowerScale; morale = 64;
+    cohesion = stats.maxCohesion.GetBase();
+    foodSupplyCapacity = manpowerScale; foodSupply = manpowerScale;
+    weaponSupplyCapacity = 40; weaponSupply = 40;
+    materielSupplyCapacity = manpowerScale / 2; materielSupply = materielSupplyCapacity;
     speedTilesPerMinute = 12.0;
     equipment.rangedWeapon = ResourceType::BOW;
     equipment.ammo         = ResourceType::ARROWS;
-    stats = BaseStats();
 }
 UnitStats ArcherDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Archer); }
 
 SpearmanDivision::SpearmanDivision() : SoldierDivision(MilitaryUnitType::Spearman)
 {
-    manpowerScale = 10; maxHealth = 115; health = 115;
-    endurance = 60; strength = 18; morale = 66;
-    foodSupplyCapacity = 10; foodSupply = 10;
-    weaponSupplyCapacity = 10; weaponSupply = 10;
+    stats = BaseStats();
+    manpowerScale = static_cast<int>(std::lround(stats.maxStrength.GetBase()));
+    maxHealth = manpowerScale; health = manpowerScale;
+    endurance = 60; strength = manpowerScale; morale = 66;
+    cohesion = stats.maxCohesion.GetBase();
+    foodSupplyCapacity = manpowerScale; foodSupply = manpowerScale;
+    weaponSupplyCapacity = 40; weaponSupply = 40;
+    materielSupplyCapacity = manpowerScale / 2; materielSupply = materielSupplyCapacity;
     speedTilesPerMinute = 11.0;
     equipment.weapon = ResourceType::COPPER_SWORD;
     equipment.armor  = ResourceType::TOOLS;
-    stats = BaseStats();
 }
 UnitStats SpearmanDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Spearman); }
 
 CavalryDivision::CavalryDivision() : SoldierDivision(MilitaryUnitType::Cavalry)
 {
-    manpowerScale = 12; maxHealth = 140; health = 140;
-    endurance = 65; strength = 26; morale = 70;
-    foodSupplyCapacity = 12; foodSupply = 12;
-    weaponSupplyCapacity = 12; weaponSupply = 12;
+    stats = BaseStats();
+    manpowerScale = static_cast<int>(std::lround(stats.maxStrength.GetBase()));
+    maxHealth = manpowerScale; health = manpowerScale;
+    endurance = 65; strength = manpowerScale; morale = 70;
+    cohesion = stats.maxCohesion.GetBase();
+    foodSupplyCapacity = manpowerScale; foodSupply = manpowerScale;
+    weaponSupplyCapacity = 30; weaponSupply = 30;
+    materielSupplyCapacity = manpowerScale / 2; materielSupply = materielSupplyCapacity;
     speedTilesPerMinute = 18.0;
     equipment.weapon = ResourceType::IRON_SWORD;
     equipment.armor  = ResourceType::TOOLS;
-    stats = BaseStats();
 }
 UnitStats CavalryDivision::BaseStats() const { return MakeDefaultUnitStats(MilitaryUnitType::Cavalry); }
 
@@ -616,6 +649,13 @@ void Building::ReceptTransport(Transportable* trans)
             Log::Msg(tag, "Transport of ", rt2s(ptr->type), " finished, adding resource; ID:",
                      positionId, " pos: ", trans->map->GetCoordsFromId(positionId));
             AddResource(ptr);
+        }
+        else if (auto* pkg = dynamic_cast<SupplyPackageTransportable*>(trans))
+        {
+            Log::Msg(tag, "Supply package arrived; ID: ", positionId,
+                     " pos: ", trans->map->GetCoordsFromId(positionId));
+            ApplyPackageToMilitary(pkg->payload, *this);
+            pkg->delivered = true;
         }
     }
     else

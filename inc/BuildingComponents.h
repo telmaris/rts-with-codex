@@ -5,7 +5,9 @@
 #include "Stat.h"
 #include "Equipment.h"
 #include "SupplyPackage.h"
+#include "SupplyTransport.h"
 
+#include <array>
 #include <bitset>
 #include <cstddef>
 #include <deque>
@@ -283,12 +285,25 @@ struct GarrisonComponent : IBuildingComponent
 };
 
 // --- SupplyBufferComponent ---
-// Manages the FOOD_PROVISIONS buffer used by military buildings.
+// Manages the FOOD_PROVISIONS buffer and weapon/materiel stockpiles used by
+// military buildings. Packages arriving via SupplyHub are "poured" into the
+// building-level stockpile first (BUG 3a); deployed divisions then draw from
+// the nearest stockpile rather than from their home building (BUG 3b).
 struct SupplyBufferComponent : IBuildingComponent
 {
     ResourceBuffer buffer{ResourceType::FOOD_PROVISIONS, 0};
     Stat<int> capacity{BalanceStat::SupplyCapacity, 0};
     int stored{0};
+
+    // Building-level weapon and materiel stockpiles (BUG 3a).
+    // Units are the same as the corresponding division supply pools (integer
+    // weapon-supply points / materiel points). Packages fill these first;
+    // deployed divisions draw from the nearest depot that has surplus.
+    int weaponStock{0};
+    int materielStock{0};
+    // Maximum stockpile per category: currently hard-coded to 4× a standard
+    // division's capacity (4 × 40 = 160); made tunable later via BalanceStat.
+    static constexpr int kStockCap = 160;
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Supply; }
     bool CanReceive() const;
@@ -308,6 +323,12 @@ struct RecruitmentComponent : IBuildingComponent
     {
         MilitaryUnitType type;
         double remaining{0.0};
+        // Equipment actually paid for at queue time — stamped onto the division when
+        // it finishes training so it carries the quality that was purchased (any
+        // material of the right category, not a fixed type). Null = class default.
+        ResourceType weapon{ResourceType::Null};
+        ResourceType rangedWeapon{ResourceType::Null};
+        ResourceType ammo{ResourceType::Null};
         Job();
         Job(MilitaryUnitType t, double r);
     };
@@ -337,27 +358,49 @@ struct SupplyPackageComponent : IBuildingComponent
         EquipmentCategory::Sword, EquipmentCategory::Firearm, EquipmentCategory::Shield,
         EquipmentCategory::Armor, EquipmentCategory::Ammo};
 
-    int soldiersPerPackage{10};        // package equips this many soldiers
-    int rationsPerPackage{10};         // FOOD_PROVISIONS bundled per package
+    // Scaled to the Swordsman establishment (40 weapons, Phase A) so a single
+    // package can fully re-equip one division rather than needing several.
+    int soldiersPerPackage{40};        // package equips this many soldiers
+    int rationsPerPackage{40};         // FOOD_PROVISIONS bundled per Food package
     double assembleInterval{5.0};      // seconds between assembly attempts
     double timer{0.0};
 
-    std::deque<SupplyPackage> readyPackages;  // weapon supply ready to ship
+    // Three independent ready queues, one per SupplyCategory (Food/Materiel/
+    // Weapons — see docs/war_system_phase2_design.md, Phase B). Indexed by
+    // static_cast<size_t>(SupplyCategory).
+    std::array<std::deque<SupplyPackage>, 3> readyPackages;
     int totalPackagesAssembled{0};
     int totalPackagesDelivered{0};
-    int maxReadyPackages{4};           // stop drawing from warehouses past this
+    int maxReadyPackages{4};           // stop drawing from warehouses past this, per category
+
+    // Packages currently travelling over the road network. The hub owns them
+    // (they are not pool-allocated like Resource) until delivered or cancelled;
+    // only a raw observing pointer is handed to Building::transportables.
+    std::vector<std::unique_ptr<SupplyPackageTransportable>> inFlight;
 
     BuildingCapability GetCapability() const override { return BuildingCapability::SupplyPackaging; }
     void Update(Building& self, double dt) override;
 
-    // Draws gear from the network and assembles one package; true when produced.
+    // Draws goods from the network and assembles one package per category that
+    // still has room and available goods; true when at least one was produced.
     bool AssemblePackage(Building& self);
 
-    // Ships ready packages to friendly military buildings that need supply.
-    // Instant for now (delivery over roads is a later milestone).
+    // Reaps finished/cancelled in-flight packages, then ships ready packages to
+    // the neediest friendly military building of each category over the road
+    // network (BeginTransport). Packages with no route yet stay queued.
     void DeliverPackages(Building& self);
 
-    int ReadyPackageCount() const { return static_cast<int>(readyPackages.size()); }
+    int ReadyPackageCount() const
+    {
+        int total = 0;
+        for (const auto& queue : readyPackages)
+            total += static_cast<int>(queue.size());
+        return total;
+    }
+    int ReadyPackageCount(SupplyCategory category) const
+    {
+        return static_cast<int>(readyPackages[static_cast<size_t>(category)].size());
+    }
 };
 
 // Surveys equipment + rations available across a player's storage buildings
@@ -383,8 +426,8 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target);
 // Manpower generation and food-supply tracking for Village buildings.
 struct PopulationComponent : IBuildingComponent
 {
-    Stat<double> manpowerRate{BalanceStat::ManpowerRate, 0.2};
-    Stat<int> populationCap{BalanceStat::PopulationCap, 80};
+    Stat<double> manpowerRate{BalanceStat::ManpowerRate, 5.0};
+    Stat<int> populationCap{BalanceStat::PopulationCap, 1000};
     double upkeepTimer{0.0};
     double upkeepInterval{10.0};
     double foodPackageUpkeep{1.0};

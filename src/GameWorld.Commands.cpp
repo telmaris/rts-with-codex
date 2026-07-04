@@ -109,13 +109,14 @@ namespace
         return blocked;
     }
 
-    // Full movement mask for `mover`: an army may only cross ground it owns, an
-    // ally's ground, or the ground of an enemy it is at war with. Neutral/unowned
-    // wilderness and non-hostile third parties are impassable — this stops the
-    // enemy from strolling around your line through no-man's-land. Enemy-held
-    // quadrants (from EnemyOccupiedTiles) are folded in so a hostile army also
-    // physically blocks. Deterministic. (The path's start tile is exempt in the
-    // planner, so a unit standing just outside its territory can still set off.)
+    // Full movement mask for `mover`: an army may cross ground it owns, neutral /
+    // unowned ground (so it can advance into and RECLAIM contested land — e.g.
+    // territory that fell neutral when a projecting building was lost), an ally's
+    // ground, or the ground of an enemy it is at war with. Only a non-hostile third
+    // party's owned land is impassable. Enemy-held quadrants (from
+    // EnemyOccupiedTiles) are still folded in so a hostile army physically blocks,
+    // which is what actually seals a front. Deterministic. (The path's start tile
+    // is exempt in the planner, so a unit just outside its territory can set off.)
     std::set<int> MovementBlockedTiles(const GameWorld& world, const Player* mover)
     {
         std::set<int> blocked = EnemyOccupiedTiles(world, mover);
@@ -125,9 +126,10 @@ namespace
         for (int id = 0; id < static_cast<int>(tiles.size()); id++)
         {
             const Player* o = tiles[id].owner;
-            // Allowed: our own land, or a war-enemy's land (advance the front). Ally
-            // land will be allowed here once diplomacy has an alliance state.
-            const bool allowed = (o == mover) || (o != nullptr && mover->diplomatic.IsAtWar(o->id));
+            // Allowed: our own land, neutral ground, or a war-enemy's land (advance/
+            // reclaim). Ally land will be allowed here once diplomacy has alliances.
+            const bool allowed = (o == mover) || (o == nullptr) ||
+                                 mover->diplomatic.IsAtWar(o->id);
             if (!allowed)
                 blocked.insert(id);
         }

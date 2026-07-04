@@ -213,6 +213,15 @@ namespace
     }
 }
 
+SupplyCategory CategoryOfResource(ResourceType type)
+{
+    if (type == ResourceType::FOOD_PROVISIONS)
+        return SupplyCategory::Food;
+    if (type == ResourceType::WOOD || type == ResourceType::PLANKS || type == ResourceType::TOOLS)
+        return SupplyCategory::Materiel;
+    return SupplyCategory::Weapons;
+}
+
 bool PlanSupplyPackage(const std::map<ResourceType, int>& available,
                        const std::vector<EquipmentCategory>& categories,
                        int soldiersPerPackage, int rationsPerPackage,
@@ -265,4 +274,72 @@ float SupplyPackage::AverageQuality() const
         count += item.amount;
     }
     return count > 0 ? weighted / static_cast<float>(count) : 0.0f;
+}
+
+bool PlanCategoryPackage(const std::map<ResourceType, int>& available,
+                         SupplyCategory category, int soldiers, SupplyPackage& out)
+{
+    if (soldiers <= 0)
+        return false;
+
+    switch (category)
+    {
+        case SupplyCategory::Food:
+        {
+            auto it = available.find(ResourceType::FOOD_PROVISIONS);
+            int have = it != available.end() ? it->second : 0;
+            int take = std::min(have, soldiers);
+            if (take <= 0)
+                return false;
+
+            SupplyPackage planned;
+            planned.category = SupplyCategory::Food;
+            planned.rations = take;
+            planned.soldierCapacity = soldiers;
+            out = std::move(planned);
+            return true;
+        }
+        case SupplyCategory::Materiel:
+        {
+            SupplyPackage planned;
+            planned.category = SupplyCategory::Materiel;
+            planned.soldierCapacity = soldiers;
+            int remaining = soldiers;
+            for (ResourceType type : {ResourceType::WOOD, ResourceType::PLANKS, ResourceType::TOOLS})
+            {
+                if (remaining <= 0)
+                    break;
+                auto it = available.find(type);
+                int have = it != available.end() ? it->second : 0;
+                int take = std::min(have, remaining);
+                if (take > 0)
+                {
+                    planned.Add(type, take);
+                    remaining -= take;
+                }
+            }
+            if (planned.items.empty())
+                return false;
+            out = std::move(planned);
+            return true;
+        }
+        case SupplyCategory::Weapons:
+        default:
+        {
+            static const std::vector<EquipmentCategory> kWeaponCategories{
+                EquipmentCategory::Sword, EquipmentCategory::Spear, EquipmentCategory::Bow,
+                EquipmentCategory::Crossbow, EquipmentCategory::Firearm, EquipmentCategory::Shield,
+                EquipmentCategory::Armor, EquipmentCategory::Ammo};
+
+            SupplyPackage planned;
+            // Rations are their own package category now, so pass 0 — the ration
+            // check inside PlanSupplyPackage is trivially satisfied.
+            if (!PlanSupplyPackage(available, kWeaponCategories, soldiers, 0, planned))
+                return false;
+            planned.category = SupplyCategory::Weapons;
+            planned.rations = 0;
+            out = std::move(planned);
+            return true;
+        }
+    }
 }

@@ -3,6 +3,7 @@
 #include "MapGenerator.h"
 #include "BuildingConfig.h"
 #include "Technology.h"
+#include "Equipment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,12 +46,26 @@ void Player::RebuildGarrisonViews()
     }
 
     // Fallback home for orphaned divisions (their home was captured/destroyed):
-    // prefer the HQ, else any garrison building. Keeps every division simulated.
+    // prefer the HQ, else any garrison building.
     Building* fallback = nullptr;
     for (Building* b : garrisons)
         if (b->buildingType == BuildingType::Headquarters) { fallback = b; break; }
     if (fallback == nullptr && !garrisons.empty())
         fallback = garrisons.front();
+
+    // Remove divisions that can't be re-homed. When all garrisons are captured,
+    // orphaned divisions (with no fallback home) are removed from play, representing
+    // surrender/dissolution of the army. This prevents ghost divisions that exist in
+    // forces but are invisible to all simulation systems.
+    forces.erase(std::remove_if(forces.begin(), forces.end(),
+        [this, fallback](const std::unique_ptr<SoldierDivision>& f)
+        {
+            if (f == nullptr) return true;
+            if (fallback != nullptr) return false;  // has a fallback, keep it
+            Building* home = f->garrisonBuildingId >= 0 ? tilemap.GetBuilding(f->garrisonBuildingId) : nullptr;
+            // Remove if home doesn't exist or is owned by someone else
+            return home == nullptr || home->owner != this;
+        }), forces.end());
 
     for (auto& f : forces)
     {
@@ -59,7 +74,18 @@ void Player::RebuildGarrisonViews()
         if (home == nullptr || home->owner != this)
             home = fallback;
         if (home == nullptr)
-            continue;  // player has no garrison buildings left — division sits idle
+            continue;  // Should not reach here after removal above, but guard just in case
+        // If the division is being re-homed (its old home was captured/destroyed),
+        // clear any stale orders that might target enemy territory or deleted buildings.
+        if (f->garrisonBuildingId >= 0)
+        {
+            Building* oldHome = tilemap.GetBuilding(f->garrisonBuildingId);
+            if (oldHome == nullptr || oldHome->owner != this)
+            {
+                f->currentOrder = MilitaryOrderType::None;
+                f->orderTargetPositionId = -1;
+            }
+        }
         f->garrisonBuildingId = home->positionId;
         if (auto* g = home->GetComponent<GarrisonComponent>())
             g->divisions.push_back(f.get());
@@ -449,6 +475,122 @@ void Player::RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs)
             }
         }
     }
+}
+
+int Player::CountEquipmentCategory(EquipmentCategory category) const
+{
+    int total = 0;
+    for (const auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+    {
+        const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+        if (storage == nullptr || building->owner != this)
+            continue;
+        for (const auto& [type, buffer] : storage->buffers)
+        {
+            const EquipmentProfile* profile = FindEquipmentProfile(type);
+            if (profile != nullptr && profile->category == category)
+                total += static_cast<int>(buffer.buffer.size());
+        }
+    }
+    return total;
+}
+
+bool Player::TryPayEquipmentCategory(EquipmentCategory category, int amount,
+                                     ResourceType* representativeOut)
+{
+    if (amount <= 0)
+        return true;
+
+    // Availability of every matching type across the network (ordered by ResourceType
+    // for determinism). All tiers are consumed together — a swordsman drains copper,
+    // bronze, iron and steel swords in proportion to what is stocked, not just the
+    // cheapest tier.
+    std::map<ResourceType, int> available;
+    for (const auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+    {
+        const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+        if (storage == nullptr || building->owner != this)
+            continue;
+        for (const auto& [type, buffer] : storage->buffers)
+        {
+            const EquipmentProfile* profile = FindEquipmentProfile(type);
+            if (profile != nullptr && profile->category == category && !buffer.buffer.empty())
+                available[type] += static_cast<int>(buffer.buffer.size());
+        }
+    }
+
+    int total = 0;
+    for (const auto& [type, count] : available)
+        total += count;
+    if (total < amount)
+        return false;
+
+    // Proportional allocation (floor), then hand out the rounding remainder
+    // deterministically to any type that still has spare stock.
+    std::map<ResourceType, int> take;
+    int allocated = 0;
+    for (const auto& [type, count] : available)
+    {
+        int share = static_cast<int>(static_cast<long long>(amount) * count / total);
+        share = std::min(share, count);
+        take[type] = share;
+        allocated += share;
+    }
+    int leftover = amount - allocated;
+    while (leftover > 0)
+    {
+        bool progressed = false;
+        for (const auto& [type, count] : available)
+        {
+            if (leftover <= 0)
+                break;
+            if (take[type] < count)
+            {
+                take[type]++;
+                leftover--;
+                progressed = true;
+            }
+        }
+        if (!progressed)
+            break;  // safety — cannot happen when total >= amount
+    }
+
+    // Consume the planned amount of each type; track the best-quality piece taken.
+    ResourceType best = ResourceType::Null;
+    float bestQuality = -1.0f;
+    for (const auto& [type, want] : take)
+    {
+        if (want <= 0)
+            continue;
+        const EquipmentProfile* profile = FindEquipmentProfile(type);
+        int remaining = want;
+        for (auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+        {
+            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+            if (storage == nullptr || building->owner != this)
+                continue;
+            auto it = storage->buffers.find(type);
+            if (it == storage->buffers.end())
+                continue;
+            while (remaining > 0 && !it->second.buffer.empty())
+            {
+                it->second.FreeResource();
+                economyTelemetry.RecordConsumption(type);
+                remaining--;
+            }
+            if (remaining <= 0)
+                break;
+        }
+        if (profile != nullptr && profile->quality > bestQuality)
+        {
+            bestQuality = profile->quality;
+            best = type;
+        }
+    }
+
+    if (representativeOut != nullptr)
+        *representativeOut = best;
+    return true;
 }
 
 // ── PlayerEconomyTelemetry ──────────────────────────────────────────────────
