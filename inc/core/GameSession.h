@@ -127,171 +127,20 @@ public:
 class LocalhostHostSession : public IGameSession
 {
 public:
-    LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId = 0, bool requireRemoteSync = true)
-    : world(&world), transport(std::move(transport)), remotePlayerId(remotePlayerId), requireRemoteSync(requireRemoteSync)
-    {
-    }
+    LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId = 0, bool requireRemoteSync = true);
 
-    std::uint64_t SubmitCommand(const GameCommand& command) override
-    {
-        if (world == nullptr)
-            return 0;
-        return world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
-    }
-
-    void Update(double dt) override
-    {
-        if (world == nullptr)
-            return;
-
-        std::uint64_t minimumTargetTick = world->GetSimulationTick() + inputDelayTicks;
-        if (correctionSnapshotCooldown > 0.0)
-            correctionSnapshotCooldown = std::max(0.0, correctionSnapshotCooldown - dt);
-        if (transport != nullptr)
-        {
-            hadConnection = hadConnection || transport->IsConnected();
-            if (requireRemoteSync && !initialSnapshotSent && transport->IsConnected())
-                SendInitialSnapshot();
-            for (const auto& payload : transport->ReceiveHostCommands())
-            {
-                if (payload == "RESYNC_REQUEST")
-                {
-                    if (correctionSnapshotCooldown <= 0.0)
-                    {
-                        SendCorrectionSnapshot();
-                        correctionSnapshotCooldown = 5.0;
-                    }
-                    else
-                    {
-                        Log::Msg("[Session]", "Ignoring resync request during cooldown");
-                    }
-                    continue;
-                }
-
-                if (payload == "SYNC_READY")
-                {
-                    remoteInitialSnapshotReady = true;
-                    lastSentSnapshot = GameSnapshot{};
-                    hasLastSentSnapshot = false;
-                    Log::Msg("[Session]", "Remote client confirmed initial map sync");
-                    continue;
-                }
-
-                GameCommand command;
-                if (GameCommand::TryDeserialize(payload, command))
-                {
-                    if (command.playerId != remotePlayerId)
-                    {
-                        GameCommandResult rejected{
-                            command.commandId,
-                            world->GetSimulationTick(),
-                            command.targetTick,
-                            command.playerId,
-                            command.type,
-                            false,
-                            "rejected: wrong player slot",
-                            command.Serialize()};
-                        commandResults.push_back(rejected);
-                        transport->SendHostResult(rejected.Serialize());
-                        continue;
-                    }
-                    world->SubmitCommand(command, minimumTargetTick);
-                }
-            }
-
-            if (requireRemoteSync && !remoteInitialSnapshotReady)
-                return;
-        }
-
-        int ticks = clock.AddFrameTime(dt);
-        for (int i = 0; i < ticks; i++)
-        {
-            world->UpdateSimulation(FixedSimulationClock::FixedDt);
-            auto results = world->ConsumeCommandResults();
-            GameServerFrame frame;
-            frame.tick = world->GetSimulationTick();
-            checksumTimer += FixedSimulationClock::FixedDt;
-            if (checksumTimer >= 1.0)
-            {
-                checksumTimer = 0.0;
-                frame.hasChecksum = true;
-                frame.checksum = world->BuildChecksum();
-            }
-
-            for (const auto& result : results)
-            {
-                commandResults.push_back(result);
-                frame.results.push_back(result);
-            }
-
-            if (transport != nullptr)
-                transport->SendHostFrame(frame.Serialize());
-        }
-    }
-
-    GameWorld* GetWorld() override { return world; }
-
-    bool IsConnectionClosed() const override
-    {
-        return transport != nullptr && hadConnection && (!transport->IsConnected() || transport->HasFailed());
-    }
-
-    int GetPingMs() const override
-    {
-        return transport != nullptr ? transport->GetPingMs() : -1;
-    }
-
-    std::string GetConnectionStatus() const override
-    {
-        if (transport != nullptr && requireRemoteSync && !remoteInitialSnapshotReady)
-            return initialSnapshotSent ? "Waiting for client map sync" : "Preparing map sync";
-        return transport != nullptr ? transport->GetStatus() : std::string{};
-    }
-
-    bool IsReadyForGameplay() const override
-    {
-        return transport == nullptr || !requireRemoteSync || remoteInitialSnapshotReady;
-    }
-
-    std::vector<GameCommandResult> ConsumeCommandResults() override
-    {
-        std::vector<GameCommandResult> results = std::move(commandResults);
-        commandResults.clear();
-        return results;
-    }
+    std::uint64_t SubmitCommand(const GameCommand& command) override;
+    void Update(double dt) override;
+    GameWorld* GetWorld() override;
+    bool IsConnectionClosed() const override;
+    int GetPingMs() const override;
+    std::string GetConnectionStatus() const override;
+    bool IsReadyForGameplay() const override;
+    std::vector<GameCommandResult> ConsumeCommandResults() override;
 
 private:
-    void SendInitialSnapshot()
-    {
-        if (world == nullptr || transport == nullptr)
-            return;
-
-        lastSentSnapshot = world->BuildSnapshot();
-        hasLastSentSnapshot = lastSentSnapshot.IsValid();
-        std::string payload = lastSentSnapshot.Serialize();
-        constexpr size_t ChunkSize = 12000;
-        size_t totalChunks = payload.empty() ? 0 : (payload.size() + ChunkSize - 1) / ChunkSize;
-        transport->SendHostSnapshot("INIT_BEGIN " + std::to_string(world->GetSimulationTick()) + " " +
-                                    std::to_string(payload.size()) + " " + std::to_string(totalChunks));
-        for (size_t i = 0; i < totalChunks; i++)
-        {
-            size_t offset = i * ChunkSize;
-            transport->SendHostSnapshot("INIT_CHUNK " + std::to_string(i) + " " + payload.substr(offset, ChunkSize));
-        }
-        transport->SendHostSnapshot("INIT_END");
-        initialSnapshotSent = true;
-        Log::Msg("[Session]", "Initial snapshot queued: bytes=", payload.size(), " chunks=", totalChunks);
-    }
-
-    void SendCorrectionSnapshot()
-    {
-        if (world == nullptr || transport == nullptr)
-            return;
-
-        std::string payload = world->BuildSnapshot().Serialize();
-        transport->SendHostSnapshot(payload);
-        Log::Msg("[Session]", "Correction snapshot queued: bytes=", payload.size());
-    }
+    void SendInitialSnapshot();
+    void SendCorrectionSnapshot();
 
     GameWorld* world{nullptr};
     std::shared_ptr<IGameTransport> transport;
