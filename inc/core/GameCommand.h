@@ -292,42 +292,50 @@ struct GameCommandResult
 
     std::string Serialize() const
     {
-        std::ostringstream stream;
-        stream << WireVersion << ' '
-               << commandId << ' '
-               << simulationTick << ' '
-               << targetTick << ' '
-               << playerId << ' '
-               << static_cast<int>(type) << ' '
-               << (accepted ? 1 : 0) << ' '
-               << std::quoted(reason) << ' '
-               << std::quoted(commandPayload);
-        return stream.str();
+        Archive ar(WireVersion);
+        ar << commandId
+           << simulationTick
+           << targetTick
+           << playerId
+           << static_cast<int>(type)
+           << (accepted ? 1 : 0)
+           << reason
+           << commandPayload;
+        return ar.GetString();
     }
 
     static bool TryDeserialize(const std::string& payload, GameCommandResult& result)
     {
-        std::istringstream stream(payload);
-        int version = 0;
+        Archive ar(payload, WireVersion);
+        if (!ar.IsValid())
+            return false;
+
+        std::uint64_t commandId = 0;
+        std::uint64_t simulationTick = 0;
+        std::uint64_t targetTick = 0;
+        int playerId = 0;
         int type = 0;
         int accepted = 0;
         std::string reason;
         std::string commandPayload;
 
-        GameCommandResult parsed;
-        stream >> version
-               >> parsed.commandId
-               >> parsed.simulationTick
-               >> parsed.targetTick
-               >> parsed.playerId
-               >> type
-               >> accepted
-               >> std::quoted(reason)
-               >> std::quoted(commandPayload);
+        ar >> commandId
+           >> simulationTick
+           >> targetTick
+           >> playerId
+           >> type
+           >> accepted
+           >> reason
+           >> commandPayload;
 
-        if (!stream || version != WireVersion || !GameCommand::IsValidType(type))
+        if (!ar.IsValid() || !GameCommand::IsValidType(type))
             return false;
 
+        GameCommandResult parsed;
+        parsed.commandId = commandId;
+        parsed.simulationTick = simulationTick;
+        parsed.targetTick = targetTick;
+        parsed.playerId = playerId;
         parsed.type = static_cast<GameCommandType>(type);
         parsed.accepted = accepted != 0;
         parsed.reason = std::move(reason);
