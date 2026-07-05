@@ -5,6 +5,7 @@ deps/raylib-src/
 # Build output
 build/
 build-debug/
+build-test/
 build-tests/
 build-tests-coverage/
 dist/
