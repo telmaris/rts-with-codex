@@ -4,6 +4,20 @@
 #include <algorithm>
 #include <cmath>
 
+int ResolveAnimationFrame(const AnimationClip& clip, float elapsedTime)
+{
+    if (clip.frameCount <= 1)
+        return clip.startFrameId;  // Static: always the same frame.
+
+    float totalDuration = clip.frameCount * clip.frameTime;
+    float normalizedTime = clip.looping ? std::fmod(elapsedTime, totalDuration)
+                                         : std::min(elapsedTime, totalDuration);
+
+    int frameIndex = static_cast<int>(normalizedTime / clip.frameTime);
+    frameIndex = std::clamp(frameIndex, 0, clip.frameCount - 1);
+    return clip.startFrameId + frameIndex;
+}
+
 CanvasLayer::CanvasLayer()
 {
     fbo = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
@@ -45,17 +59,7 @@ AnimationClip TextureAtlas::GetAnimation(int clipId) const
 
 int TextureAtlas::GetFrameForAnimation(int clipId, float elapsedTime) const
 {
-    AnimationClip clip = GetAnimation(clipId);
-    if (clip.frameCount <= 1)
-        return clip.startFrameId;  // Static texture: always the same frame.
-
-    float totalDuration = clip.frameCount * clip.frameTime;
-    float normalizedTime = clip.looping ? std::fmod(elapsedTime, totalDuration)
-                                         : std::min(elapsedTime, totalDuration);
-
-    int frameIndex = static_cast<int>(normalizedTime / clip.frameTime);
-    frameIndex = std::clamp(frameIndex, 0, clip.frameCount - 1);
-    return clip.startFrameId + frameIndex;
+    return ResolveAnimationFrame(GetAnimation(clipId), elapsedTime);
 }
 
 Renderer::Renderer()
@@ -199,13 +203,21 @@ void Renderer::LoadBuildingTexture(BuildingType type, const std::string& path)
         buildingTextures[type] = texture;
 }
 
-// Draws a building texture sized to its footprint.
+void Renderer::RegisterBuildingAnimation(BuildingType type, const AnimationClip& clip)
+{
+    buildingAnimations[type] = clip;
+}
+
+// Draws a building texture sized to its footprint, animated by its lifetime
+// (ETAP 5.4) if a clip is registered for its type — otherwise identical to
+// the static overload.
 void Renderer::DrawBuildingTexture(Building* building, Vec2f pos, Color tint)
 {
     if (building == nullptr)
         return;
 
-    DrawBuildingTexture(building->buildingType, building->GetFootprint(), pos, tint);
+    DrawBuildingTexture(building->buildingType, building->GetFootprint(), pos, tint,
+                         static_cast<float>(building->GetLifetime()));
 }
 
 // Draws a building snapshot with its standalone texture. `tint` modulates the
@@ -240,6 +252,33 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
     Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
     DrawRectangleRounded(dest, 0.04f, 8, modulate(Color{90, 96, 108, 255}));
     DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, modulate(Color{170, 180, 196, 255}));
+}
+
+// Same, but reads the frame from the type's registered animation clip
+// (elapsedTime is normally the building's lifetime). Types with no clip, or
+// a clip with frameCount==1, fall through to the static overload unchanged.
+void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint, float elapsedTime)
+{
+    auto animIt = buildingAnimations.find(type);
+    auto textureIt = buildingTextures.find(type);
+    if (animIt == buildingAnimations.end() || animIt->second.frameCount <= 1 || textureIt == buildingTextures.end())
+    {
+        DrawBuildingTexture(type, footprint, pos, tint);
+        return;
+    }
+
+    const AnimationClip& clip = animIt->second;
+    Texture2D texture = textureIt->second;
+    int frame = ResolveAnimationFrame(clip, elapsedTime);
+    float frameWidth = static_cast<float>(texture.width) / clip.frameCount;
+
+    Vec2f drawSize{
+        static_cast<float>(footprint.x * TILE_SIZE),
+        static_cast<float>(footprint.y * TILE_SIZE)};
+
+    Rectangle src{frameWidth * frame, 0.0f, frameWidth, -static_cast<float>(texture.height)};
+    Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
+    DrawTexturePro(texture, src, dest, {0.0f, 0.0f}, 0.0f, tint);
 }
 
 // Draws terrain, territory and buildings from an immutable game snapshot.

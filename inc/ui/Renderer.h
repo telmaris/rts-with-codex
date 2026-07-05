@@ -24,6 +24,11 @@ struct AnimationClip
     bool looping = true;
 };
 
+// Resolves which 0-based frame index of a clip should show at an elapsed
+// time. Shared by TextureAtlas (atlas-tile animation) and Renderer's
+// standalone building-texture animation so the timing math lives in one place.
+int ResolveAnimationFrame(const AnimationClip& clip, float elapsedTime);
+
 // Fixed-resolution render layer backed by a Raylib render texture.
 struct CanvasLayer
 {
@@ -80,10 +85,17 @@ class Renderer
     void DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime);
     // Loads a standalone building texture for a building type.
     void LoadBuildingTexture(BuildingType, const std::string&);
+    // Registers an animation clip for a standalone building texture (ETAP 5.4).
+    // Frames are read as a horizontal strip inside the loaded texture (frame
+    // width = texture width / frameCount). Types with no registered clip (or
+    // frameCount==1) keep drawing the full texture — fully backward compatible.
+    void RegisterBuildingAnimation(BuildingType type, const AnimationClip& clip);
     // Draws a building with its standalone texture.
     void DrawBuildingTexture(Building*, Vec2f, Color tint = WHITE);
     // Draws a building snapshot with its standalone texture.
     void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint = WHITE);
+    // Same, picking the frame from the type's registered animation clip and elapsed time.
+    void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint, float elapsedTime);
     // Draws terrain, territory and buildings from an immutable game snapshot.
     void DrawSnapshot(const GameSnapshot& snapshot);
     // Converts OS screen coordinates to fixed render coordinates.
@@ -113,6 +125,7 @@ class Renderer
     std::vector<CanvasLayer> layers{4};
     std::map<int, TextureAtlas> atlasMap;
     std::map<BuildingType, Texture2D> buildingTextures;
+    std::map<BuildingType, AnimationClip> buildingAnimations;
 
     Camera2D camera;
     float topScreenPadding{0.0f};
