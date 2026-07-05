@@ -108,38 +108,14 @@ TEST(GameCommandTests, GameWorldPublishesCommandResultAfterSimulationTick)
     EXPECT_FALSE(results.front().accepted);
 }
 
-TEST(GameCommandTests, LocalhostMultiplayerSessionRoundTripsCommandResult)
-{
-    GameWorld world;
-    MapParameters params;
-    params.seed = 12345;
-    world.InitMultiplayerWorld("test", nullptr, nullptr, params, 0, true);
-
-    LocalhostMultiplayerSession session(world);
-
-    std::uint64_t commandId = session.SubmitCommand(GameCommand::DestroyBuilding(world.GetLocalPlayerId(), 123));
-    std::vector<GameCommandResult> results;
-    for (int i = 0; i < 20 && results.empty(); i++)
-    {
-        session.Update(0.20);
-        results = session.ConsumeCommandResults();
-    }
-
-    auto matching = std::find_if(results.begin(), results.end(), [commandId](const GameCommandResult& result) {
-        return result.commandId == commandId;
-    });
-    ASSERT_NE(matching, results.end());
-    EXPECT_EQ(matching->playerId, world.GetLocalPlayerId());
-    EXPECT_EQ(matching->type, GameCommandType::DestroyBuilding);
-    EXPECT_FALSE(matching->accepted);
-    EXPECT_EQ(session.GetWorld(), &world);
-}
+// DEPRECATED: LocalhostMultiplayerSession test removed in Etap 1.2
+// LocalhostMultiplayerSession merged into HostSession + ClientSession architecture
+// Full integration test will be added in Etap 1.4 after IGameRuntimeLoop refactor
 
 TEST(GameCommandTests, ThreadedSessionAdvancesSimulationAndPublishesCommandResult)
 {
     GameWorld world;
-    auto inner = std::make_unique<HostGameSession>(world);
-    ThreadedGameSession session(std::move(inner));
+    HostSession session(world);
 
     std::uint64_t commandId = session.SubmitCommand(GameCommand::DestroyBuilding(world.GetLocalPlayerId(), 123));
     std::vector<GameCommandResult> results;
@@ -162,13 +138,18 @@ TEST(GameCommandTests, HostRejectsTransportCommandForWrongPlayerSlot)
 {
     GameWorld world;
     auto transport = std::make_shared<LocalhostGameTransport>();
-    LocalhostHostSession host(world, transport, 1);
+    HostSession host(world, transport, 1);
 
     GameCommand command = GameCommand::DestroyBuilding(0, 123);
     command.commandId = 77;
     transport->SendClientCommand(command.Serialize());
-    host.Update(0.20);
-    auto results = host.ConsumeCommandResults();
+
+    std::vector<GameCommandResult> results;
+    for (int i = 0; i < 30 && results.empty(); i++)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        results = host.ConsumeCommandResults();
+    }
 
     ASSERT_EQ(results.size(), 1u);
     EXPECT_EQ(results.front().commandId, command.commandId);

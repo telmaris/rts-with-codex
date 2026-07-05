@@ -57,185 +57,110 @@ std::vector<std::string> LocalhostGameTransport::ReceiveClientSnapshots()
 }
 
 // ============================================================================
-// HostGameSession Implementation
+// HostSession Implementation - Scalona klasa dla SP i MP
 // ============================================================================
 
-HostGameSession::HostGameSession(GameWorld& world) : world(&world) {}
-
-std::uint64_t HostGameSession::SubmitCommand(const GameCommand& command)
+// Single-player constructor
+HostSession::HostSession(GameWorld& world)
+    : world(&world), transport(nullptr), requireRemoteSync(false)
 {
-    if (world != nullptr)
-        return world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
-    return 0;
+    running = true;
+    worker = std::thread(&HostSession::RunSimulation, this);
 }
 
-void HostGameSession::Update(double dt)
-{
-    if (world != nullptr)
-    {
-        int ticks = clock.AddFrameTime(dt);
-        for (int i = 0; i < ticks; i++)
-        {
-            world->UpdateSimulation(FixedSimulationClock::FixedDt);
-            auto results = world->ConsumeCommandResults();
-            commandResults.insert(commandResults.end(), results.begin(), results.end());
-        }
-    }
-}
-
-GameWorld* HostGameSession::GetWorld()
-{
-    return world;
-}
-
-std::vector<GameCommandResult> HostGameSession::ConsumeCommandResults()
-{
-    std::vector<GameCommandResult> results = std::move(commandResults);
-    commandResults.clear();
-    return results;
-}
-
-// ============================================================================
-// LocalhostHostSession Implementation
-// ============================================================================
-
-LocalhostHostSession::LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId, bool requireRemoteSync)
+// Multiplayer constructor
+HostSession::HostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId, bool requireRemoteSync)
     : world(&world), transport(std::move(transport)), remotePlayerId(remotePlayerId), requireRemoteSync(requireRemoteSync)
 {
+    running = true;
+    worker = std::thread(&HostSession::RunSimulation, this);
 }
 
-std::uint64_t LocalhostHostSession::SubmitCommand(const GameCommand& command)
+HostSession::~HostSession()
 {
+    Stop();
+}
+
+std::uint64_t HostSession::SubmitCommand(const GameCommand& command)
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
     if (world == nullptr)
         return 0;
     return world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
 }
 
-void LocalhostHostSession::Update(double dt)
+void HostSession::Update(double dt)
 {
-    if (world == nullptr)
-        return;
-
-    std::uint64_t minimumTargetTick = world->GetSimulationTick() + inputDelayTicks;
-    if (correctionSnapshotCooldown > 0.0)
-        correctionSnapshotCooldown = std::max(0.0, correctionSnapshotCooldown - dt);
-    if (transport != nullptr)
-    {
-        hadConnection = hadConnection || transport->IsConnected();
-        if (requireRemoteSync && !initialSnapshotSent && transport->IsConnected())
-            SendInitialSnapshot();
-        for (const auto& payload : transport->ReceiveHostCommands())
-        {
-            if (payload == "RESYNC_REQUEST")
-            {
-                if (correctionSnapshotCooldown <= 0.0)
-                {
-                    SendCorrectionSnapshot();
-                    correctionSnapshotCooldown = 5.0;
-                }
-                else
-                {
-                    Log::Msg("[Session]", "Ignoring resync request during cooldown");
-                }
-                continue;
-            }
-
-            if (payload == "SYNC_READY")
-            {
-                remoteInitialSnapshotReady = true;
-                lastSentSnapshot = GameSnapshot{};
-                hasLastSentSnapshot = false;
-                Log::Msg("[Session]", "Remote client confirmed initial map sync");
-                continue;
-            }
-
-            GameCommand command;
-            if (GameCommand::TryDeserialize(payload, command))
-            {
-                if (command.playerId != remotePlayerId)
-                {
-                    GameCommandResult rejected{
-                        command.commandId,
-                        world->GetSimulationTick(),
-                        command.targetTick,
-                        command.playerId,
-                        command.type,
-                        false,
-                        "rejected: wrong player slot",
-                        command.Serialize()};
-                    commandResults.push_back(rejected);
-                    transport->SendHostResult(rejected.Serialize());
-                    continue;
-                }
-                world->SubmitCommand(command, minimumTargetTick);
-            }
-        }
-
-        if (requireRemoteSync && !remoteInitialSnapshotReady)
-            return;
-    }
-
-    int ticks = clock.AddFrameTime(dt);
-    for (int i = 0; i < ticks; i++)
-    {
-        world->UpdateSimulation(FixedSimulationClock::FixedDt);
-        auto results = world->ConsumeCommandResults();
-        GameServerFrame frame;
-        frame.tick = world->GetSimulationTick();
-        checksumTimer += FixedSimulationClock::FixedDt;
-        if (checksumTimer >= 1.0)
-        {
-            checksumTimer = 0.0;
-            frame.hasChecksum = true;
-            frame.checksum = world->BuildChecksum();
-        }
-
-        for (const auto& result : results)
-        {
-            commandResults.push_back(result);
-            frame.results.push_back(result);
-        }
-
-        if (transport != nullptr)
-            transport->SendHostFrame(frame.Serialize());
-    }
+    // Simulation runs on background thread - nothing to do here
+    (void)dt;
 }
 
-GameWorld* LocalhostHostSession::GetWorld()
+GameWorld* HostSession::GetWorld()
 {
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
     return world;
 }
 
-bool LocalhostHostSession::IsConnectionClosed() const
+std::vector<GameCommandResult> HostSession::ConsumeCommandResults()
 {
-    return transport != nullptr && hadConnection && (!transport->IsConnected() || transport->HasFailed());
-}
-
-int LocalhostHostSession::GetPingMs() const
-{
-    return transport != nullptr ? transport->GetPingMs() : -1;
-}
-
-std::string LocalhostHostSession::GetConnectionStatus() const
-{
-    if (transport != nullptr && requireRemoteSync && !remoteInitialSnapshotReady)
-        return initialSnapshotSent ? "Waiting for client map sync" : "Preparing map sync";
-    return transport != nullptr ? transport->GetStatus() : std::string{};
-}
-
-bool LocalhostHostSession::IsReadyForGameplay() const
-{
-    return transport == nullptr || !requireRemoteSync || remoteInitialSnapshotReady;
-}
-
-std::vector<GameCommandResult> LocalhostHostSession::ConsumeCommandResults()
-{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
     std::vector<GameCommandResult> results = std::move(commandResults);
     commandResults.clear();
     return results;
 }
 
-void LocalhostHostSession::SendInitialSnapshot()
+bool HostSession::ConsumeLatestSnapshot(GameSnapshot& snapshot)
+{
+    std::lock_guard<std::mutex> lock(snapshotMutex);
+    if (!hasSnapshot)
+        return false;
+    snapshot = latestSnapshot;
+    hasSnapshot = false;
+    return true;
+}
+
+bool HostSession::IsConnectionClosed() const
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    return transport != nullptr && hadConnection && (!transport->IsConnected() || transport->HasFailed());
+}
+
+std::string HostSession::GetConnectionStatus() const
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    if (transport == nullptr)
+        return "Single player";
+    if (transport != nullptr && requireRemoteSync && !remoteInitialSnapshotReady)
+        return initialSnapshotSent ? "Waiting for client map sync" : "Preparing map sync";
+    return transport != nullptr ? transport->GetStatus() : std::string{};
+}
+
+int HostSession::GetPingMs() const
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    return transport != nullptr ? transport->GetPingMs() : -1;
+}
+
+bool HostSession::IsReadyForGameplay() const
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    return transport == nullptr || !requireRemoteSync || remoteInitialSnapshotReady;
+}
+
+std::recursive_mutex* HostSession::GetWorldMutex()
+{
+    return &worldMutex;
+}
+
+void HostSession::Stop()
+{
+    running = false;
+    cv.notify_all();
+    if (worker.joinable())
+        worker.join();
+}
+
+void HostSession::SendInitialSnapshot()
 {
     if (world == nullptr || transport == nullptr)
         return;
@@ -257,7 +182,7 @@ void LocalhostHostSession::SendInitialSnapshot()
     Log::Msg("[Session]", "Initial snapshot queued: bytes=", payload.size(), " chunks=", totalChunks);
 }
 
-void LocalhostHostSession::SendCorrectionSnapshot()
+void HostSession::SendCorrectionSnapshot()
 {
     if (world == nullptr || transport == nullptr)
         return;
@@ -266,6 +191,125 @@ void LocalhostHostSession::SendCorrectionSnapshot()
     transport->SendHostSnapshot(payload);
     Log::Msg("[Session]", "Correction snapshot queued: bytes=", payload.size());
 }
+
+void HostSession::RunSimulation()
+{
+    auto nextTick = std::chrono::steady_clock::now();
+    while (running)
+    {
+        nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(FixedSimulationClock::FixedDt));
+
+        {
+            std::lock_guard<std::recursive_mutex> lock(worldMutex);
+            if (world == nullptr)
+                goto sleep_and_wait;
+
+            // Handle transport commands
+            if (transport != nullptr)
+            {
+                hadConnection = hadConnection || transport->IsConnected();
+                if (requireRemoteSync && !initialSnapshotSent && transport->IsConnected())
+                    SendInitialSnapshot();
+
+                for (const auto& payload : transport->ReceiveHostCommands())
+                {
+                    if (payload == "RESYNC_REQUEST")
+                    {
+                        if (correctionSnapshotCooldown <= 0.0)
+                        {
+                            SendCorrectionSnapshot();
+                            correctionSnapshotCooldown = 5.0;
+                        }
+                        else
+                        {
+                            Log::Msg("[Session]", "Ignoring resync request during cooldown");
+                        }
+                        continue;
+                    }
+
+                    if (payload == "SYNC_READY")
+                    {
+                        remoteInitialSnapshotReady = true;
+                        lastSentSnapshot = GameSnapshot{};
+                        hasLastSentSnapshot = false;
+                        Log::Msg("[Session]", "Remote client confirmed initial map sync");
+                        continue;
+                    }
+
+                    GameCommand command;
+                    if (GameCommand::TryDeserialize(payload, command))
+                    {
+                        if (command.playerId != remotePlayerId)
+                        {
+                            GameCommandResult rejected{
+                                command.commandId,
+                                world->GetSimulationTick(),
+                                command.targetTick,
+                                command.playerId,
+                                command.type,
+                                false,
+                                "rejected: wrong player slot",
+                                command.Serialize()};
+                            commandResults.push_back(rejected);
+                            transport->SendHostResult(rejected.Serialize());
+                            continue;
+                        }
+                        world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
+                    }
+                }
+
+                if (requireRemoteSync && !remoteInitialSnapshotReady)
+                    goto sleep_and_wait;
+            }
+
+            // Update simulation
+            {
+                int ticks = clock.AddFrameTime(FixedSimulationClock::FixedDt);
+                for (int i = 0; i < ticks; i++)
+                {
+                    world->UpdateSimulation(FixedSimulationClock::FixedDt);
+                    auto results = world->ConsumeCommandResults();
+
+                    GameServerFrame frame;
+                    frame.tick = world->GetSimulationTick();
+                    checksumTimer += FixedSimulationClock::FixedDt;
+                    if (checksumTimer >= 1.0)
+                    {
+                        checksumTimer = 0.0;
+                        frame.hasChecksum = true;
+                        frame.checksum = world->BuildChecksum();
+                    }
+
+                    for (const auto& result : results)
+                    {
+                        commandResults.push_back(result);
+                        frame.results.push_back(result);
+                    }
+
+                    if (transport != nullptr)
+                        transport->SendHostFrame(frame.Serialize());
+
+                    // Snapshot capture for threaded access
+                    if (frame.hasChecksum)
+                    {
+                        std::lock_guard<std::mutex> snapshotLock(snapshotMutex);
+                        latestSnapshot = world->BuildSnapshot();
+                        hasSnapshot = latestSnapshot.IsValid();
+                    }
+                }
+            }
+        }
+
+sleep_and_wait:
+        std::unique_lock<std::mutex> sleepLock(sleepMutex);
+        cv.wait_until(sleepLock, nextTick, [&]() { return !running.load(); });
+        if (std::chrono::steady_clock::now() > nextTick + std::chrono::milliseconds(250))
+            nextTick = std::chrono::steady_clock::now();
+    }
+}
+
+// LocalhostHostSession is now deprecated - use HostSession instead instead
 
 // ============================================================================
 // LocalhostClientSession Implementation
@@ -527,161 +571,5 @@ void LocalhostClientSession::HandleSnapshotPayload(const std::string& payload)
     }
 }
 
-// ============================================================================
-// LocalhostMultiplayerSession Implementation
-// ============================================================================
-
-LocalhostMultiplayerSession::LocalhostMultiplayerSession(GameWorld& world)
-    : transport(std::make_shared<LocalhostGameTransport>()),
-      host(world, transport, world.GetLocalPlayerId()),
-      client(nullptr, transport, world.GetLocalPlayerId())
-{
-}
-
-std::uint64_t LocalhostMultiplayerSession::SubmitCommand(const GameCommand& command)
-{
-    return client.SubmitCommand(command);
-}
-
-void LocalhostMultiplayerSession::Update(double dt)
-{
-    host.Update(dt);
-    client.Update(dt);
-}
-
-GameWorld* LocalhostMultiplayerSession::GetWorld()
-{
-    return host.GetWorld();
-}
-
-std::vector<GameCommandResult> LocalhostMultiplayerSession::ConsumeCommandResults()
-{
-    return client.ConsumeCommandResults();
-}
-
-LocalhostHostSession& LocalhostMultiplayerSession::GetHostSession()
-{
-    return host;
-}
-
-LocalhostClientSession& LocalhostMultiplayerSession::GetClientSession()
-{
-    return client;
-}
-
-// ============================================================================
-// ThreadedGameSession Implementation
-// ============================================================================
-
-ThreadedGameSession::ThreadedGameSession(std::unique_ptr<IGameSession> innerSession)
-    : inner(std::move(innerSession))
-{
-    running = true;
-    worker = std::thread(&ThreadedGameSession::RunSimulation, this);
-}
-
-ThreadedGameSession::~ThreadedGameSession()
-{
-    Stop();
-}
-
-std::uint64_t ThreadedGameSession::SubmitCommand(const GameCommand& command)
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr ? inner->SubmitCommand(command) : 0;
-}
-
-void ThreadedGameSession::Update(double dt)
-{
-    (void)dt;
-}
-
-GameWorld* ThreadedGameSession::GetWorld()
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr ? inner->GetWorld() : nullptr;
-}
-
-std::vector<GameCommandResult> ThreadedGameSession::ConsumeCommandResults()
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr ? inner->ConsumeCommandResults() : std::vector<GameCommandResult>{};
-}
-
-bool ThreadedGameSession::ConsumeLatestSnapshot(GameSnapshot& snapshot)
-{
-    std::lock_guard<std::mutex> lock(snapshotMutex);
-    if (!hasSnapshot)
-        return false;
-    snapshot = latestSnapshot;
-    hasSnapshot = false;
-    return true;
-}
-
-bool ThreadedGameSession::IsConnectionClosed() const
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr && inner->IsConnectionClosed();
-}
-
-std::string ThreadedGameSession::GetConnectionStatus() const
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr ? inner->GetConnectionStatus() : std::string{};
-}
-
-int ThreadedGameSession::GetPingMs() const
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner != nullptr ? inner->GetPingMs() : -1;
-}
-
-bool ThreadedGameSession::IsReadyForGameplay() const
-{
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    return inner == nullptr || inner->IsReadyForGameplay();
-}
-
-std::recursive_mutex* ThreadedGameSession::GetWorldMutex()
-{
-    return &worldMutex;
-}
-
-void ThreadedGameSession::Stop()
-{
-    running = false;
-    cv.notify_all();
-    if (worker.joinable())
-        worker.join();
-}
-
-void ThreadedGameSession::RunSimulation()
-{
-    auto nextTick = std::chrono::steady_clock::now();
-    while (running)
-    {
-        nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<double>(FixedSimulationClock::FixedDt));
-
-        {
-            std::lock_guard<std::recursive_mutex> lock(worldMutex);
-            if (inner != nullptr)
-            {
-                inner->Update(FixedSimulationClock::FixedDt);
-                GameSnapshot snapshot;
-                inner->ConsumeLatestSnapshot(snapshot);
-                if (snapshot.IsValid())
-                {
-                    std::lock_guard<std::mutex> snapshotLock(snapshotMutex);
-                    latestSnapshot = std::move(snapshot);
-                    hasSnapshot = true;
-                }
-            }
-        }
-
-        std::unique_lock<std::mutex> sleepLock(sleepMutex);
-        cv.wait_until(sleepLock, nextTick, [&]() { return !running.load(); });
-        if (std::chrono::steady_clock::now() > nextTick + std::chrono::milliseconds(250))
-            nextTick = std::chrono::steady_clock::now();
-    }
-}
+// LocalhostMultiplayerSession is now deprecated - use HostSession instead
+// ThreadedGameSession functionality is now integrated into HostSession

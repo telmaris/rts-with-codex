@@ -2316,7 +2316,7 @@ void GameScene::StartNewGame(std::string name, MapParameters params)
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
     game->InitWorld(worldName, &render, audioSystem, params);
-    runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
+    runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostSession>(*game));
     prevUnlockedTechCount  = 0;
     prevUnlockedFocusCount = 0;
     if (audioSystem != nullptr)
@@ -2335,7 +2335,7 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     bool requireRemoteSync = transport != nullptr && transport->IsConnected();
     Log::Msg("GameScene", "Starting multiplayer host world '", worldName, "' on port ", port);
     runtimeLoop = std::make_unique<MultiplayerHostRuntimeLoop>(
-        std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostHostSession>(*game, transport, 1, requireRemoteSync)));
+        std::make_unique<HostSession>(*game, transport, 1, requireRemoteSync));
     if (audioSystem != nullptr)
         audioSystem->PlayMusic("gameplay");
 }
@@ -2351,7 +2351,7 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
     runtimeLoop = std::make_unique<MultiplayerClientRuntimeLoop>(
-        std::make_unique<ThreadedGameSession>(std::make_unique<LocalhostClientSession>(game.get(), transport, 1)));
+        std::make_unique<LocalhostClientSession>(game.get(), transport, 1));
     if (audioSystem != nullptr)
         audioSystem->PlayMusic("gameplay");
 }
@@ -2365,7 +2365,7 @@ bool GameScene::LoadGame(std::string name)
     std::string filename{"saves/" + saveName + ".save"};
     if (game->LoadFromFile(filename, &render, audioSystem))
     {
-        runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostGameSession>(*game));
+        runtimeLoop = std::make_unique<SinglePlayerRuntimeLoop>(std::make_unique<HostSession>(*game));
         {
             auto pit = game->playerHandler.players.find(game->GetLocalPlayerId());
             if (pit != game->playerHandler.players.end())

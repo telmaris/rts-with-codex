@@ -98,65 +98,69 @@ struct FixedSimulationClock
     }
 };
 
-// Authoritative host session. Multiplayer transports can feed commands before this tick.
-class HostGameSession : public IGameSession
+// Authoritative host session. Runs on background thread. Handles local, AI, and remote players.
+class HostSession : public IGameSession
 {
 public:
-    explicit HostGameSession(GameWorld& world);
+    // Single-player constructor: no transport, no remote sync
+    explicit HostSession(GameWorld& world);
+
+    // Multiplayer constructor: with transport for remote players
+    HostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId = 0, bool requireRemoteSync = true);
+
+    ~HostSession() override;
 
     std::uint64_t SubmitCommand(const GameCommand& command) override;
     void Update(double dt) override;
     GameWorld* GetWorld() override;
     std::vector<GameCommandResult> ConsumeCommandResults() override;
-
-protected:
-    GameWorld* world{nullptr};
-    FixedSimulationClock clock;
-    std::uint64_t inputDelayTicks{1};
-    std::vector<GameCommandResult> commandResults;
-};
-
-// Single player uses the same authoritative hosted simulation as multiplayer.
-class LocalSinglePlayerSession : public HostGameSession
-{
-public:
-    using HostGameSession::HostGameSession;
-};
-
-// Authoritative multiplayer host that receives serialized commands from a transport.
-class LocalhostHostSession : public IGameSession
-{
-public:
-    LocalhostHostSession(GameWorld& world, std::shared_ptr<IGameTransport> transport, int remotePlayerId = 0, bool requireRemoteSync = true);
-
-    std::uint64_t SubmitCommand(const GameCommand& command) override;
-    void Update(double dt) override;
-    GameWorld* GetWorld() override;
+    bool ConsumeLatestSnapshot(GameSnapshot& snapshot) override;
     bool IsConnectionClosed() const override;
-    int GetPingMs() const override;
     std::string GetConnectionStatus() const override;
+    int GetPingMs() const override;
     bool IsReadyForGameplay() const override;
-    std::vector<GameCommandResult> ConsumeCommandResults() override;
+    std::recursive_mutex* GetWorldMutex() override;
 
 private:
     void SendInitialSnapshot();
     void SendCorrectionSnapshot();
+    void Stop();
+    void RunSimulation();
 
+    // Simulation state
     GameWorld* world{nullptr};
-    std::shared_ptr<IGameTransport> transport;
     FixedSimulationClock clock;
     std::uint64_t inputDelayTicks{1};
+    std::vector<GameCommandResult> commandResults;
+
+    // Transport (optional - nullptr for single player)
+    std::shared_ptr<IGameTransport> transport;
     int remotePlayerId{0};
+    bool requireRemoteSync{true};
     bool hadConnection{false};
     bool initialSnapshotSent{false};
     bool remoteInitialSnapshotReady{false};
-    bool requireRemoteSync{true};
     bool hasLastSentSnapshot{false};
     GameSnapshot lastSentSnapshot;
     double checksumTimer{0.0};
     double correctionSnapshotCooldown{0.0};
-    std::vector<GameCommandResult> commandResults;
+
+    // Background simulation thread
+    mutable std::recursive_mutex worldMutex;
+    std::atomic<bool> running{false};
+    std::thread worker;
+    std::mutex sleepMutex;
+    std::condition_variable cv;
+    std::mutex snapshotMutex;
+    GameSnapshot latestSnapshot;
+    bool hasSnapshot{false};
 };
+
+// Single player - uses HostSession without transport
+using SinglePlayerSession = HostSession;
+
+// Multiplayer - alias for HostSession with transport (for backward compatibility if needed)
+using MultiplayerHostSession = HostSession;
 
 // Prototype local client. It sends serialized commands and observes a local world mirror.
 class LocalhostClientSession : public IGameSession
@@ -197,60 +201,7 @@ private:
     std::vector<GameCommandResult> commandResults;
 };
 
-// Runs a localhost client and authoritative host in one process for transport tests/prototyping.
-class LocalhostMultiplayerSession : public IGameSession
-{
-public:
-    explicit LocalhostMultiplayerSession(GameWorld& world);
-
-    std::uint64_t SubmitCommand(const GameCommand& command) override;
-    void Update(double dt) override;
-    GameWorld* GetWorld() override;
-    std::vector<GameCommandResult> ConsumeCommandResults() override;
-
-    LocalhostHostSession& GetHostSession();
-    LocalhostClientSession& GetClientSession();
-
-private:
-    std::shared_ptr<IGameTransport> transport;
-    LocalhostHostSession host;
-    LocalhostClientSession client;
-};
-
-// Runs an existing session's fixed-tick simulation on a background thread.
-class ThreadedGameSession : public IGameSession
-{
-public:
-    explicit ThreadedGameSession(std::unique_ptr<IGameSession> innerSession);
-    ~ThreadedGameSession() override;
-
-    ThreadedGameSession(const ThreadedGameSession&) = delete;
-    ThreadedGameSession& operator=(const ThreadedGameSession&) = delete;
-
-    std::uint64_t SubmitCommand(const GameCommand& command) override;
-    void Update(double dt) override;
-    GameWorld* GetWorld() override;
-    std::vector<GameCommandResult> ConsumeCommandResults() override;
-    bool ConsumeLatestSnapshot(GameSnapshot& snapshot) override;
-    bool IsConnectionClosed() const override;
-    std::string GetConnectionStatus() const override;
-    int GetPingMs() const override;
-    bool IsReadyForGameplay() const override;
-    std::recursive_mutex* GetWorldMutex() override;
-
-private:
-    void Stop();
-    void RunSimulation();
-
-    std::unique_ptr<IGameSession> inner;
-    mutable std::recursive_mutex worldMutex;
-    std::atomic<bool> running{false};
-    std::thread worker;
-    std::mutex sleepMutex;
-    std::condition_variable cv;
-    std::mutex snapshotMutex;
-    GameSnapshot latestSnapshot;
-    bool hasSnapshot{false};
-};
+// Backward compatibility alias - use HostSession directly
+using LocalhostMultiplayerSession = HostSession;
 
 #endif
