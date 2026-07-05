@@ -8,11 +8,21 @@
 
 #include <cstdint>
 #include <limits>
+#include <map>
 
 constexpr int RENDER_WIDTH = 1920;
 constexpr int RENDER_HEIGHT = 1080;
 class Building;
 enum class BuildingType : int;
+
+// Animation clip: sequence of frames from an atlas
+struct AnimationClip
+{
+    int startFrameId = 0;
+    int frameCount = 1;
+    float frameTime = 0.1f;
+    bool looping = true;
+};
 
 // Fixed-resolution render layer backed by a Raylib render texture.
 struct CanvasLayer
@@ -54,9 +64,40 @@ struct TextureAtlas
         return rect;
     }
 
+    // Register animation clip (ETAP 5.2)
+    inline void RegisterAnimation(int clipId, const AnimationClip& clip)
+    {
+        animations[clipId] = clip;
+    }
+
+    // Get animation clip by ID
+    inline AnimationClip GetAnimation(int clipId) const
+    {
+        auto it = animations.find(clipId);
+        return it != animations.end() ? it->second : AnimationClip{};
+    }
+
+    // Calculate frame ID for animation state
+    inline int GetFrameForAnimation(int clipId, float elapsedTime) const
+    {
+        AnimationClip clip = GetAnimation(clipId);
+        if (clip.frameCount <= 1)
+            return clip.startFrameId;
+
+        float totalDuration = clip.frameCount * clip.frameTime;
+        float normalizedTime = clip.looping ?
+            std::fmod(elapsedTime, totalDuration) :
+            std::min(elapsedTime, totalDuration);
+
+        int frameIndex = static_cast<int>(normalizedTime / clip.frameTime);
+        frameIndex = std::clamp(frameIndex, 0, clip.frameCount - 1);
+        return clip.startFrameId + frameIndex;
+    }
+
     Texture2D tex;
     Vec2i size;
     Vec2i dim;
+    std::map<int, AnimationClip> animations;
 };
 
 // Draws the world through a camera and composites UI over render layers.
@@ -88,6 +129,20 @@ class Renderer
     void DrawAtlasTile(int, int, Vec2f);
     // Draws one atlas tile in world space with scale.
     void DrawAtlasTile(int, int, Vec2f, Vec2f);
+    // Draws animated atlas tile with elapsed time (ETAP 5.3)
+    inline void DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime)
+    {
+        auto& at = atlasMap[atlas];
+        int frameId = at.GetFrameForAnimation(clipId, elapsedTime);
+        DrawAtlasTile(atlas, frameId, pos);
+    }
+    // Draws animated atlas tile with scale and elapsed time
+    inline void DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime)
+    {
+        auto& at = atlasMap[atlas];
+        int frameId = at.GetFrameForAnimation(clipId, elapsedTime);
+        DrawAtlasTile(atlas, frameId, pos, drawSize);
+    }
     // Loads a standalone building texture for a building type.
     void LoadBuildingTexture(BuildingType, const std::string&);
     // Draws a building with its standalone texture.
