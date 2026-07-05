@@ -43,6 +43,18 @@ public:
 // Input is a hardware-level concept (one keyboard/mouse), so a single
 // instance is appropriate here — unlike PathingService, which is owned
 // per-GameWorld because simulations must stay independent.
+//
+// Besides the subscriber/event system above (for "do X when key K is
+// pressed" bindings), GUI code frequently needs a synchronous, inline answer
+// ("is the mouse over this button AND was it just clicked") that doesn't fit
+// a callback fired elsewhere. The static Is*/Get* query methods below cover
+// that case: they forward 1:1 to raylib's own per-frame edge-detected
+// functions (raylib itself is the single source of truth, sampled once per
+// real frame regardless of who asks), so calling them mid-Update() is exactly
+// as correct as calling raylib directly — the difference is that every other
+// file in ui/ and scenes/ goes through here instead of naming raylib's
+// IsKeyPressed/IsMouseButton*/GetMouseWheelMove directly, so this class stays
+// the one place that would need to change if the input backend ever did.
 class InputManager
 {
 public:
@@ -57,6 +69,17 @@ public:
 
     float GetMouseX() const { return mouseX; }
     float GetMouseY() const { return mouseY; }
+
+    // Synchronous input queries, for call sites that need an inline answer
+    // rather than a subscriber callback. See class comment above.
+    static bool IsKeyPressed(int key);
+    static bool IsKeyPressedRepeat(int key);
+    static bool IsKeyDown(int key);
+    static bool IsKeyReleased(int key);
+    static bool IsMouseButtonPressed(int button);
+    static bool IsMouseButtonDown(int button);
+    static bool IsMouseButtonReleased(int button);
+    static float GetMouseWheelMove();
 
 private:
     InputManager() = default;

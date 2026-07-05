@@ -363,8 +363,8 @@ bool InputProcessor::IsActionPressed(int action)
     if (action > ACTION_NULL && action < MAX_ACTION)
     {
         auto input = actionInputs[action];
-        result = ((input.key >= 0) && IsKeyPressed(input.key)) ||
-                 ((input.button >= 0) && IsMouseButtonPressed(input.button));
+        result = ((input.key >= 0) && InputManager::IsKeyPressed(input.key)) ||
+                 ((input.button >= 0) && InputManager::IsMouseButtonPressed(input.button));
     }
 
     return result;
@@ -378,8 +378,8 @@ bool InputProcessor::IsActionReleased(int action)
     if (action > ACTION_NULL && action < MAX_ACTION)
     {
         auto input = actionInputs[action];
-        result = ((input.key >= 0) && IsKeyReleased(input.key)) ||
-                 ((input.button >= 0) && IsMouseButtonReleased(input.button));
+        result = ((input.key >= 0) && InputManager::IsKeyReleased(input.key)) ||
+                 ((input.button >= 0) && InputManager::IsMouseButtonReleased(input.button));
     }
 
     return result;
@@ -393,8 +393,8 @@ bool InputProcessor::IsActionDown(int action)
     if (action > ACTION_NULL && action < MAX_ACTION)
     {
         auto input = actionInputs[action];
-        result = ((input.key >= 0) && IsKeyDown(input.key)) ||
-                 ((input.button >= 0) && IsMouseButtonDown(input.button));
+        result = ((input.key >= 0) && InputManager::IsKeyDown(input.key)) ||
+                 ((input.button >= 0) && InputManager::IsMouseButtonDown(input.button));
     }
 
     return result;
@@ -1032,7 +1032,7 @@ void MultiplayerScene::Update(double dt)
         if (CheckCollisionPointRec(GetMousePosition(), chatBounds))
         {
             int maxScroll = std::max(0, static_cast<int>(lobbyLines.size()) - 10);
-            lobbyChatScroll = std::clamp(lobbyChatScroll + static_cast<int>(GetMouseWheelMove()), 0, maxScroll);
+            lobbyChatScroll = std::clamp(lobbyChatScroll + static_cast<int>(InputManager::GetMouseWheelMove()), 0, maxScroll);
         }
         DrawLobbyLog();
     }
@@ -1043,9 +1043,9 @@ void MultiplayerScene::Update(double dt)
         DrawConnectionDialog();
     EndDrawing();
 
-    if (lobbyActive && !showGameSettings && IsKeyPressed(KEY_ENTER) && !chatInput.GetText().empty())
+    if (lobbyActive && !showGameSettings && InputManager::IsKeyPressed(KEY_ENTER) && !chatInput.GetText().empty())
         OnSendChatPressed();
-    if (lobbyActive && showGameSettings && isLobbyHost && IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+    if (lobbyActive && showGameSettings && isLobbyHost && InputManager::IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
         MaybeBroadcastSettingsChange("Game settings updated.");
 }
 
@@ -2538,10 +2538,10 @@ void GameMenuScene::Update(double dt)
     // been released, so a single press can't open and immediately close it.
     if (!escArmed)
     {
-        if (!IsKeyDown(KEY_ESCAPE))
+        if (!InputManager::IsKeyDown(KEY_ESCAPE))
             escArmed = true;
     }
-    else if (IsKeyPressed(KEY_ESCAPE))
+    else if (InputManager::IsKeyPressed(KEY_ESCAPE))
     {
         OnBackPressed();
         return;

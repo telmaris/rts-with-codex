@@ -598,7 +598,7 @@ bool MilitaryDivisionBarWidget::HandleClick(Vec2i point)
     const float stripH = 28.0f;
     const float gap = 4.0f;
     float y = bounds.y + 36.0f;
-    bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    bool ctrl = InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL);
     for (const auto& divisionPtr : garrison->divisions)
     {
         const auto& division = *divisionPtr;

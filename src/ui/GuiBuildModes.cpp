@@ -288,12 +288,12 @@ void BuildPanelWidget::Update(double dt)
     DrawRectangleRounded(titleBounds, 0.025f, 8, Color{44, 52, 65, 255});
     if (CheckCollisionPointRec(mouse, titleBounds) &&
         !CheckCollisionPointRec(mouse, closeButton) &&
-        IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         dragging = true;
         dragOffset = Vec2i{static_cast<int>(mouse.x) - pos.x, static_cast<int>(mouse.y) - pos.y};
     }
-    if (dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
         pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
@@ -301,7 +301,7 @@ void BuildPanelWidget::Update(double dt)
         titleBounds = Rectangle{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
         closeButton = PanelCloseButtonRect(bounds);
     }
-    if (dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
     int titleFont = std::max(17, std::min(23, titleBar / 2 + 2));
@@ -699,7 +699,7 @@ void BuildGuiSystem::Scroll()
     Vec2i screenPos{static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
     if (buildPanel.ContainsPoint(screenPos))
     {
-        buildPanel.Scroll(GetMouseWheelMove());
+        buildPanel.Scroll(InputManager::GetMouseWheelMove());
         return;
     }
 
@@ -819,7 +819,7 @@ void RoadBuildSystem::Update(double dt)
 
     // Drag placement: keep painting roads while LMB is held, but never under
     // the strategic HUD buttons.
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !IsAnyHudButtonHovered(strategicHudWidget))
+    if (InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !IsAnyHudButtonHovered(strategicHudWidget))
         TryPlaceRoadAtHovered();
 }
 

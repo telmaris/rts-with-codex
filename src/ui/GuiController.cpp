@@ -97,7 +97,7 @@ void InputProcessor::HandleInputs()
         controller->MakeAction("mmbp");
     if (IsActionReleased(MIDDLE_BUTTON_DOWN))
         controller->MakeAction("mmbr");
-    if (GetMouseWheelMove() != 0.0f)
+    if (InputManager::GetMouseWheelMove() != 0.0f)
         controller->MakeAction("scroll");
 }
 
@@ -238,7 +238,7 @@ void BasicMapViewSystem::Update(double dt)
 
     // Track drag-box selection.
     moveTargetWidget.drawBox = false;
-    if (pendingBox && IsMouseButtonDown(MOUSE_LEFT_BUTTON))
+    if (pendingBox && InputManager::IsMouseButtonDown(MOUSE_LEFT_BUTTON))
     {
         Vector2 m = GetMousePosition();
         boxEnd = {static_cast<int>(m.x), static_cast<int>(m.y)};
@@ -503,7 +503,7 @@ void BasicMapViewSystem::LmbPressed()
 
     // Check division map markers before tile selection
     {
-        bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        bool ctrl = InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL);
         const DivisionMapMarker* hit = owner->divisionMapOverlay != nullptr
             ? owner->divisionMapOverlay->HitTest(screenPos)
             : nullptr;
@@ -851,7 +851,7 @@ void BasicMapViewSystem::RmbPressed()
             auto* receiver = scene->game->tilemap.GetBuilding(tilePos);
             if (selected != nullptr && receiver != nullptr && selected != receiver)
             {
-                bool alternativeReceiver = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                bool alternativeReceiver = InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL);
                 scene->SubmitLocalCommand(GameCommand::SetReceiver(
                     scene->game->GetLocalPlayerId(), selected->positionId,
                     receiver->positionId, alternativeReceiver));
@@ -881,17 +881,17 @@ void BasicMapViewSystem::Scroll()
     GuiPanel* activePanel = ActivePanel();
     if (isBuildingSelected && activePanel->ContainsPoint(screenPos))
     {
-        if (researchPanel.HasBuilding() && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)))
+        if (researchPanel.HasBuilding() && (InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL)))
         {
-            researchPanel.treePanOffset.y += GetMouseWheelMove() * 64.0f;
+            researchPanel.treePanOffset.y += InputManager::GetMouseWheelMove() * 64.0f;
             return;
         }
         if (researchPanel.HasBuilding())
         {
-            researchPanel.AdjustTreeZoom(screenPos, GetMouseWheelMove());
+            researchPanel.AdjustTreeZoom(screenPos, InputManager::GetMouseWheelMove());
             return;
         }
-        activePanel->ScrollContent(GetMouseWheelMove());
+        activePanel->ScrollContent(InputManager::GetMouseWheelMove());
         return;
     }
 

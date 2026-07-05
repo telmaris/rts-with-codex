@@ -11,6 +11,15 @@ InputManager& InputManager::Instance()
     return instance;
 }
 
+bool InputManager::IsKeyPressed(int key) { return ::IsKeyPressed(key); }
+bool InputManager::IsKeyPressedRepeat(int key) { return ::IsKeyPressedRepeat(key); }
+bool InputManager::IsKeyDown(int key) { return ::IsKeyDown(key); }
+bool InputManager::IsKeyReleased(int key) { return ::IsKeyReleased(key); }
+bool InputManager::IsMouseButtonPressed(int button) { return ::IsMouseButtonPressed(button); }
+bool InputManager::IsMouseButtonDown(int button) { return ::IsMouseButtonDown(button); }
+bool InputManager::IsMouseButtonReleased(int button) { return ::IsMouseButtonReleased(button); }
+float InputManager::GetMouseWheelMove() { return ::GetMouseWheelMove(); }
+
 void InputManager::AddSubscriber(IInputSubscriber* subscriber)
 {
     if (subscriber != nullptr)

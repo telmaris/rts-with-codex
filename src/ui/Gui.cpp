@@ -71,7 +71,7 @@ namespace
             DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{64, 94, 128, 235} : hover ? Color{45, 55, 69, 235} : Color{31, 37, 47, 220});
             DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
             DrawTextFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? RAYWHITE : Color{188, 198, 212, 255});
-            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            if (hover && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
             x += width + 8.0f;
             return x < bounds.x + bounds.width - 44.0f;
@@ -868,7 +868,7 @@ namespace
             if (hovered)
                 hoveredTechnology = technology;
 
-            if (hovered && technology->available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            if (hovered && technology->available && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 player->UnlockTechnology(technology->id);
         }
 
@@ -1209,7 +1209,7 @@ namespace
                 DrawRectangleRounded(fillBar, 0.5f, 4, technology.researched ? Color{95, 190, 116, 255} : Color{214, 178, 84, 255});
             }
 
-            if (hovered && localAvailable && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && researchRequested)
+            if (hovered && localAvailable && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && researchRequested)
                 researchRequested(technology.id, university);
         }
         EndScissorMode();
@@ -1225,7 +1225,7 @@ void UiButton::Update(double dt)
     Rectangle bounds = WidgetBounds(*this);
     Vector2 mouse = GetMousePosition();
     bool hovered = CheckCollisionPointRec(mouse, bounds);
-    bool pressed = hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    bool pressed = hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
     if ((hovered && hasHoverTexture) || (!hovered && hasNormalTexture))
     {
@@ -1343,14 +1343,14 @@ void TextBox::Update(double dt)
     static TextBox* activeTextBox = nullptr;
 
     Rectangle bounds = WidgetBounds(*this);
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         if (CheckCollisionPointRec(GetMousePosition(), bounds))
             activeTextBox = this;
         else if (activeTextBox == this)
             activeTextBox = nullptr;
     }
-    if (activeTextBox == this && IsKeyPressed(KEY_ESCAPE))
+    if (activeTextBox == this && InputManager::IsKeyPressed(KEY_ESCAPE))
         activeTextBox = nullptr;
 
     bool active = activeTextBox == this;
@@ -1365,7 +1365,7 @@ void TextBox::Update(double dt)
             key = GetCharPressed();
         }
 
-        if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE))
+        if (InputManager::IsKeyPressed(KEY_BACKSPACE) || InputManager::IsKeyPressedRepeat(KEY_BACKSPACE))
             RemoveLastUtf8Codepoint(text);
 
         SyncTextBoxBuffer(text, textOutput, sizeof(textOutput));
@@ -1609,26 +1609,26 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
                  xFont,
                  RAYWHITE);
 
-    if (closeHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (closeHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         Close();
         return false;
     }
 
     // Drag: click+hold on title bar (outside close button) to reposition
-    if (!closeHovered && CheckCollisionPointRec(mouse, titleBounds) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (!closeHovered && CheckCollisionPointRec(mouse, titleBounds) && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         dragging = true;
         dragOffset = Vec2i{static_cast<int>(mouse.x) - pos.x, static_cast<int>(mouse.y) - pos.y};
     }
-    if (dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
         pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = {static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
         titleBounds = {bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
     }
-    if (dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
     int titleFont = std::max(21, std::min(30, titleBar / 2 + 4));
@@ -2363,7 +2363,7 @@ void ResearchPanel::Update(double dt)
                  xFont,
                  RAYWHITE);
 
-    if (closeHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (closeHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         dragging = false;
         SetBuilding(nullptr);
@@ -2371,14 +2371,14 @@ void ResearchPanel::Update(double dt)
     }
 
     bool titleHovered = CheckCollisionPointRec(mouse, titleBounds) && !closeHovered;
-    if (titleHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (titleHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         dragging = true;
         dragOffset = Vec2i{
             static_cast<int>(mouse.x) - pos.x,
             static_cast<int>(mouse.y) - pos.y};
     }
-    if (dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
         pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
@@ -2390,7 +2390,7 @@ void ResearchPanel::Update(double dt)
             static_cast<float>(closeSize),
             static_cast<float>(closeSize)};
     }
-    if (dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
     const std::string title = "Research";
@@ -2407,18 +2407,18 @@ void ResearchPanel::Update(double dt)
         bounds.y + titleBar + margin,
         bounds.width - margin * 2.0f,
         bounds.height - titleBar - margin * 2.0f};
-    if (CheckCollisionPointRec(mouse, treeBounds) && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+    if (CheckCollisionPointRec(mouse, treeBounds) && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
     {
         treePanning = true;
         lastTreePanMouse = {mouse.x, mouse.y};
     }
-    if (treePanning && IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+    if (treePanning && InputManager::IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
     {
         treePanOffset.x += mouse.x - lastTreePanMouse.x;
         treePanOffset.y += mouse.y - lastTreePanMouse.y;
         lastTreePanMouse = {mouse.x, mouse.y};
     }
-    if (treePanning && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
+    if (treePanning && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
         treePanning = false;
 
     DrawResearchTree(building->owner,

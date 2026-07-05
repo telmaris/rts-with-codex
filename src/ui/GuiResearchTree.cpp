@@ -57,7 +57,7 @@ namespace
             DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{64, 94, 128, 235} : hover ? Color{45, 55, 69, 235} : Color{31, 37, 47, 220});
             DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
             UiText::DrawFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? RAYWHITE : Color{188, 198, 212, 255});
-            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            if (hover && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
             x += width + 8.0f;
             return x < bounds.x + bounds.width - 44.0f;
@@ -356,7 +356,7 @@ void ResearchTreePanelWidget::Update(double dt)
         DrawRectangleRounded(reloadBtn, 0.18f, 8, reloadHov ? Color{80, 100, 60, 245} : Color{46, 60, 38, 230});
         DrawRectangleRoundedLines(reloadBtn, 0.18f, 8, 1.0f, reloadHov ? Color{160, 220, 100, 255} : Color{100, 148, 72, 230});
         UiText::DrawFit("[D] Reload", Rectangle{reloadBtn.x + 8.0f, reloadBtn.y + 4.0f, reloadBtn.width - 16.0f, reloadBtn.height - 8.0f}, 17, RAYWHITE);
-        if (reloadHov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        if (reloadHov && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (isFocus)
                 ReloadFocusDefinitions();
@@ -382,18 +382,18 @@ void ResearchTreePanelWidget::Update(double dt)
 
     Rectangle treeArea = GetTreeArea(bounds);
 
-    if (CheckCollisionPointRec(mouse, treeArea) && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+    if (CheckCollisionPointRec(mouse, treeArea) && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
     {
         panning = true;
         lastPanMouse = {mouse.x, mouse.y};
     }
-    if (panning && IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+    if (panning && InputManager::IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
     {
         panOffset.x += mouse.x - lastPanMouse.x;
         panOffset.y += mouse.y - lastPanMouse.y;
         lastPanMouse = {mouse.x, mouse.y};
     }
-    if (panning && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
+    if (panning && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
         panning = false;
 
     // ── Layout: lanes → depth rows → per-row horizontal placement ────────────
@@ -675,7 +675,7 @@ void ResearchTreePanelWidget::Update(double dt)
             fillBar.width *= static_cast<float>(std::clamp(node.progress, 0.0, 1.0));
             DrawRectangleRounded(fillBar, 0.5f, 4, node.researched ? Color{95, 190, 116, 255} : Color{214, 178, 84, 255});
         }
-        if (hover && node.available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        if (hover && node.available && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (isFocus)
             {
@@ -946,12 +946,12 @@ void FocusGuiSystem::Scroll()
     Vec2i point{static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
     if (focusPanel.ContainsPoint(point))
     {
-        if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))
+        if (InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL))
         {
-            focusPanel.scrollOffset = std::clamp(focusPanel.scrollOffset - GetMouseWheelMove() * 48.0f, 0.0f, focusPanel.maxScrollOffset);
+            focusPanel.scrollOffset = std::clamp(focusPanel.scrollOffset - InputManager::GetMouseWheelMove() * 48.0f, 0.0f, focusPanel.maxScrollOffset);
             return;
         }
-        focusPanel.AdjustTreeZoom(point, GetMouseWheelMove());
+        focusPanel.AdjustTreeZoom(point, InputManager::GetMouseWheelMove());
         return;
     }
     ZoomCamera(scene);
@@ -1081,12 +1081,12 @@ void TechGuiSystem::Scroll()
     Vec2i point{static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
     if (techPanel.ContainsPoint(point))
     {
-        if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))
+        if (InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL))
         {
-            techPanel.scrollOffset = std::clamp(techPanel.scrollOffset - GetMouseWheelMove() * 48.0f, 0.0f, techPanel.maxScrollOffset);
+            techPanel.scrollOffset = std::clamp(techPanel.scrollOffset - InputManager::GetMouseWheelMove() * 48.0f, 0.0f, techPanel.maxScrollOffset);
             return;
         }
-        techPanel.AdjustTreeZoom(point, GetMouseWheelMove());
+        techPanel.AdjustTreeZoom(point, InputManager::GetMouseWheelMove());
         return;
     }
     ZoomCamera(scene);

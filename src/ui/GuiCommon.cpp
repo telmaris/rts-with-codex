@@ -63,7 +63,7 @@ void MoveCamera(GameScene* scene, CameraMovement& cameraMovement)
 {
     if (!cameraMovement.isMoving)
         return;
-    if (!IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
+    if (!InputManager::IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
     {
         cameraMovement.isMoving = false;
         return;
@@ -80,7 +80,7 @@ void MoveCamera(GameScene* scene, CameraMovement& cameraMovement)
 
 void ZoomCamera(GameScene* scene)
 {
-    float wheel = GetMouseWheelMove();
+    float wheel = InputManager::GetMouseWheelMove();
     if (wheel == 0.0f)
         return;
 
