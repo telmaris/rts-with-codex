@@ -2,7 +2,6 @@
 #define PLAYER_H
 
 #include "core/Utils.h"
-#include "ui/InputHandler.h"
 #include "economy/BuildingFactory.h"
 #include "economy/BuildingConfig.h"
 #include "warfare/ArmyGroup.h"
@@ -48,15 +47,6 @@ public:
     // Out-of-line (defined in Player.cpp) so the unique_ptr<SoldierDivision> vector
     // can hold an incomplete type in this header.
     ~Player();
-
-    // Updates player input when an input source is attached.
-    void Update(double dt)
-    {
-        if (input == nullptr)
-            return;
-        input->Update(dt);
-        input->GetInputs();
-    }
 
     void UpdateFocus(double dt);
     void UpdateResearch(double dt);
@@ -374,7 +364,6 @@ public:
     // Global army modifiers from tech/focus (keys: "tech:...", "focus:...")
     BalanceModifierSet armyModifierSet;
 
-    std::unique_ptr<InputHandler> input;
     std::unique_ptr<RoadNetwork> roadNetwork;
     TileMap& tilemap;
     BFactory build;
