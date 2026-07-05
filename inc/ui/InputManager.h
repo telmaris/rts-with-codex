@@ -3,9 +3,8 @@
 
 #include <functional>
 #include <vector>
-#include <memory>
 
-// Input event types
+// Input event types recognized by the observer-pattern input system.
 enum class InputType
 {
     KeyPressed,
@@ -18,96 +17,101 @@ enum class InputType
     MouseMove
 };
 
-// Input event data
+// Snapshot of one input occurrence delivered to matching subscribers.
 struct InputEvent
 {
     InputType type;
-    int key = 0;  // For keyboard events
+    int key = 0;
     float mouseX = 0.0f;
     float mouseY = 0.0f;
-    float scrollDelta = 0.0f;  // For scroll events
-    bool consumed = false;  // Can be set to true to prevent further processing
+    float scrollDelta = 0.0f;
+    bool consumed = false;  // Set true by a handler to stop further dispatch this frame.
 };
 
-// Base interface for input subscribers
+// Non-owning registration interface implemented by InputEventSubscriber<T,K>.
 class IInputSubscriber
 {
 public:
     virtual ~IInputSubscriber() = default;
-    virtual bool Matches(InputType type, int key) const = 0;
+    virtual InputType GetType() const = 0;
+    virtual int GetKey() const = 0;
     virtual void Trigger(const InputEvent& event) = 0;
-    virtual void Register(class InputManager& manager) = 0;
-    virtual void Unregister(class InputManager& manager) = 0;
 };
 
-// Template subscriber for specific input type and key combination
+// Process-wide dispatcher: the only place allowed to call raylib's
+// IsKeyPressed/IsKeyDown/IsMouseButton*/GetMouseWheelMove (see Poll()).
+// Input is a hardware-level concept (one keyboard/mouse), so a single
+// instance is appropriate here — unlike PathingService, which is owned
+// per-GameWorld because simulations must stay independent.
+class InputManager
+{
+public:
+    static InputManager& Instance();
+
+    // Polls raylib input state once per frame and dispatches to subscribers.
+    void Poll();
+
+    // Registers/removes a subscriber. Called by InputEventSubscriber's RAII lifecycle.
+    void AddSubscriber(IInputSubscriber* subscriber);
+    void RemoveSubscriber(IInputSubscriber* subscriber);
+
+    float GetMouseX() const { return mouseX; }
+    float GetMouseY() const { return mouseY; }
+
+private:
+    InputManager() = default;
+
+    void PollKeyboardInput();
+    void PollMouseInput();
+    void DispatchEvent(const InputEvent& event);
+
+    std::vector<IInputSubscriber*> subscribers;
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+};
+
+// RAII observer for one (InputType, key) combination. Registers itself with
+// the global InputManager at construction and unregisters at destruction, so
+// aggregating one as a plain member is enough to manage the subscription's
+// lifetime automatically:
+//
+//   class GuiPanel {
+//       InputEventSubscriber<InputType::KeyPressed, KEY_ESCAPE> escClose{
+//           [this](const InputEvent&) { Close(); }};
+//   };
+//
+// Not copyable: copying would register the same callback under two
+// addresses, and the destructor of one copy would unregister a pointer the
+// other copy still expects to be live.
 template<InputType T, int K>
 class InputEventSubscriber : public IInputSubscriber
 {
 public:
     using Callback = std::function<void(const InputEvent&)>;
 
-    InputEventSubscriber() = default;
-    explicit InputEventSubscriber(Callback cb) : callback(cb) {}
-
-    void SetCallback(Callback cb) { callback = cb; }
-
-    bool Matches(InputType type, int key) const override
+    InputEventSubscriber() { InputManager::Instance().AddSubscriber(this); }
+    explicit InputEventSubscriber(Callback cb) : callback(std::move(cb))
     {
-        return type == T && key == K;
+        InputManager::Instance().AddSubscriber(this);
     }
+    ~InputEventSubscriber() override { InputManager::Instance().RemoveSubscriber(this); }
+
+    InputEventSubscriber(const InputEventSubscriber&) = delete;
+    InputEventSubscriber& operator=(const InputEventSubscriber&) = delete;
+
+    void SetCallback(Callback cb) { callback = std::move(cb); }
+
+    InputType GetType() const override { return T; }
+    int GetKey() const override { return K; }
 
     void Trigger(const InputEvent& event) override
     {
-        if (callback) callback(event);
+        if (callback)
+            callback(event);
     }
-
-    void Register(InputManager& manager) override;
-    void Unregister(InputManager& manager) override;
 
 private:
     Callback callback;
 };
-
-// Global input manager with observer pattern
-class InputManager
-{
-public:
-    InputManager() = default;
-
-    // Poll input state from raylib and dispatch to subscribers
-    void Poll();
-
-    // Register/unregister a subscriber (called by InputEventSubscriber RAII)
-    void AddSubscriber(std::shared_ptr<IInputSubscriber> subscriber);
-    void RemoveSubscriber(IInputSubscriber* subscriber);
-
-    // Get mouse position
-    float GetMouseX() const { return mouseX; }
-    float GetMouseY() const { return mouseY; }
-
-private:
-    std::vector<std::shared_ptr<IInputSubscriber>> subscribers;
-    float mouseX = 0.0f;
-    float mouseY = 0.0f;
-
-    // Helper methods for polling specific input types
-    void PollKeyboardInput();
-    void PollMouseInput();
-    void DispatchEvent(const InputEvent& event);
-};
-
-// Template implementation
-template<InputType T, int K>
-void InputEventSubscriber<T, K>::Register(InputManager& manager)
-{
-    manager.AddSubscriber(std::make_shared<InputEventSubscriber<T, K>>(*this));
-}
-
-template<InputType T, int K>
-void InputEventSubscriber<T, K>::Unregister(InputManager& manager)
-{
-    manager.RemoveSubscriber(this);
-}
 
 #endif

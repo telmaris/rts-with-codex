@@ -2,6 +2,69 @@
 #include "economy/Building.h"
 
 #include <algorithm>
+#include <cmath>
+
+CanvasLayer::CanvasLayer()
+{
+    fbo = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
+}
+
+void TextureAtlas::LoadTextureAtlas(const char* path, Vec2i tileSize)
+{
+    tex = LoadTexture(path);
+    size = tileSize;
+    dim = {tex.width / size.x, tex.height / size.y};
+
+    Log::Msg("[Texture Atlas]", "Loaded. Size: [", tex.width, ", ", tex.height, "] Dimensions: [", dim.x, ", ", dim.y, "]");
+}
+
+Rectangle TextureAtlas::GetRectFromId(int id)
+{
+    Rectangle rect;
+    id = std::clamp(id, 0, std::max(0, dim.x * dim.y - 1));
+
+    rect.height = size.y;
+    rect.width = size.x;
+
+    rect.x = (id % dim.x) * rect.width;
+    rect.y = (id / dim.x) * rect.height;
+
+    return rect;
+}
+
+void TextureAtlas::RegisterAnimation(int clipId, const AnimationClip& clip)
+{
+    animations[clipId] = clip;
+}
+
+AnimationClip TextureAtlas::GetAnimation(int clipId) const
+{
+    auto it = animations.find(clipId);
+    return it != animations.end() ? it->second : AnimationClip{};
+}
+
+int TextureAtlas::GetFrameForAnimation(int clipId, float elapsedTime) const
+{
+    AnimationClip clip = GetAnimation(clipId);
+    if (clip.frameCount <= 1)
+        return clip.startFrameId;  // Static texture: always the same frame.
+
+    float totalDuration = clip.frameCount * clip.frameTime;
+    float normalizedTime = clip.looping ? std::fmod(elapsedTime, totalDuration)
+                                         : std::min(elapsedTime, totalDuration);
+
+    int frameIndex = static_cast<int>(normalizedTime / clip.frameTime);
+    frameIndex = std::clamp(frameIndex, 0, clip.frameCount - 1);
+    return clip.startFrameId + frameIndex;
+}
+
+Renderer::Renderer()
+{
+    camera.offset = {0, 0};
+    camera.target = {0 * TILE_SIZE, 0 * TILE_SIZE};
+    camera.zoom = 1.25f;
+    camera.rotation = 0.0f;
+}
 
 namespace
 {
@@ -109,6 +172,20 @@ void Renderer::DrawAtlasTile(int atlas, int tex, Vec2f pos, Vec2f drawSize)
 
     Rectangle dest = {pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
     DrawTexturePro(at.tex, src, dest, {0,0}, 0, WHITE);
+}
+
+// Draws one atlas tile, resolving the frame from an animation clip and elapsed time.
+void Renderer::DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime)
+{
+    auto& at = atlasMap[atlas];
+    DrawAtlasTile(atlas, at.GetFrameForAnimation(clipId, elapsedTime), pos);
+}
+
+// Same, stretched to a target world size.
+void Renderer::DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime)
+{
+    auto& at = atlasMap[atlas];
+    DrawAtlasTile(atlas, at.GetFrameForAnimation(clipId, elapsedTime), pos, drawSize);
 }
 
 // Loads the requested data into runtime state.

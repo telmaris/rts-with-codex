@@ -648,10 +648,10 @@ Pozycje świadomie zostawione na później (działają na prototyp, koszt wysoki
 
 - [ ] Etap 0 — higiena repo, pełne CI
 - [x] Etap 1 — GameSession: HostSession/ClientSession, implementacje w .cpp (2026-07-05: 1.2, 1.3, 1.4, 1.5 skończone)
-- [ ] Etap 2 — jedna warstwa serializacji
-- [ ] Etap 3 — wspólna baza obliczeń przestrzennych (PathingService)
-- [ ] Etap 4 — InputManager (observer)
-- [ ] Etap 5 — renderer z animacjami
+- [x] Etap 2 — jedna warstwa serializacji (2026-07-05: Archive pattern, GameCommand/Result/ServerFrame/Snapshot zmigrowane)
+- [x] Etap 3 — wspólna baza obliczeń przestrzennych (PathingService) (2026-07-05: 3.1-3.6 skończone, testy w PathingServiceTests.cpp)
+- [~] Etap 4 — InputManager (observer) — 4.1-4.2 zrobione (dispatch + KeyBindingMap), 4.3-4.4 (podpięcie do GuiController, usunięcie Input.h) DO ZROBIENIA
+- [~] Etap 5 — renderer z animacjami — 5.2-5.3 zrobione (AnimationClip, DrawAtlasTile overloads), 5.1 (przenieś inline do .cpp) i 5.4 (Windmill end-to-end) DO ZROBIENIA
 - [ ] Etap 6 — fundament GuiPanel, podział Gui.cpp
 - [ ] Etap 7 — sceny: IGuiController + input per scena, podział Scenes.cpp
 - [ ] Etap 8 — Building: wydzielenie dywizji, podział komponentów, odchudzenie fasady

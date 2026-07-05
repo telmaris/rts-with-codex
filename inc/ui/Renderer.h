@@ -27,11 +27,7 @@ struct AnimationClip
 // Fixed-resolution render layer backed by a Raylib render texture.
 struct CanvasLayer
 {
-    CanvasLayer()
-    {
-        fbo = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
-    }
-
+    CanvasLayer();
     RenderTexture2D fbo;
 };
 
@@ -39,60 +35,15 @@ struct CanvasLayer
 struct TextureAtlas
 {
     // Loads atlas texture and derives grid dimensions from tile size.
-    inline void LoadTextureAtlas(const char* path, Vec2i tileSize = {TILE_SIZE, TILE_SIZE})
-    {
-        tex = LoadTexture(path);
-        size = tileSize;
-        dim = {tex.width / size.x, tex.height / size.y};
-
-        Log::Msg("[Texture Atlas]", "Loaded. Size: [", tex.width, ", ", tex.height, "] Dimensions: [", dim.x, ", ", dim.y, "]");
-
-    }
-
+    void LoadTextureAtlas(const char* path, Vec2i tileSize = {TILE_SIZE, TILE_SIZE});
     // Returns source rectangle for a tile id, clamped to atlas bounds.
-    Rectangle GetRectFromId(int id)
-    {
-        Rectangle rect;
-        id = std::clamp(id, 0, std::max(0, dim.x * dim.y - 1));
-
-        rect.height = size.y;
-        rect.width = size.x;
-
-        rect.x = (id % dim.x) * rect.width;
-        rect.y = (id / dim.x) * rect.height;
-
-        return rect;
-    }
-
-    // Register animation clip (ETAP 5.2)
-    inline void RegisterAnimation(int clipId, const AnimationClip& clip)
-    {
-        animations[clipId] = clip;
-    }
-
-    // Get animation clip by ID
-    inline AnimationClip GetAnimation(int clipId) const
-    {
-        auto it = animations.find(clipId);
-        return it != animations.end() ? it->second : AnimationClip{};
-    }
-
-    // Calculate frame ID for animation state
-    inline int GetFrameForAnimation(int clipId, float elapsedTime) const
-    {
-        AnimationClip clip = GetAnimation(clipId);
-        if (clip.frameCount <= 1)
-            return clip.startFrameId;
-
-        float totalDuration = clip.frameCount * clip.frameTime;
-        float normalizedTime = clip.looping ?
-            std::fmod(elapsedTime, totalDuration) :
-            std::min(elapsedTime, totalDuration);
-
-        int frameIndex = static_cast<int>(normalizedTime / clip.frameTime);
-        frameIndex = std::clamp(frameIndex, 0, clip.frameCount - 1);
-        return clip.startFrameId + frameIndex;
-    }
+    Rectangle GetRectFromId(int id);
+    // Registers an animation clip under an id (ETAP 5.2).
+    void RegisterAnimation(int clipId, const AnimationClip& clip);
+    // Returns the clip for an id, or a default single-frame clip if unregistered.
+    AnimationClip GetAnimation(int clipId) const;
+    // Resolves which atlas frame a clip should show at a given elapsed time.
+    int GetFrameForAnimation(int clipId, float elapsedTime) const;
 
     Texture2D tex;
     Vec2i size;
@@ -105,13 +56,7 @@ class Renderer
 {
     public:
 
-    Renderer()
-    {
-        camera.offset = {0,0};
-        camera.target = {0*TILE_SIZE,0*TILE_SIZE};
-        camera.zoom = 1.25f;
-        camera.rotation = 0.0f;
-    }
+    Renderer();
 
     // Draws all render layers and UI widgets.
     void Draw(std::vector<UiWidget*> ui = {}, double dt = 0);
@@ -129,20 +74,10 @@ class Renderer
     void DrawAtlasTile(int, int, Vec2f);
     // Draws one atlas tile in world space with scale.
     void DrawAtlasTile(int, int, Vec2f, Vec2f);
-    // Draws animated atlas tile with elapsed time (ETAP 5.3)
-    inline void DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime)
-    {
-        auto& at = atlasMap[atlas];
-        int frameId = at.GetFrameForAnimation(clipId, elapsedTime);
-        DrawAtlasTile(atlas, frameId, pos);
-    }
-    // Draws animated atlas tile with scale and elapsed time
-    inline void DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime)
-    {
-        auto& at = atlasMap[atlas];
-        int frameId = at.GetFrameForAnimation(clipId, elapsedTime);
-        DrawAtlasTile(atlas, frameId, pos, drawSize);
-    }
+    // Draws one atlas tile, resolving the frame from an animation clip and elapsed time (ETAP 5.3).
+    void DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime);
+    // Same, stretched to a target world size.
+    void DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime);
     // Loads a standalone building texture for a building type.
     void LoadBuildingTexture(BuildingType, const std::string&);
     // Draws a building with its standalone texture.
