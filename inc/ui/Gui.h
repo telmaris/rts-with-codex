@@ -497,6 +497,15 @@ class GuiPanel : public UiWidget
             text = stryng;
         }
 
+    protected:
+        // Draws the shared panel chrome (background, title bar, drag-to-move,
+        // close button + title text) and reports the content area below the
+        // title bar. Returns false when the close button was just clicked —
+        // callers must stop drawing content for this frame in that case
+        // (mirrors the panel's own prior behavior of returning immediately).
+        bool DrawChrome(double dt, Rectangle& outContentArea);
+
+    public:
         std::string text{"Gui Panel"};
         Building* building{nullptr};
         ProgressBar progressBar;

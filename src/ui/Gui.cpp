@@ -1565,13 +1565,14 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
 }
 
 // Advances this object's state for one frame.
-void GuiPanel::Update(double dt)
+// Draws background, title bar, drag handling and the close button; reports
+// the content area below the title bar. Returns false (after already having
+// called Close()) when the close button was clicked this frame — the caller
+// must stop drawing content, exactly as the panel did when this was all one
+// function.
+bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
 {
-    pendingTooltip.visible = false;
     Rectangle bounds = WidgetBounds(*this);
-
-    if (building == nullptr)
-        return;
 
     int margin = std::max(10, size.x / 24);
     int titleBar = std::max(34, size.y / 12);
@@ -1610,8 +1611,8 @@ void GuiPanel::Update(double dt)
 
     if (closeHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        SetBuilding(nullptr);
-        return;
+        Close();
+        return false;
     }
 
     // Drag: click+hold on title bar (outside close button) to reposition
@@ -1643,10 +1644,30 @@ void GuiPanel::Update(double dt)
                  titleFont,
                  RAYWHITE);
 
-    int y = pos.y + titleBar + margin;
-    int contentX = pos.x + margin;
-    int contentW = size.x - margin * 2;
-    int bottom = pos.y + size.y - margin;
+    outContentArea = Rectangle{
+        static_cast<float>(pos.x + margin),
+        static_cast<float>(pos.y + titleBar + margin),
+        static_cast<float>(size.x - margin * 2),
+        static_cast<float>(size.y - titleBar - margin * 2)};
+    return true;
+}
+
+void GuiPanel::Update(double dt)
+{
+    pendingTooltip.visible = false;
+
+    if (building == nullptr)
+        return;
+
+    Rectangle contentArea;
+    if (!DrawChrome(dt, contentArea))
+        return;
+
+    int margin = std::max(10, size.x / 24);
+    int y = static_cast<int>(contentArea.y);
+    int contentX = static_cast<int>(contentArea.x);
+    int contentW = static_cast<int>(contentArea.width);
+    int bottom = static_cast<int>(contentArea.y + contentArea.height);
     auto drawDestroyButton = [&]()
     {
         if (!building->CanBeManuallyDestroyed())
