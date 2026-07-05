@@ -41,57 +41,17 @@ public:
 class LocalhostGameTransport : public IGameTransport
 {
 public:
-    void SendClientCommand(const std::string& payload) override
-    {
-        clientToHost.push_back(payload);
-    }
-
-    std::vector<std::string> ReceiveHostCommands() override
-    {
-        return Drain(clientToHost);
-    }
-
-    void SendHostResult(const std::string& payload) override
-    {
-        hostToClient.push_back(payload);
-    }
-
-    std::vector<std::string> ReceiveClientResults() override
-    {
-        return Drain(hostToClient);
-    }
-
-    void SendHostFrame(const std::string& payload) override
-    {
-        hostFrames.push_back(payload);
-    }
-
-    std::vector<std::string> ReceiveClientFrames() override
-    {
-        return Drain(hostFrames);
-    }
-
-    void SendHostSnapshot(const std::string& payload) override
-    {
-        hostSnapshots.push_back(payload);
-    }
-
-    std::vector<std::string> ReceiveClientSnapshots() override
-    {
-        return Drain(hostSnapshots);
-    }
+    void SendClientCommand(const std::string& payload) override;
+    std::vector<std::string> ReceiveHostCommands() override;
+    void SendHostResult(const std::string& payload) override;
+    std::vector<std::string> ReceiveClientResults() override;
+    void SendHostFrame(const std::string& payload) override;
+    std::vector<std::string> ReceiveClientFrames() override;
+    void SendHostSnapshot(const std::string& payload) override;
+    std::vector<std::string> ReceiveClientSnapshots() override;
 
 private:
-    static std::vector<std::string> Drain(std::deque<std::string>& queue)
-    {
-        std::vector<std::string> result;
-        while (!queue.empty())
-        {
-            result.push_back(std::move(queue.front()));
-            queue.pop_front();
-        }
-        return result;
-    }
+    static std::vector<std::string> Drain(std::deque<std::string>& queue);
 
     std::deque<std::string> clientToHost;
     std::deque<std::string> hostToClient;
@@ -142,39 +102,14 @@ struct FixedSimulationClock
 class HostGameSession : public IGameSession
 {
 public:
-    explicit HostGameSession(GameWorld& world) : world(&world) {}
+    explicit HostGameSession(GameWorld& world);
 
-    std::uint64_t SubmitCommand(const GameCommand& command) override
-    {
-        if (world != nullptr)
-            return world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
-        return 0;
-    }
+    std::uint64_t SubmitCommand(const GameCommand& command) override;
+    void Update(double dt) override;
+    GameWorld* GetWorld() override;
+    std::vector<GameCommandResult> ConsumeCommandResults() override;
 
-    void Update(double dt) override
-    {
-        if (world != nullptr)
-        {
-            int ticks = clock.AddFrameTime(dt);
-            for (int i = 0; i < ticks; i++)
-            {
-                world->UpdateSimulation(FixedSimulationClock::FixedDt);
-                auto results = world->ConsumeCommandResults();
-                commandResults.insert(commandResults.end(), results.begin(), results.end());
-            }
-        }
-    }
-
-    GameWorld* GetWorld() override { return world; }
-
-    std::vector<GameCommandResult> ConsumeCommandResults() override
-    {
-        std::vector<GameCommandResult> results = std::move(commandResults);
-        commandResults.clear();
-        return results;
-    }
-
-private:
+protected:
     GameWorld* world{nullptr};
     FixedSimulationClock clock;
     std::uint64_t inputDelayTicks{1};

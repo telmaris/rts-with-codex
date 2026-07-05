@@ -4,6 +4,7 @@ include_directories(../inc)
 
 target_sources(game
                PRIVATE
+               core/GameSession.cpp
                core/GameWorld.cpp
                core/GameWorld.TileMap.cpp
                core/GameWorld.Init.cpp
