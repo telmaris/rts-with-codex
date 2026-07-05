@@ -1092,6 +1092,14 @@ void MoveTargetWidget::Update(double dt)
     if (bar->ContainsPoint(mouseScreen) ||
         (armyBar != nullptr && armyBar->IsOverContent(mouseScreen)))
         return;
+    // Also suppress highlight when hovering over army order panel.
+    if (scene != nullptr && scene->controller != nullptr && scene->controller->armyOrderPanel != nullptr)
+    {
+        Rectangle panelBounds = scene->controller->armyOrderPanel->GetBounds();
+        Vector2 mpos{static_cast<float>(mouseScreen.x), static_cast<float>(mouseScreen.y)};
+        if (panelBounds.width > 0 && CheckCollisionPointRec(mpos, panelBounds))
+            return;
+    }
     Vec2i tile = ScreenToTile(scene, mouse);
     if (tile.x < 0 || tile.y < 0)
         return;
@@ -1220,6 +1228,38 @@ void ArmyOrderPanelWidget::Update(double dt)
 
         btnY += btnH + gap;
     }
+}
+
+Rectangle ArmyOrderPanelWidget::GetBounds() const
+{
+    if (scene == nullptr || armyBar == nullptr)
+        return {0, 0, 0, 0};
+
+    // Find which army (if any) is selected.
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return {0, 0, 0, 0};
+
+    bool hasSelection = false;
+    for (const auto& [armyId, rect] : armyBar->cardRects)
+    {
+        ArmyGroup* army = localPlayer->armyGroups.FindArmy(armyId);
+        if (army != nullptr && army->selectedForUI >= 0)
+        {
+            hasSelection = true;
+            break;
+        }
+    }
+
+    if (!hasSelection)
+        return {0, 0, 0, 0};
+
+    // Return the panel bounds (consistent with Update layout).
+    const float panelW = 180.0f;
+    const float panelH = 200.0f;
+    const float panelX = static_cast<float>(GetScreenWidth()) - panelW - 12.0f;
+    const float panelY = static_cast<float>(GetScreenHeight()) - 100.0f - panelH;
+    return {panelX, panelY, panelW, panelH};
 }
 
 bool ArmyOrderPanelWidget::HandleClick(Vec2i point)

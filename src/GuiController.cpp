@@ -494,6 +494,13 @@ void BasicMapViewSystem::LmbPressed()
         return;
     }
 
+    // Army order panel (right side) handles order button clicks.
+    if (owner->armyOrderPanel != nullptr && owner->armyOrderPanel->HandleClick(screenPos))
+    {
+        Log::Msg("[Input]", "army order panel clicked");
+        return;
+    }
+
     // Check division map markers before tile selection
     {
         bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);

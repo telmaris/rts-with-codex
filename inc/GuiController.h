@@ -286,6 +286,8 @@ class ArmyOrderPanelWidget : public UiWidget
 public:
     void Update(double dt) override;
     bool HandleClick(Vec2i point);
+    // Returns the screen rectangle occupied by this panel (or {0,0,0,0} if not visible).
+    Rectangle GetBounds() const;
 
     GameScene* scene{nullptr};
     ArmyBarWidget* armyBar{nullptr};  // reference to detect which army is selected
