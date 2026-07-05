@@ -10,6 +10,7 @@
 #include "ui/Renderer.h"
 
 class AudioSystem;
+class PathingService;
 
 #include <cstdint>
 #include <deque>
@@ -69,6 +70,8 @@ class GameWorld
         int GetVictorPlayerId() const;
         // Returns the authoritative simulation tick counter.
         std::uint64_t GetSimulationTick() const { return simulationTick; }
+        // Returns the global pathfinding service (ETAP 3.4 integration point)
+        PathingService* GetPathingService() const { return pathingService.get(); }
 
     private:
         // Creates one player and initializes display/controller metadata.
@@ -96,6 +99,7 @@ class GameWorld
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;
+        std::unique_ptr<PathingService> pathingService;
         std::uint64_t nextCommandId{1};
         std::uint64_t simulationTick{0};
         Vec2f cachedCameraTarget{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
