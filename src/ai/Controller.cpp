@@ -2127,23 +2127,22 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
 // Finds the best matching runtime object.
 Building* PrimitiveAIModel::FindNearestRoadTarget(GameWorld& world, Player* player, const Building* source) const
 {
-    Building* bestInfrastructure = nullptr;
-    int bestInfrastructureDistance = std::numeric_limits<int>::max();
-    for (auto& tile : world.tilemap.tilemap)
-    {
-        Building* building = tile.building.get();
-        if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
-            continue;
-        if (building->buildingType != BuildingType::Road && !building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
-            continue;
+    PathingService* pather = world.GetPathingService();
+    if (pather == nullptr || source == nullptr)
+        return nullptr;
 
-        int distance = TileDistance(world.tilemap, source, building);
-        if (distance < bestInfrastructureDistance)
-        {
-            bestInfrastructureDistance = distance;
-            bestInfrastructure = building;
-        }
-    }
+    auto sourcePos = world.tilemap.GetCoordsFromId(source->positionId);
+
+    // Stage 1: Find nearest Road/Storage/HQ infrastructure
+    auto infrastructure_predicate = [&](const Building* building) -> bool {
+        if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
+            return false;
+        return building->buildingType == BuildingType::Road ||
+               building->IsStorageLike() ||
+               building->buildingType == BuildingType::Headquarters;
+    };
+
+    Building* bestInfrastructure = pather->FindNearestBuilding(sourcePos, infrastructure_predicate, Domain::Global());
     if (bestInfrastructure != nullptr)
         return bestInfrastructure;
 
@@ -2165,47 +2164,28 @@ Building* PrimitiveAIModel::FindNearestRoadTarget(GameWorld& world, Player* play
     if (bestReceiver != nullptr)
         return bestReceiver;
 
-    Building* bestConsumer = nullptr;
-    int bestConsumerDistance = std::numeric_limits<int>::max();
+    // Stage 3: Find nearest consumer building for any output resource
     for (const auto& output : source->GetOutputBufferViews())
     {
-        for (auto& tile : world.tilemap.tilemap)
-        {
-            Building* building = tile.building.get();
+        auto consumer_predicate = [&](const Building* building) -> bool {
             if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
-                continue;
-            if (building->IsStorageLike() || !building->CanAcceptResource(output.type))
-                continue;
+                return false;
+            return !building->IsStorageLike() && building->CanAcceptResource(output.type);
+        };
 
-            int distance = TileDistance(world.tilemap, source, building);
-            if (distance < bestConsumerDistance)
-            {
-                bestConsumerDistance = distance;
-                bestConsumer = building;
-            }
-        }
+        Building* bestConsumer = pather->FindNearestBuilding(sourcePos, consumer_predicate, Domain::Global());
+        if (bestConsumer != nullptr)
+            return bestConsumer;
     }
-    if (bestConsumer != nullptr)
-        return bestConsumer;
 
-    Building* best = nullptr;
-    int bestDistance = std::numeric_limits<int>::max();
-    for (auto& tile : world.tilemap.tilemap)
-    {
-        Building* building = tile.building.get();
+    // Stage 4: Fallback - find any Road or Storage infrastructure
+    auto fallback_predicate = [&](const Building* building) -> bool {
         if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
-            continue;
-        if (building->buildingType != BuildingType::Road && !building->IsStorageLike())
-            continue;
+            return false;
+        return building->buildingType == BuildingType::Road || building->IsStorageLike();
+    };
 
-        int distance = TileDistance(world.tilemap, source, building);
-        if (distance < bestDistance)
-        {
-            bestDistance = distance;
-            best = building;
-        }
-    }
-    return best;
+    return pather->FindNearestBuilding(sourcePos, fallback_predicate, Domain::Global());
 }
 
 Building* PrimitiveAIModel::FindNearestStorageConnectedRoad(GameWorld& world, Player* player, const Building* source) const
@@ -2433,28 +2413,21 @@ Building* PrimitiveAIModel::FindBestMilitary(GameWorld& world, Player* player) c
 // Finds the best matching runtime object.
 Building* PrimitiveAIModel::FindNearestEnemyMilitary(GameWorld& world, Player* player, const Building* source) const
 {
-    Building* nearestEnemy = nullptr;
-    int bestDistance = std::numeric_limits<int>::max();
-    for (auto& tile : world.tilemap.tilemap)
-    {
-        Building* building = tile.building.get();
+    // Use PathingService to find nearest enemy military building
+    PathingService* pather = world.GetPathingService();
+    if (pather == nullptr || source == nullptr)
+        return nullptr;
+
+    auto sourcePos = world.tilemap.GetCoordsFromId(source->positionId);
+
+    auto predicate = [&](const Building* building) -> bool {
         if (building == nullptr || building->owner == player || building->IsUnderConstruction())
-            continue;
-
-        // Only military targets (defensive works + HQ) are attack destinations —
-        // civil buildings like the Barracks factory are not.
+            return false;
         if (!IsMilitaryAttackTarget(*building))
-            continue;
+            return false;
         const auto* territory = building->GetComponent<TerritoryComponent>();
-        if (territory == nullptr || territory->hp <= 0)
-            continue;
+        return territory != nullptr && territory->hp > 0;
+    };
 
-        int distance = TileDistance(world.tilemap, source, building);
-        if (distance < bestDistance)
-        {
-            bestDistance = distance;
-            nearestEnemy = building;
-        }
-    }
-    return nearestEnemy;
+    return pather->FindNearestBuilding(sourcePos, predicate, Domain::Global());
 }

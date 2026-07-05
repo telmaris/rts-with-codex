@@ -118,9 +118,65 @@ int PathingService::FindNearest(Vec2i from, const TilePredicate& predicate, cons
 
 Building* PathingService::FindNearestBuilding(Vec2i from, const std::function<bool(const Building*)>& predicate, const Domain& domain)
 {
-    // TODO: Implement building search with domain filtering
-    // Similar to FindNearest but looking at buildings on tiles
-    return nullptr;
+    int maxIndex = tilemap.params.sizeX * tilemap.params.sizeY;
+    int startTile = from.y * tilemap.params.sizeX + from.x;
+
+    if (startTile < 0 || startTile >= maxIndex)
+        return nullptr;
+
+    std::vector<bool> visited(maxIndex, false);
+    std::queue<int> q;
+    q.push(startTile);
+    visited[startTile] = true;
+
+    const std::vector<int> directions{
+        -tilemap.params.sizeX,  // up
+        tilemap.params.sizeX,   // down
+        -1,  // left
+        1    // right
+    };
+
+    while (!q.empty())
+    {
+        int current = q.front();
+        q.pop();
+
+        // Check if building on current tile matches predicate and domain
+        if (tilemap.tilemap[current].building != nullptr)
+        {
+            Building* building = tilemap.tilemap[current].building.get();
+            if (predicate(building))
+            {
+                // TODO: Check domain filtering (Territory/TerritoryUnion)
+                return building;
+            }
+        }
+
+        int col = current % tilemap.params.sizeX;
+        int row = current / tilemap.params.sizeX;
+
+        for (int dir = 0; dir < 4; dir++)
+        {
+            int next = current + directions[dir];
+
+            if (next < 0 || next >= maxIndex)
+                continue;
+
+            int nextCol = next % tilemap.params.sizeX;
+            int nextRow = next / tilemap.params.sizeX;
+
+            if (std::abs(nextCol - col) + std::abs(nextRow - row) != 1)
+                continue;
+
+            if (visited[next])
+                continue;
+
+            visited[next] = true;
+            q.push(next);
+        }
+    }
+
+    return nullptr;  // Not found
 }
 
 RoadPath PathingService::DijkstraRoad(int fromTile, int toTile, const PathOptions& options)
