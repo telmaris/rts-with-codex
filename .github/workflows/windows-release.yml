@@ -29,6 +29,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\Users\runneradmin\AppData\Local\vcpkg
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', '.vcpkg*') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
       - name: Configure
         shell: pwsh
         run: |
@@ -43,12 +52,12 @@ jobs:
         run: |
           cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
-      - name: Run command/session tests
+      - name: Run all tests
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path test-results | Out-Null
           $testExe = "build\tests\${{ env.BUILD_TYPE }}\rts_tests.exe"
-          & $testExe --gtest_filter=GameCommandTests.* --gtest_output=xml:test-results\gtest-command-session.xml
+          & $testExe --gtest_output=xml:test-results\gtest-results.xml
 
       - name: Upload test results
         if: always()
