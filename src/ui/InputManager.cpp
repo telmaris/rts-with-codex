@@ -2,8 +2,15 @@
 
 void InputManager::Poll()
 {
-    // TODO: Implement raylib input polling
-    // For now: placeholder
+    // Update mouse position
+    mouseX = GetMouseX();
+    mouseY = GetMouseY();
+
+    // Poll keyboard inputs
+    PollKeyboardInput();
+
+    // Poll mouse inputs
+    PollMouseInput();
 }
 
 void InputManager::AddSubscriber(std::shared_ptr<IInputSubscriber> subscriber)
@@ -18,16 +25,26 @@ void InputManager::RemoveSubscriber(IInputSubscriber* subscriber)
 
 void InputManager::PollKeyboardInput()
 {
-    // TODO: Poll keyboard state using raylib IsKeyPressed/IsKeyDown
+    // TODO: Implement raylib IsKeyPressed/IsKeyDown polling
+    // For now: placeholder - would poll all input keys and dispatch to matching subscribers
 }
 
 void InputManager::PollMouseInput()
 {
-    // TODO: Poll mouse state using raylib IsMouseButtonPressed/Down
-    // Update mouseX, mouseY
+    // TODO: Implement raylib IsMouseButtonPressed/Down polling
+    // For now: placeholder - would poll mouse buttons and dispatch to matching subscribers
 }
 
 void InputManager::DispatchEvent(const InputEvent& event)
 {
-    // TODO: Iterate subscribers, call Trigger on matching ones
+    // Iterate registered subscribers and call trigger on matching ones
+    for (auto& subscriber : subscribers)
+    {
+        if (subscriber && subscriber->Matches(event.type, event.key))
+        {
+            subscriber->Trigger(event);
+            if (event.consumed)
+                break;  // Event consumed, stop dispatch
+        }
+    }
 }
