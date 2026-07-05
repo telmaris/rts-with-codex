@@ -6,11 +6,11 @@
 #include "core/GameCommand.h"
 #include "core/GameSnapshot.h"
 #include "simulation/MapGenerator.h"
+#include "simulation/PathingService.h"
 #include "economy/Player.h"
 #include "ui/Renderer.h"
 
 class AudioSystem;
-class PathingService;
 
 #include <cstdint>
 #include <deque>
