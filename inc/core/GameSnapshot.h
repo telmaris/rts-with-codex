@@ -1,6 +1,7 @@
 #ifndef GAME_SNAPSHOT_H
 #define GAME_SNAPSHOT_H
 
+#include "core/Serialization.h"
 #include "economy/BuildingConfig.h"
 #include "core/Utils.h"
 #include "raylib.h"
@@ -90,8 +91,12 @@ struct GameSnapshot
 
     std::string Serialize() const
     {
+        Archive ar(SerializationVersion::GameSnapshotVersion);
+        ar << simulationTick << localPlayerId << mapSize.x << mapSize.y;
+
+        std::string payload = ar.GetString();
         std::ostringstream out;
-        out << simulationTick << ' ' << localPlayerId << ' ' << mapSize.x << ' ' << mapSize.y << ' ';
+        out << payload << ' ';
         for (const auto& tile : tiles)
             SerializeSnapshotTile(out, tile);
         return out.str();
@@ -100,8 +105,10 @@ struct GameSnapshot
     static bool TryDeserialize(const std::string& payload, GameSnapshot& snapshot)
     {
         std::istringstream in(payload);
+        int version = 0;
         GameSnapshot parsed;
-        if (!(in >> parsed.simulationTick >> parsed.localPlayerId >> parsed.mapSize.x >> parsed.mapSize.y))
+        in >> version >> parsed.simulationTick >> parsed.localPlayerId >> parsed.mapSize.x >> parsed.mapSize.y;
+        if (!in || version != SerializationVersion::GameSnapshotVersion)
             return false;
         if (parsed.mapSize.x <= 0 || parsed.mapSize.y <= 0)
             return false;
