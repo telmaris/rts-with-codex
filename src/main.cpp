@@ -1,6 +1,6 @@
-#include "Game.h"
-#include "GameWindow.h"
-#include "Utils.h"
+#include "scenes/Game.h"
+#include "scenes/GameWindow.h"
+#include "core/Utils.h"
 
 // Initializes main.
 int main(void)

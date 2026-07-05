@@ -1,5 +1,5 @@
-#include "../inc/BuildingConfig.h"
-#include "../inc/ProductionBuildings.h"
+#include "economy/BuildingConfig.h"
+#include "economy/ProductionBuildings.h"
 
 #include <gtest/gtest.h>
 

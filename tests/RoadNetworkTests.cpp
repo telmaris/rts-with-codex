@@ -1,6 +1,6 @@
-#include "../inc/MapGenerator.h"
-#include "../inc/Player.h"
-#include "../inc/RoadNetwork.h"
+#include "simulation/MapGenerator.h"
+#include "economy/Player.h"
+#include "simulation/RoadNetwork.h"
 
 #include <gtest/gtest.h>
 

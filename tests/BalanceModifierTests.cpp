@@ -1,5 +1,5 @@
-#include "../inc/BalanceModifiers.h"
-#include "../inc/StateDevelopment.h"
+#include "economy/BalanceModifiers.h"
+#include "research/StateDevelopment.h"
 
 #include <gtest/gtest.h>
 

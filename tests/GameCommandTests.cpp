@@ -1,6 +1,6 @@
-#include "../inc/GameCommand.h"
-#include "../inc/GameSession.h"
-#include "../inc/GameWorld.h"
+#include "core/GameCommand.h"
+#include "core/GameSession.h"
+#include "core/GameWorld.h"
 
 #include <gtest/gtest.h>
 

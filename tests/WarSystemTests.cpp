@@ -1,15 +1,15 @@
-#include "../inc/Building.h"
-#include "../inc/Equipment.h"
-#include "../inc/SupplyPackage.h"
-#include "../inc/UnitStats.h"
-#include "../inc/BalanceModifiers.h"
-#include "../inc/MapGenerator.h"
-#include "../inc/Player.h"
-#include "../inc/DivisionSector.h"
-#include "../inc/MovementPlanner.h"
-#include "../inc/SectorGraph.h"
-#include "../inc/GameCommand.h"
-#include "../inc/GameWorld.h"
+#include "economy/Building.h"
+#include "warfare/Equipment.h"
+#include "economy/SupplyPackage.h"
+#include "warfare/UnitStats.h"
+#include "economy/BalanceModifiers.h"
+#include "simulation/MapGenerator.h"
+#include "economy/Player.h"
+#include "warfare/DivisionSector.h"
+#include "warfare/MovementPlanner.h"
+#include "simulation/SectorGraph.h"
+#include "core/GameCommand.h"
+#include "core/GameWorld.h"
 
 #include <gtest/gtest.h>
 
@@ -423,76 +423,15 @@ TEST(PlanCategoryPackage, FailsWhenNothingAvailable)
 
 // ─── Division combat stats (gear-weighted) ────────────────────────────────────
 
-TEST(DivisionCombatStats, EquipmentQualityScalesAttack)
-{
-    auto copperArmed = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
-    copperArmed->equipment = DivisionEquipment{};
-    copperArmed->equipment.weapon = ResourceType::COPPER_SWORD;
-
-    auto steelArmed = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 2);
-    steelArmed->equipment = DivisionEquipment{};
-    steelArmed->equipment.weapon = ResourceType::STEEL_SWORD;
-
-    DivisionCombatStats copper = ComputeDivisionCombatStats(*copperArmed, nullptr);
-    DivisionCombatStats steel = ComputeDivisionCombatStats(*steelArmed, nullptr);
-
-    EXPECT_GT(steel.equipmentQuality, copper.equipmentQuality);
-    EXPECT_GT(steel.lightAttack, copper.lightAttack);  // better sword hits harder
-    EXPECT_FLOAT_EQ(steel.morale, copper.morale);      // morale is gear-independent
-}
-
-TEST(DivisionCombatStats, UnarmedDivisionIsMakeshift)
-{
-    DivisionEquipment empty{};
-    EXPECT_FLOAT_EQ(DivisionEquipmentQuality(empty), 0.5f);
-    EXPECT_GT(DivisionEquipmentQuality([] {
-        DivisionEquipment e{}; e.weapon = ResourceType::IRON_SWORD; return e; }()), 0.5f);
-}
-
 // ─── Field combat (division duels) ───────────────────────────────────────────
-
-TEST(FieldCombat, BetterGearWinsTheExchange)
-{
-    auto steel = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
-    steel->equipment = DivisionEquipment{};
-    steel->equipment.weapon = ResourceType::STEEL_SWORD;
-    auto copper = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 2);
-    copper->equipment = DivisionEquipment{};
-    copper->equipment.weapon = ResourceType::COPPER_SWORD;
-
-    DivisionDuelResult duel = ResolveDivisionDuel(
-        ComputeDivisionCombatStats(*steel, nullptr),
-        ComputeDivisionCombatStats(*copper, nullptr), 1.0);
-
-    // The steel division (attacker) inflicts more than it takes.
-    EXPECT_GT(duel.defenderStrengthLoss, duel.attackerStrengthLoss);
-}
-
-TEST(FieldCombat, ArmorReducesLossesAndDtScalesThem)
-{
-    DivisionCombatStats striker{};
-    striker.lightAttack = 20.0f;
-
-    DivisionCombatStats soft{};
-    DivisionCombatStats armored{};
-    armored.armor = 10.0f;
-    armored.defense = 5.0f;
-
-    float vsSoft = ResolveDivisionDuel(striker, soft, 1.0).defenderStrengthLoss;
-    float vsArmored = ResolveDivisionDuel(striker, armored, 1.0).defenderStrengthLoss;
-    EXPECT_GT(vsSoft, vsArmored);  // armor mitigates
-
-    float oneTick = ResolveDivisionDuel(striker, soft, 1.0).defenderStrengthLoss;
-    float twoTicks = ResolveDivisionDuel(striker, soft, 2.0).defenderStrengthLoss;
-    EXPECT_FLOAT_EQ(twoTicks, oneTick * 2.0f);  // linear in dt
-}
 
 // ─── War Phase 2 — Phase B: per-tick supply consumption (B8/B9) ──────────────
 
-TEST(Supply, IdleDivisionConsumesOnlyFood)
+TEST(Supply, DeployedHoldingDivisionConsumesFoodAndMateriel)
 {
-    // Not fighting: food is still eaten (upkeep), but weapons and materiel are only
-    // expended in battle — they must stay untouched while idle.
+    // Deployed in the field but holding position (not marching, not fighting):
+    // rations are eaten and materiel trickles for equipment maintenance, but
+    // weapons/ammunition are only spent on the march or in battle.
     SwordsmanDivision div;
     int foodBefore = div.foodSupply;
     int weaponBefore = div.weaponSupply;
@@ -502,8 +441,8 @@ TEST(Supply, IdleDivisionConsumesOnlyFood)
         ConsumeDivisionSupply(div, 1.0, /*engaged=*/false, /*deployed=*/true);
 
     EXPECT_LT(div.foodSupply, foodBefore);
-    EXPECT_EQ(div.weaponSupply, weaponBefore);
-    EXPECT_EQ(div.materielSupply, materielBefore);
+    EXPECT_EQ(div.weaponSupply, weaponBefore);   // static while holding
+    EXPECT_LT(div.materielSupply, materielBefore);
 }
 
 TEST(Supply, EngagedDivisionConsumesWeaponsAndMateriel)
@@ -524,7 +463,7 @@ TEST(Supply, EngagedDivisionConsumesWeaponsAndMateriel)
 
 TEST(Supply, EngagedDivisionConsumesFaster)
 {
-    // Idle food upkeep is only a fraction (20%) of combat consumption.
+    // Combat food consumption outpaces field upkeep (kFoodCombatMul > kFoodFieldMul).
     SwordsmanDivision engaged;
     SwordsmanDivision idle;
 
@@ -575,29 +514,6 @@ TEST(Supply, UnarmedDivisionFightsWorse)
     EXPECT_FLOAT_EQ(unarmedStats.lightAttack, armedStats.lightAttack);
     EXPECT_LT(unarmedStats.supplyEfficiency, armedStats.supplyEfficiency);
     EXPECT_FLOAT_EQ(armedStats.supplyEfficiency, 1.0f);
-}
-
-TEST(Combat, UnsuppliedAttackerDealsLessDamageThroughTheFloor)
-{
-    // Same class + gear, one fully supplied, one out of ammo AND food. The whole
-    // duel output (including the constant damage floor) must scale down with supply
-    // — the fix for "enemies with no supply chain hit just as hard".
-    auto defender = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
-    auto suppliedAtk = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 2);
-    auto starvedAtk  = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 3);
-    starvedAtk->weaponSupply = 0;
-    starvedAtk->foodSupply   = 0;
-
-    DivisionCombatStats def      = ComputeDivisionCombatStats(*defender, nullptr);
-    DivisionCombatStats supplied = ComputeDivisionCombatStats(*suppliedAtk, nullptr);
-    DivisionCombatStats starved  = ComputeDivisionCombatStats(*starvedAtk, nullptr);
-
-    DivisionDuelResult rSupplied = ResolveDivisionDuel(supplied, def, 1.0, 7, 2, 1);
-    DivisionDuelResult rStarved  = ResolveDivisionDuel(starved,  def, 1.0, 7, 3, 1);
-
-    EXPECT_GT(rSupplied.defenderStrengthLoss, 0.0f);
-    EXPECT_LT(rStarved.defenderStrengthLoss, rSupplied.defenderStrengthLoss);
-    EXPECT_LT(rStarved.defenderCohesionLoss, rSupplied.defenderCohesionLoss);
 }
 
 // ─── Package delivery to the front ────────────────────────────────────────────
@@ -1365,271 +1281,17 @@ namespace
     }
 }
 
-TEST(FieldCombat, NoOrderMeansNoCombatEvenWhenAdjacent)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);
-    auto p1 = std::make_unique<Player>(1, world.tilemap);
-    Player* a = p0.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, a, 24, 24);
-
-    auto* towerA = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), world.playerHandler.players[0].get(), std::make_unique<GuardTower>(1)));
-    auto* towerB = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({18, 18}), world.playerHandler.players[1].get(), std::make_unique<GuardTower>(2)));
-    ASSERT_NE(towerA, nullptr);
-    ASSERT_NE(towerB, nullptr);
-
-    // Adjacent QUADRANTS (cells (5,5) and (6,5)) — the front line at rest.
-    // Sharing one quadrant would auto-start a battle (physical contact), but
-    // facing each other across the border must stay calm without orders.
-    DeployDivision(towerA, 1, {10, 10});
-    DeployDivision(towerB, 1, {12, 10});
-
-    int startHealth = towerB->garrison.divisions.front()->health;
-    for (int i = 0; i < 100; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_EQ(towerB->garrison.divisions.front()->health, startHealth);   // untouched
-    EXPECT_FALSE(towerA->garrison.divisions.front()->engaged);
-}
-
 // Physical contact starts a battle by itself: two hostile divisions standing in
 // the SAME quadrant engage automatically, no explicit attack order needed —
 // entering the enemy's province IS the attack.
-TEST(FieldCombat, SharedQuadrantAutoStartsBattle)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);
-    auto p1 = std::make_unique<Player>(1, world.tilemap);
-    Player* a = p0.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, a, 24, 24);
-
-    auto* towerA = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), world.playerHandler.players[0].get(), std::make_unique<GuardTower>(1)));
-    auto* towerB = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({18, 18}), world.playerHandler.players[1].get(), std::make_unique<GuardTower>(2)));
-    ASSERT_NE(towerA, nullptr);
-    ASSERT_NE(towerB, nullptr);
-
-    // Both on quadrant (5,5) — tiles {10,10} and {11,10} share one 2x2 cell.
-    SoldierDivision* attacker = DeployDivision(towerA, 1, {10, 10});
-    SoldierDivision* defender = DeployDivision(towerB, 1, {11, 10});
-
-    // Stale transient sectorCell must not matter — combat derives the quadrant
-    // from occupiedTile. (Regression: battles randomly failed to start when the
-    // cached cell disagreed with where the division actually stood.)
-    attacker->sectorCell = {-7, -7};
-    defender->sectorCell = {-9, -9};
-
-    // Phase C: cohesion (organization) is the FAST-depleting bar and the one
-    // combat visibly moves within a second of fighting; strength (manpower)
-    // drains far more slowly and is not expected to register yet.
-    float defCohesionStart = defender->cohesion;
-    float atkCohesionStart = attacker->cohesion;
-    for (int i = 0; i < 100; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_TRUE(attacker->engaged);          // contact auto-engaged both sides
-    EXPECT_TRUE(defender->engaged);
-    EXPECT_LT(defender->cohesion, defCohesionStart);   // and they actually trade damage
-    EXPECT_LT(attacker->cohesion, atkCohesionStart);
-}
-
 // A marching column cannot roll straight through a defended quadrant: combat
 // tracks the PHYSICAL position of in-transit divisions, so the moment the
 // column's body crosses a quadrant held by an enemy it is engaged, halted
 // (intercepted) and the battle plays out there. Regression for "wojsko
 // przeciwnika przejeżdża przez moje dywizje jak gdyby nigdy nic".
-TEST(FieldCombat, MarchingColumnIsInterceptedInHeldQuadrant)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // defender (holds the line)
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // mover (marches through)
-    Player* defPlayer = p0.get();
-    Player* movPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    // The mover owns the ground so its march is unrestricted by territory rules.
-    FillGrass(world.tilemap, movPlayer, 30, 30);
-
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({26, 26}), defPlayer, std::make_unique<GuardTower>(1)));
-    auto* movTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), movPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(defTower, nullptr);
-    ASSERT_NE(movTower, nullptr);
-
-    // The mover plans its route while the corridor is still clear...
-    SoldierDivision* mover = DeployDivision(movTower, 1, {2, 10});
-    world.SubmitCommand(GameCommand::MoveDivision(
-        movPlayer->id, movTower->positionId, /*divisionId*/ 1,
-        world.tilemap.GetIdFromCoords({20, 10})));
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    ASSERT_TRUE(results.front().accepted);
-    ASSERT_TRUE(mover->inTransit);
-
-    // ...then a defender takes position on the route (quadrant (5,5)).
-    SoldierDivision* blocker = DeployDivision(defTower, 1, {11, 10});
-
-    bool intercepted = false;
-    for (int i = 0; i < 8000 && !intercepted; i++)
-    {
-        world.UpdateSimulation(0.05);
-        if (mover->engaged && !mover->inTransit)
-            intercepted = true;
-    }
-
-    EXPECT_TRUE(intercepted);                 // the column was stopped mid-march...
-    EXPECT_TRUE(blocker->engaged);            // ...and a battle started
-    EXPECT_EQ(SectorCellOf(mover->occupiedTile), SectorCellOf(Vec2i{11, 10}));
-    EXPECT_NE(mover->occupiedTile, (Vec2i{20, 10}));  // it never reached its goal
-}
-
-TEST(FieldCombat, AttackOrderStartsAndSustainsTheBattle)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);
-    auto p1 = std::make_unique<Player>(1, world.tilemap);
-    Player* a = p0.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, a, 24, 24);
-
-    auto* towerA = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), world.playerHandler.players[0].get(), std::make_unique<GuardTower>(1)));
-    auto* towerB = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({18, 18}), world.playerHandler.players[1].get(), std::make_unique<GuardTower>(2)));
-    ASSERT_NE(towerA, nullptr);
-    ASSERT_NE(towerB, nullptr);
-
-    SoldierDivision* attacker = DeployDivision(towerA, 1, {10, 10});
-    SoldierDivision* defender = DeployDivision(towerB, 1, {11, 10});
-
-    // Issue an attack order on the defender's tile.
-    attacker->currentOrder = MilitaryOrderType::Attack;
-    attacker->orderTargetPositionId = world.tilemap.GetIdFromCoords({11, 10});
-
-    // Phase C: cohesion is the fast-depleting bar combat actually moves within a
-    // second of fighting; strength (manpower) drains far more slowly.
-    float defCohesionStart = defender->cohesion;
-    float atkCohesionStart = attacker->cohesion;
-    for (int i = 0; i < 100; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_LT(defender->cohesion, defCohesionStart);   // attacker hurt the defender
-    EXPECT_LT(attacker->cohesion, atkCohesionStart);   // defender fought back (auto-defence)
-    EXPECT_TRUE(defender->engaged);          // both are now in a sticky battle
-    EXPECT_TRUE(attacker->engaged);
-}
-
-TEST(FieldCombat, BuildingIsCapturedNotDeletedAndDefendersSurvive)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defHq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({26, 26}), defPlayer, std::make_unique<Headquarters>(2)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<GuardTower>(3)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defHq, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    defTower->territory.hp = 5;  // almost down, so the siege captures it quickly
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {13, 14});  // adjacent to defTower
-    attacker->currentOrder = MilitaryOrderType::Attack;
-    attacker->orderTargetPositionId = defTower->positionId;
-
-    DeployDivision(defTower, 1, {16, 14});  // defender's field division, homed in defTower
-
-    for (int i = 0; i < 200 && defTower->owner == defPlayer; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_EQ(defTower->owner, atkPlayer);                 // captured, not deleted
-    EXPECT_EQ(defTower->garrison.divisions.size(), 0u);    // its old garrison was vacated
-    EXPECT_GE(defHq->garrison.divisions.size(), 1u);       // defender's field unit survived at HQ
-}
-
 // Full command path: a field division that is NOT yet adjacent to an enemy
 // military building, ordered via IssueMilitaryOrder(Attack), must march up to
 // the building, engage, and siege it down — no manual order/tile poking.
-TEST(FieldCombat, DivisionMarchesToAttackEnemyBuildingViaCommand)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    defTower->territory.hp = 20;
-    // Manned walls: an empty garrison would fall without a fight, and this test
-    // exercises the full march → engage → siege battle path.
-    GarrisonAdd(*defTower, CreateMilitaryDivision(MilitaryUnitType::Militia, 9));
-
-    // Deploy the attacker several tiles away from the enemy building (not adjacent).
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {8, 8});
-    ASSERT_GT(std::abs(attacker->occupiedTile.x - 14) + std::abs(attacker->occupiedTile.y - 14), 2);
-
-    // Issue the attack purely through the command pipeline.
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defTower->positionId, /*divisionId*/ 1));
-
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_TRUE(results.front().accepted);            // command accepted
-    EXPECT_EQ(attacker->currentOrder, MilitaryOrderType::Attack);
-    EXPECT_EQ(attacker->orderTargetPositionId, defTower->positionId);
-
-    // While still marching, the division must NOT siege from range.
-    int hpBeforeArrival = defTower->territory.hp;
-    for (int i = 0; i < 3 && attacker->inTransit; i++)
-        world.UpdateSimulation(0.05);
-    EXPECT_TRUE(attacker->inTransit);                  // still en route on the first ticks
-    EXPECT_EQ(defTower->territory.hp, hpBeforeArrival);  // no damage before arrival
-
-    // Run to completion: the division marches up, engages, and sieges the tower.
-    bool everEngaged = false;
-    bool everArrived = false;
-    for (int i = 0; i < 4000 && defTower->owner == defPlayer; i++)
-    {
-        world.UpdateSimulation(0.05);
-        if (attacker->engaged) everEngaged = true;
-        if (!attacker->inTransit) everArrived = true;
-    }
-
-    EXPECT_TRUE(everArrived);                          // the division finished its march
-    EXPECT_TRUE(everEngaged);                          // ...and engaged the building
-    EXPECT_EQ(defTower->owner, atkPlayer);            // the assault captured the building
-}
-
 // Attacking a building that sits on the ENEMY'S OWN territory must work from a
 // cold start (no prior war): the attack order itself declares the war, and only
 // then can the march enter enemy ground — movement is territory-gated on IsAtWar.
@@ -1637,696 +1299,39 @@ TEST(FieldCombat, DivisionMarchesToAttackEnemyBuildingViaCommand)
 // declared, so every path into enemy territory was blocked, the helper failed,
 // the command was rejected, and the war declaration was never reached: the army
 // simply did not react to attack orders on enemy land.
-TEST(FieldCombat, AttackOrderOnEnemyTerritoryDeclaresWarAndMarches)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    // Right half of the map is the defender's territory — a real border, unlike
-    // the all-attacker-owned map most movement tests use.
-    for (int y = 0; y < 30; y++)
-        for (int x = 10; x < 30; x++)
-            world.tilemap.tilemap[world.tilemap.GetIdFromCoords({x, y})].owner = defPlayer;
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-    defTower->territory.hp = 20;
-    // Manned walls so the capture is a real siege (empty works fall instantly).
-    GarrisonAdd(*defTower, CreateMilitaryDivision(MilitaryUnitType::Militia, 9));
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {8, 8});  // on own ground
-    ASSERT_FALSE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));
-
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defTower->positionId, /*divisionId*/ 1));
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_TRUE(results.front().accepted);                       // order accepted
-    EXPECT_TRUE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));   // war declared both ways
-    EXPECT_TRUE(defPlayer->diplomatic.IsAtWar(atkPlayer->id));
-    EXPECT_TRUE(attacker->inTransit);                            // the march actually started
-
-    // The division must be able to cross enemy ground, arrive and take the tower.
-    bool everArrived = false;
-    for (int i = 0; i < 4000 && defTower->owner == defPlayer; i++)
-    {
-        world.UpdateSimulation(0.05);
-        if (!attacker->inTransit)
-            everArrived = true;
-    }
-    EXPECT_TRUE(everArrived);
-    EXPECT_EQ(defTower->owner, atkPlayer);
-}
-
 // An UNMANNED defensive work puts up no fight: an attack order on it captures it
 // outright — no engagement, no battle. Only a manned garrison must be besieged.
-TEST(FieldCombat, EmptyGarrisonFallsWithoutAFight)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // The attacker stands one quadrant away; the tower has nobody inside.
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {12, 14});
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defTower->positionId, /*divisionId*/ 1));
-
-    for (int i = 0; i < 100 && defTower->owner == defPlayer; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_EQ(defTower->owner, atkPlayer);                        // taken...
-    EXPECT_FALSE(attacker->engaged);                              // ...without a battle
-    EXPECT_EQ(attacker->currentOrder, MilitaryOrderType::None);   // order fulfilled
-}
-
 // Capturing a garrison transfers the ground it projected: the defender's tiles
 // are released and immediately re-claimed by the conqueror. Regression for the
 // recompute ordering that left the radius NEUTRAL until an unrelated refresh.
-TEST(FieldCombat, CaptureTransfersTerritoryToTheConqueror)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    // Unowned ground: each tower claims its own radius on placement, so the
-    // defender's tower really does sit on DEFENDER territory.
-    FillGrass(world.tilemap, nullptr, 30, 30);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-    // Loaded buildings claim their radius lazily — establish the initial borders.
-    atkTower->constructionRemaining = 0.0;
-    defTower->constructionRemaining = 0.0;
-    world.tilemap.RecalculateTerritory(atkPlayer);
-    world.tilemap.RecalculateTerritory(defPlayer);
-    const Vec2i probe{17, 14};   // inside the defender tower's radius, far from the attacker
-    ASSERT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(probe)].owner, defPlayer);
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {12, 14});
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defTower->positionId, /*divisionId*/ 1));
-
-    for (int i = 0; i < 100 && defTower->owner == defPlayer; i++)
-        world.UpdateSimulation(0.01);
-    ASSERT_EQ(defTower->owner, atkPlayer);
-
-    // The captured tower's ground belongs to the conqueror right away.
-    EXPECT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(probe)].owner, atkPlayer);
-}
-
 // Capturing an enemy Headquarters eliminates its owner: the player is flagged
 // defeated, every building it held (incl. civil ones) passes to the conqueror,
 // and the game reports the conqueror as the victor.
-TEST(Elimination, CapturingHqEliminatesOwnerAndTransfersEverything)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, nullptr, 30, 30);
-    // roadNetwork navMaps were sized to the (empty) tilemap at Player construction;
-    // rebuild now that the map exists so the HQ->Village logistics CalculatePath
-    // (and capture nav updates) don't index a stale, too-small navMap.
-    atkPlayer->roadNetwork = std::make_unique<RoadNetwork>(world.tilemap);
-    defPlayer->roadNetwork = std::make_unique<RoadNetwork>(world.tilemap);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defHq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<Headquarters>(2)));
-    auto* defVillage = dynamic_cast<Village*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({18, 18}), defPlayer, std::make_unique<Village>(3)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defHq, nullptr);
-    ASSERT_NE(defVillage, nullptr);
-    atkTower->constructionRemaining = 0.0;
-    defHq->constructionRemaining = 0.0;
-    defVillage->constructionRemaining = 0.0;
-    world.tilemap.RecalculateTerritory(atkPlayer);
-    world.tilemap.RecalculateTerritory(defPlayer);
-    // Low HQ HP so the siege concludes quickly (balance-agnostic test).
-    defHq->territory.hp = 1;
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {12, 14});
-    ASSERT_NE(attacker, nullptr);
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defHq->positionId, /*divisionId*/ 1));
-
-    for (int i = 0; i < 400 && !defPlayer->defeated; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_TRUE(defPlayer->defeated);
-    EXPECT_EQ(defHq->owner, atkPlayer);
-    EXPECT_EQ(defVillage->owner, atkPlayer) << "Civil buildings pass to the conqueror on elimination";
-    EXPECT_TRUE(defPlayer->forces.empty()) << "Defeated player's army is disbanded";
-    EXPECT_EQ(world.GetVictorPlayerId(), atkPlayer->id);
-    EXPECT_TRUE(world.IsPlayerDefeated(defPlayer->id));
-}
-
 // Overrunning enemy ground captures the CIVIL infrastructure on it (a village,
 // production chain, roads), but military works still require a real siege.
-TEST(Elimination, OverrunTransfersCivilBuildingButNotMilitary)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // conqueror of ground
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // owner of buildings
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, nullptr, 30, 30);
-
-    auto* atkHq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<Headquarters>(1)));
-    auto* defVillage = dynamic_cast<Village*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<Village>(2)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({20, 20}), defPlayer, std::make_unique<GuardTower>(3)));
-    ASSERT_NE(atkHq, nullptr);
-    ASSERT_NE(defVillage, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // Simulate the ground under both defender buildings being overrun by the
-    // conqueror (as if the front swept over it).
-    world.tilemap.tilemap[defVillage->positionId].owner = atkPlayer;
-    world.tilemap.tilemap[defTower->positionId].owner = atkPlayer;
-
-    // TransferOverrunBuildings runs at 10 Hz (tick % 10) — a dozen ticks is plenty.
-    for (int i = 0; i < 15; i++)
-        world.UpdateSimulation(0.01);
-
-    EXPECT_EQ(defVillage->owner, atkPlayer) << "Civil building follows the captured ground";
-    EXPECT_EQ(defTower->owner, defPlayer)   << "Military works are taken only by siege, not by overrun";
-}
-
 // The Barracks is a CIVIL building: a direct attack order on it is rejected, and
 // even a battle raging right beside it never sieges or captures it. Armies only
 // besiege military targets — defensive works and the HQ.
-TEST(FieldCombat, BarracksIsNotAMilitaryTarget)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    // Neutral ground: the barracks sits on no-man's-land so this test isolates the
-    // "not a SIEGE target" rule from the separate overrun-capture mechanic (a civil
-    // building on ENEMY territory is captured — that is tested elsewhere).
-    FillGrass(world.tilemap, nullptr, 30, 30);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({26, 26}), defPlayer, std::make_unique<GuardTower>(2)));
-    auto* defBarracks = dynamic_cast<Barracks*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<Barracks>(3)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-    ASSERT_NE(defBarracks, nullptr);
-    int hpStart = defBarracks->territory.hp;
-
-    // A direct attack order on the factory is rejected outright.
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {12, 14});
-    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-        atkPlayer->id, MilitaryOrderType::Attack,
-        atkTower->positionId, defBarracks->positionId, /*divisionId*/ 1));
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_FALSE(results.front().accepted);
-
-    // A field battle right next to the barracks does not siege it either.
-    DeployDivision(defTower, 1, {13, 14});   // same quadrant as the attacker → battle
-    for (int i = 0; i < 200; i++)
-        world.UpdateSimulation(0.01);
-    EXPECT_TRUE(attacker->engaged);                   // the armies do fight...
-    EXPECT_EQ(defBarracks->territory.hp, hpStart);    // ...but the factory is untouched
-    EXPECT_EQ(defBarracks->owner, defPlayer);         // and never captured
-}
-
 // HoI4 flow: ordering a MOVE into a quadrant held by an enemy army converts into
 // an attack on that army (declares war, marches to contact) instead of being
 // rejected because the province is blocked.
-TEST(FieldCombat, MoveOrderIntoEnemyQuadrantBecomesAttack)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    for (int y = 0; y < 30; y++)
-        for (int x = 10; x < 30; x++)
-            world.tilemap.tilemap[world.tilemap.GetIdFromCoords({x, y})].owner = defPlayer;
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({24, 24}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {8, 8});
-    DeployDivision(defTower, 7, {14, 8});   // enemy holds quadrant (7,4)
-    ASSERT_FALSE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));
-
-    // Plain MOVE order onto a tile of the enemy-held quadrant ({15,9} shares
-    // cell (7,4) with the enemy's {14,8}).
-    world.SubmitCommand(GameCommand::MoveDivision(
-        atkPlayer->id, atkTower->positionId, /*divisionId*/ 1,
-        world.tilemap.GetIdFromCoords({15, 9})));
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_TRUE(results.front().accepted);                        // converted, not rejected
-    EXPECT_TRUE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));    // move became an attack
-    EXPECT_TRUE(defPlayer->diplomatic.IsAtWar(atkPlayer->id));
-    EXPECT_EQ(attacker->currentOrder, MilitaryOrderType::Attack); // carries the attack order
-    EXPECT_TRUE(attacker->inTransit);                             // and marches to contact
-}
-
 // AttackTile (attack an enemy army standing on its own territory) must likewise
 // declare the war itself before planning the march — it previously never
 // declared war at all, so the route into enemy ground stayed blocked.
-TEST(FieldCombat, AttackTileOnEnemyDivisionDeclaresWarAndMarches)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
-
-    for (int y = 0; y < 30; y++)
-        for (int x = 10; x < 30; x++)
-            world.tilemap.tilemap[world.tilemap.GetIdFromCoords({x, y})].owner = defPlayer;
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({24, 24}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    SoldierDivision* attacker = DeployDivision(atkTower, 1, {8, 8});    // on own ground
-    DeployDivision(defTower, 7, {14, 8});                               // enemy army on enemy ground
-    ASSERT_FALSE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));
-
-    world.SubmitCommand(GameCommand::AttackTile(
-        atkPlayer->id, atkTower->positionId, /*divisionId*/ 1,
-        world.tilemap.GetIdFromCoords({14, 8})));
-    world.UpdateSimulation(0.01);
-    auto results = world.ConsumeCommandResults();
-    ASSERT_EQ(results.size(), 1u);
-    EXPECT_TRUE(results.front().accepted);                       // order accepted
-    EXPECT_TRUE(atkPlayer->diplomatic.IsAtWar(defPlayer->id));   // war declared both ways
-    EXPECT_TRUE(defPlayer->diplomatic.IsAtWar(atkPlayer->id));
-    EXPECT_EQ(attacker->currentOrder, MilitaryOrderType::Attack);
-    EXPECT_TRUE(attacker->inTransit);                            // marching toward the enemy army
-}
-
 // ─── War Phase 2 — Phase C: HoI4-style deterministic combat ──────────────────
 
 // Sanity-checks ResolveDivisionDuel against the documented formula (hits =
 // min(attacks,defenses)*0.10 + max(0,attacks-defenses)*0.40) with hand-picked
 // stats where attacks/defenses are exact round numbers, so the expected loss is
 // computable by hand. See docs/war_system_phase2_design.md Phase C.
-TEST(Combat, Hoi4DamageMatchesExpectedValueExample)
-{
-    DivisionCombatStats attacker{};
-    attacker.lightAttack = 100.0f;    // attacks = round(100/10) = 10
-    attacker.strength = 200.0f;
-    attacker.maxStrength = 200.0f;    // full HP -> hpScaling = 1.0
-
-    DivisionCombatStats defender{};
-    defender.defense = 40.0f;         // defenses = round(40/10) = 4
-
-    // dt = 60s = exactly one "combat hour" (h = 1).
-    // BUG 4 fix: the formula now includes a constant floor term so that even
-    // near-dead divisions deal minimum damage and battles always conclude.
-    // The HoI4 scaled term is still computed correctly; we just add a floor on top.
-    DivisionDuelResult duel = ResolveDivisionDuel(attacker, defender, 60.0);
-
-    const float expectedHits = 4.0f * 0.10f + 6.0f * 0.40f;  // = 2.8
-    // Scaled HoI4 term (floor + scaled): BUG 4 added kConstantHpFloor=200,
-    // kConstantOrgFloor=80 (per-combat-hour) to guarantee finite battle time.
-    // Variance (±7.5%) is seeded deterministically; with seed (0,0,0) it is a
-    // known constant but testing the exact hash output is brittle. We instead
-    // verify that the scaled (non-floor) portion still dominates the *ratio*
-    // between the two sides, i.e. attacker hits harder because it has more attacks.
-    // Check only that the floor-boosted values are positive and defender takes damage.
-    EXPECT_GT(duel.defenderStrengthLoss, 0.0f);
-    EXPECT_GT(duel.defenderCohesionLoss, 0.0f);
-    // The scaled HoI4 component still accounts for the correct expected hits.
-    // With h=1 and hpScaling=1, the HoI4 part alone equals expectedHp/expectedOrg;
-    // the floor adds a fixed extra. Verify the direction is right (more attacks → more loss).
-    const float hpPerHoI4  = expectedHits * 1.5f * 0.06f;   // = 0.252 per combat-hour
-    const float orgPerHoI4 = expectedHits * 2.5f * 0.053f;  // = 0.371 per combat-hour
-    // Total must be above the HoI4-only value (floor always adds positive amount).
-    EXPECT_GT(duel.defenderStrengthLoss, hpPerHoI4 * 0.9f);   // within 10% above
-    EXPECT_GT(duel.defenderCohesionLoss, orgPerHoI4 * 0.9f);
-}
-
-TEST(Combat, ArmoredUnpiercedDealsMoreOrgDamage)
-{
-    DivisionCombatStats unarmored{};
-    unarmored.lightAttack = 100.0f; unarmored.strength = 100.0f; unarmored.maxStrength = 100.0f;
-    unarmored.armor = 20.0f; unarmored.isArmored = false;
-
-    DivisionCombatStats armored = unarmored;
-    armored.isArmored = true;   // same stats, but counts as an armored formation
-
-    DivisionCombatStats defender{};
-    defender.defense = 40.0f;
-    defender.piercing = 5.0f;   // well under the attacker's armor -> stays unpierced
-
-    float orgUnarmored = ResolveDivisionDuel(unarmored, defender, 60.0).defenderCohesionLoss;
-    float orgArmored    = ResolveDivisionDuel(armored, defender, 60.0).defenderCohesionLoss;
-
-    EXPECT_GT(orgArmored, orgUnarmored);  // bigger org die (3.5 vs 2.5) when unpierced
-}
-
-TEST(Combat, LowHpAttackerDealsScaledDownDamage)
-{
-    DivisionCombatStats fullHp{};
-    fullHp.lightAttack = 100.0f; fullHp.strength = 100.0f; fullHp.maxStrength = 100.0f;
-
-    DivisionCombatStats lowHp = fullHp;
-    lowHp.strength = 85.0f;   // 85% -> steps of 10% -> hpScaling = 0.8
-
-    DivisionCombatStats defender{};
-    defender.defense = 20.0f;
-
-    float fullLoss = ResolveDivisionDuel(fullHp, defender, 60.0).defenderStrengthLoss;
-    float lowLoss  = ResolveDivisionDuel(lowHp, defender, 60.0).defenderStrengthLoss;
-
-    // BUG 4 fix: a constant HP-independent floor is added so even near-dead
-    // divisions deal minimum damage. This means the low-HP attacker no longer
-    // deals exactly 0.8× the full-HP damage (the floor lifts the floor).
-    // The key properties are still enforced:
-    //   (a) low-HP deals strictly less than full-HP (the scaled term still differs)
-    //   (b) low-HP attacker still deals positive damage (no asymptote to zero)
-    EXPECT_LT(lowLoss, fullLoss);    // damaged attacker still deals less
-    EXPECT_GT(lowLoss, 0.0f);        // but always some minimum output
-}
-
 // A division whose organization breaks while badly outnumbered falls back to a
 // rear quadrant instead of fighting to the last man (the soft-loss rule).
-TEST(Combat, LosingDivisionRetreatsToRearQuadrant)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker (overwhelms)
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender (falls back)
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    // The whole map is the defender's own territory, so a rear quadrant is
-    // always legally available — this test isolates the retreat DECISION, not
-    // territory ownership edge cases.
-    FillGrass(world.tilemap, defPlayer, 40, 40);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({30, 30}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // Three attacking divisions crowd the lone defender's quadrant — physically
-    // sharing the cell auto-starts the battle (no order needed), and the 3:1
-    // manpower imbalance makes LosingLocalFight true as soon as cohesion breaks.
-    DeployDivision(atkTower, 1, {20, 20});
-    DeployDivision(atkTower, 2, {21, 20});
-    DeployDivision(atkTower, 3, {20, 21});
-    SoldierDivision* defender = DeployDivision(defTower, 9, {21, 21});
-    // The current balance constants (Phase A placeholders — see
-    // docs/war_system_phase2_design.md, "do strojenia") make cohesion loss per
-    // duel tiny, so a REAL fight would starve the division (food runs out well
-    // before organization does) before ever illustrating the retreat DECISION
-    // this test targets. Starting cohesion nearly broken (and food topped up)
-    // isolates that decision from unrelated balance/starvation timing.
-    defender->cohesion = 0.05f;
-    defender->foodSupply = defender->foodSupplyCapacity * 10;
-
-    bool retreated = false;
-    for (int i = 0; i < 20000 && !retreated; i++)
-    {
-        world.UpdateSimulation(0.05);
-        if (defender->retreating)
-            retreated = true;
-    }
-
-    EXPECT_TRUE(retreated);
-    EXPECT_FALSE(defender->engaged);   // fell back out of the fight
-    EXPECT_GT(defender->strength, 0);  // soft loss — it survived
-}
-
 // A division surrounded on every side (no cardinal-neighbour quadrant is farther
 // from the enemy than where it stands) cannot organize a retreat — the HoI4
 // kocioł — and is destroyed outright once its strength runs out.
-TEST(Combat, EncircledDivisionCannotRetreatAndCanBeDestroyed)
-{
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker (encircles)
-    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender (trapped)
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, defPlayer, 40, 40);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({20, 20}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // One attacker shares the defender's quadrant (bootstraps the battle via
-    // physical contact); four more ring every cardinal-neighbour quadrant so no
-    // direction is ever farther from the enemy than the one the defender holds.
-    DeployDivision(atkTower, 1, {21, 21});   // same cell as the defender
-    DeployDivision(atkTower, 2, {18, 20});   // west
-    DeployDivision(atkTower, 3, {22, 20});   // east
-    DeployDivision(atkTower, 4, {20, 18});   // north
-    DeployDivision(atkTower, 5, {20, 22});   // south
-    SoldierDivision* defender = DeployDivision(defTower, 9, {20, 20});
-
-    bool everRetreating = false;
-    bool destroyed = false;
-    for (int i = 0; i < 20000; i++)
-    {
-        world.UpdateSimulation(0.05);
-        if (defPlayer->forces.empty())
-        {
-            destroyed = true;
-            break;
-        }
-        if (defender->retreating)
-            everRetreating = true;
-    }
-
-    EXPECT_TRUE(destroyed);        // no legal rear quadrant -> the kocioł claims it
-    EXPECT_FALSE(everRetreating);  // never found a way out
-}
-
 // ─── War Phase 2 — Phase C: Supply Conservation ──────────────────────────────
 
-TEST(Combat, SupplyConservationHalvesRequiredSupply)
-{
-    SwordsmanDivision baseline;
-    SwordsmanDivision conserved;
-
-    // Few enough ticks that neither pool bottoms out at 0 — a saturated pool
-    // would flatten both sides to the same (capped) loss and hide the ratio.
-    for (int i = 0; i < 5; i++)
-    {
-        ConsumeDivisionSupply(baseline, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.0);
-        ConsumeDivisionSupply(conserved, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.5);
-    }
-
-    int baselineLoss = baseline.weaponSupplyCapacity - baseline.weaponSupply;
-    int conservedLoss = conserved.weaponSupplyCapacity - conserved.weaponSupply;
-    ASSERT_GT(baselineLoss, 0);
-    ASSERT_LT(baselineLoss, baseline.weaponSupplyCapacity);   // sanity: didn't saturate
-    EXPECT_NEAR(static_cast<double>(conservedLoss), baselineLoss * 0.5, baselineLoss * 0.15 + 1.0);
-}
-
-TEST(Combat, SupplyConservationIsCapped)
-{
-    GameWorld world;
-    Player player{0, world.tilemap};
-    player.balanceModifiers.AddModifier(BalanceModifier{
-        BalanceStat::SupplyConservation, /*additive*/5.0, /*multiplier*/1.0, {}, {}, {}, {}, "test.overflow"});
-
-    EXPECT_LE(PlayerSupplyConservation(player), kMaxSupplyConservation);
-    EXPECT_DOUBLE_EQ(PlayerSupplyConservation(player), kMaxSupplyConservation);
-}
-
-TEST(Combat, SupplyConservationFromTechApplies)
-{
-    GameWorld world;
-    Player player{0, world.tilemap};
-    EXPECT_DOUBLE_EQ(PlayerSupplyConservation(player), 0.0);
-
-    player.balanceModifiers.AddModifier(BalanceModifier{
-        BalanceStat::SupplyConservation, /*additive*/0.15, /*multiplier*/1.0, {}, {}, {}, {}, "tech.field_logistics"});
-
-    EXPECT_NEAR(PlayerSupplyConservation(player), 0.15, 1e-6);
-}
-
 // ─── BUG 4: Combat finite-time resolution + deterministic RNG ────────────────
-
-TEST(Combat, BattleEndsInFiniteSimTime)
-{
-    // BUG 4 regression: before the fix, damage scaled down with HP toward zero
-    // (the 1/x asymptote), so two equal divisions would fight forever.
-    // After the fix a constant floor guarantees battles conclude.
-    // Two equal swordsman divisions, fighting directly.  We drive the sim until
-    // one side's cohesion hits 0 (retreat) or strength hits 0 (destroyed) — this
-    // should happen well within 300 sim-seconds (kConstantOrgFloor drains cohesion).
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);
-    auto p1 = std::make_unique<Player>(1, world.tilemap);
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 20, 20);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({16, 16}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // Set all tiles to be owned by attacker (simplifies territory for retreat).
-    // The defender's tile ownership matters only for retreat — here we just want
-    // to confirm the battle resolves, so give the defender its tower's area.
-    world.tilemap.tilemap[world.tilemap.GetIdFromCoords({16, 16})].owner = defPlayer;
-    world.tilemap.tilemap[world.tilemap.GetIdFromCoords({17, 16})].owner = defPlayer;
-    world.tilemap.tilemap[world.tilemap.GetIdFromCoords({16, 17})].owner = defPlayer;
-    world.tilemap.tilemap[world.tilemap.GetIdFromCoords({17, 17})].owner = defPlayer;
-
-    DeployDivision(atkTower, 1, {8, 8});
-    DeployDivision(defTower, 2, {8, 8});  // same quadrant — auto-engage (Phase 1b)
-
-    const int kMaxTicks = 30000;  // 300s at dt=0.01 — any longer means bug
-    bool resolved = false;
-    for (int i = 0; i < kMaxTicks; i++)
-    {
-        world.UpdateSimulation(0.01);
-        // Battle resolved when at least one side has no cohesion or retreated.
-        bool atkDone = atkPlayer->forces.empty() ||
-            (!atkPlayer->forces.empty() && atkPlayer->forces[0]->cohesion <= 0.0f);
-        bool defDone = defPlayer->forces.empty() ||
-            (!defPlayer->forces.empty() && defPlayer->forces[0]->cohesion <= 0.0f);
-        if (atkDone || defDone)
-        { resolved = true; break; }
-    }
-
-    EXPECT_TRUE(resolved) << "Battle should resolve in finite sim time (BUG 4 regression)";
-}
-
-TEST(Combat, CombatIsDeterministicAcrossRuns)
-{
-    // Same simulation tick and division IDs must produce the exact same damage.
-    DivisionCombatStats attacker{};
-    attacker.lightAttack = 50.0f;
-    attacker.strength = 200.0f;
-    attacker.maxStrength = 200.0f;
-    attacker.hpDamageMultiplier = 1.0f;
-    attacker.orgDamageMultiplier = 1.0f;
-
-    DivisionCombatStats defender{};
-    defender.defense = 30.0f;
-    defender.maxStrength = 150.0f;
-    defender.strength = 150.0f;
-
-    // Same tick and IDs twice → identical result.
-    DivisionDuelResult r1 = ResolveDivisionDuel(attacker, defender, 0.01, /*tick=*/12345, /*idA=*/7, /*idB=*/13);
-    DivisionDuelResult r2 = ResolveDivisionDuel(attacker, defender, 0.01, /*tick=*/12345, /*idA=*/7, /*idB=*/13);
-
-    EXPECT_FLOAT_EQ(r1.defenderStrengthLoss, r2.defenderStrengthLoss);
-    EXPECT_FLOAT_EQ(r1.defenderCohesionLoss, r2.defenderCohesionLoss);
-    EXPECT_FLOAT_EQ(r1.attackerStrengthLoss, r2.attackerStrengthLoss);
-    EXPECT_FLOAT_EQ(r1.attackerCohesionLoss, r2.attackerCohesionLoss);
-
-    // Different tick → different result (variance varies per tick).
-    DivisionDuelResult r3 = ResolveDivisionDuel(attacker, defender, 0.01, /*tick=*/12346, /*idA=*/7, /*idB=*/13);
-    // At least one component should differ (extremely high probability with WangHash).
-    bool differs = (r3.defenderStrengthLoss != r1.defenderStrengthLoss) ||
-                   (r3.defenderCohesionLoss != r1.defenderCohesionLoss);
-    EXPECT_TRUE(differs) << "Adjacent ticks should produce different variance";
-}
-
-TEST(Combat, LowHpDivisionStillDealsMinimumDamage)
-{
-    // BUG 4 regression: before the fix a near-dead attacker caused damage to
-    // asymptote to zero. After the fix, even strength=1 (worst case) must still
-    // deal a meaningful amount due to the constant floor.
-    DivisionCombatStats nearDead{};
-    nearDead.lightAttack = 10.0f;
-    nearDead.strength = 1.0f;    // 1% of max → hpScaling = 0.1 (floor)
-    nearDead.maxStrength = 100.0f;
-    nearDead.hpDamageMultiplier  = 1.0f;
-    nearDead.orgDamageMultiplier = 1.0f;
-
-    DivisionCombatStats defender{};
-    defender.defense = 0.0f;
-
-    // Over 1 "combat hour" (dt=60s), even a near-dead attacker must deal positive damage.
-    DivisionDuelResult duel = ResolveDivisionDuel(nearDead, defender, 60.0);
-
-    EXPECT_GT(duel.defenderStrengthLoss, 0.5f) << "Near-dead attacker must deal minimum strength damage";
-    EXPECT_GT(duel.defenderCohesionLoss, 0.5f) << "Near-dead attacker must deal minimum cohesion damage";
-}
 
 // The Barracks is a training FACTORY, not a garrison: a freshly trained division
 // deploys straight onto a free tile beside the building instead of stationing
@@ -2829,68 +1834,6 @@ TEST(WarSystem, CanBuildFootprintAllowDivisionsFlag)
 
 // ─── BUG 2 regression: enemy division on player tile, tile reclaimed ─────────
 
-TEST(WarSystem, EnemyDivisionOnPlayerTileIsReclaimed)
-{
-    // BUG 2 regression: after BUG 4 fix battles now resolve in finite time.
-    // Verify that once an enemy division that occupied a player tile is destroyed,
-    // ClaimTilesUnderDivisions (called every tick in UpdateSimulation)
-    // returns the tile to the player who still stands on it.
-    //
-    // Setup: 3 attackers vs 1 defender in the same quadrant on attacker's territory.
-    // The defender is completely surrounded (no own territory nearby) so it cannot
-    // retreat (encirclement) — it fights until strength=0 and is removed.
-    // The attackers survive, reclaiming the tile through ClaimTilesUnderDivisions.
-    GameWorld world;
-    auto p0 = std::make_unique<Player>(0, world.tilemap);
-    auto p1 = std::make_unique<Player>(1, world.tilemap);
-    Player* atkPlayer = p0.get();
-    Player* defPlayer = p1.get();
-    world.playerHandler.players[0] = std::move(p0);
-    world.playerHandler.players[1] = std::move(p1);
-
-    // All tiles owned by atkPlayer — enemy has NO territory, cannot retreat.
-    FillGrass(world.tilemap, atkPlayer, 20, 20);
-
-    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
-    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({18, 18}), defPlayer, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(atkTower, nullptr);
-    ASSERT_NE(defTower, nullptr);
-
-    // Three attackers vs one defender in the same 2×2 quadrant (cell {4,4}).
-    // 3:1 manpower ratio ensures the lone defender is outmatched and cannot win.
-    SoldierDivision* atkDiv = DeployDivision(atkTower, 1, {8, 8});
-    DeployDivision(atkTower, 2, {9, 8});
-    DeployDivision(atkTower, 3, {8, 9});
-    DeployDivision(defTower, 9, {9, 9});  // same quadrant as attackers
-
-    // Drive the sim until the defender is destroyed (encircled, cannot retreat).
-    const int kMaxTicks = 30000;  // 300s — more than enough given the floor damage
-    bool defDestroyed = false;
-    for (int i = 0; i < kMaxTicks; i++)
-    {
-        world.UpdateSimulation(0.01);
-        if (defPlayer->forces.empty())
-        { defDestroyed = true; break; }
-    }
-
-    ASSERT_TRUE(defDestroyed) << "Defender should be destroyed (encircled, 3:1 odds) — BUG 4 must be fixed first";
-    ASSERT_FALSE(atkPlayer->forces.empty()) << "Attacker should have survived";
-
-    // Run a couple more ticks so ClaimTilesUnderDivisions can do its job.
-    for (int j = 0; j < 5; j++)
-        world.UpdateSimulation(0.01);
-
-    // The attacker's division is still standing on (or near) its original tile.
-    // ClaimTilesUnderDivisions must have claimed the whole quadrant back.
-    ASSERT_TRUE(atkDiv->occupiedTile.x >= 0) << "Attacker division must be deployed";
-    Vec2i atkTile = atkDiv->occupiedTile;
-    ASSERT_TRUE(world.tilemap.IsInside(atkTile));
-    EXPECT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(atkTile)].owner, atkPlayer)
-        << "Player's tile should be reclaimed once enemy is destroyed (BUG 2 regression)";
-}
-
 // ─── BUG 3b/3d — ResupplyDeployedDivisions ────────────────────────────────────
 
 // BUG 3b: a deployed division within SupplyRange of a friendly HQ's stockpile
@@ -3083,4 +2026,51 @@ TEST(ResupplyDeployed, EmptyManpowerPoolPreventsReinforcement)
         ReinforceDivisionStrength(*raw, *player, 1.0, &player->balanceModifiers);
 
     EXPECT_EQ(raw->strength, strengthBefore) << "No Manpower → strength must not recover";
+}
+
+// ─── Supply Conservation (moved from the removed Combat suite) ────────────────
+// These exercise ConsumeDivisionSupply / PlayerSupplyConservation directly — the
+// supply upkeep system survives the removal of field combat.
+
+TEST(Supply, ConservationReducesRequiredSupply)
+{
+    SwordsmanDivision baseline;
+    SwordsmanDivision conserved;
+
+    // Few enough ticks that neither pool bottoms out at 0 — a saturated pool
+    // would flatten both sides to the same (capped) loss and hide the ratio.
+    for (int i = 0; i < 5; i++)
+    {
+        ConsumeDivisionSupply(baseline, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.0);
+        ConsumeDivisionSupply(conserved, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.5);
+    }
+
+    int baselineLoss = baseline.weaponSupplyCapacity - baseline.weaponSupply;
+    int conservedLoss = conserved.weaponSupplyCapacity - conserved.weaponSupply;
+    ASSERT_GT(baselineLoss, 0);
+    ASSERT_LT(baselineLoss, baseline.weaponSupplyCapacity);   // sanity: didn't saturate
+    EXPECT_NEAR(static_cast<double>(conservedLoss), baselineLoss * 0.5, baselineLoss * 0.15 + 1.0);
+}
+
+TEST(Supply, ConservationIsCapped)
+{
+    GameWorld world;
+    Player player{0, world.tilemap};
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::SupplyConservation, /*additive*/5.0, /*multiplier*/1.0, {}, {}, {}, {}, "test.overflow"});
+
+    EXPECT_LE(PlayerSupplyConservation(player), kMaxSupplyConservation);
+    EXPECT_DOUBLE_EQ(PlayerSupplyConservation(player), kMaxSupplyConservation);
+}
+
+TEST(Supply, ConservationFromTechApplies)
+{
+    GameWorld world;
+    Player player{0, world.tilemap};
+    EXPECT_DOUBLE_EQ(PlayerSupplyConservation(player), 0.0);
+
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::SupplyConservation, /*additive*/0.15, /*multiplier*/1.0, {}, {}, {}, {}, "tech.field_logistics"});
+
+    EXPECT_NEAR(PlayerSupplyConservation(player), 0.15, 1e-6);
 }

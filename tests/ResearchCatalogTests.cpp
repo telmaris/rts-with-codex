@@ -1,6 +1,6 @@
-#include "../inc/MapGenerator.h"
-#include "../inc/Player.h"
-#include "../inc/ResearchCatalog.h"
+#include "simulation/MapGenerator.h"
+#include "economy/Player.h"
+#include "research/ResearchCatalog.h"
 
 #include <gtest/gtest.h>
 

@@ -1,46 +1,67 @@
 cmake_minimum_required(VERSION 3.16)
 
 include_directories(../inc)
-        target_sources(game
-                       PRIVATE
-                       AudioSystem.cpp
-                       WinmmStubs.cpp
-                       GameWorld.cpp
-                       GameWorld.TileMap.cpp
-                       GameWorld.Init.cpp
-                       GameWorld.Persistence.cpp
-                       GameWorld.Commands.cpp
-                       GameWorld.Checksum.cpp
-                       GameWorld.Render.cpp
-                       Controller.cpp
-                       Technology.cpp
-                       Building.cpp
-                       BuildingComponents.cpp
-                       BuildingConfig.cpp
-                       Game.cpp
-                       Resource.cpp
-                       RoadNetwork.cpp
-                       MapGenerator.cpp
-                       RtsDataFile.cpp
-                       TcpGameTransport.cpp
-                       GameWindow.cpp
-                       Scenes.cpp
-                       Gui.cpp
-                       ResearchCatalog.cpp
-                       Renderer.cpp
-                       GuiController.cpp
-                       GuiCommon.cpp
-                       GuiMapWidgets.cpp
-                       GuiHudPanels.cpp
-                       GuiResearchTree.cpp
-                       GuiBuildModes.cpp
-                       ArmyGroup.cpp
-                       ArmyOrder.cpp
-                       Equipment.cpp
-                       UnitStats.cpp
-                       DivisionSector.cpp
-                       MovementPlanner.cpp
-                       SectorGraph.cpp
-                       Player.cpp
-                       ConstructionQueue.cpp
-                       DiplomaticState.cpp)
+
+target_sources(game
+               PRIVATE
+               core/GameWorld.cpp
+               core/GameWorld.TileMap.cpp
+               core/GameWorld.Init.cpp
+               core/GameWorld.Persistence.cpp
+               core/GameWorld.Commands.cpp
+               core/GameWorld.Checksum.cpp
+               core/GameWorld.Render.cpp
+               ai/Controller.cpp
+               research/Technology.cpp
+               economy/Building.cpp
+               economy/BuildingComponents.cpp
+               economy/BuildingConfig.cpp
+               economy/ConstructionQueue.cpp
+               economy/Player.cpp
+               scenes/Game.cpp
+               data/Resource.cpp
+               simulation/RoadNetwork.cpp
+               simulation/MapGenerator.cpp
+               simulation/SectorGraph.cpp
+               data/RtsDataFile.cpp
+               multiplayer/TcpGameTransport.cpp
+               scenes/GameWindow.cpp
+               scenes/Scenes.cpp
+               ui/Gui.cpp
+               research/ResearchCatalog.cpp
+               ui/Renderer.cpp
+               ui/GuiController.cpp
+               ui/GuiCommon.cpp
+               ui/GuiMapWidgets.cpp
+               ui/GuiHudPanels.cpp
+               ui/GuiResearchTree.cpp
+               ui/GuiBuildModes.cpp
+               warfare/ArmyGroup.cpp
+               warfare/ArmyOrder.cpp
+               warfare/Equipment.cpp
+               warfare/UnitStats.cpp
+               warfare/DivisionSector.cpp
+               warfare/MovementPlanner.cpp
+               ai/DiplomaticState.cpp
+               ui/AudioSystem.cpp
+               WinmmStubs.cpp)
+
+# Organize folders in IDE
+source_group("core" FILES
+             core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
+             core/GameWorld.Persistence.cpp core/GameWorld.Commands.cpp
+             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp)
+
+source_group("ai" FILES ai/Controller.cpp ai/DiplomaticState.cpp)
+source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
+source_group("economy" FILES economy/Building.cpp economy/BuildingComponents.cpp
+             economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/Player.cpp)
+source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp simulation/SectorGraph.cpp)
+source_group("data" FILES data/Resource.cpp data/RtsDataFile.cpp)
+source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
+source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/Scenes.cpp)
+source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/GuiController.cpp ui/GuiCommon.cpp
+             ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
+             ui/GuiBuildModes.cpp ui/AudioSystem.cpp)
+source_group("warfare" FILES warfare/ArmyGroup.cpp warfare/ArmyOrder.cpp warfare/Equipment.cpp
+             warfare/UnitStats.cpp warfare/DivisionSector.cpp warfare/MovementPlanner.cpp)
