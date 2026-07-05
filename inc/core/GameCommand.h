@@ -356,12 +356,15 @@ struct GameServerFrame
 
     std::string Serialize() const
     {
+        Archive ar(SerializationVersion::GameServerFrameVersion);
+        ar << tick
+           << (hasChecksum ? 1 : 0)
+           << checksum
+           << static_cast<uint64_t>(results.size());
+
+        std::string payload = ar.GetString();
         std::ostringstream stream;
-        stream << WireVersion << ' '
-               << tick << ' '
-               << (hasChecksum ? 1 : 0) << ' '
-               << checksum << ' '
-               << results.size();
+        stream << payload;
         for (const auto& result : results)
             stream << ' ' << std::quoted(result.Serialize());
         return stream.str();
@@ -375,7 +378,7 @@ struct GameServerFrame
         size_t resultCount = 0;
         GameServerFrame parsed;
         stream >> version >> parsed.tick >> hasChecksum >> parsed.checksum >> resultCount;
-        if (!stream || version != WireVersion)
+        if (!stream || version != SerializationVersion::GameServerFrameVersion)
             return false;
 
         parsed.hasChecksum = hasChecksum != 0;

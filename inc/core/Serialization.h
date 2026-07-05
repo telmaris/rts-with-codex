@@ -14,7 +14,7 @@ struct SerializationVersion
 {
     static constexpr int GameCommandVersion = 9;  // Current WireVersion from GameCommand::WireVersion
     static constexpr int GameCommandResultVersion = 3;
-    static constexpr int GameServerFrameVersion = 2;
+    static constexpr int GameServerFrameVersion = 1;  // Current WireVersion from GameServerFrame::WireVersion
     static constexpr int GameSnapshotVersion = 5;
     static constexpr int GameWorldSaveVersion = 13;
 };
