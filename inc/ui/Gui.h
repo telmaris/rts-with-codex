@@ -3,6 +3,7 @@
 
 #include "core/Utils.h"
 #include "data/Resource.h"
+#include "ui/InputManager.h"
 #include "raylib.h"
 
 #include <algorithm>
@@ -466,6 +467,9 @@ class GuiPanel : public UiWidget
         bool HasBuilding() const { return building != nullptr; }
         // Returns the building currently displayed by the panel.
         Building* GetBuilding() const { return building; }
+        // Closes the panel (clears its building target). Public so both the
+        // X button and the ESC subscriber below can share one code path.
+        void Close() { SetBuilding(nullptr); }
         bool ConsumeDestroyRequest()
         {
             bool requested = destroyRequested;
@@ -480,6 +484,12 @@ class GuiPanel : public UiWidget
         static void DrawResourceIcon(ResourceType type, Rectangle dest);
         // Scrolls generic panel content when a panel section overflows.
         void ScrollContent(float wheel);
+
+        // Clips subsequent draws to a content rectangle (ETAP 6.1). Pair with
+        // EndContentClip(); nesting is not supported (raylib scissor is a
+        // single active rect, not a stack).
+        void BeginContentClip(Rectangle contentArea);
+        void EndContentClip();
 
         // Replaces panel title text.
         inline void ChangeText(std::string stryng)
@@ -502,6 +512,12 @@ class GuiPanel : public UiWidget
         Vec2i dragOffset{0, 0};
         float contentScrollOffset{0.0f};
         float maxContentScrollOffset{0.0f};
+
+        // ESC closes the topmost panel that owns one of these (ETAP 6.1): the
+        // wrapped subscriber (de)registers itself with InputManager via RAII,
+        // so a panel that goes out of scope also stops listening for free.
+        InputEventSubscriber<InputType::KeyPressed, KEY_ESCAPE> escClose{
+            [this](const InputEvent&) { Close(); }};
 };
 
 // Standard side panel for selected building details.

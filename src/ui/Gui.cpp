@@ -1850,7 +1850,7 @@ void GuiPanel::Update(double dt)
     {
         bool barracks = building->HasComponent<RecruitmentComponent>();
         // Only defensive works (tower/fortress/castle) present garrison state.
-        // The Barracks is a training factory and the HQ a capital — both merely
+        // The Barracks is a training factory and the HQ a capital ï¿½ both merely
         // home field divisions and must not read as garrison buildings.
         bool defensiveGarrison = IsDefensiveGarrisonBuilding(*building);
         UiText::Draw(barracks ? "Military training" : "Military", contentX, y, 22, Color{190, 198, 208, 255});
@@ -1927,7 +1927,7 @@ void GuiPanel::Update(double dt)
             y += 8;
             // showPercent: military supplies are reported as a percentage of the
             // garrison's establishment (weapon/food/materiel), which is what the
-            // simulation actually consumes — raw point counts were confusing.
+            // simulation actually consumes ï¿½ raw point counts were confusing.
             auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor,
                                  bool showPercent)
             {
@@ -2250,6 +2250,19 @@ void GuiPanel::ScrollContent(float wheel)
         return;
 
     contentScrollOffset = std::clamp(contentScrollOffset - wheel * 42.0f, 0.0f, maxContentScrollOffset);
+}
+
+// Restricts drawing to a content rectangle so overflowing text/widgets don't
+// bleed past the panel edge while scrolled. Pair with EndContentClip().
+void GuiPanel::BeginContentClip(Rectangle contentArea)
+{
+    BeginScissorMode(static_cast<int>(contentArea.x), static_cast<int>(contentArea.y),
+                      static_cast<int>(contentArea.width), static_cast<int>(contentArea.height));
+}
+
+void GuiPanel::EndContentClip()
+{
+    EndScissorMode();
 }
 
 // Loads the requested data into runtime state.
