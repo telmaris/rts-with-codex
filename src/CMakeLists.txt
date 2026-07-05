@@ -22,6 +22,7 @@ target_sources(game
                scenes/Game.cpp
                data/Resource.cpp
                simulation/RoadNetwork.cpp
+               simulation/PathingService.cpp
                simulation/MapGenerator.cpp
                simulation/SectorGraph.cpp
                data/RtsDataFile.cpp
@@ -29,6 +30,7 @@ target_sources(game
                scenes/GameWindow.cpp
                scenes/Scenes.cpp
                ui/Gui.cpp
+               ui/InputManager.cpp
                research/ResearchCatalog.cpp
                ui/Renderer.cpp
                ui/GuiController.cpp

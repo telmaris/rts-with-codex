@@ -1,7 +1,8 @@
 #include "simulation/PathingService.h"
-#include "core/MapGenerator.h"
+#include "simulation/MapGenerator.h"
 #include "simulation/RoadNetwork.h"
 #include "economy/Building.h"
+#include <cmath>
 
 PathingService::PathingService(TileMap& tilemap, RoadNetwork& roadNetwork)
     : tilemap(tilemap), roadNetwork(roadNetwork)
