@@ -305,6 +305,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\GuiResearchTree.cpp" />
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\GuiBuildModes.cpp" />
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\ArmyGroup.cpp" />
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\ArmyOrder.cpp" />
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\Equipment.cpp" />
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\UnitStats.cpp" />
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\DivisionSector.cpp" />

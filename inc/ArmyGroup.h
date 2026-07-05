@@ -45,13 +45,24 @@ struct ArmyGroup
     // Rebuilt by RebuildModifiers() whenever composition or commander changes.
     BalanceModifierSet modifiers;
 
-    // Army-wide strategic order (e.g., BorderDeploy, Attack).
-    // Only one can be active per army; coordinated across all divisions.
+    // Army-wide strategic order instance. Local-only simulation loop.
+    // Updated each tick; issues MoveDivision commands to coordinate divisions.
+    // Shared semantics: only one active order per army.
     ArmyOrder currentOrder;
 
     // UI state: 0+ = this army is selected in UI panel, -1 = not selected.
     // Used to display ArmyOrderPanelWidget and highlight the army card.
     int selectedForUI{-1};
+
+    // Updates the active order (local simulation, no GameCommand issued).
+    // Called by Player.UpdateArmyOrders() each tick.
+    // Returns false if order should be deactivated.
+    bool UpdateOrder(double dt, class Player& owner)
+    {
+        if (!currentOrder.IsValid())
+            return false;
+        return currentOrder.Update(dt, *this, owner);
+    }
 
     // Returns true when this army contains the given division id.
     bool HasDivision(int divisionId) const;

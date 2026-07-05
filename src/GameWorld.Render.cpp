@@ -808,6 +808,7 @@ void GameWorld::UpdateSimulation(double dt)
         {
             player->UpdateFocus(dt);
             player->UpdateResearch(dt);
+            player->UpdateArmyOrders(dt);  // Local army order simulation (issues MoveDivision commands)
         }
     ProcessCommands();
     // Assign each player's builders to the front of their construction queue

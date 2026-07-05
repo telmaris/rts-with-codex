@@ -97,6 +97,9 @@
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\ArmyGroup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\ArmyOrder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\src\Equipment.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

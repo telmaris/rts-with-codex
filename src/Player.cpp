@@ -135,6 +135,38 @@ void Player::UpdateResearch(double dt)
         tilemap.RecalculateTerritory(this);
 }
 
+void Player::UpdateArmyOrders(double dt)
+{
+    // Local-only simulation: update all active army orders.
+    // Each order issues MoveDivision commands based on division positions and tactical state.
+    for (auto& army : armyGroups.GetArmies())
+    {
+        if (!army.UpdateOrder(dt, *this))
+        {
+            // Order failed (e.g., all divisions dead) — deactivate it.
+            army.currentOrder.Cancel();
+        }
+    }
+}
+
+void Player::SetArmyOrder(int armyId, ArmyOrderType orderType, const std::vector<int>& targetTileIds, int objectiveTileId)
+{
+    ArmyGroup* army = armyGroups.FindArmy(armyId);
+    if (army == nullptr)
+        return;
+
+    // Deactivate any previous order.
+    army->currentOrder.Cancel();
+
+    // Create and activate the new order.
+    army->currentOrder.type = orderType;
+    army->currentOrder.targetTileIds = targetTileIds;
+    army->currentOrder.objectiveTileId = objectiveTileId;
+    army->currentOrder.priority = 0;
+
+    Log::Msg("[ArmyOrder]", "Army ", armyId, " activated order: ", static_cast<int>(orderType));
+}
+
 void Player::ResetResearchState()
 {
     technologies.Clear();

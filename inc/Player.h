@@ -60,6 +60,10 @@ public:
 
     void UpdateFocus(double dt);
     void UpdateResearch(double dt);
+    void UpdateArmyOrders(double dt);  // Local army command simulation
+
+    // Sets up an army order (called deterministically on all clients from command handler).
+    void SetArmyOrder(int armyId, ArmyOrderType orderType, const std::vector<int>& targetTileIds = {}, int objectiveTileId = -1);
 
     void UpdateEconomyTelemetry(double dt) { economyTelemetry.Update(*this, dt); }
 

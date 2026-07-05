@@ -35,6 +35,7 @@ include_directories(../inc)
                        GuiResearchTree.cpp
                        GuiBuildModes.cpp
                        ArmyGroup.cpp
+                       ArmyOrder.cpp
                        Equipment.cpp
                        UnitStats.cpp
                        DivisionSector.cpp
