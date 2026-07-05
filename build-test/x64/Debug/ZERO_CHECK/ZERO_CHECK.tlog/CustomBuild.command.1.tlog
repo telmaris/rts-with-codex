@@ -1,0 +1,10 @@
+^F:\PROJEKTY\GAMEDEV\RTS-WITH-CODEX\BUILD-TEST\CMAKEFILES\6B13E9A7625EBA8AA12E0D8AA24C2EAE\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SF:/Projekty/gamedev/rts-with-codex -BF:/Projekty/gamedev/rts-with-codex/build-test --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file F:/Projekty/gamedev/rts-with-codex/build-test/RtsGameTutorial.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

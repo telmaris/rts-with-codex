@@ -1,0 +1,76 @@
+# ============================================================
+# SCIENTIFIC DEVELOPMENT TREE
+# ============================================================
+
+technology algebra
+    name "Algebra"
+    description "The study of numbers and symbolic operations. It laid the foundation for modern science."
+    category SCIENCE
+    layout_lane "Core Mathematics"
+    tags production construction
+    layout_order 10
+    research_time 90
+    cost PAPER 150
+    modifier ProductionCycleTime multiplier 0.95
+    modifier BuildTime multiplier 0.95
+    modifier BuildCost multiplier 0.95
+end
+
+technology trigonometry
+    name "Trigonometry"
+    description "The study of angles and geometric relationships. It enabled accurate surveying, navigation, and engineering."
+    category SCIENCE
+    layout_lane "Core Mathematics"
+    tags construction military
+    layout_order 100
+    research_time 120
+    requires algebra
+    cost PAPER 200
+    cost PLANKS 200
+    modifier BuildCost multiplier 0.90
+    modifier BuildTime multiplier 0.95
+    # modifier AttackRange multiplier 1.1
+end
+
+technology analytical_geometry
+    name "Analytical geometry"
+    description "The study of geometry through algebra and coordinates. It enabled precise modeling of space and motion."
+    category SCIENCE
+    layout_lane "Core Mathematics"
+    tags construction logistics
+    layout_order 100
+    research_time 120
+    requires algebra
+    cost PAPER 300
+    modifier RoadSpeed multiplier 1.2
+    modifier BuildTime multiplier 0.90
+end
+
+technology analytical_geometry
+    name "Differential equations"
+    description "The study of continuous change in complex systems over time. It enabled simulation of economies, populations, and physical forces as living systems."
+    category SCIENCE
+    layout_lane "Core Mathematics"
+    tags construction logistics
+    layout_order 100
+    research_time 150
+    requires algebra
+    cost PAPER 300
+    modifier ProductionCycleTime multiplier 0.9
+    modifier MilitaryStrength multiplier 1.1
+end
+
+technology analytical_geometry
+    name "Number theory"
+    description "The study of structured properties of integers and discrete patterns. It enabled encryption, coding systems, and deterministic optimization of complex logistics."
+    category SCIENCE
+    layout_lane "Core Mathematics"
+    tags construction logistics
+    layout_order 100
+    research_time 300
+    requires algebra
+    cost PAPER 500
+    modifier ProductionCycleTime multiplier 0.9
+    modifier MilitaryStrength multiplier 1.1
+    modifier SuppplyConsumption multiplier 0.8
+end

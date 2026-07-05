@@ -301,6 +301,14 @@ struct SupplyBufferComponent : IBuildingComponent
     // deployed divisions draw from the nearest depot that has surplus.
     int weaponStock{0};
     int materielStock{0};
+
+    // Demand registry — the "what arrived" side of the picture the building
+    // reports back to the supply hub (what it needs = ComputeMilitaryDemand;
+    // what it has = the stockpiles/food buffer above). Cumulative counts of
+    // package contents received here. Transient (UI/inspection), not serialized.
+    int receivedFood{0};
+    int receivedWeapons{0};
+    int receivedMateriel{0};
     // Maximum stockpile per category: currently hard-coded to 4× a standard
     // division's capacity (4 × 40 = 160); made tunable later via BalanceStat.
     static constexpr int kStockCap = 160;
@@ -329,6 +337,7 @@ struct RecruitmentComponent : IBuildingComponent
         ResourceType weapon{ResourceType::Null};
         ResourceType rangedWeapon{ResourceType::Null};
         ResourceType ammo{ResourceType::Null};
+        ResourceType armor{ResourceType::Null};
         Job();
         Job(MilitaryUnitType t, double r);
     };
@@ -364,6 +373,13 @@ struct SupplyPackageComponent : IBuildingComponent
     int rationsPerPackage{40};         // FOOD_PROVISIONS bundled per Food package
     double assembleInterval{5.0};      // seconds between assembly attempts
     double timer{0.0};
+
+    // Which supply streams THIS hub packs, indexed by static_cast<size_t>(SupplyCategory)
+    // (Food/Materiel/Weapons). Lets a dedicated building specialise — e.g. a
+    // materiel depot serves only {false,true,false} while a weapons hub serves
+    // {true,false,true}. A plain SupplyHub serves all three (backward compatible).
+    // This is the "packer can also load materials" hook from the supply rework.
+    std::array<bool, 3> servedCategories{{true, true, true}};
 
     // Three independent ready queues, one per SupplyCategory (Food/Materiel/
     // Weapons — see docs/war_system_phase2_design.md, Phase B). Indexed by
@@ -402,6 +418,15 @@ struct SupplyPackageComponent : IBuildingComponent
         return static_cast<int>(readyPackages[static_cast<size_t>(category)].size());
     }
 };
+
+// Computes what one military building needs (the message its SupplyBufferComponent
+// sends back to a supply hub): food/materiel/weapon deficits of its garrison,
+// weapons broken down by the equipment category each division actually uses.
+SupplyDemand ComputeMilitaryDemand(Building& target);
+
+// Union of ComputeMilitaryDemand across every friendly military building of the
+// hub's owner — the aggregate "what the front needs" a hub packs against.
+SupplyDemand AggregatePlayerDemand(Building& hub);
 
 // Surveys equipment + rations available across a player's storage buildings
 // (does not consume). Keyed by ResourceType → total count.

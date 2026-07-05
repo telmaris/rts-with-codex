@@ -34,6 +34,29 @@ struct SupplyLineItem
     int          amount{0};
 };
 
+// ─── SupplyDemand ─────────────────────────────────────────────────────────────
+// What the front actually needs, broken down so a supply hub can pack the RIGHT
+// goods instead of guessing. This is the message a military building's
+// SupplyBufferComponent sends back to the packing SupplyPackageComponent: "my
+// swordsmen are short 40 Swords, my archers need Bows + Ammo, I have room for 30
+// rations." The hub packs to match — an archer-only front receives Bows, never
+// idle Swords. See docs/war_system_phase2_design.md and the user's supply rework.
+struct SupplyDemand
+{
+    int food{0};       // FOOD_PROVISIONS points wanted
+    int materiel{0};   // WOOD/PLANKS/TOOLS points wanted (cohesion/repair)
+    // Per weapon/ammo equipment category, how many weapon-supply points are wanted.
+    // std::map keeps a deterministic iteration order for lockstep.
+    std::map<EquipmentCategory, int> weapons;
+
+    bool Empty() const { return food <= 0 && materiel <= 0 && weapons.empty(); }
+    int WeaponTotal() const;
+    void AddWeapon(EquipmentCategory category, int amount);
+    void Merge(const SupplyDemand& other);
+    // True when this category stream has outstanding demand.
+    bool Wants(SupplyCategory category) const;
+};
+
 struct SupplyPackage
 {
     SupplyCategory category{SupplyCategory::Weapons};
@@ -75,5 +98,16 @@ bool PlanSupplyPackage(const std::map<ResourceType, int>& available,
 // travels as its own package now). Returns false when nothing could be planned.
 bool PlanCategoryPackage(const std::map<ResourceType, int>& available,
                          SupplyCategory category, int soldiers, SupplyPackage& out);
+
+// Demand-driven planner: packs one package for `category` sized to what the front
+// actually `demand`s, drawing only from `available` network goods. For Weapons it
+// packs the best available item of every DEMANDED weapon/ammo category (so an
+// archer front gets Bows + Ammo, a swordsman front gets Swords), requiring at
+// least one primary weapon. `cap` bounds how much of any one item is packed
+// (package establishment). Pure — does not consume. Returns false when the
+// category has no demand or nothing could be drawn to meet it.
+bool PlanDemandPackage(const std::map<ResourceType, int>& available,
+                       const SupplyDemand& demand, SupplyCategory category,
+                       int cap, SupplyPackage& out);
 
 #endif

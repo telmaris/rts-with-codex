@@ -26,6 +26,10 @@ namespace
 
 
 
+    // Eliminates a player whose Headquarters was just captured (defined below —
+    // CaptureBuilding triggers it when the taken building is an HQ).
+    void EliminatePlayer(GameWorld& world, Player* defender, Player* conqueror);
+
     // Flips a captured military building to `attacker`. Divisions are owned by the
     // Player (not the building), so capture does NOT touch them — any homed here are
     // auto-rehomed to a surviving building by RebuildGarrisonViews (run after
@@ -68,18 +72,59 @@ namespace
             Log::Msg("CaptureBuilding", "WARNING: attacker has no road network; captured building not integrated into nav map");
         world.tilemap.AutoConnectBuilding(b);
 
+        bool projectsTerritory = false;
         if (auto* territory = b->GetComponent<TerritoryComponent>())
         {
             territory->hp = territory->GetMaxHp(*b);
             territory->siegeBuffer = 0.0f;
+            projectsTerritory = true;
         }
         // Order matters: SetTerritory never flips tiles held by ANOTHER player, so
         // the defender must release its ground FIRST — only then can the attacker's
         // recompute claim the radius around the captured building. The old order
         // left that ground neutral until some unrelated refresh re-ran the claim.
-        if (defender != nullptr)
-            world.tilemap.RecalculateTerritory(defender);
-        world.tilemap.RecalculateTerritory(attacker);
+        // Civil buildings (roads, production, villages) project no territory, so a
+        // full recompute is skipped — they just follow the ground they sit on.
+        if (projectsTerritory)
+        {
+            if (defender != nullptr)
+                world.tilemap.RecalculateTerritory(defender);
+            world.tilemap.RecalculateTerritory(attacker);
+        }
+
+        // Taking a Headquarters eliminates its owner: the whole state passes to the
+        // conqueror and its army disbands. Done here so every siege/overrun path
+        // that captures an HQ triggers defeat consistently.
+        if (b->buildingType == BuildingType::Headquarters && defender != nullptr && !defender->defeated)
+            EliminatePlayer(world, defender, attacker);
+    }
+
+    // Eliminates `defender`: hands every building it still holds to `conqueror`,
+    // disbands its field army, and flags it defeated. Deterministic (buildings
+    // transferred in ascending positionId order). Called when an HQ is captured.
+    void EliminatePlayer(GameWorld& world, Player* defender, Player* conqueror)
+    {
+        if (defender == nullptr || defender->defeated)
+            return;
+        defender->defeated = true;
+
+        if (conqueror != nullptr)
+        {
+            std::vector<int> positionIds;
+            for (Building* b : defender->GetTrackedBuildings())
+                if (b != nullptr && b->positionId >= 0)
+                    positionIds.push_back(b->positionId);
+            std::sort(positionIds.begin(), positionIds.end());
+            for (int pid : positionIds)
+                CaptureBuilding(world, pid, conqueror);
+        }
+
+        // Disband the defeated player's field army — its divisions are gone.
+        defender->forces.clear();
+        defender->armyGroups = ArmyGroupRegistry{};
+        world.tilemap.RecalculateTerritory(defender);
+        if (conqueror != nullptr)
+            world.tilemap.RecalculateTerritory(conqueror);
     }
 
     // Enemy MILITARY TARGET (defensive work or HQ) on any 8-neighbour of `tile`,
@@ -168,22 +213,6 @@ namespace
         return result;
     }
 
-    // True when the local fight around `U` is currently lost — allied strength
-    // within fighting range of `U`'s quadrant is less than enemy strength there.
-    // This is the trigger for an organized retreat (Phase 4b) rather than
-    // fighting to the last man.
-    bool LosingLocalFight(const FieldUnit& U, const std::vector<FieldUnit>& units)
-    {
-        float own = 0.0f, enemy = 0.0f;
-        for (const auto& E : units)
-        {
-            if (!SectorsFight(U.cell, E.cell)) continue;
-            if (E.playerId == U.playerId) own += static_cast<float>(E.div->strength);
-            else enemy += static_cast<float>(E.div->strength);
-        }
-        return enemy > own;
-    }
-
     // Falls a broken (cohesion<=0) division back to a legal REAR quadrant: own
     // territory, cardinally adjacent to its current cell, connected (walkable),
     // strictly farther from the nearest enemy than it is now, and not already
@@ -247,6 +276,11 @@ namespace
     // battle persists (engaged) while the division stays adjacent to a live
     // enemy, even after the order clears. Idle units in merely adjacent quadrants
     // never auto-fight. Deterministic (sorted + simultaneous apply) for lockstep.
+    // Seconds a division is immune to being pulled back into combat after it breaks
+    // off (cohesion lost / ordered to withdraw). Long enough to physically clear the
+    // contested quadrant and rebuild some organization before it can fight again.
+    constexpr float kRegroupSeconds = 6.0f;
+
     void RunFieldCombat(GameWorld& world, double dt)
     {
         std::vector<FieldUnit> units;
@@ -347,13 +381,14 @@ namespace
         // division that is actively RETREATING (Phase 4b) is exempt: its body is
         // still crossing the cell it just broke from, and re-engaging it here
         // would grind it down before it ever clears the quadrant.
+        auto regrouping = [](const SoldierDivision* d) { return d->retreating || d->regroupTimer > 0.0f; };
         for (size_t i = 0; i < units.size(); i++)
             for (size_t j = i + 1; j < units.size(); j++)
                 if (units[i].playerId != units[j].playerId &&
                     units[i].cell == units[j].cell)
                 {
-                    if (!units[i].div->retreating) units[i].div->engaged = true;
-                    if (!units[j].div->retreating) units[j].div->engaged = true;
+                    if (!regrouping(units[i].div)) units[i].div->engaged = true;
+                    if (!regrouping(units[j].div)) units[j].div->engaged = true;
                 }
 
         // Phase 2 — spread engagement to enemies in adjacent quadrants (battles drag
@@ -368,7 +403,7 @@ namespace
                 for (size_t j = 0; j < units.size(); j++)
                 {
                     if (units[i].playerId == units[j].playerId) continue;
-                    if (units[j].div->engaged || units[j].div->retreating) continue;
+                    if (units[j].div->engaged || regrouping(units[j].div)) continue;
                     if (SectorsFight(units[i].cell, units[j].cell))
                     {
                         units[j].div->engaged = true;
@@ -486,8 +521,8 @@ namespace
                 territory->ReceiveDamage(whole);
                 territory->siegeBuffer -= static_cast<float>(whole);
             }
-            if (territory->hp <= 0 && b->buildingType != BuildingType::Headquarters)
-                razedBuildings.insert(positionId);   // captured below, not deleted
+            if (territory->hp <= 0)
+                razedBuildings.insert(positionId);   // captured below (HQ → elimination)
         }
 
         // Phase 4b — RETREAT (soft loss rule, HoI4-style). A division whose
@@ -496,24 +531,38 @@ namespace
         // legal rear quadrant (own territory, connected, farther from the enemy,
         // free) is CUT OFF/encircled: it keeps fighting where it stands, and dies
         // outright in Phase 6 if its strength has also hit zero (the kocioł).
+        // The user's model: combat ends the instant a division's cohesion breaks.
+        // A DEFENDER falls back to a rear quadrant; an ATTACKER calls off the
+        // assault and holds where it is. Either way it disengages and gets a
+        // regroup window so it can actually break contact and be re-ordered (not
+        // instantly dragged back in by proximity) — no more "stuck fighting forever".
         for (const auto& U : units)
         {
             SoldierDivision* div = U.div;
             if (!div->engaged || div->cohesion > 0.0f || div->strength <= 0)
                 continue;
-            if (!LosingLocalFight(U, units))
-                continue;   // broken but not actually outmatched — holds the line
-            if (RetreatDivision(world, *div, units))
+
+            const bool attacking = div->currentOrder == MilitaryOrderType::Attack;
+            if (attacking)
             {
-                div->retreating = true;
-                div->engaged = false;
-                // A stale Attack order would otherwise re-assert engagement next
-                // tick (Phase 1) the moment the division is back in range.
+                // Attacker: stop. Drop the attack order and hold position.
                 div->currentOrder = MilitaryOrderType::None;
                 div->orderTargetPositionId = -1;
+                div->engaged = false;
+                div->retreating = false;
+                div->regroupTimer = kRegroupSeconds;
             }
-            // else: encircled — stays engaged, Phase 6 handles the kocioł if it
-            // also runs out of strength.
+            else if (RetreatDivision(world, *div, units))
+            {
+                // Defender: fall back to a rear quadrant.
+                div->retreating = true;
+                div->engaged = false;
+                div->currentOrder = MilitaryOrderType::None;
+                div->orderTargetPositionId = -1;
+                div->regroupTimer = kRegroupSeconds;
+            }
+            // else: a defender with nowhere to fall back is encircled — it stays
+            // engaged and dies in Phase 6 if its strength also hits zero (kocioł).
         }
 
         // Phase 5 — disengage units whose quadrant no longer borders a live enemy
@@ -523,8 +572,11 @@ namespace
         {
             if (!U.div->engaged && !U.div->retreating) continue;
             bool stillFighting = false;
+            // Only an ENGAGED enemy keeps you locked: once your opponent breaks off
+            // (retreats / halts / regroups) the fight is over and you are free to
+            // move or take new orders, even if its body is still nearby.
             for (const auto& E : units)
-                if (E.playerId != U.playerId && E.div->strength > 0 &&
+                if (E.playerId != U.playerId && E.div->engaged &&
                     SectorsFight(U.cell, E.cell))
                 { stillFighting = true; break; }
             if (!stillFighting)
@@ -534,7 +586,12 @@ namespace
             if (!stillFighting)
             {
                 U.div->engaged = false;
-                U.div->retreating = false;
+                // Keep the "falling back" flag while the regroup window is open —
+                // the division is still physically withdrawing. Clearing it here
+                // (both sides disengage in the same pass) would drop it a tick after
+                // it was set. It clears once regrouping ends.
+                if (U.div->regroupTimer <= 0.0f)
+                    U.div->retreating = false;
             }
         }
 
@@ -546,6 +603,10 @@ namespace
         // supplied, reinforce strength from the owner's manpower pool.
         for (auto& U : units)
         {
+            // Tick down the post-combat regroup window.
+            if (U.div->regroupTimer > 0.0f)
+                U.div->regroupTimer = std::max(0.0f, U.div->regroupTimer - static_cast<float>(dt));
+
             const double conservation = U.player != nullptr ? PlayerSupplyConservation(*U.player) : 0.0;
             ConsumeDivisionSupply(*U.div, dt, U.div->engaged, /*deployed=*/true, conservation);
 
@@ -580,8 +641,9 @@ namespace
                 player->armyGroups.PruneEmptyArmies();
         }
 
-        // Capture (flip ownership of) defeated military buildings — HQ is spared,
-        // that's a game-over path. Done last so combat's unit pointers stay valid.
+        // Capture (flip ownership of) defeated military buildings. Capturing an HQ
+        // eliminates its owner (CaptureBuilding → EliminatePlayer). Done last so
+        // combat's unit pointers stay valid.
         for (int positionId : razedBuildings)
             CaptureBuilding(world, positionId, buildingAttacker.count(positionId) ? buildingAttacker[positionId] : nullptr);
 
@@ -636,6 +698,40 @@ namespace
                     }
             }
         }
+    }
+
+    // Buildings follow the ground: a civil building (road, production chain,
+    // village, barracks) whose anchor tile is now owned by another player passes to
+    // that player — capturing enemy territory captures the infrastructure on it.
+    // Military works and the HQ are excluded; those are taken only by siege
+    // (RunFieldCombat → CaptureBuilding). Deterministic (players in map order,
+    // transfers applied in ascending positionId). Throttled by the caller.
+    void TransferOverrunBuildings(GameWorld& world)
+    {
+        struct Xfer { int positionId; Player* newOwner; };
+        std::vector<Xfer> xfers;
+        for (auto& [pid, player] : world.playerHandler.players)
+        {
+            if (player == nullptr) continue;
+            for (Building* b : player->GetTrackedBuildings())
+            {
+                if (b == nullptr || b->positionId < 0) continue;
+                if (IsMilitaryAttackTarget(*b)) continue;   // taken only by siege
+                if (b->positionId >= static_cast<int>(world.tilemap.tilemap.size())) continue;
+                Player* ground = world.tilemap.tilemap[b->positionId].owner;
+                if (ground != nullptr && ground != b->owner)
+                    xfers.push_back({b->positionId, ground});
+            }
+        }
+        if (xfers.empty())
+            return;
+        std::sort(xfers.begin(), xfers.end(),
+                  [](const Xfer& a, const Xfer& b) { return a.positionId < b.positionId; });
+        for (const auto& x : xfers)
+            CaptureBuilding(world, x.positionId, x.newOwner);
+        for (auto& [pid, player] : world.playerHandler.players)
+            if (player != nullptr)
+                player->RebuildGarrisonViews();
     }
 
     // Auto-close encirclements: any ground a player has surrounded (a pocket that
@@ -726,6 +822,13 @@ void GameWorld::UpdateSimulation(double dt)
     // per-player flood-fill off the hot 100 Hz path.
     if (simulationTick % 20 == 0)
         CloseEncirclements(*this);
+    // Buildings on overrun/captured ground pass to the new owner (10 Hz — the
+    // transfer scan is off the hot path; a ~0.1s delay is imperceptible).
+    if (simulationTick % 10 == 0)
+        TransferOverrunBuildings(*this);
+    // BUG 3b/3d — resupply deployed divisions from nearest stockpile, once per second.
+    if (simulationTick % 100 == 0)
+        ResupplyDeployedDivisions();
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->UpdateEconomyTelemetry(dt);
@@ -736,6 +839,131 @@ void GameWorld::Update(double dt)
 {
     UpdateSimulation(dt);
     DrawMap();
+}
+
+// BUG 3b/3d — deployed divisions pull supply from the nearest friendly military
+// building or HQ within SupplyRange Manhattan tiles. Deterministic: players in map
+// id order, depots by positionId asc, divisions in forces-push_back order.
+// Called once per second from UpdateSimulation; also exposed for direct test use.
+void GameWorld::ResupplyDeployedDivisions()
+{
+    constexpr double kBaseSupplyRange = 20.0;   // base tiles; BalanceStat::SupplyRange
+
+    for (auto& [pid, player] : playerHandler.players)
+    {
+        if (player == nullptr) continue;
+
+        // Collect friendly depot buildings (military with supply stockpile).
+        struct Depot
+        {
+            int positionId;
+            Vec2i coords;
+            SupplyBufferComponent* supply;
+        };
+        std::vector<Depot> depots;
+        for (const auto& tile : player->tilemap.tilemap)
+        {
+            Building* b = tile.building.get();
+            if (b == nullptr || b->owner != player.get()) continue;
+            auto* garrison = b->GetComponent<GarrisonComponent>();
+            auto* supply   = b->GetComponent<SupplyBufferComponent>();
+            if (garrison == nullptr || supply == nullptr) continue;
+            depots.push_back({b->positionId, player->tilemap.GetCoordsFromId(b->positionId), supply});
+        }
+
+        // Sort by positionId for determinism (tilemap iteration is already ascending
+        // but be explicit so the order is a documented invariant, not an accident).
+        std::sort(depots.begin(), depots.end(), [](const Depot& a, const Depot& b)
+        { return a.positionId < b.positionId; });
+
+        const double supplyRange = player->ResolveStat(
+            Stat<double>{BalanceStat::SupplyRange, kBaseSupplyRange}, nullptr);
+
+        for (auto& fptr : player->forces)
+        {
+            if (fptr == nullptr) continue;
+            SoldierDivision& div = *fptr;
+            if (div.occupiedTile.x < 0) continue;   // garrisoned — handled by GarrisonComponent::Update
+
+            // Nearest depot within range (tie-break: lower positionId first).
+            Depot* best = nullptr;
+            int bestDist = std::numeric_limits<int>::max();
+            for (auto& depot : depots)
+            {
+                int dist = std::abs(depot.coords.x - div.occupiedTile.x)
+                         + std::abs(depot.coords.y - div.occupiedTile.y);
+                if (dist > static_cast<int>(supplyRange)) continue;
+                if (best == nullptr || dist < bestDist ||
+                    (dist == bestDist && depot.positionId < best->positionId))
+                {
+                    best    = &depot;
+                    bestDist = dist;
+                }
+            }
+
+            if (best == nullptr) continue;   // out of supply range → no resupply
+
+            SupplyBufferComponent& sb = *best->supply;
+
+            // Food: pull from the building's food ResourceBuffer.
+            {
+                int need = div.foodSupplyCapacity - div.foodSupply;
+                while (need > 0 && !sb.buffer.buffer.empty())
+                {
+                    sb.buffer.buffer.pop_back();
+                    div.foodSupply++;
+                    need--;
+                }
+                sb.stored = static_cast<int>(sb.buffer.buffer.size());
+            }
+
+            // Weapons: pull from building's weaponStock.
+            if (sb.weaponStock > 0)
+            {
+                int need = div.weaponSupplyCapacity - div.weaponSupply;
+                if (need > 0)
+                {
+                    int give       = std::min(need, sb.weaponStock);
+                    div.weaponSupply  += give;
+                    sb.weaponStock    -= give;
+                }
+            }
+
+            // Materiel: pull from building's materielStock.
+            if (sb.materielStock > 0)
+            {
+                int need = div.materielSupplyCapacity - div.materielSupply;
+                if (need > 0)
+                {
+                    int give         = std::min(need, sb.materielStock);
+                    div.materielSupply  += give;
+                    sb.materielStock    -= give;
+                }
+            }
+        }
+    }
+}
+
+bool GameWorld::IsPlayerDefeated(int playerId) const
+{
+    auto it = playerHandler.players.find(playerId);
+    return it != playerHandler.players.end() && it->second != nullptr && it->second->defeated;
+}
+
+int GameWorld::GetVictorPlayerId() const
+{
+    int survivors = 0;
+    int lastAlive = -1;
+    for (const auto& [pid, player] : playerHandler.players)
+    {
+        if (player == nullptr) continue;
+        if (!player->defeated) { survivors++; lastAlive = pid; }
+    }
+    // Only a decided game (started with >=2 players, one left) reports a victor.
+    int total = 0;
+    for (const auto& [pid, player] : playerHandler.players)
+        if (player != nullptr) total++;
+    return (total >= 2 && survivors == 1) ? lastAlive : -1;
 }
 
 // Captures render-safe world state for another thread.

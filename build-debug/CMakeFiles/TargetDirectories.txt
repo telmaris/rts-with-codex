@@ -1,0 +1,4 @@
+F:/Projekty/gamedev/rts-with-codex/build-debug/CMakeFiles/game.dir
+F:/Projekty/gamedev/rts-with-codex/build-debug/CMakeFiles/rts.dir
+F:/Projekty/gamedev/rts-with-codex/build-debug/CMakeFiles/ALL_BUILD.dir
+F:/Projekty/gamedev/rts-with-codex/build-debug/CMakeFiles/ZERO_CHECK.dir

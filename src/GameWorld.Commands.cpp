@@ -693,6 +693,19 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         std::set<int> blocked = MovementBlockedTiles(*this, player);
         if (!garrison->MoveDivisionTo(command.divisionId, target, *source, false, true, &blocked))
             return false;
+
+        // A move order is a deliberate withdrawal/reposition: break any current
+        // engagement and grant a short regroup window so the division can actually
+        // leave contact instead of being intercepted and re-locked next tick.
+        for (auto& fptr : player->forces)
+        {
+            if (fptr == nullptr) continue;
+            if (command.divisionId >= 0 && fptr->id != command.divisionId) continue;
+            if (command.divisionId < 0 && fptr->garrisonBuildingId != source->positionId) continue;
+            fptr->engaged = false;
+            fptr->retreating = false;
+            fptr->regroupTimer = std::max(fptr->regroupTimer, 3.0f);
+        }
         playFx("march");
         return acceptCommand();
     }

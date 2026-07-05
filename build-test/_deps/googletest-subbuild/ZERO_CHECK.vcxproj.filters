@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\Projekty\gamedev\rts-with-codex\build-test\_deps\googletest-subbuild\CMakeFiles\dc5572224f753155fa584a880259ef51\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{8ABB5353-A452-3672-A0C1-5A285558DFD1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

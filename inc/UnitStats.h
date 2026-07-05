@@ -90,11 +90,21 @@ struct DivisionCombatStats
     bool isArmored{false};         // armoredShare > 0.3 or a mounted unit class
     float hpDamageMultiplier{1.0f};
     float orgDamageMultiplier{1.0f};
+    // Fraction [0.1, 1.0] of combat output this division can actually deliver given
+    // its logistics: an out-of-ammo, starving unit still swings fists (never 0) but
+    // hits far softer. Scales the ENTIRE damage output (scaled term + constant
+    // floor) so supply % genuinely drives combat. See ComputeDivisionCombatStats.
+    float supplyEfficiency{1.0f};
 };
 
 // Average effectiveness of the gear a division carries (weapon/armor/ranged/ammo),
 // from the equipment quality table. Returns ~0.5 ("makeshift") when unarmed.
 float DivisionEquipmentQuality(const DivisionEquipment& equipment);
+
+// Fraction [0.1, 1.0] of combat output a division can deliver given its logistics
+// (weapon supply % and whether it has food). Drives supplyEfficiency in the duel
+// so an out-of-supply unit is genuinely weak. Reused by the UI to show readiness.
+float DivisionSupplyEfficiency(const SoldierDivision& division);
 
 // Resolves a division's combat stats: applies `mods` (tech/focus/army/commander)
 // then scales offensive/defensive output by the carried gear's quality, so a unit

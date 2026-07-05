@@ -195,6 +195,11 @@ public:
     // quadrant (cohesion broke and it is falling back); cleared on disengage.
     // Transient, not serialized.
     bool retreating{false};
+    // Post-combat regroup window (seconds). Set when a division breaks off a fight
+    // (cohesion lost, or the player ordered it to move out of contact). While > 0
+    // the division cannot be dragged back into combat by proximity — it is free to
+    // fall back / reposition / be re-ordered and rebuilds organization. Transient.
+    float regroupTimer{0.0f};
     // Per-tick supply upkeep buffers (transient, not serialized) — see
     // ConsumeDivisionSupply / docs/war_system_phase2_design.md (Phase B).
     float foodSupplyConsumeBuffer{0.0f};

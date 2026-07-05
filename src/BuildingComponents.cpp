@@ -1711,6 +1711,7 @@ void RecruitmentComponent::Update(Building& self, double dt)
             if (job.weapon != ResourceType::Null)       d->equipment.weapon = job.weapon;
             if (job.rangedWeapon != ResourceType::Null)  d->equipment.rangedWeapon = job.rangedWeapon;
             if (job.ammo != ResourceType::Null)          d->equipment.ammo = job.ammo;
+            if (job.armor != ResourceType::Null)          d->equipment.armor = job.armor;
         }
         // HoI4-style factory: the freshly trained division deploys straight onto
         // a free tile beside the building. The Barracks hands units to the
@@ -1755,20 +1756,25 @@ bool RecruitmentComponent::QueueUnit(MilitaryUnitType type, Building& self,
 
     // Charge each equipment category (any material satisfies it) and remember the
     // representative piece so the trained division carries the quality paid for.
+    // Dispatch by body-slot (SlotForCategory), not by hand-checking category
+    // values here — that previously dumped Shield/Armor into the weapon slot
+    // whenever a unit costed them, silently overwriting the melee weapon.
     ResourceType paidWeapon = ResourceType::Null;
     ResourceType paidRanged = ResourceType::Null;
     ResourceType paidAmmo   = ResourceType::Null;
+    ResourceType paidArmor  = ResourceType::Null;
     for (const auto& [cat, amount] : equipmentCosts)
     {
         ResourceType rep = ResourceType::Null;
         self.owner->TryPayEquipmentCategory(cat, amount, &rep);
-        if (cat == EquipmentCategory::Ammo)
-            paidAmmo = rep;
-        else if (cat == EquipmentCategory::Bow || cat == EquipmentCategory::Crossbow ||
-                 cat == EquipmentCategory::Firearm)
-            paidRanged = rep;
-        else
-            paidWeapon = rep;
+        switch (SlotForCategory(cat))
+        {
+            case EquipmentSlot::Ammo:   paidAmmo = rep;   break;
+            case EquipmentSlot::Ranged: paidRanged = rep; break;
+            case EquipmentSlot::Armor:  paidArmor = rep;  break;
+            case EquipmentSlot::Melee:  paidWeapon = rep; break;
+            default: break;
+        }
     }
 
     double time = self.owner->debugMode
@@ -1780,6 +1786,7 @@ bool RecruitmentComponent::QueueUnit(MilitaryUnitType type, Building& self,
     queue.back().weapon = paidWeapon;
     queue.back().rangedWeapon = paidRanged;
     queue.back().ammo = paidAmmo;
+    queue.back().armor = paidArmor;
     return true;
 }
 
@@ -1869,6 +1876,90 @@ int PopulationComponent::RequestFoodSupply(Building& self)
 
 // ─── SupplyPackageComponent ──────────────────────────────────────────────────
 
+namespace
+{
+    // Equipment categories that draw on a division's weaponSupply pool (primary
+    // weapons + their ammo). Shields/Armor are separate and not counted here.
+    bool IsWeaponOrAmmoCategory(EquipmentCategory category)
+    {
+        switch (category)
+        {
+            case EquipmentCategory::Sword:
+            case EquipmentCategory::Spear:
+            case EquipmentCategory::Bow:
+            case EquipmentCategory::Crossbow:
+            case EquipmentCategory::Firearm:
+            case EquipmentCategory::Ammo:
+                return true;
+            default:
+                return false;
+        }
+    }
+}
+
+SupplyDemand ComputeMilitaryDemand(Building& target)
+{
+    SupplyDemand demand;
+    auto* garrison = target.GetComponent<GarrisonComponent>();
+    if (garrison == nullptr)
+        return demand;
+
+    for (const auto* division : garrison->divisions)
+    {
+        if (division == nullptr)
+            continue;
+
+        demand.food     += std::max(0, division->foodSupplyCapacity - division->foodSupply);
+        demand.materiel += std::max(0, division->materielSupplyCapacity - division->materielSupply);
+
+        int weaponNeed = std::max(0, division->weaponSupplyCapacity - division->weaponSupply);
+        if (weaponNeed <= 0)
+            continue;
+
+        // Ask for exactly the weapon/ammo classes this unit uses so the hub packs
+        // Bows for archers and Swords for swordsmen — never the wrong gear.
+        bool tagged = false;
+        for (const auto& [category, cost] : GetBaseRecruitmentEquipmentCosts(division->type))
+        {
+            if (!IsWeaponOrAmmoCategory(category))
+                continue;
+            demand.AddWeapon(category, weaponNeed);
+            tagged = true;
+        }
+        // Fallback for classes with no listed equipment cost: melee by default,
+        // ranged units ask for a bow so they are not left unarmed.
+        if (!tagged)
+            demand.AddWeapon(division->IsRanged() ? EquipmentCategory::Bow : EquipmentCategory::Sword,
+                             weaponNeed);
+    }
+
+    // Building-level food buffer room (deployed subscribers draw from here too).
+    if (auto* supply = target.GetComponent<SupplyBufferComponent>())
+        demand.food += std::max(0, supply->buffer.bufferSize - static_cast<int>(supply->buffer.buffer.size()));
+
+    return demand;
+}
+
+SupplyDemand AggregatePlayerDemand(Building& hub)
+{
+    SupplyDemand total;
+    if (hub.owner == nullptr)
+        return total;
+
+    for (auto& tile : hub.owner->tilemap.tilemap)
+    {
+        Building* b = tile.building.get();
+        if (b == nullptr || b == &hub || b->owner != hub.owner)
+            continue;
+        if (b->positionId != tile.id)          // visit each building once
+            continue;
+        if (!b->HasComponent<GarrisonComponent>())
+            continue;
+        total.Merge(ComputeMilitaryDemand(*b));
+    }
+    return total;
+}
+
 std::map<ResourceType, int> SurveyNetworkSupplies(Building& hub)
 {
     std::map<ResourceType, int> available;
@@ -1890,7 +1981,8 @@ std::map<ResourceType, int> SurveyNetworkSupplies(Building& hub)
         for (const auto& [type, buffer] : storage->buffers)
         {
             if (type == ResourceType::FOOD_PROVISIONS || IsEquipment(type) ||
-                type == ResourceType::WOOD || type == ResourceType::PLANKS || type == ResourceType::TOOLS)
+                type == ResourceType::WOOD || type == ResourceType::PLANKS ||
+                type == ResourceType::STONE || type == ResourceType::TOOLS)
                 available[type] += static_cast<int>(buffer.buffer.size());
         }
     }
@@ -1970,18 +2062,32 @@ namespace
 
 bool SupplyPackageComponent::AssemblePackage(Building& self)
 {
+    // Demand-driven: the hub packs only what the front actually asks for. An
+    // idle army with full supply produces no packages; an archer-only front pulls
+    // Bows + Ammo, never Swords. This is the core of the supply rework — the
+    // SupplyBufferComponents report their needs (AggregatePlayerDemand) and the
+    // packer matches them instead of guessing "best available".
+    SupplyDemand demand = AggregatePlayerDemand(self);
+    if (demand.Empty())
+        return false;
+
     bool assembledAny = false;
     for (int c = 0; c < 3; c++)
     {
         auto category = static_cast<SupplyCategory>(c);
+        if (!servedCategories[c])              // this hub does not pack this stream
+            continue;
         auto& queue = readyPackages[c];
         if (static_cast<int>(queue.size()) >= maxReadyPackages)
             continue;
+        if (!demand.Wants(category))           // no outstanding need for it
+            continue;
 
-        // Plan against what the network currently holds (no consumption yet).
+        // Plan against what the network currently holds (no consumption yet),
+        // sized to the reported demand.
         std::map<ResourceType, int> available = SurveyNetworkSupplies(self);
         SupplyPackage package;
-        if (!PlanCategoryPackage(available, category, soldiersPerPackage, package))
+        if (!PlanDemandPackage(available, demand, category, soldiersPerPackage, package))
             continue;
 
         // Draw exactly what the plan calls for out of the warehouses.
@@ -2308,33 +2414,45 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
     if (garrison == nullptr)
         return false;
 
-    // BUG 3a: packages fill the building-level stockpile first; deployed
-    // divisions draw from the nearest depot's stockpile (see
-    // ResupplyDeployedDivisions in GameWorld.Render.cpp). Garrisoned divisions
-    // (occupiedTile < 0) continue to be topped-up directly from the stockpile
-    // in the same call, so the old path still works for home-base garrisons.
+    // Log what arrived into the building's demand registry (the "co mu przyszło"
+    // side). Recorded up-front from the package manifest, before distribution.
+    if (auto* registry = target.GetComponent<SupplyBufferComponent>())
+    {
+        switch (package.category)
+        {
+            case SupplyCategory::Food:     registry->receivedFood     += package.rations;      break;
+            case SupplyCategory::Materiel: registry->receivedMateriel += package.TotalItems(); break;
+            case SupplyCategory::Weapons:  registry->receivedWeapons  += package.TotalItems(); break;
+        }
+    }
+
+    // BUG 3a/3b: packages fill the building-level stockpile first; garrisoned
+    // divisions (occupiedTile.x < 0, at home) are then topped up directly from
+    // the stockpile in the same call so they never starve at base. Deployed
+    // divisions (occupiedTile.x >= 0) are resupplied later by
+    // ResupplyDeployedDivisions (GameWorld.Render.cpp), which pulls from the
+    // nearest building's stockpile each tick.
     auto* depot = target.GetComponent<SupplyBufferComponent>();
 
     switch (package.category)
     {
         case SupplyCategory::Food:
         {
-            // Food: fill rations stockpile (the existing ResourceBuffer) as
-            // before, then distribute to garrisoned divisions.
+            // Food: fill rations buffer (existing ResourceBuffer), then
+            // distribute to garrisoned divisions — unchanged from original.
             return ApplyFoodPackage(package, target, *garrison);
         }
         case SupplyCategory::Materiel:
         {
             if (depot != nullptr)
             {
-                // Pour materiel points into building stockpile first.
+                // Step 1: pour materiel points into the building stockpile.
                 int pool = package.TotalItems();
                 int room = SupplyBufferComponent::kStockCap - depot->materielStock;
                 int pour = std::min(pool, room);
                 if (pour > 0)
                 {
                     depot->materielStock += pour;
-                    // Drain the equivalent from the package item lines.
                     int remaining = pour;
                     for (auto& item : package.items)
                     {
@@ -2344,10 +2462,37 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
                         remaining -= take;
                     }
                 }
-                // Distribute leftover directly to garrisoned divisions (old path).
+
+                // Step 2: distribute from the stockpile to garrisoned (home)
+                // divisions immediately so they don't starve between ticks.
+                bool used = pour > 0;
+                if (depot->materielStock > 0 && !garrison->divisions.empty())
+                {
+                    std::vector<SoldierDivision*> order(garrison->divisions.begin(), garrison->divisions.end());
+                    std::sort(order.begin(), order.end(), [](const SoldierDivision* a, const SoldierDivision* b)
+                    {
+                        float ra = a->materielSupplyCapacity > 0
+                            ? static_cast<float>(a->materielSupply) / a->materielSupplyCapacity : 1.0f;
+                        float rb = b->materielSupplyCapacity > 0
+                            ? static_cast<float>(b->materielSupply) / b->materielSupplyCapacity : 1.0f;
+                        return ra < rb;
+                    });
+                    for (SoldierDivision* div : order)
+                    {
+                        if (div->occupiedTile.x >= 0) continue;   // skip deployed
+                        if (depot->materielStock <= 0) break;
+                        int need = div->materielSupplyCapacity - div->materielSupply;
+                        if (need <= 0) continue;
+                        int give = std::min(need, depot->materielStock);
+                        div->materielSupply  += give;
+                        depot->materielStock -= give;
+                        used = true;
+                    }
+                }
+                // Distribute any remaining package items (if stockpile was full) directly.
                 if (package.TotalItems() > 0)
-                    ApplyMaterielPackage(package, *garrison);
-                return pour > 0;
+                    used |= ApplyMaterielPackage(package, *garrison);
+                return used;
             }
             return ApplyMaterielPackage(package, *garrison);
         }
@@ -2356,11 +2501,27 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
         {
             if (depot != nullptr)
             {
-                // Count total weapon points in the package (each item slot → its amount).
+                // Step 1a: capture best gear from the package BEFORE draining
+                // items (gear upgrade uses item quality, not stockpile counts).
+                ResourceType bestMelee = package.BestOfCategory(EquipmentCategory::Sword);
+                if (bestMelee == ResourceType::Null)
+                    bestMelee = package.BestOfCategory(EquipmentCategory::Spear);
+                ResourceType bestRanged = ResourceType::Null;
+                float bestRangedQ = -1.0f;
+                for (EquipmentCategory cat : {EquipmentCategory::Bow, EquipmentCategory::Crossbow, EquipmentCategory::Firearm})
+                {
+                    ResourceType cand = package.BestOfCategory(cat);
+                    const EquipmentProfile* prof = cand != ResourceType::Null ? FindEquipmentProfile(cand) : nullptr;
+                    if (prof != nullptr && prof->quality > bestRangedQ)
+                    { bestRangedQ = prof->quality; bestRanged = cand; }
+                }
+                ResourceType bestArmor = package.BestOfCategory(EquipmentCategory::Armor);
+                ResourceType bestAmmo  = package.BestOfCategory(EquipmentCategory::Ammo);
+
+                // Step 1b: pour weapon points into the building stockpile.
                 int pool = 0;
                 for (const auto& item : package.items)
                     pool += item.amount;
-                // Also count rations bundled in a weapons package (rations field).
                 int room = SupplyBufferComponent::kStockCap - depot->weaponStock;
                 int pour = std::min(pool, room);
                 if (pour > 0)
@@ -2375,10 +2536,50 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
                         remaining -= take;
                     }
                 }
-                // Distribute leftover directly to garrisoned divisions (old path).
+
+                // Step 2: distribute from the stockpile to garrisoned (home)
+                // divisions immediately, neediest first; also upgrade equipment.
+                bool used = pour > 0;
+                if (depot->weaponStock > 0 && !garrison->divisions.empty())
+                {
+                    std::vector<SoldierDivision*> order(garrison->divisions.begin(), garrison->divisions.end());
+                    std::sort(order.begin(), order.end(), [](const SoldierDivision* a, const SoldierDivision* b)
+                    {
+                        float ra = a->weaponSupplyCapacity > 0
+                            ? static_cast<float>(a->weaponSupply) / a->weaponSupplyCapacity : 1.0f;
+                        float rb = b->weaponSupplyCapacity > 0
+                            ? static_cast<float>(b->weaponSupply) / b->weaponSupplyCapacity : 1.0f;
+                        return ra < rb;
+                    });
+                    for (SoldierDivision* div : order)
+                    {
+                        if (div->occupiedTile.x >= 0) continue;   // skip deployed
+                        if (depot->weaponStock <= 0) break;
+                        int need = div->weaponSupplyCapacity - div->weaponSupply;
+                        if (need <= 0) continue;
+                        int give = std::min(need, depot->weaponStock);
+                        div->weaponSupply   += give;
+                        depot->weaponStock  -= give;
+                        used = true;
+
+                        // Upgrade equipment slots from whatever the package carried.
+                        const bool ranged = div->type == MilitaryUnitType::Archer;
+                        if (ranged && bestRanged != ResourceType::Null)
+                        {
+                            div->equipment.rangedWeapon = bestRanged;
+                            if (bestAmmo != ResourceType::Null)
+                                div->equipment.ammo = bestAmmo;
+                        }
+                        else if (!ranged && bestMelee != ResourceType::Null)
+                            div->equipment.weapon = bestMelee;
+                        if (bestArmor != ResourceType::Null)
+                            div->equipment.armor = bestArmor;
+                    }
+                }
+                // Distribute any remaining package items (if stockpile was full) directly.
                 if (package.TotalItems() > 0 || package.rations > 0)
-                    ApplyWeaponsPackage(package, *garrison);
-                return pour > 0;
+                    used |= ApplyWeaponsPackage(package, *garrison);
+                return used;
             }
             return ApplyWeaponsPackage(package, *garrison);
         }

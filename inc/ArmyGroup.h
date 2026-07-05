@@ -2,6 +2,7 @@
 #define ARMY_GROUP_H
 
 #include "BalanceModifiers.h"
+#include "ArmyOrder.h"
 
 #include <optional>
 #include <string>
@@ -43,6 +44,14 @@ struct ArmyGroup
     // Active modifiers: commander bonuses + player tech/focus army bonuses.
     // Rebuilt by RebuildModifiers() whenever composition or commander changes.
     BalanceModifierSet modifiers;
+
+    // Army-wide strategic order (e.g., BorderDeploy, Attack).
+    // Only one can be active per army; coordinated across all divisions.
+    ArmyOrder currentOrder;
+
+    // UI state: 0+ = this army is selected in UI panel, -1 = not selected.
+    // Used to display ArmyOrderPanelWidget and highlight the army card.
+    int selectedForUI{-1};
 
     // Returns true when this army contains the given division id.
     bool HasDivision(int divisionId) const;
@@ -91,6 +100,7 @@ public:
     const ArmyGroup* FindArmy(int armyId) const;
     ArmyGroup* FindArmyByDivision(int divisionId);
     const ArmyGroup* FindArmyByDivision(int divisionId) const;
+    std::vector<ArmyGroup>& GetArmies() { return armies; }
     const std::vector<ArmyGroup>& GetArmies() const { return armies; }
 
 private:

@@ -303,7 +303,12 @@ void MilitaryOrderWidget::Update(double dt)
     // touching the same melee (Chebyshev-adjacent, any owner) belong to one fight,
     // so a pile-up in a quadrant draws a single static bubble — not one per pair.
     battleMarkers.clear();
-    struct EngagedUnit { int playerId; int divId; Vec2i tile; Vec2f world; };
+    // `siegeTarget` is the position id of the building this division is besieging
+    // (Attack order on a military target), else -1. All attackers of the same
+    // building share one battle bubble even when spread around a large footprint —
+    // otherwise a big building like the HQ (4x4) split the assault into several
+    // stray bubbles at its corners, none of them centred on the fight.
+    struct EngagedUnit { int playerId; int divId; Vec2i tile; Vec2f world; int siegeTarget; };
     std::vector<EngagedUnit> engaged;
     for (auto& [pid, player] : scene->game->playerHandler.players)
     {
@@ -314,11 +319,19 @@ void MilitaryOrderWidget::Update(double dt)
             if (g == nullptr) continue;
             for (const auto& d : g->divisions)
                 if (d->engaged && d->occupiedTile.x >= 0 && d->worldPos.x >= 0.0f)
-                    engaged.push_back({pid, d->id, d->occupiedTile, d->worldPos});
+                {
+                    int siege = -1;
+                    if (d->currentOrder == MilitaryOrderType::Attack && d->orderTargetPositionId >= 0 &&
+                        scene->game->tilemap.GetBuilding(d->orderTargetPositionId) != nullptr)
+                        siege = d->orderTargetPositionId;
+                    engaged.push_back({pid, d->id, d->occupiedTile, d->worldPos, siege});
+                }
         }
     }
 
-    // Union-Find: merge engaged units within combat adjacency into one cluster.
+    // Union-Find: merge engaged units within combat adjacency into one cluster, and
+    // also merge every attacker besieging the same building so a surrounded
+    // structure shows a single battle bubble on it (not one per side).
     std::vector<int> parent(engaged.size());
     std::iota(parent.begin(), parent.end(), 0);
     std::function<int(int)> root = [&](int x)
@@ -328,9 +341,14 @@ void MilitaryOrderWidget::Update(double dt)
     };
     for (size_t i = 0; i < engaged.size(); i++)
         for (size_t j = i + 1; j < engaged.size(); j++)
-            if (std::abs(engaged[i].tile.x - engaged[j].tile.x) <= 1 &&
-                std::abs(engaged[i].tile.y - engaged[j].tile.y) <= 1)
+        {
+            bool adjacent = std::abs(engaged[i].tile.x - engaged[j].tile.x) <= 1 &&
+                            std::abs(engaged[i].tile.y - engaged[j].tile.y) <= 1;
+            bool sameSiege = engaged[i].siegeTarget >= 0 &&
+                             engaged[i].siegeTarget == engaged[j].siegeTarget;
+            if (adjacent || sameSiege)
                 parent[root(i)] = root(j);
+        }
 
     // Group members by cluster root.
     std::map<int, std::vector<int>> clusters;
@@ -342,11 +360,28 @@ void MilitaryOrderWidget::Update(double dt)
         // Every engaged cluster is a battle: two-sided clusters are field fights,
         // single-sided ones are sieges of a manned garrison (the sim disengages
         // units with nothing left to fight, so `engaged` always means combat).
-        Vec2f sum{0.0f, 0.0f};
-        for (int idx : members) { sum.x += engaged[idx].world.x; sum.y += engaged[idx].world.y; }
-        Vec2f centre{sum.x / members.size(), sum.y / members.size()};
-        Vec2f screen = scene->render.WorldToScreen(centre);
-        Vector2 mid{screen.x, screen.y};
+        // A siege (all members besiege the same building) is anchored ON that
+        // building's centre so the icon sits on the target, not drifting to
+        // whichever side the attackers happen to stand — important for the HQ,
+        // whose large footprint otherwise pulled the bubble off to a corner.
+        int commonSiege = engaged[members.front()].siegeTarget;
+        for (int idx : members)
+            if (engaged[idx].siegeTarget != commonSiege) { commonSiege = -1; break; }
+
+        Vector2 mid;
+        Building* siegeBuilding = commonSiege >= 0 ? scene->game->tilemap.GetBuilding(commonSiege) : nullptr;
+        if (siegeBuilding != nullptr)
+        {
+            mid = BuildingScreenCenter(scene, siegeBuilding);
+        }
+        else
+        {
+            Vec2f sum{0.0f, 0.0f};
+            for (int idx : members) { sum.x += engaged[idx].world.x; sum.y += engaged[idx].world.y; }
+            Vec2f centre{sum.x / members.size(), sum.y / members.size()};
+            Vec2f screen = scene->render.WorldToScreen(centre);
+            mid = {screen.x, screen.y};
+        }
 
         float radius = std::min(24.0f, 13.0f + 1.5f * static_cast<float>(members.size() - 2));
         DrawCombatBubble(mid, radius, static_cast<int>(members.size()));
@@ -479,7 +514,12 @@ void MilitaryOrderWidget::DrawFieldBattlePanel()
             Rectangle fill = bar; fill.width *= ratio;
             DrawRectangleRec(fill, PanelTheme::HpFill);
             UiText::DrawFit("HP " + std::to_string(std::max(0, d->health)),
-                            Rectangle{cx + colW - 62.0f, ry + 14.0f, 58.0f, 16.0f}, 13, PanelTheme::TextDim);
+                            Rectangle{cx + colW - 62.0f, ry + 3.0f, 58.0f, 16.0f}, 13, PanelTheme::TextDim);
+            // Supply readiness (combat effectiveness after logistics) as a percent.
+            int readiness = static_cast<int>(std::lround(DivisionSupplyEfficiency(*d) * 100.0f));
+            UiText::DrawFit("Rdy " + std::to_string(readiness) + "%",
+                            Rectangle{cx + colW - 62.0f, ry + 19.0f, 58.0f, 14.0f}, 12,
+                            readiness < 60 ? Color{238, 160, 96, 255} : PanelTheme::TextDim);
             ry += rowH;
         }
         if (side.divs.size() > maxRows)
@@ -681,6 +721,11 @@ void MilitaryDivisionBarWidget::Update(double dt)
 
     if (hovered != nullptr)
     {
+        auto pct = [](int value, int capacity) {
+            int p = capacity > 0
+                ? static_cast<int>(std::lround(100.0 * value / capacity)) : 0;
+            return std::to_string(std::clamp(p, 0, 100)) + "%";
+        };
         Tooltip::Draw(std::string(MilitaryUnitLabel(hovered->type)) + " division #" + std::to_string(hovered->id), {
             "Health: " + std::to_string(hovered->health) + "/" + std::to_string(hovered->maxHealth),
             "Strength: " + std::to_string(hovered->strength),
@@ -688,8 +733,11 @@ void MilitaryDivisionBarWidget::Update(double dt)
             "Morale: " + std::to_string(hovered->morale),
             "Experience: " + std::to_string(hovered->experience),
             "Speed: " + FormatOneDecimal(hovered->speedTilesPerMinute) + " tiles/min",
-            "Food: " + std::to_string(hovered->foodSupply) + "/" + std::to_string(hovered->foodSupplyCapacity),
-            "Weapon supply: " + std::to_string(hovered->weaponSupply) + "/" + std::to_string(hovered->weaponSupplyCapacity),
+            "Food supply: " + pct(hovered->foodSupply, hovered->foodSupplyCapacity),
+            "Weapon supply: " + pct(hovered->weaponSupply, hovered->weaponSupplyCapacity),
+            "Materiel supply: " + pct(hovered->materielSupply, hovered->materielSupplyCapacity),
+            "Combat readiness: " +
+                std::to_string(static_cast<int>(std::lround(DivisionSupplyEfficiency(*hovered) * 100.0f))) + "%",
             "Order: " + std::string(MilitaryOrderLabel(hovered->currentOrder)),
             "Weapon: " + EquipmentLabel(hovered->equipment.weapon),
             "Armor: " + EquipmentLabel(hovered->equipment.armor),
@@ -732,15 +780,35 @@ void ArmyBarWidget::Update(double dt)
 
     for (int i = 0; i < shown; i++)
     {
-        const ArmyGroup& army = armies[i];
+        ArmyGroup& army = const_cast<ArmyGroup&>(armies[i]);
         Rectangle card{x, y, cardW, cardH};
         bool hovered = CheckCollisionPointRec(mouse, card);
-        DrawRectangleRounded(card, 0.18f, 6, hovered ? Color{46, 56, 70, 252} : Color{28, 34, 43, 244});
-        DrawRectangleRoundedLines(card, 0.18f, 6, 1.0f, Color{182, 160, 100, 220});
+        bool selected = army.selectedForUI >= 0;
+        Color bgColor = selected ? Color{56, 76, 100, 252} : (hovered ? Color{46, 56, 70, 252} : Color{28, 34, 43, 244});
+        Color borderColor = selected ? Color{200, 220, 255, 255} : Color{182, 160, 100, 220};
+        DrawRectangleRounded(card, 0.18f, 6, bgColor);
+        DrawRectangleRoundedLines(card, 0.18f, 6, 1.0f, borderColor);
         UiText::DrawFit(army.name, Rectangle{card.x + 8.0f, card.y + 5.0f, card.width - 16.0f, 18.0f}, 15, RAYWHITE);
         UiText::DrawFit(std::to_string(army.divisions.size()) + " divisions",
                         Rectangle{card.x + 8.0f, card.y + 25.0f, card.width - 16.0f, 16.0f}, 13,
                         Color{190, 198, 208, 255});
+
+        // Aggregate supply readiness across the army's divisions, shown as
+        // percentages (Food / Weapon / Materiel — the three supply streams).
+        int fS = 0, fC = 0, wS = 0, wC = 0, mS = 0, mC = 0;
+        for (const auto& fptr : localPlayer->forces)
+        {
+            if (fptr == nullptr || !army.HasDivision(fptr->id)) continue;
+            fS += fptr->foodSupply;     fC += fptr->foodSupplyCapacity;
+            wS += fptr->weaponSupply;   wC += fptr->weaponSupplyCapacity;
+            mS += fptr->materielSupply; mC += fptr->materielSupplyCapacity;
+        }
+        auto apct = [](int v, int c) {
+            return std::to_string(c > 0 ? std::clamp(static_cast<int>(std::lround(100.0 * v / c)), 0, 100) : 0);
+        };
+        UiText::DrawFit("F" + apct(fS, fC) + " W" + apct(wS, wC) + " M" + apct(mS, mC) + "%",
+                        Rectangle{card.x + 8.0f, card.y + 42.0f, card.width - 16.0f, 14.0f}, 12,
+                        Color{150, 176, 140, 255});
         cardRects.emplace_back(army.id, card);
         x += cardW + gap;
     }
@@ -795,23 +863,32 @@ bool ArmyBarWidget::HandleClick(Vec2i point)
         return true;
     }
 
-    // Clicking an army card selects its divisions (single-home v1).
+    // Clicking an army card selects its divisions and sets it as the active army for orders.
     for (const auto& [armyId, rect] : cardRects)
     {
         if (!CheckCollisionPointRec(click, rect))
             continue;
-        const ArmyGroup* army = localPlayer->armyGroups.FindArmy(armyId);
-        if (army != nullptr && bar != nullptr && !army->divisions.empty())
+        ArmyGroup* army = localPlayer->armyGroups.FindArmy(armyId);
+        if (army != nullptr)
         {
-            Building* home = scene->game->tilemap.GetBuilding(army->divisions.front().homeTileId);
-            if (home != nullptr)
+            // Set as selected for UI (ArmyOrderPanelWidget will show).
+            for (auto& a : localPlayer->armyGroups.GetArmies())
+                a.selectedForUI = -1;  // Deselect all first.
+            army->selectedForUI = 0;   // Select this one.
+
+            // Also select its divisions if we have a bar reference.
+            if (bar != nullptr && !army->divisions.empty())
             {
-                std::vector<int> ids;
-                for (const auto& ref : army->divisions)
-                    if (ref.homeTileId == home->positionId)
-                        ids.push_back(ref.divisionId);
-                // Atomic so the bar's next Update doesn't wipe the fresh selection.
-                bar->SetSelection(home, std::move(ids));
+                Building* home = scene->game->tilemap.GetBuilding(army->divisions.front().homeTileId);
+                if (home != nullptr)
+                {
+                    std::vector<int> ids;
+                    for (const auto& ref : army->divisions)
+                        if (ref.homeTileId == home->positionId)
+                            ids.push_back(ref.divisionId);
+                    // Atomic so the bar's next Update doesn't wipe the fresh selection.
+                    bar->SetSelection(home, std::move(ids));
+                }
             }
         }
         return true;
@@ -1054,4 +1131,121 @@ void MoveTargetWidget::Update(double dt)
         drawSectorOutline(targetSector, line, fill, 1.5f);
     else
         drawTileOutline(tile, line, fill, 1.5f);
+}
+
+// ─── ArmyOrderPanelWidget ───────────────────────────────────────────────────────
+
+void ArmyOrderPanelWidget::Update(double dt)
+{
+    buttonRects.clear();
+
+    if (scene == nullptr || scene->game == nullptr || armyBar == nullptr)
+        return;
+
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return;
+
+    // Find which army (if any) is selected in the ArmyBarWidget.
+    int selectedArmyId = -1;
+    for (const auto& [armyId, rect] : armyBar->cardRects)
+    {
+        // Check if this army has selectedForUI set, or just use the first visible army for now.
+        ArmyGroup* army = localPlayer->armyGroups.FindArmy(armyId);
+        if (army != nullptr && army->selectedForUI >= 0)
+        {
+            selectedArmyId = armyId;
+            break;
+        }
+    }
+
+    // If no army is explicitly selected, don't draw the panel.
+    if (selectedArmyId < 0)
+        return;
+
+    ArmyGroup* army = localPlayer->armyGroups.FindArmy(selectedArmyId);
+    if (army == nullptr || army->divisions.empty())
+        return;
+
+    // Panel positioned to the right side of the screen, above the army bar.
+    const float panelW = 180.0f;
+    const float panelH = 200.0f;
+    const float panelX = static_cast<float>(GetScreenWidth()) - panelW - 12.0f;
+    const float panelY = static_cast<float>(GetScreenHeight()) - 100.0f - panelH;
+
+    // Draw themed panel background.
+    Rectangle panelBounds{panelX, panelY, panelW, panelH};
+    float titleBar = DrawThemedPanel(panelBounds, army->name + " Orders", Color{150, 210, 255, 255});
+
+    // Button layout: vertical stack of order buttons.
+    const float btnW = panelW - 16.0f;
+    const float btnH = 32.0f;
+    const float gap = 6.0f;
+    float btnY = panelY + titleBar + 8.0f;
+    Vector2 mouse = GetMousePosition();
+
+    // Define available orders (for MVP: only BorderDeploy, others grayed).
+    struct OrderButton
+    {
+        std::string label;
+        ArmyOrderType type;
+        bool enabled{true};
+    };
+    std::vector<OrderButton> buttons = {
+        {"Border Deploy", ArmyOrderType::BorderDeploy, true},
+        {"Hold Position", ArmyOrderType::Hold, false},
+        {"Attack", ArmyOrderType::Attack, false},
+    };
+
+    for (const auto& btn : buttons)
+    {
+        Rectangle btnRect{panelX + 8.0f, btnY, btnW, btnH};
+        bool hovered = CheckCollisionPointRec(mouse, btnRect) && btn.enabled;
+        Color bgColor = btn.enabled
+                       ? (hovered ? Color{60, 100, 140, 220} : Color{40, 60, 90, 200})
+                       : Color{30, 35, 45, 160};
+        Color borderColor = btn.enabled
+                           ? (hovered ? Color{150, 200, 255, 255} : Color{100, 150, 200, 200})
+                           : Color{70, 80, 95, 150};
+        Color textColor = btn.enabled
+                         ? (hovered ? RAYWHITE : Color{180, 200, 220, 255})
+                         : Color{100, 110, 125, 180};
+
+        DrawRectangleRounded(btnRect, 0.08f, 5, bgColor);
+        DrawRectangleRoundedLines(btnRect, 0.08f, 5, 1.0f, borderColor);
+        UiText::Draw(btn.label, btnRect.x + 8.0f, btnRect.y + (btnH - 16.0f) * 0.5f, 14, textColor);
+
+        if (btn.enabled)
+            buttonRects.emplace_back(btn.label, btnRect);
+
+        btnY += btnH + gap;
+    }
+}
+
+bool ArmyOrderPanelWidget::HandleClick(Vec2i point)
+{
+    if (scene == nullptr || scene->game == nullptr || armyBar == nullptr)
+        return false;
+
+    Vector2 click{static_cast<float>(point.x), static_cast<float>(point.y)};
+
+    // Check if click hit any button.
+    for (const auto& [label, rect] : buttonRects)
+    {
+        if (!CheckCollisionPointRec(click, rect))
+            continue;
+
+        // For now, just log what was clicked. Actual order dispatch happens in GuiSystem.
+        Log::Msg("[ArmyOrder]", "Order button clicked: ", label);
+
+        if (label == "Border Deploy")
+        {
+            // Transition to BorderDeployMode (will be handled by GuiController system switch).
+            if (scene->controller != nullptr)
+                scene->controller->ChangeSystem("borderDeploy");
+        }
+        return true;
+    }
+
+    return false;
 }

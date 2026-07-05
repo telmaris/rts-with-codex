@@ -360,6 +360,10 @@ public:
     Color color{66, 154, 255, 255};
     PlayerControllerType controllerType{PlayerControllerType::LocalHuman};
     bool debugMode{false};
+    // Set true when this player's Headquarters is captured — the player is
+    // eliminated (all remaining assets pass to the conqueror). Deterministic:
+    // written only inside the simulation tick. The scene reads it for win/lose UI.
+    bool defeated{false};
 
     // Army management
     ArmyGroupRegistry armyGroups;

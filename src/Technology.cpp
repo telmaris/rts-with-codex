@@ -276,6 +276,33 @@ namespace
         return ResourceType::Null;
     }
 
+    // Converts text to a resource category, enabling category-wide bonuses in the
+    // data files (e.g. `modifier ProductionOutputAmount category Metal multiplier 1.10`).
+    ResourceCategory ParseResourceCategory(const std::string& value)
+    {
+        if (value == "Ore")            return ResourceCategory::Ore;
+        if (value == "Mineral")        return ResourceCategory::Mineral;
+        if (value == "Metal")          return ResourceCategory::Metal;
+        if (value == "Timber")         return ResourceCategory::Timber;
+        if (value == "Textile")        return ResourceCategory::Textile;
+        if (value == "Foodstuff")      return ResourceCategory::Foodstuff;
+        if (value == "Chemical")       return ResourceCategory::Chemical;
+        if (value == "Tool")           return ResourceCategory::Tool;
+        if (value == "Paper")          return ResourceCategory::Paper;
+        if (value == "Currency")       return ResourceCategory::Currency;
+        if (value == "Mount")          return ResourceCategory::Mount;
+        if (value == "MilitarySupply") return ResourceCategory::MilitarySupply;
+        if (value == "Sword")          return ResourceCategory::Sword;
+        if (value == "Spear")          return ResourceCategory::Spear;
+        if (value == "Bow")            return ResourceCategory::Bow;
+        if (value == "Crossbow")       return ResourceCategory::Crossbow;
+        if (value == "Firearm")        return ResourceCategory::Firearm;
+        if (value == "Ammunition")     return ResourceCategory::Ammunition;
+        if (value == "Shield")         return ResourceCategory::Shield;
+        if (value == "Armor")          return ResourceCategory::Armor;
+        return ResourceCategory::None;
+    }
+
     // Converts text to a military unit type identifier.
     MilitaryUnitType ParseMilitaryUnitType(const std::string& value)
     {
@@ -453,6 +480,8 @@ namespace
                 modifier.buildingType = ParseBuildingType(value);
             else if (key == "resource")
                 modifier.resourceType = ParseResourceType(value);
+            else if (key == "category")
+                modifier.resourceCategory = ParseResourceCategory(value);
             else if (key == "unit")
                 modifier.unitType = ParseMilitaryUnitType(value);
         }

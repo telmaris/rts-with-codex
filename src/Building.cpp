@@ -710,6 +710,10 @@ Headquarters::Headquarters(int actualId)
     RegisterComponent(&storage);
     RegisterComponent(&territory);
     RegisterComponent(&garrison);
+    // BUG 3c: HQ acts as a full supply depot — must register supplyBuffer so
+    // GetComponent<SupplyBufferComponent>() returns non-null and the save/load
+    // reads weaponStock/materielStock fields consistently for this building.
+    RegisterComponent(&supplyBuffer);
     const auto& def = GetBuildingDefinition(BuildingType::Headquarters);
     ApplyBuildingDefinition(*this, def);
     ApplyStorageDefinition(*this, def);

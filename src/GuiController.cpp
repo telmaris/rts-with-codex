@@ -109,6 +109,9 @@ void GuiController::Init(GameScene *s)
     scene = s;
     divisionMapOverlay = std::make_unique<DivisionMapWidget>();
     divisionMapOverlay->scene = scene;
+    armyOrderPanel = std::make_unique<ArmyOrderPanelWidget>();
+    armyOrderPanel->scene = scene;
+    // Connection to armyBarWidget will be done in BasicMapViewSystem after it's created
 }
 
 // Switches active interaction system. Refuses to open "tech" without a completed University.
@@ -132,6 +135,8 @@ void GuiController::Update(double dt)
     ui.clear();
     if (divisionMapOverlay != nullptr)
         AddUiWidget(divisionMapOverlay.get());
+    if (armyOrderPanel != nullptr)
+        AddUiWidget(armyOrderPanel.get());
     activeSystem->Update(dt);
 }
 
@@ -180,6 +185,13 @@ BasicMapViewSystem::BasicMapViewSystem(GuiController* con)
     moveTargetWidget.scene = scene;
     moveTargetWidget.bar = &militaryDivisionBarWidget;
     moveTargetWidget.armyBar = &armyBarWidget;
+
+    // Connect army order panel to army bar widget.
+    if (owner != nullptr && owner->armyOrderPanel != nullptr)
+    {
+        owner->armyOrderPanel->armyBar = &armyBarWidget;
+    }
+
     buildingInfoPanel.recruitRequested = [this](Building* building, MilitaryUnitType unitType)
     {
         SubmitRecruitCommand(building, unitType);

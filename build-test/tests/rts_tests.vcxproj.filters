@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\BalanceModifierTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\BuildingConfigTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\BuildingDomainTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\BuildingPlacementTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\GameCommandTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\PlayerEconomyTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\ResourceBufferTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\ResearchCatalogTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\RoadNetworkTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\StrategicResourceTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\TileMapDomainTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\TechnologyTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="F:\Projekty\gamedev\rts-with-codex\tests\WarSystemTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="F:\Projekty\gamedev\rts-with-codex\tests\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{2DA4023A-5BE3-3022-9F43-BB8C1BD4FC02}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

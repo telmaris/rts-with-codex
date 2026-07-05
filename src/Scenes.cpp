@@ -2066,6 +2066,31 @@ namespace
             // colours, vanishing markers, flickering arrows). Correctness over the
             // small sim-thread stall of holding it across the GPU draw.
             scene.render.Draw(widgets, dt);
+
+            // Win/lose banner — driven by the deterministic sim state (a player is
+            // defeated when its HQ is captured). Read from the live world (host/SP);
+            // MP clients rendering from a snapshot show nothing here yet.
+            GameWorld* stateWorld = renderWorld != nullptr ? renderWorld : scene.game.get();
+            if (stateWorld != nullptr)
+            {
+                const int localId = stateWorld->GetLocalPlayerId();
+                const int victor = stateWorld->GetVictorPlayerId();
+                const char* banner = nullptr;
+                Color col{};
+                if (stateWorld->IsPlayerDefeated(localId)) { banner = "DEFEAT"; col = Color{224, 92, 92, 255}; }
+                else if (victor == localId) { banner = "VICTORY"; col = Color{130, 224, 156, 255}; }
+                if (banner != nullptr)
+                {
+                    int sw = GetScreenWidth(), sh = GetScreenHeight();
+                    DrawRectangle(0, sh / 2 - 70, sw, 140, Color{0, 0, 0, 190});
+                    int fs = 72;
+                    int tw = MeasureText(banner, fs);
+                    DrawText(banner, sw / 2 - tw / 2, sh / 2 - fs / 2, fs, col);
+                    const char* hint = "Press Esc for the menu";
+                    int hw = MeasureText(hint, 22);
+                    DrawText(hint, sw / 2 - hw / 2, sh / 2 + 44, 22, Color{210, 214, 220, 235});
+                }
+            }
         }
 
         void AppendDiagnostics(GameScene& scene, std::vector<UiWidget*>& widgets)

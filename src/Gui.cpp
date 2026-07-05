@@ -1864,6 +1864,11 @@ void GuiPanel::Update(double dt)
 
         int weaponSupply = 0;
         int weaponSupplyCapacity = 0;
+        int foodSupply = 0;
+        int foodSupplyCapacity = 0;
+        int materielSupply = 0;
+        int materielSupplyCapacity = 0;
+        float readinessSum = 0.0f;
         if (defensiveGarrison)
         {
             const BalanceModifierSet* unitMods =
@@ -1876,6 +1881,11 @@ void GuiPanel::Update(double dt)
                 const auto& division = *divisionPtr;
                 weaponSupply += division.weaponSupply;
                 weaponSupplyCapacity += division.weaponSupplyCapacity;
+                foodSupply += division.foodSupply;
+                foodSupplyCapacity += division.foodSupplyCapacity;
+                materielSupply += division.materielSupply;
+                materielSupplyCapacity += division.materielSupplyCapacity;
+                readinessSum += DivisionSupplyEfficiency(division);
                 if (division.currentOrder != MilitaryOrderType::None)
                     activeDivisionOrders++;
 
@@ -1900,6 +1910,8 @@ void GuiPanel::Update(double dt)
                 stats.push_back("Morale: " + round1(combatSum.morale / divCount) +
                                 "  Gear: " + std::to_string(static_cast<int>(std::lround(
                                     combatSum.equipmentQuality / divCount * 100.0f))) + "%");
+                stats.push_back("Combat readiness: " + std::to_string(static_cast<int>(std::lround(
+                                    readinessSum / divCount * 100.0f))) + "%  (supply-gated)");
             }
         }
 
@@ -1913,25 +1925,31 @@ void GuiPanel::Update(double dt)
         if (defensiveGarrison)
         {
             y += 8;
-            auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor)
+            // showPercent: military supplies are reported as a percentage of the
+            // garrison's establishment (weapon/food/materiel), which is what the
+            // simulation actually consumes — raw point counts were confusing.
+            auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor,
+                                 bool showPercent)
             {
-                DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, Color{190, 198, 208, 255});
+                float ratio = capacity > 0 ? std::clamp(value / static_cast<float>(capacity), 0.0f, 1.0f) : 0.0f;
+                std::string caption = label;
+                if (showPercent)
+                    caption += ": " + std::to_string(static_cast<int>(std::lround(ratio * 100.0f))) + "%";
+                DrawTextFit(caption, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, Color{190, 198, 208, 255});
                 y += 20;
                 Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 12.0f};
                 DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
                 Rectangle fill = bar;
-                float ratio = capacity > 0 ? std::clamp(value / static_cast<float>(capacity), 0.0f, 1.0f) : 0.0f;
                 fill.width *= ratio;
                 DrawRectangleRounded(fill, 0.2f, 4, fillColor);
                 y += 22;
             };
 
-            drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255});
-            drawRatio("Food supply",
-                      supplyBuffer != nullptr ? supplyBuffer->stored : 0,
-                      supplyBuffer != nullptr ? supplyBuffer->GetModifiedCapacity(*building) : 0,
-                      Color{206, 148, 88, 255});
-            drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255});
+            drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255}, false);
+            // Division-level supply pools as percentages (what combat/consumption use).
+            drawRatio("Food supply", foodSupply, foodSupplyCapacity, Color{206, 148, 88, 255}, true);
+            drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255}, true);
+            drawRatio("Materiel supply", materielSupply, materielSupplyCapacity, Color{150, 176, 140, 255}, true);
             if (garrison->currentOrder != MilitaryOrderType::None || garrison->HasActiveDivisionOrders())
             {
                 UiText::DrawFit("Orders active",

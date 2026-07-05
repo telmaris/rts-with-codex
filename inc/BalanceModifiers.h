@@ -86,6 +86,11 @@ struct BalanceModifier
     std::optional<ResourceType> resourceType;
     std::optional<MilitaryUnitType> unitType;
     std::string source;
+    // Category-scoped bonus: applies to every resource of this category (e.g. a
+    // "+10% Metal production" / "+5% Sword power" modifier). Matched against the
+    // category of context.resourceType via ResourceCategoryOf(). Placed last so
+    // existing positional BalanceModifier{...} aggregate initializers still work.
+    std::optional<ResourceCategory> resourceCategory;
 
     bool AppliesTo(const BalanceModifierContext& context) const
     {
@@ -94,6 +99,10 @@ struct BalanceModifier
         if (buildingType.has_value() && buildingType.value() != context.buildingType)
             return false;
         if (resourceType.has_value() && resourceType.value() != context.resourceType)
+            return false;
+        if (resourceCategory.has_value() &&
+            (context.resourceType == ResourceType::Null ||
+             ResourceCategoryOf(context.resourceType) != resourceCategory.value()))
             return false;
         if (unitType.has_value() && (!context.unitType.has_value() || unitType.value() != context.unitType.value()))
             return false;

@@ -19,12 +19,28 @@ namespace
             case EquipmentMaterial::Iron:    return 1.5f;
             case EquipmentMaterial::Steel:   return 1.9f;
             case EquipmentMaterial::Blackpowder: return 2.4f;
-            default:                         return 0.0f;
+            // BUG 5C: enchanted material sits above blackpowder.
+            // Add concrete ResourceTypes + profile rows in BuildProfiles() when ready.
+            case EquipmentMaterial::Enchanted:   return 3.0f;
+            default:                             return 0.0f;
         }
     }
 
     // The equipment catalogue. One row per equipment ResourceType. Quality is
     // derived from the material tier so the table stays consistent and editable.
+    //
+    // HOW TO ADD A NEW PIECE OF EQUIPMENT (BUG 5C):
+    //  1. Add a new value to ResourceType in Resource.h.
+    //  2. Optionally add a new EquipmentCategory or EquipmentMaterial to Equipment.h,
+    //     and handle the new enum value in MaterialQuality(), EquipmentCategoryLabel(),
+    //     and EquipmentMaterialLabel() below.
+    //  3. Add one row to the `rows[]` array in BuildProfiles() here.
+    //  4. If the item costs manpower to recruit, add its category price to
+    //     the relevant unit class constructor in Building.cpp / Player.cpp.
+    //  5. Bump save version in GameWorld.Persistence.cpp if the new resource type
+    //     appears inside saved division equipment slots.
+    // Nothing else in the simulation needs to know: supply hubs pick the best item
+    // per category generically, and DivisionEquipmentQuality uses quality scores.
     std::vector<EquipmentProfile> BuildProfiles()
     {
         struct Row { ResourceType resource; EquipmentCategory category; EquipmentMaterial material; };
@@ -91,6 +107,29 @@ float GetMaterialQuality(EquipmentMaterial material)
     return MaterialQuality(material);
 }
 
+EquipmentSlot SlotForCategory(EquipmentCategory category)
+{
+    switch (category)
+    {
+        case EquipmentCategory::Sword:
+        case EquipmentCategory::Spear:
+            return EquipmentSlot::Melee;
+        case EquipmentCategory::Bow:
+        case EquipmentCategory::Crossbow:
+        case EquipmentCategory::Firearm:
+            return EquipmentSlot::Ranged;
+        case EquipmentCategory::Ammo:
+            return EquipmentSlot::Ammo;
+        case EquipmentCategory::Shield:
+        case EquipmentCategory::Armor:
+            return EquipmentSlot::Armor;
+        case EquipmentCategory::Siege:
+            return EquipmentSlot::Siege;
+        default:
+            return EquipmentSlot::None;
+    }
+}
+
 const char* EquipmentCategoryLabel(EquipmentCategory category)
 {
     switch (category)
@@ -103,6 +142,7 @@ const char* EquipmentCategoryLabel(EquipmentCategory category)
         case EquipmentCategory::Shield:   return "Shield";
         case EquipmentCategory::Armor:    return "Armor";
         case EquipmentCategory::Ammo:     return "Ammo";
+        case EquipmentCategory::Siege:    return "Siege";
         default:                          return "None";
     }
 }
@@ -119,7 +159,8 @@ const char* EquipmentMaterialLabel(EquipmentMaterial material)
         case EquipmentMaterial::Iron:    return "Iron";
         case EquipmentMaterial::Steel:   return "Steel";
         case EquipmentMaterial::Blackpowder: return "Blackpowder";
-        default:                         return "None";
+        case EquipmentMaterial::Enchanted:   return "Enchanted";
+        default:                             return "None";
     }
 }
 
@@ -213,11 +254,138 @@ namespace
     }
 }
 
+// ─── SupplyDemand ─────────────────────────────────────────────────────────────
+
+int SupplyDemand::WeaponTotal() const
+{
+    int total = 0;
+    for (const auto& [cat, amount] : weapons)
+        total += amount;
+    return total;
+}
+
+void SupplyDemand::AddWeapon(EquipmentCategory category, int amount)
+{
+    if (amount <= 0)
+        return;
+    weapons[category] += amount;
+}
+
+void SupplyDemand::Merge(const SupplyDemand& other)
+{
+    food += other.food;
+    materiel += other.materiel;
+    for (const auto& [cat, amount] : other.weapons)
+        weapons[cat] += amount;
+}
+
+bool SupplyDemand::Wants(SupplyCategory category) const
+{
+    switch (category)
+    {
+        case SupplyCategory::Food:     return food > 0;
+        case SupplyCategory::Materiel: return materiel > 0;
+        case SupplyCategory::Weapons:  return !weapons.empty();
+    }
+    return false;
+}
+
+// Packs the best available item for each DEMANDED weapon/ammo category, sized to
+// the smaller of demand and `cap`. Requires at least one primary weapon to land.
+static bool PlanDemandWeapons(const std::map<ResourceType, int>& available,
+                              const SupplyDemand& demand, int cap, SupplyPackage& out)
+{
+    SupplyPackage planned;
+    planned.category = SupplyCategory::Weapons;
+    planned.soldierCapacity = cap;
+
+    bool hasWeapon = false;
+    for (const auto& [category, wanted] : demand.weapons)
+    {
+        if (wanted <= 0)
+            continue;
+        ResourceType chosen = BestAvailableOfCategory(available, category);
+        if (chosen == ResourceType::Null)
+            continue;
+
+        auto countIt = available.find(chosen);
+        int count = countIt != available.end() ? countIt->second : 0;
+        int take = std::min({count, wanted, cap});
+        if (take <= 0)
+            continue;
+
+        planned.Add(chosen, take);
+        if (IsPrimaryWeapon(category))
+            hasWeapon = true;
+    }
+
+    if (!hasWeapon)
+        return false;
+
+    out = std::move(planned);
+    return true;
+}
+
+bool PlanDemandPackage(const std::map<ResourceType, int>& available,
+                       const SupplyDemand& demand, SupplyCategory category,
+                       int cap, SupplyPackage& out)
+{
+    if (cap <= 0 || !demand.Wants(category))
+        return false;
+
+    switch (category)
+    {
+        case SupplyCategory::Food:
+        {
+            auto it = available.find(ResourceType::FOOD_PROVISIONS);
+            int have = it != available.end() ? it->second : 0;
+            int take = std::min({have, demand.food, cap});
+            if (take <= 0)
+                return false;
+
+            SupplyPackage planned;
+            planned.category = SupplyCategory::Food;
+            planned.rations = take;
+            planned.soldierCapacity = cap;
+            out = std::move(planned);
+            return true;
+        }
+        case SupplyCategory::Materiel:
+        {
+            SupplyPackage planned;
+            planned.category = SupplyCategory::Materiel;
+            planned.soldierCapacity = cap;
+            int remaining = std::min(demand.materiel, cap);
+            for (ResourceType type : {ResourceType::WOOD, ResourceType::PLANKS, ResourceType::STONE, ResourceType::TOOLS})
+            {
+                if (remaining <= 0)
+                    break;
+                auto it = available.find(type);
+                int have = it != available.end() ? it->second : 0;
+                int take = std::min(have, remaining);
+                if (take > 0)
+                {
+                    planned.Add(type, take);
+                    remaining -= take;
+                }
+            }
+            if (planned.items.empty())
+                return false;
+            out = std::move(planned);
+            return true;
+        }
+        case SupplyCategory::Weapons:
+        default:
+            return PlanDemandWeapons(available, demand, cap, out);
+    }
+}
+
 SupplyCategory CategoryOfResource(ResourceType type)
 {
     if (type == ResourceType::FOOD_PROVISIONS)
         return SupplyCategory::Food;
-    if (type == ResourceType::WOOD || type == ResourceType::PLANKS || type == ResourceType::TOOLS)
+    if (type == ResourceType::WOOD || type == ResourceType::PLANKS ||
+        type == ResourceType::STONE || type == ResourceType::TOOLS)
         return SupplyCategory::Materiel;
     return SupplyCategory::Weapons;
 }
@@ -305,7 +473,7 @@ bool PlanCategoryPackage(const std::map<ResourceType, int>& available,
             planned.category = SupplyCategory::Materiel;
             planned.soldierCapacity = soldiers;
             int remaining = soldiers;
-            for (ResourceType type : {ResourceType::WOOD, ResourceType::PLANKS, ResourceType::TOOLS})
+            for (ResourceType type : {ResourceType::WOOD, ResourceType::PLANKS, ResourceType::STONE, ResourceType::TOOLS})
             {
                 if (remaining <= 0)
                     break;

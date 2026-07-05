@@ -197,14 +197,74 @@ inline std::string rt2s(ResourceType s)
     }
 }
 
+// ─── Resource categories / tags ───────────────────────────────────────────────
+// Every ResourceType belongs to exactly one broad category. Categories let
+// buildings and bonuses reason about *classes* of goods instead of hard-coding
+// individual resource ids: a "+10% Metal production" bonus lifts every metal, a
+// "+5% Sword power" bonus lifts every sword tier, a supply hub can pack "the best
+// available Sword" without naming COPPER_SWORD/IRON_SWORD/… one by one.
+//
+// This is the authoritative economic tag layer. The finer combat role of a
+// weapon (slot, quality) still lives in Equipment.h's EquipmentCategory; the two
+// are kept consistent by ResourceCategoryOf() deriving weapon categories from the
+// equipment profile (see Resource.cpp).
+enum class ResourceCategory : uint8_t
+{
+    None = 0,
+
+    // Economy / production chains
+    Ore,             // raw mined ore deposits (COPPER_ORE, IRON_ORE, TIN_ORE, …)
+    Mineral,         // quarried/mined non-metal solids (COAL, STONE, SAND, SULFUR, …)
+    Metal,           // refined metals (COPPER, IRON, BRONZE, STEEL, …)
+    Timber,          // WOOD, PLANKS
+    Textile,         // LEATHER
+    Foodstuff,       // WHEAT, FLOUR, BREAD, MEAT, WATER, BEER
+    Chemical,        // processed industrial goods (GLASS, GUNPOWDER, COKE)
+    Tool,            // TOOLS
+    Paper,           // PAPER
+    Currency,        // COINS
+    Mount,           // HORSE
+
+    // Military logistics (abstract package units carried to the front)
+    MilitarySupply,  // FOOD_PROVISIONS, WEAPON_SUPPLY
+
+    // Equipment (mirrors Equipment.h EquipmentCategory so gear is tagged too)
+    Sword,
+    Spear,
+    Bow,
+    Crossbow,
+    Firearm,
+    Ammunition,      // ARROWS, BOLTS, CARTRIDGE
+    Shield,
+    Armor,
+
+    Count
+};
+
+// Authoritative category of a resource type. Weapon/armor categories are derived
+// from the equipment profile so the two taxonomies never drift. Defined in
+// Resource.cpp.
+ResourceCategory ResourceCategoryOf(ResourceType type);
+
+// Human-readable label for a category (debug / UI / data files).
+const char* ResourceCategoryLabel(ResourceCategory category);
+
+// True when the category is a weapon/armor/ammo class (i.e. an equipment tag).
+bool IsEquipmentCategory(ResourceCategory category);
+
+// True when the category is a primary weapon (Sword/Spear/Bow/Crossbow/Firearm).
+bool IsWeaponCategory(ResourceCategory category);
+
 // Transportable resource instance owned by the global resource pool.
 struct Resource : Transportable
 {
     Resource() = default;
-    Resource(ResourceType rtype) : type(rtype) {}
+    Resource(ResourceType rtype) : type(rtype), category(ResourceCategoryOf(rtype)) {}
     ~Resource() = default;
     std::string tag{"[Resource]"};
     ResourceType type{ResourceType::Null};
+    // Broad economic/combat tag of this resource, derived from `type`.
+    ResourceCategory category{ResourceCategory::None};
 };
 
 // Single-resource-type FIFO/LIFO buffer used by buildings.

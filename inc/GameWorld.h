@@ -50,6 +50,10 @@ class GameWorld
         void Update(double);
         // Advances only authoritative gameplay state, without touching visual layers.
         void UpdateSimulation(double dt);
+        // BUG 3b/3d: pull supply for every deployed division from the nearest friendly
+        // stockpile within SupplyRange tiles. Also called from UpdateSimulation (1 Hz).
+        // Exposed so tests can drive it directly without a full world tick.
+        void ResupplyDeployedDivisions();
         // Draws terrain, roads, buildings and territory overlays.
         void DrawMap();
         // Captures render-safe world state for another thread.
@@ -58,6 +62,11 @@ class GameWorld
         std::uint64_t BuildChecksum() const;
         // Returns the player controlled by local UI.
         int GetLocalPlayerId() const { return localPlayerId; }
+        // True when a player's Headquarters has been captured (player eliminated).
+        bool IsPlayerDefeated(int playerId) const;
+        // Id of the sole surviving player once every other has been eliminated
+        // (a decided game); -1 while two or more players remain. Deterministic.
+        int GetVictorPlayerId() const;
         // Returns the authoritative simulation tick counter.
         std::uint64_t GetSimulationTick() const { return simulationTick; }
 

@@ -16,6 +16,7 @@
 class GameScene;
 class GuiController;
 class DivisionMapWidget;
+class ArmyOrderPanelWidget;
 
 // Implementations are split across thematic translation units:
 //   src/GuiController.cpp   - controller core, input routing, BasicMapViewSystem
@@ -95,6 +96,7 @@ public:
 
     std::vector<UiWidget*> ui;
     std::unique_ptr<DivisionMapWidget> divisionMapOverlay;
+    std::unique_ptr<ArmyOrderPanelWidget> armyOrderPanel;
     GameScene *scene{nullptr};
 };
 
@@ -275,6 +277,21 @@ public:
     std::vector<std::pair<int, Rectangle>> cardRects;  // armyId -> rect
     Rectangle plusRect{0, 0, 0, 0};
     Rectangle contentBounds{0, 0, 0, 0};  // bounding box of the whole strip
+};
+
+// Right-side panel with army order buttons; appears when an army is selected via ArmyBarWidget.
+// Allows issuing strategic commands like "Border Deploy", "Attack", etc.
+class ArmyOrderPanelWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+    bool HandleClick(Vec2i point);
+
+    GameScene* scene{nullptr};
+    ArmyBarWidget* armyBar{nullptr};  // reference to detect which army is selected
+
+    // Layout cache for button hit-testing
+    std::vector<std::pair<std::string, Rectangle>> buttonRects;  // action name -> rect
 };
 
 // ─── HUD and full-screen panels ──────────────────────────────────────────────

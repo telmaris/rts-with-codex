@@ -569,7 +569,35 @@ TEST(Supply, UnarmedDivisionFightsWorse)
     DivisionCombatStats armedStats = ComputeDivisionCombatStats(*armed, nullptr);
     DivisionCombatStats unarmedStats = ComputeDivisionCombatStats(*unarmed, nullptr);
 
-    EXPECT_LT(unarmedStats.lightAttack, armedStats.lightAttack);
+    // Gear quality (lightAttack) is identical — both carry the same sword — but the
+    // out-of-supply division delivers a fraction of it: supply now gates the whole
+    // damage output, not the per-hit stat. See ComputeDivisionCombatStats.
+    EXPECT_FLOAT_EQ(unarmedStats.lightAttack, armedStats.lightAttack);
+    EXPECT_LT(unarmedStats.supplyEfficiency, armedStats.supplyEfficiency);
+    EXPECT_FLOAT_EQ(armedStats.supplyEfficiency, 1.0f);
+}
+
+TEST(Combat, UnsuppliedAttackerDealsLessDamageThroughTheFloor)
+{
+    // Same class + gear, one fully supplied, one out of ammo AND food. The whole
+    // duel output (including the constant damage floor) must scale down with supply
+    // — the fix for "enemies with no supply chain hit just as hard".
+    auto defender = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    auto suppliedAtk = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 2);
+    auto starvedAtk  = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 3);
+    starvedAtk->weaponSupply = 0;
+    starvedAtk->foodSupply   = 0;
+
+    DivisionCombatStats def      = ComputeDivisionCombatStats(*defender, nullptr);
+    DivisionCombatStats supplied = ComputeDivisionCombatStats(*suppliedAtk, nullptr);
+    DivisionCombatStats starved  = ComputeDivisionCombatStats(*starvedAtk, nullptr);
+
+    DivisionDuelResult rSupplied = ResolveDivisionDuel(supplied, def, 1.0, 7, 2, 1);
+    DivisionDuelResult rStarved  = ResolveDivisionDuel(starved,  def, 1.0, 7, 3, 1);
+
+    EXPECT_GT(rSupplied.defenderStrengthLoss, 0.0f);
+    EXPECT_LT(rStarved.defenderStrengthLoss, rSupplied.defenderStrengthLoss);
+    EXPECT_LT(rStarved.defenderCohesionLoss, rSupplied.defenderCohesionLoss);
 }
 
 // ─── Package delivery to the front ────────────────────────────────────────────
@@ -724,13 +752,22 @@ TEST(SupplyHub, AssemblesFromNetworkPickingBestSwordAndLeavingTheRest)
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
     auto* hub = dynamic_cast<SupplyHub*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 8}), &player, std::make_unique<SupplyHub>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({12, 12}), &player, std::make_unique<GuardTower>(3)));
     ASSERT_NE(depot, nullptr);
     ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
 
     depot->storage.buffers[ResourceType::COPPER_SWORD].SetStoredAmount(30);  // worse
     depot->storage.buffers[ResourceType::STEEL_SWORD].SetStoredAmount(10);   // best
     depot->storage.buffers[ResourceType::ARROWS].SetStoredAmount(30);
     depot->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(100);
+
+    // Demand-driven: a swordsman garrison short on weapons asks for Swords, which
+    // is what makes the hub pack any weapon package at all.
+    auto swordsman = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    swordsman->weaponSupply = 0;
+    GarrisonAdd(*tower, std::move(swordsman));
 
     ASSERT_TRUE(hub->packaging.AssemblePackage(*hub));
 
@@ -753,12 +790,23 @@ TEST(SupplyHub, AssemblesAllThreeCategories)
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
     auto* hub = dynamic_cast<SupplyHub*>(
         map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 8}), &player, std::make_unique<SupplyHub>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({12, 12}), &player, std::make_unique<GuardTower>(3)));
     ASSERT_NE(depot, nullptr);
     ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
 
     depot->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(100);
     depot->storage.buffers[ResourceType::WOOD].SetStoredAmount(100);
     depot->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(40);
+
+    // A fully-depleted swordsman garrison generates demand for all three streams
+    // (food, materiel, weapons) so one pass fills every queue.
+    auto swordsman = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    swordsman->foodSupply = 0;
+    swordsman->weaponSupply = 0;
+    swordsman->materielSupply = 0;
+    GarrisonAdd(*tower, std::move(swordsman));
 
     // One assembly pass should be able to fill all three queues at once.
     ASSERT_TRUE(hub->packaging.AssemblePackage(*hub));
@@ -766,6 +814,133 @@ TEST(SupplyHub, AssemblesAllThreeCategories)
     EXPECT_GE(hub->packaging.ReadyPackageCount(SupplyCategory::Food), 1);
     EXPECT_GE(hub->packaging.ReadyPackageCount(SupplyCategory::Materiel), 1);
     EXPECT_GE(hub->packaging.ReadyPackageCount(SupplyCategory::Weapons), 1);
+}
+
+// ─── Demand-driven packing (supply rework) ────────────────────────────────────
+
+TEST(DemandDriven, IdleFullySuppliedFrontPacksNothing)
+{
+    TileMap map;
+    Player player{0, map};
+    FillGrass(map, &player, 16, 16);
+
+    auto* depot = dynamic_cast<Headquarters*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
+    auto* hub = dynamic_cast<SupplyHub*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 8}), &player, std::make_unique<SupplyHub>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({12, 12}), &player, std::make_unique<GuardTower>(3)));
+    ASSERT_NE(depot, nullptr);
+    ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
+
+    // Swords are on hand, but the swordsman garrison is at full supply, so there
+    // is no weapon demand. Drain the HQ's default starting rations so no food
+    // package can form either — leaving genuinely nothing to pack.
+    depot->storage.buffers[ResourceType::STEEL_SWORD].SetStoredAmount(40);
+    depot->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(0);
+
+    auto swordsman = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    // Divisions are constructed at full supply — leave them so.
+    GarrisonAdd(*tower, std::move(swordsman));
+
+    EXPECT_FALSE(hub->packaging.AssemblePackage(*hub))
+        << "A fully-supplied front must not pull packages just because gear exists";
+    EXPECT_EQ(hub->packaging.ReadyPackageCount(SupplyCategory::Weapons), 0);
+    // The steel swords stay in the warehouse — no weapon demand, no draw.
+    EXPECT_EQ(depot->storage.buffers[ResourceType::STEEL_SWORD].buffer.size(), 40u);
+}
+
+TEST(DemandDriven, ArcherFrontPacksRangedGearNotSwords)
+{
+    TileMap map;
+    Player player{0, map};
+    FillGrass(map, &player, 16, 16);
+
+    auto* depot = dynamic_cast<Headquarters*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
+    auto* hub = dynamic_cast<SupplyHub*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 8}), &player, std::make_unique<SupplyHub>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({12, 12}), &player, std::make_unique<GuardTower>(3)));
+    ASSERT_NE(depot, nullptr);
+    ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
+
+    // Both swords and bows are on hand; only bows should be packed for archers.
+    depot->storage.buffers[ResourceType::STEEL_SWORD].SetStoredAmount(40);
+    depot->storage.buffers[ResourceType::BOW].SetStoredAmount(40);
+    depot->storage.buffers[ResourceType::ARROWS].SetStoredAmount(80);
+
+    auto archer = CreateMilitaryDivision(MilitaryUnitType::Archer, 1);
+    archer->weaponSupply = 0;
+    GarrisonAdd(*tower, std::move(archer));
+
+    ASSERT_TRUE(hub->packaging.AssemblePackage(*hub));
+
+    const auto& weapons = hub->packaging.readyPackages[static_cast<size_t>(SupplyCategory::Weapons)];
+    ASSERT_FALSE(weapons.empty());
+    const SupplyPackage& pkg = weapons.front();
+    EXPECT_GT(pkg.CountCategory(EquipmentCategory::Bow), 0);
+    EXPECT_EQ(pkg.CountCategory(EquipmentCategory::Sword), 0)
+        << "An archer front must not pull swords it cannot use";
+    // The steel swords stay untouched in the warehouse.
+    EXPECT_EQ(depot->storage.buffers[ResourceType::STEEL_SWORD].buffer.size(), 40u);
+}
+
+TEST(DemandDriven, ComputeMilitaryDemandBreaksDownByCategory)
+{
+    TileMap map;
+    Player player{0, map};
+    FillGrass(map, &player, 16, 16);
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({4, 4}), &player, std::make_unique<GuardTower>(1)));
+    ASSERT_NE(tower, nullptr);
+
+    auto swordsman = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    swordsman->weaponSupply = 0;
+    swordsman->materielSupply = 0;
+    GarrisonAdd(*tower, std::move(swordsman));
+
+    SupplyDemand demand = ComputeMilitaryDemand(*tower);
+    EXPECT_GT(demand.weapons[EquipmentCategory::Sword], 0);
+    EXPECT_EQ(demand.weapons.count(EquipmentCategory::Bow), 0u);
+    EXPECT_GT(demand.materiel, 0);
+}
+
+TEST(DemandDriven, ServedCategoriesRestrictWhatAHubPacks)
+{
+    TileMap map;
+    Player player{0, map};
+    FillGrass(map, &player, 16, 16);
+
+    auto* depot = dynamic_cast<Headquarters*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Headquarters>(1)));
+    auto* hub = dynamic_cast<SupplyHub*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 8}), &player, std::make_unique<SupplyHub>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({12, 12}), &player, std::make_unique<GuardTower>(3)));
+    ASSERT_NE(depot, nullptr);
+    ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
+
+    depot->storage.buffers[ResourceType::WOOD].SetStoredAmount(100);
+    depot->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(40);
+
+    auto swordsman = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    swordsman->weaponSupply = 0;
+    swordsman->materielSupply = 0;
+    GarrisonAdd(*tower, std::move(swordsman));
+
+    // A materiel-only depot: serves Materiel, never weapons or food.
+    hub->packaging.servedCategories = {false, true, false};
+
+    ASSERT_TRUE(hub->packaging.AssemblePackage(*hub));
+    EXPECT_GE(hub->packaging.ReadyPackageCount(SupplyCategory::Materiel), 1);
+    EXPECT_EQ(hub->packaging.ReadyPackageCount(SupplyCategory::Weapons), 0);
+    EXPECT_EQ(hub->packaging.ReadyPackageCount(SupplyCategory::Food), 0);
+    // Swords left alone by a materiel depot.
+    EXPECT_EQ(depot->storage.buffers[ResourceType::IRON_SWORD].buffer.size(), 40u);
 }
 
 // ─── Recruitment: equipment charged by category (any material/quality) ─────────
@@ -1592,6 +1767,95 @@ TEST(FieldCombat, CaptureTransfersTerritoryToTheConqueror)
     EXPECT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(probe)].owner, atkPlayer);
 }
 
+// Capturing an enemy Headquarters eliminates its owner: the player is flagged
+// defeated, every building it held (incl. civil ones) passes to the conqueror,
+// and the game reports the conqueror as the victor.
+TEST(Elimination, CapturingHqEliminatesOwnerAndTransfersEverything)
+{
+    GameWorld world;
+    auto p0 = std::make_unique<Player>(0, world.tilemap);  // attacker
+    auto p1 = std::make_unique<Player>(1, world.tilemap);  // defender
+    Player* atkPlayer = p0.get();
+    Player* defPlayer = p1.get();
+    world.playerHandler.players[0] = std::move(p0);
+    world.playerHandler.players[1] = std::move(p1);
+    FillGrass(world.tilemap, nullptr, 30, 30);
+    // roadNetwork navMaps were sized to the (empty) tilemap at Player construction;
+    // rebuild now that the map exists so the HQ->Village logistics CalculatePath
+    // (and capture nav updates) don't index a stale, too-small navMap.
+    atkPlayer->roadNetwork = std::make_unique<RoadNetwork>(world.tilemap);
+    defPlayer->roadNetwork = std::make_unique<RoadNetwork>(world.tilemap);
+
+    auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
+    auto* defHq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<Headquarters>(2)));
+    auto* defVillage = dynamic_cast<Village*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({18, 18}), defPlayer, std::make_unique<Village>(3)));
+    ASSERT_NE(atkTower, nullptr);
+    ASSERT_NE(defHq, nullptr);
+    ASSERT_NE(defVillage, nullptr);
+    atkTower->constructionRemaining = 0.0;
+    defHq->constructionRemaining = 0.0;
+    defVillage->constructionRemaining = 0.0;
+    world.tilemap.RecalculateTerritory(atkPlayer);
+    world.tilemap.RecalculateTerritory(defPlayer);
+    // Low HQ HP so the siege concludes quickly (balance-agnostic test).
+    defHq->territory.hp = 1;
+
+    SoldierDivision* attacker = DeployDivision(atkTower, 1, {12, 14});
+    ASSERT_NE(attacker, nullptr);
+    world.SubmitCommand(GameCommand::IssueMilitaryOrder(
+        atkPlayer->id, MilitaryOrderType::Attack,
+        atkTower->positionId, defHq->positionId, /*divisionId*/ 1));
+
+    for (int i = 0; i < 400 && !defPlayer->defeated; i++)
+        world.UpdateSimulation(0.01);
+
+    EXPECT_TRUE(defPlayer->defeated);
+    EXPECT_EQ(defHq->owner, atkPlayer);
+    EXPECT_EQ(defVillage->owner, atkPlayer) << "Civil buildings pass to the conqueror on elimination";
+    EXPECT_TRUE(defPlayer->forces.empty()) << "Defeated player's army is disbanded";
+    EXPECT_EQ(world.GetVictorPlayerId(), atkPlayer->id);
+    EXPECT_TRUE(world.IsPlayerDefeated(defPlayer->id));
+}
+
+// Overrunning enemy ground captures the CIVIL infrastructure on it (a village,
+// production chain, roads), but military works still require a real siege.
+TEST(Elimination, OverrunTransfersCivilBuildingButNotMilitary)
+{
+    GameWorld world;
+    auto p0 = std::make_unique<Player>(0, world.tilemap);  // conqueror of ground
+    auto p1 = std::make_unique<Player>(1, world.tilemap);  // owner of buildings
+    Player* atkPlayer = p0.get();
+    Player* defPlayer = p1.get();
+    world.playerHandler.players[0] = std::move(p0);
+    world.playerHandler.players[1] = std::move(p1);
+    FillGrass(world.tilemap, nullptr, 30, 30);
+
+    auto* atkHq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<Headquarters>(1)));
+    auto* defVillage = dynamic_cast<Village*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({14, 14}), defPlayer, std::make_unique<Village>(2)));
+    auto* defTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
+        world.tilemap.GetIdFromCoords({20, 20}), defPlayer, std::make_unique<GuardTower>(3)));
+    ASSERT_NE(atkHq, nullptr);
+    ASSERT_NE(defVillage, nullptr);
+    ASSERT_NE(defTower, nullptr);
+
+    // Simulate the ground under both defender buildings being overrun by the
+    // conqueror (as if the front swept over it).
+    world.tilemap.tilemap[defVillage->positionId].owner = atkPlayer;
+    world.tilemap.tilemap[defTower->positionId].owner = atkPlayer;
+
+    // TransferOverrunBuildings runs at 10 Hz (tick % 10) — a dozen ticks is plenty.
+    for (int i = 0; i < 15; i++)
+        world.UpdateSimulation(0.01);
+
+    EXPECT_EQ(defVillage->owner, atkPlayer) << "Civil building follows the captured ground";
+    EXPECT_EQ(defTower->owner, defPlayer)   << "Military works are taken only by siege, not by overrun";
+}
+
 // The Barracks is a CIVIL building: a direct attack order on it is rejected, and
 // even a battle raging right beside it never sieges or captures it. Armies only
 // besiege military targets — defensive works and the HQ.
@@ -1604,7 +1868,10 @@ TEST(FieldCombat, BarracksIsNotAMilitaryTarget)
     Player* defPlayer = p1.get();
     world.playerHandler.players[0] = std::move(p0);
     world.playerHandler.players[1] = std::move(p1);
-    FillGrass(world.tilemap, atkPlayer, 30, 30);
+    // Neutral ground: the barracks sits on no-man's-land so this test isolates the
+    // "not a SIEGE target" rule from the separate overrun-capture mechanic (a civil
+    // building on ENEMY territory is captured — that is tested elsewhere).
+    FillGrass(world.tilemap, nullptr, 30, 30);
 
     auto* atkTower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
         world.tilemap.GetIdFromCoords({2, 2}), atkPlayer, std::make_unique<GuardTower>(1)));
@@ -2622,4 +2889,198 @@ TEST(WarSystem, EnemyDivisionOnPlayerTileIsReclaimed)
     ASSERT_TRUE(world.tilemap.IsInside(atkTile));
     EXPECT_EQ(world.tilemap.tilemap[world.tilemap.GetIdFromCoords(atkTile)].owner, atkPlayer)
         << "Player's tile should be reclaimed once enemy is destroyed (BUG 2 regression)";
+}
+
+// ─── BUG 3b/3d — ResupplyDeployedDivisions ────────────────────────────────────
+
+// BUG 3b: a deployed division within SupplyRange of a friendly HQ's stockpile
+// receives weaponSupply from that stockpile after ResupplyDeployedDivisions().
+TEST(ResupplyDeployed, DeployedDivisionPullsWeaponsFromNearbyDepot)
+{
+    MapParameters params;
+    params.seed = 9001;
+    params.aiOpponentCount = 0;
+
+    GameWorld world;
+    world.InitMultiplayerWorld("resupply-test", nullptr, nullptr, params, 0, true);
+
+    Player* player = world.playerHandler.players.at(0).get();
+    ASSERT_NE(player, nullptr);
+
+    // Find the HQ.
+    Headquarters* hq = nullptr;
+    for (const auto& tile : world.tilemap.tilemap)
+    {
+        if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
+            && tile.building->owner == player)
+        {
+            hq = dynamic_cast<Headquarters*>(tile.building.get());
+            break;
+        }
+    }
+    ASSERT_NE(hq, nullptr);
+
+    // Stock the HQ's weapon stockpile.
+    SupplyBufferComponent* sb = hq->GetComponent<SupplyBufferComponent>();
+    ASSERT_NE(sb, nullptr);
+    sb->weaponStock = 40;
+
+    // Deploy a division at the HQ tile (within supply range).
+    auto division = std::make_unique<SwordsmanDivision>();
+    division->weaponSupply = 0;
+    division->weaponSupplyCapacity = 40;
+    Vec2i hqCoords = world.tilemap.GetCoordsFromId(hq->positionId);
+    division->occupiedTile = hqCoords;   // deployed right at the HQ
+    SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
+    ASSERT_NE(raw, nullptr);
+
+    world.ResupplyDeployedDivisions();
+
+    EXPECT_GT(raw->weaponSupply, 0) << "Deployed division in range of stocked HQ should be resupplied";
+    EXPECT_EQ(raw->weaponSupply, 40);            // got full fill
+    EXPECT_EQ(sb->weaponStock, 0);               // stockpile drained
+}
+
+// BUG 3b: a deployed division OUTSIDE SupplyRange receives nothing.
+TEST(ResupplyDeployed, OutOfRangeDivisionNotResupplied)
+{
+    MapParameters params;
+    params.seed = 9002;
+    params.aiOpponentCount = 0;
+
+    GameWorld world;
+    world.InitMultiplayerWorld("resupply-range-test", nullptr, nullptr, params, 0, true);
+
+    Player* player = world.playerHandler.players.at(0).get();
+    ASSERT_NE(player, nullptr);
+
+    Headquarters* hq = nullptr;
+    for (const auto& tile : world.tilemap.tilemap)
+    {
+        if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
+            && tile.building->owner == player)
+        {
+            hq = dynamic_cast<Headquarters*>(tile.building.get());
+            break;
+        }
+    }
+    ASSERT_NE(hq, nullptr);
+
+    SupplyBufferComponent* sb = hq->GetComponent<SupplyBufferComponent>();
+    ASSERT_NE(sb, nullptr);
+    sb->weaponStock = 40;
+
+    // Deploy the division far away — well outside the default 20-tile SupplyRange.
+    auto division = std::make_unique<SwordsmanDivision>();
+    division->weaponSupply = 0;
+    division->weaponSupplyCapacity = 40;
+    Vec2i hqCoords = world.tilemap.GetCoordsFromId(hq->positionId);
+    Vec2i farTile  = {hqCoords.x + 50, hqCoords.y + 50};
+    if (!world.tilemap.IsInside(farTile))
+        farTile = {world.tilemap.params.sizeX - 1, world.tilemap.params.sizeY - 1};
+    division->occupiedTile = farTile;
+    SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
+    ASSERT_NE(raw, nullptr);
+
+    world.ResupplyDeployedDivisions();
+
+    // Out of range → nothing transferred.
+    EXPECT_EQ(raw->weaponSupply, 0) << "Out-of-range division must not receive supply";
+    EXPECT_EQ(sb->weaponStock, 40) << "Stockpile must remain untouched";
+}
+
+// BUG 3d: deployed division with strength deficit recovers from Manpower pool
+// when in range and has food+weapon supply. ReinforceDivisionStrength is called
+// from RunFieldCombat, so here we test it directly via UnitStats.h interface.
+TEST(ResupplyDeployed, ManpowerReinforcementRestoresStrengthWhenInRange)
+{
+    MapParameters params;
+    params.seed = 9003;
+    params.aiOpponentCount = 0;
+
+    GameWorld world;
+    world.InitMultiplayerWorld("reinforce-test", nullptr, nullptr, params, 0, true);
+
+    Player* player = world.playerHandler.players.at(0).get();
+    ASSERT_NE(player, nullptr);
+
+    // Add significant Manpower to the player's pool.
+    player->strategicResources.values[StrategicResourceType::Manpower] = 10000.0;
+
+    // Craft a deployed division at reduced strength with food and weapon supply.
+    Headquarters* hq = nullptr;
+    for (const auto& tile : world.tilemap.tilemap)
+    {
+        if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
+            && tile.building->owner == player)
+        {
+            hq = dynamic_cast<Headquarters*>(tile.building.get());
+            break;
+        }
+    }
+    ASSERT_NE(hq, nullptr);
+
+    auto division = std::make_unique<SwordsmanDivision>();
+    const int maxStrength = static_cast<int>(division->stats.maxStrength.GetBase());
+    division->strength     = maxStrength / 2;   // half strength → deficit
+    division->foodSupply   = division->foodSupplyCapacity;
+    division->weaponSupply = division->weaponSupplyCapacity;
+    division->occupiedTile = world.tilemap.GetCoordsFromId(hq->positionId);
+    SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
+    ASSERT_NE(raw, nullptr);
+
+    const int strengthBefore = raw->strength;
+    const double manpowerBefore = player->strategicResources.values[StrategicResourceType::Manpower];
+
+    // Call ReinforceDivisionStrength directly (the same path RunFieldCombat uses).
+    for (int i = 0; i < 10; i++)
+        ReinforceDivisionStrength(*raw, *player, 1.0, &player->balanceModifiers);
+
+    EXPECT_GT(raw->strength, strengthBefore) << "Strength should recover when Manpower pool is non-empty";
+    EXPECT_LT(player->strategicResources.values[StrategicResourceType::Manpower], manpowerBefore)
+        << "Manpower pool should have been consumed";
+}
+
+// BUG 3d: empty Manpower pool → no reinforcement.
+TEST(ResupplyDeployed, EmptyManpowerPoolPreventsReinforcement)
+{
+    MapParameters params;
+    params.seed = 9004;
+    params.aiOpponentCount = 0;
+
+    GameWorld world;
+    world.InitMultiplayerWorld("reinforce-empty-test", nullptr, nullptr, params, 0, true);
+
+    Player* player = world.playerHandler.players.at(0).get();
+    ASSERT_NE(player, nullptr);
+
+    // Drain Manpower completely.
+    player->strategicResources.values[StrategicResourceType::Manpower] = 0.0;
+
+    Headquarters* hq = nullptr;
+    for (const auto& tile : world.tilemap.tilemap)
+    {
+        if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
+            && tile.building->owner == player)
+        {
+            hq = dynamic_cast<Headquarters*>(tile.building.get());
+            break;
+        }
+    }
+    ASSERT_NE(hq, nullptr);
+
+    auto division = std::make_unique<SwordsmanDivision>();
+    const int maxStrength = static_cast<int>(division->stats.maxStrength.GetBase());
+    division->strength     = maxStrength / 2;
+    division->foodSupply   = division->foodSupplyCapacity;
+    division->weaponSupply = division->weaponSupplyCapacity;
+    SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
+    ASSERT_NE(raw, nullptr);
+
+    const int strengthBefore = raw->strength;
+
+    for (int i = 0; i < 10; i++)
+        ReinforceDivisionStrength(*raw, *player, 1.0, &player->balanceModifiers);
+
+    EXPECT_EQ(raw->strength, strengthBefore) << "No Manpower → strength must not recover";
 }

@@ -99,6 +99,22 @@ float DivisionEquipmentQuality(const DivisionEquipment& equipment)
     return count > 0 ? total / static_cast<float>(count) : 0.5f;
 }
 
+float DivisionSupplyEfficiency(const SoldierDivision& division)
+{
+    // Weapon supply: at 0% ammo/serviceable gear a division still fights at 20%
+    // (fists + improvised), scaling linearly to 100% when fully armed.
+    const float weaponRatio = division.weaponSupplyCapacity > 0
+        ? std::clamp(static_cast<float>(division.weaponSupply) /
+                     static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f)
+        : 1.0f;
+    const float weaponFactor = 0.2f + 0.8f * weaponRatio;
+
+    // Food: a starving division (no rations at all) fights at 40%.
+    const float foodFactor = division.foodSupply > 0 ? 1.0f : 0.4f;
+
+    return std::clamp(weaponFactor * foodFactor, 0.1f, 1.0f);
+}
+
 DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
                                                const BalanceModifierSet* mods)
 {
@@ -106,23 +122,17 @@ DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
     const MilitaryUnitType type = division.type;
     const float quality = DivisionEquipmentQuality(division.equipment);
 
-    // A division that has run out of weapon supply cannot fully arm every
-    // soldier — offense degrades toward "makeshift" as the pool empties (never
-    // below half effectiveness; soldiers still have fists and improvised gear).
-    // See docs/war_system_phase2_design.md, Phase B task B9.
-    const float weaponRatio = division.weaponSupplyCapacity > 0
-        ? std::clamp(static_cast<float>(division.weaponSupply) / static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f)
-        : 1.0f;
-    const float weaponScale = 0.5f + 0.5f * weaponRatio;
-
     DivisionCombatStats out;
     out.equipmentQuality = quality;
 
-    // Gear scales how hard you hit and how well you shrug off blows; morale, speed
-    // and the manpower pool come straight from the (modified) unit stats.
-    out.lightAttack   = ResolveUnitStat(s.lightAttack, type, mods) * quality * weaponScale;
-    out.armoredAttack = ResolveUnitStat(s.armoredAttack, type, mods) * quality * weaponScale;
-    out.shock         = ResolveUnitStat(s.shock, type, mods) * quality * weaponScale;
+    // Gear QUALITY scales how hard you hit and how well you shrug off blows (a steel
+    // sword beats a copper one); morale, speed and the manpower pool come straight
+    // from the (modified) unit stats. Supply availability is applied separately as
+    // supplyEfficiency (below) so it scales the WHOLE damage output, not just this
+    // term — see the note in DivisionCombatStats / ResolveOneSidedDamage.
+    out.lightAttack   = ResolveUnitStat(s.lightAttack, type, mods) * quality;
+    out.armoredAttack = ResolveUnitStat(s.armoredAttack, type, mods) * quality;
+    out.shock         = ResolveUnitStat(s.shock, type, mods) * quality;
     out.piercing      = ResolveUnitStat(s.piercing, type, mods) * quality;
     out.armor         = ResolveUnitStat(s.armor, type, mods) * quality;
     out.defense       = ResolveUnitStat(s.defense, type, mods) * quality;
@@ -136,6 +146,15 @@ DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
     out.isArmored          = out.armoredShare > 0.3f || division.IsMounted();
     out.hpDamageMultiplier  = ResolveUnitStat(s.hpDamageMultiplier, type, mods);
     out.orgDamageMultiplier = ResolveUnitStat(s.orgDamageMultiplier, type, mods);
+
+    // ── Supply efficiency ────────────────────────────────────────────────────
+    // The dominant part of a duel is the constant damage floor; if it ignored
+    // logistics an out-of-supply division would fight at full strength (the old
+    // bug — enemies with no supply chain hit just as hard). Weapon supply and food
+    // now gate the entire output: run dry on ammo and you fight at a fraction; go
+    // hungry and you fight worse still. Never zero — troops always have fists — so
+    // battles between two starved armies still resolve.
+    out.supplyEfficiency = DivisionSupplyEfficiency(division);
     return out;
 }
 
@@ -225,11 +244,13 @@ namespace
 
         // Scaled term (from HoI4 formula) + HP-independent floor (BUG 4 fix).
         // The floor ensures even a near-dead division deals enough damage to
-        // conclude the battle in finite time.
+        // conclude the battle in finite time. The whole output — floor included —
+        // is gated by the attacker's supplyEfficiency, so a division fighting on
+        // empty ammo/rations hits far softer (fixes "unsupplied enemies hit full").
         hpLoss  = (hits * kHpDieAvg * kHpDamageBase  * hpScaling * attacker.hpDamageMultiplier
-                   + kConstantHpFloor) * h * varianceMul;
+                   + kConstantHpFloor) * h * varianceMul * attacker.supplyEfficiency;
         orgLoss = (hits * orgDie    * kOrgDamageBase * hpScaling * attacker.orgDamageMultiplier
-                   + kConstantOrgFloor) * h * varianceMul;
+                   + kConstantOrgFloor) * h * varianceMul * attacker.supplyEfficiency;
     }
 }
 
