@@ -12,7 +12,7 @@
 
 struct SerializationVersion
 {
-    static constexpr int GameCommandVersion = 4;
+    static constexpr int GameCommandVersion = 9;  // Current WireVersion from GameCommand::WireVersion
     static constexpr int GameCommandResultVersion = 3;
     static constexpr int GameServerFrameVersion = 2;
     static constexpr int GameSnapshotVersion = 5;
@@ -34,7 +34,10 @@ public:
     enum class Mode { Write, Read };
 
     // Write mode: construct empty, then operator<< to add fields
-    explicit Archive(int version) : mode(Mode::Write), version(version) {}
+    explicit Archive(int version) : mode(Mode::Write), version(version)
+    {
+        stream << version; // First field is always the version
+    }
 
     // Read mode: construct from payload
     Archive(const std::string& payload, int expectedVersion)
@@ -73,6 +76,19 @@ public:
         if (mode == Mode::Read && isValid)
         {
             if (!(stream >> value))
+            {
+                isValid = false;
+            }
+        }
+        return *this;
+    }
+
+    // Specialization for std::string to handle quoted strings
+    Archive& operator>>(std::string& value)
+    {
+        if (mode == Mode::Read && isValid)
+        {
+            if (!(stream >> std::quoted(value)))
             {
                 isValid = false;
             }

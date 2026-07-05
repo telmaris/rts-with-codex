@@ -1,6 +1,7 @@
 #ifndef GAME_COMMAND_H
 #define GAME_COMMAND_H
 
+#include "core/Serialization.h"
 #include "economy/Building.h"
 
 #include <cstdint>
@@ -162,69 +163,78 @@ struct GameCommand
 
     std::string Serialize() const
     {
-        std::ostringstream stream;
-        stream << WireVersion << ' '
-               << commandId << ' '
-               << targetTick << ' '
-               << static_cast<int>(type) << ' '
-               << playerId << ' '
-               << static_cast<int>(buildingType) << ' '
-               << tilePos.x << ' '
-               << tilePos.y << ' '
-               << sourceTileId << ' '
-               << targetTileId << ' '
-               << (chargeCost ? 1 : 0) << ' '
-               << static_cast<int>(militaryOrderType) << ' '
-               << static_cast<int>(militaryUnitType) << ' '
-               << divisionId << ' '
-               << (alternativeReceiver ? 1 : 0) << ' '
-               << std::quoted(researchId);
-        return stream.str();
+        Archive ar(WireVersion);
+        ar << commandId
+           << targetTick
+           << static_cast<int>(type)
+           << playerId
+           << static_cast<int>(buildingType)
+           << tilePos.x
+           << tilePos.y
+           << sourceTileId
+           << targetTileId
+           << (chargeCost ? 1 : 0)
+           << static_cast<int>(militaryOrderType)
+           << static_cast<int>(militaryUnitType)
+           << divisionId
+           << (alternativeReceiver ? 1 : 0)
+           << researchId;
+        return ar.GetString();
     }
 
     static bool TryDeserialize(const std::string& payload, GameCommand& command)
     {
-        std::istringstream stream(payload);
-        int version = 0;
+        Archive ar(payload, WireVersion);
+        if (!ar.IsValid())
+            return false;
+
         std::uint64_t commandId = 0;
         std::uint64_t targetTick = 0;
         int type = 0;
+        int playerId = 0;
         int buildingType = 0;
+        int tileX = 0, tileY = 0;
+        int sourceTileId = 0;
+        int targetTileId = 0;
         int chargeCost = 0;
         int militaryOrderType = 0;
         int militaryUnitType = 0;
+        int divisionId = 0;
         int alternativeReceiver = 0;
         std::string researchId;
 
-        GameCommand parsed;
-        stream >> version
-               >> commandId
-               >> targetTick
-               >> type
-               >> parsed.playerId
-               >> buildingType
-               >> parsed.tilePos.x
-               >> parsed.tilePos.y
-               >> parsed.sourceTileId
-               >> parsed.targetTileId
-               >> chargeCost
-               >> militaryOrderType
-               >> militaryUnitType
-               >> parsed.divisionId
-               >> alternativeReceiver;
+        ar >> commandId
+           >> targetTick
+           >> type
+           >> playerId
+           >> buildingType
+           >> tileX
+           >> tileY
+           >> sourceTileId
+           >> targetTileId
+           >> chargeCost
+           >> militaryOrderType
+           >> militaryUnitType
+           >> divisionId
+           >> alternativeReceiver
+           >> researchId;
 
-        stream >> std::quoted(researchId);
-
-        if (!stream || version != WireVersion || !IsValidType(type))
+        if (!ar.IsValid() || !IsValidType(type))
             return false;
 
-        parsed.type = static_cast<GameCommandType>(type);
+        GameCommand parsed;
         parsed.commandId = commandId;
         parsed.targetTick = targetTick;
+        parsed.type = static_cast<GameCommandType>(type);
+        parsed.playerId = playerId;
         parsed.buildingType = static_cast<BuildingType>(buildingType);
+        parsed.tilePos = {tileX, tileY};
+        parsed.sourceTileId = sourceTileId;
+        parsed.targetTileId = targetTileId;
         parsed.chargeCost = chargeCost != 0;
         parsed.militaryOrderType = static_cast<MilitaryOrderType>(militaryOrderType);
         parsed.militaryUnitType = static_cast<MilitaryUnitType>(militaryUnitType);
+        parsed.divisionId = divisionId;
         parsed.alternativeReceiver = alternativeReceiver != 0;
         parsed.researchId = std::move(researchId);
         command = std::move(parsed);
