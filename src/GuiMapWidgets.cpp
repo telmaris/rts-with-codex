@@ -6,6 +6,7 @@
 #include "../inc/Scenes.h"
 #include "../inc/Player.h"
 #include "../inc/DivisionSector.h"
+#include "../inc/ArmyOrder.h"
 
 #include <algorithm>
 #include <cmath>

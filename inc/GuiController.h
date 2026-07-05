@@ -576,6 +576,31 @@ private:
     StrategicResourceHudWidget strategicHudWidget;
 };
 
+// Border deployment mode: mark frontier segments via RMB drag to position army.
+class BorderDeployMode : public GuiSystem
+{
+public:
+    explicit BorderDeployMode(GuiController* con);
+    BorderDeployMode() = delete;
+
+    void UpdateUiWidgets(Vec2i) override { }
+    void Update(double dt) override;
+
+private:
+    void RmbPressed();
+    void RmbReleased();
+    void ReturnToMapView();
+
+    GameScene* scene{nullptr};
+    CameraMovement cameraMovement;
+
+    // RMB drag state for frontier selection.
+    bool dragging{false};
+    Vec2i dragStart{-1, -1};
+    Vec2i dragEnd{-1, -1};
+    std::vector<Vec2i> selectedFrontierTiles;
+};
+
 class StatsGuiSystem : public GuiSystem
 {
 public:

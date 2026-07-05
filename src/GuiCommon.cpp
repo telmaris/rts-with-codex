@@ -243,3 +243,60 @@ void SwitchToMapViewAndOpenHeadquarters(GuiController* owner)
     if (mapSystem != nullptr)
         mapSystem->OpenHeadquartersPanel();
 }
+
+// ─── Frontier and military helpers ───────────────────────────────────────────
+
+bool IsFrontierTile(Vec2i tile, const TileMap& map, const Player& owner)
+{
+    if (!map.IsInside(tile))
+        return false;
+
+    auto* tileData = &map.tilemap[map.GetIdFromCoords(tile)];
+    // Frontier tiles are: own territory next to enemy territory.
+    if (tileData->owner != &owner)
+        return false;
+
+    // Check 4-adjacent tiles for enemy territory.
+    Vec2i dirs[] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    for (const auto& dir : dirs)
+    {
+        Vec2i adj{tile.x + dir.x, tile.y + dir.y};
+        if (!map.IsInside(adj))
+            continue;
+        auto* adjData = &map.tilemap[map.GetIdFromCoords(adj)];
+        // Adjacent to enemy = frontier (not neutral, not own).
+        if (adjData->owner != nullptr && adjData->owner != &owner)
+            return true;
+    }
+    return false;
+}
+
+std::vector<Vec2i> CollectFrontierSegment(Vec2i start, Vec2i end, const TileMap& map, const Player& owner)
+{
+    std::vector<Vec2i> result;
+    if (!IsFrontierTile(start, map, owner))
+        return result;
+
+    result.push_back(start);
+    Vec2i current = start;
+
+    // Simple bresenham-like walk from start to end (not precise but good for drag).
+    int dx = (end.x > start.x) ? 1 : (end.x < start.x) ? -1 : 0;
+    int dy = (end.y > start.y) ? 1 : (end.y < start.y) ? -1 : 0;
+
+    while (current != end)
+    {
+        if (current.x != end.x)
+            current.x += dx;
+        if (current.y != end.y)
+            current.y += dy;
+
+        if (IsFrontierTile(current, map, owner))
+        {
+            if (std::find(result.begin(), result.end(), current) == result.end())
+                result.push_back(current);
+        }
+    }
+
+    return result;
+}

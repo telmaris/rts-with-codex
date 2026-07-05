@@ -7,6 +7,8 @@
 #include "../inc/Player.h"
 #include "../inc/BuildingConfig.h"
 #include "../inc/ProductionBuildings.h"
+#include "../inc/DivisionSector.h"
+#include "../inc/ArmyOrder.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1018,5 +1020,134 @@ void DestroyGuiSystem::ReturnToMapView()
 {
     cameraMovement.isMoving = false;
     ClearHoverTarget();
+    owner->ChangeSystem("default");
+}
+
+// ─── BorderDeployMode ───────────────────────────────────────────────────────
+
+BorderDeployMode::BorderDeployMode(GuiController* con) : GuiSystem(con)
+{
+    scene = owner->scene;
+    // Manual wiring (simplified — BorderDeployMode is just for frontier selection).
+    actionMap["esc"] = [this] { ReturnToMapView(); };
+    actionMap["rmbp"] = [this] { RmbPressed(); };
+    actionMap["rmbr"] = [this] { RmbReleased(); };
+    actionMap["mmbp"] = [this] { cameraMovement.isMoving = true; };
+    actionMap["mmbr"] = [this] { cameraMovement.isMoving = false; };
+    actionMap["scroll"] = [this] { ZoomCamera(scene); };
+}
+
+void BorderDeployMode::Update(double dt)
+{
+    if (scene == nullptr || scene->game == nullptr)
+        return;
+
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return;
+
+    // Handle camera movement.
+    MoveCamera(scene, cameraMovement);
+
+    // Show instructions overlay.
+    DrawText("Mark frontier segment with RMB drag. ESC to cancel.",
+             20, static_cast<int>(GetScreenHeight()) - 40, 16,
+             Color{200, 220, 240, 255});
+
+    // Render the selected frontier tiles as highlighted quadrants.
+    if (!selectedFrontierTiles.empty())
+    {
+        for (Vec2i tile : selectedFrontierTiles)
+        {
+            Vec2f wTL{tile.x * static_cast<float>(TILE_SIZE), tile.y * static_cast<float>(TILE_SIZE)};
+            Vec2f wBR{(tile.x + 1) * static_cast<float>(TILE_SIZE),
+                      (tile.y + 1) * static_cast<float>(TILE_SIZE)};
+            Vec2f sTL = scene->render.WorldToScreen(wTL);
+            Vec2f sBR = scene->render.WorldToScreen(wBR);
+            Rectangle rect{sTL.x, sTL.y, sBR.x - sTL.x, sBR.y - sTL.y};
+
+            DrawRectangleRec(rect, Color{100, 200, 150, 60});
+            DrawRectangleLinesEx(rect, 2.0f, Color{100, 255, 150, 200});
+        }
+    }
+
+    // Drag preview: line from dragStart to current mouse.
+    if (dragging && dragStart.x >= 0)
+    {
+        Vector2 mouse = GetMousePosition();
+        Vec2f wStart{dragStart.x * static_cast<float>(TILE_SIZE) + TILE_SIZE / 2.0f,
+                     dragStart.y * static_cast<float>(TILE_SIZE) + TILE_SIZE / 2.0f};
+        Vec2f sStart = scene->render.WorldToScreen(wStart);
+        DrawLineEx({sStart.x, sStart.y}, mouse, 2.0f, Color{150, 255, 150, 200});
+    }
+}
+
+void BorderDeployMode::RmbPressed()
+{
+    if (scene == nullptr || scene->game == nullptr)
+        return;
+
+    Vector2 mouse = GetMousePosition();
+    dragStart = ScreenToTile(scene, mouse);
+    dragEnd = dragStart;
+    dragging = true;
+    selectedFrontierTiles.clear();
+
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer != nullptr && IsFrontierTile(dragStart, scene->game->tilemap, *localPlayer))
+    {
+        selectedFrontierTiles.push_back(dragStart);
+    }
+}
+
+void BorderDeployMode::RmbReleased()
+{
+    if (!dragging || dragStart.x < 0)
+    {
+        dragging = false;
+        return;
+    }
+
+    dragging = false;
+    Vector2 mouse = GetMousePosition();
+    dragEnd = ScreenToTile(scene, mouse);
+
+    if (scene == nullptr || scene->game == nullptr)
+        return;
+
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr)
+        return;
+
+    // Collect the frontier segment from drag start to end.
+    selectedFrontierTiles = CollectFrontierSegment(dragStart, dragEnd, scene->game->tilemap, *localPlayer);
+
+    if (selectedFrontierTiles.empty())
+    {
+        Log::Msg("[BorderDeploy]", "No frontier tiles selected");
+        return;
+    }
+
+    // Issue the border deploy order.
+    std::vector<int> tileIds;
+    for (Vec2i tile : selectedFrontierTiles)
+    {
+        if (scene->game->tilemap.IsInside(tile))
+            tileIds.push_back(scene->game->tilemap.GetIdFromCoords(tile));
+    }
+
+    Log::Msg("[BorderDeploy]", "Selected ", tileIds.size(), " frontier tiles");
+    // TODO: Issue GameCommand::IssueBorderDeployOrder(playerId, armyId, tileIds)
+
+    ReturnToMapView();
+}
+
+void BorderDeployMode::ReturnToMapView()
+{
+    dragging = false;
+    dragStart = {-1, -1};
+    dragEnd = {-1, -1};
+    selectedFrontierTiles.clear();
+    cameraMovement.isMoving = false;
     owner->ChangeSystem("default");
 }
