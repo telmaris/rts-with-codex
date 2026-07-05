@@ -2351,7 +2351,7 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
     runtimeLoop = std::make_unique<MultiplayerClientRuntimeLoop>(
-        std::make_unique<LocalhostClientSession>(game.get(), transport, 1));
+        std::make_unique<ClientSession>(game.get(), transport, 1));
     if (audioSystem != nullptr)
         audioSystem->PlayMusic("gameplay");
 }

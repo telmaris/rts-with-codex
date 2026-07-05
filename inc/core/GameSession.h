@@ -163,10 +163,10 @@ using SinglePlayerSession = HostSession;
 using MultiplayerHostSession = HostSession;
 
 // Prototype local client. It sends serialized commands and observes a local world mirror.
-class LocalhostClientSession : public IGameSession
+class ClientSession : public IGameSession
 {
 public:
-    LocalhostClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport, int assignedPlayerId = 0);
+    ClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport, int assignedPlayerId = 0);
 
     std::uint64_t SubmitCommand(const GameCommand& command) override;
     void Update(double dt) override;
@@ -201,7 +201,8 @@ private:
     std::vector<GameCommandResult> commandResults;
 };
 
-// Backward compatibility alias - use HostSession directly
+// Backward compatibility alias
+using LocalhostClientSession = ClientSession;
 using LocalhostMultiplayerSession = HostSession;
 
 #endif

@@ -312,15 +312,15 @@ sleep_and_wait:
 // LocalhostHostSession is now deprecated - use HostSession instead instead
 
 // ============================================================================
-// LocalhostClientSession Implementation
+// ClientSession Implementation
 // ============================================================================
 
-LocalhostClientSession::LocalhostClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport, int assignedPlayerId)
+ClientSession::ClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTransport> transport, int assignedPlayerId)
     : observedWorld(observedWorld), transport(std::move(transport)), assignedPlayerId(assignedPlayerId)
 {
 }
 
-std::uint64_t LocalhostClientSession::SubmitCommand(const GameCommand& command)
+std::uint64_t ClientSession::SubmitCommand(const GameCommand& command)
 {
     GameCommand outbound = command;
     outbound.playerId = assignedPlayerId;
@@ -331,7 +331,7 @@ std::uint64_t LocalhostClientSession::SubmitCommand(const GameCommand& command)
     return outbound.commandId;
 }
 
-void LocalhostClientSession::Update(double dt)
+void ClientSession::Update(double dt)
 {
     if (transport == nullptr)
         return;
@@ -419,12 +419,12 @@ void LocalhostClientSession::Update(double dt)
     (void)dt;
 }
 
-GameWorld* LocalhostClientSession::GetWorld()
+GameWorld* ClientSession::GetWorld()
 {
     return observedWorld;
 }
 
-bool LocalhostClientSession::ConsumeLatestSnapshot(GameSnapshot& snapshot)
+bool ClientSession::ConsumeLatestSnapshot(GameSnapshot& snapshot)
 {
     if (!hasNetworkSnapshot)
         return false;
@@ -433,36 +433,36 @@ bool LocalhostClientSession::ConsumeLatestSnapshot(GameSnapshot& snapshot)
     return true;
 }
 
-bool LocalhostClientSession::IsConnectionClosed() const
+bool ClientSession::IsConnectionClosed() const
 {
     return transport != nullptr && hadConnection && (!transport->IsConnected() || transport->HasFailed());
 }
 
-int LocalhostClientSession::GetPingMs() const
+int ClientSession::GetPingMs() const
 {
     return transport != nullptr ? transport->GetPingMs() : -1;
 }
 
-std::string LocalhostClientSession::GetConnectionStatus() const
+std::string ClientSession::GetConnectionStatus() const
 {
     if (!initialSnapshotReceived)
         return syncStatus;
     return transport != nullptr ? transport->GetStatus() : std::string{};
 }
 
-bool LocalhostClientSession::IsReadyForGameplay() const
+bool ClientSession::IsReadyForGameplay() const
 {
     return initialSnapshotReceived;
 }
 
-std::vector<GameCommandResult> LocalhostClientSession::ConsumeCommandResults()
+std::vector<GameCommandResult> ClientSession::ConsumeCommandResults()
 {
     std::vector<GameCommandResult> results = std::move(commandResults);
     commandResults.clear();
     return results;
 }
 
-void LocalhostClientSession::HandleSnapshotPayload(const std::string& payload)
+void ClientSession::HandleSnapshotPayload(const std::string& payload)
 {
     if (payload.rfind("INIT_BEGIN ", 0) == 0)
     {
