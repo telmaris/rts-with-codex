@@ -1,5 +1,5 @@
-#include "../inc/Technology.h"
-#include "../inc/RtsDataFile.h"
+#include "research/Technology.h"
+#include "data/RtsDataFile.h"
 
 #include <gtest/gtest.h>
 

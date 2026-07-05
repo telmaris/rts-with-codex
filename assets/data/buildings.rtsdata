@@ -51,7 +51,7 @@ building Village
     build_time 18.0
     footprint 4 4
     texture_id 4
-    village manpower_rate 0.2 population_cap 80 upkeep_interval 60.0 food_package_upkeep 1.0
+    village manpower_rate 5.0 population_cap 1000 upkeep_interval 60.0 food_package_upkeep 1.0
 end
 
 building StorageBuilding

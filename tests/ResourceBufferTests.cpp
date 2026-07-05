@@ -1,4 +1,4 @@
-#include "../inc/Resource.h"
+#include "data/Resource.h"
 
 #include <gtest/gtest.h>
 

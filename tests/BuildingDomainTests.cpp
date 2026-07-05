@@ -1,7 +1,7 @@
-#include "../inc/MapGenerator.h"
-#include "../inc/Player.h"
-#include "../inc/ProductionBuildings.h"
-#include "../inc/RoadNetwork.h"
+#include "simulation/MapGenerator.h"
+#include "economy/Player.h"
+#include "economy/ProductionBuildings.h"
+#include "simulation/RoadNetwork.h"
 
 #include <gtest/gtest.h>
 
@@ -436,27 +436,30 @@ TEST(BuildingDomainTests, BarracksConsumesManpowerAndCompletesRecruitment)
         map.PlaceLoadedBuilding(map.GetIdFromCoords({5, 5}), &player, std::make_unique<Headquarters>(200)));
     ASSERT_NE(hq, nullptr);
     hq->constructionRemaining = 0.0;
-    hq->storage.buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 50};
-    hq->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(50);
-    hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 50};
-    hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(50);
-    hq->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 20};
-    hq->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(20);
-    hq->storage.buffers[ResourceType::BOW] = ResourceBuffer{ResourceType::BOW, 20};
-    hq->storage.buffers[ResourceType::BOW].SetStoredAmount(20);
-    hq->storage.buffers[ResourceType::ARROWS] = ResourceBuffer{ResourceType::ARROWS, 30};
-    hq->storage.buffers[ResourceType::ARROWS].SetStoredAmount(30);
+    // Fixture amounts cover the full establishment cost of one Militia + one
+    // Swordsman + one Archer division (Phase A recruitment costs — see
+    // GetBaseRecruitmentResourceCosts/GetBaseRecruitmentManpowerCost).
+    hq->storage.buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 60};
+    hq->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(60);
+    hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 80};
+    hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(80);
+    hq->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 40};
+    hq->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(40);
+    hq->storage.buffers[ResourceType::BOW] = ResourceBuffer{ResourceType::BOW, 40};
+    hq->storage.buffers[ResourceType::BOW].SetStoredAmount(40);
+    hq->storage.buffers[ResourceType::ARROWS] = ResourceBuffer{ResourceType::ARROWS, 80};
+    hq->storage.buffers[ResourceType::ARROWS].SetStoredAmount(80);
 
     Barracks barracks{30};
     barracks.owner = &player;
     barracks.garrison.cap = 50;
     barracks.constructionRemaining = 0.0;
-    player.strategicResources.Set(StrategicResourceType::Manpower, 30);
+    player.strategicResources.Set(StrategicResourceType::Manpower, 420);
 
     ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Militia));
     ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Swordsman));
     ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Archer));
-    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 2.0);
+    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 0.0);
 
     barracks.Update(100.0);
     barracks.Update(100.0);

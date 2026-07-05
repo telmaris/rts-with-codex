@@ -1,5 +1,5 @@
-#include "../inc/BalanceModifiers.h"
-#include "../inc/StateDevelopment.h"
+#include "economy/BalanceModifiers.h"
+#include "research/StateDevelopment.h"
 
 #include <gtest/gtest.h>
 
@@ -60,6 +60,78 @@ TEST(BalanceModifierTests, AppliesOnlyToMatchingStatAndBuilding)
 
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(2.0, matching), 4.5);
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(2.0, wrongBuilding), 2.0);
+}
+
+TEST(BalanceModifierTests, CategoryModifierAppliesToEveryResourceInCategory)
+{
+    // "+10% Metal production" — one modifier, lifts every metal, ignores non-metals.
+    BalanceModifier metalBonus;
+    metalBonus.stat = BalanceStat::ProductionOutputAmount;
+    metalBonus.multiplier = 1.10;
+    metalBonus.resourceCategory = ResourceCategory::Metal;
+    metalBonus.source = "test:metal_industry";
+
+    BalanceModifierSet modifiers;
+    modifiers.AddModifier(metalBonus);
+
+    auto ctxFor = [](ResourceType type)
+    {
+        BalanceModifierContext ctx;
+        ctx.stat = BalanceStat::ProductionOutputAmount;
+        ctx.resourceType = type;
+        return ctx;
+    };
+
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, ctxFor(ResourceType::IRON)), 11.0);
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, ctxFor(ResourceType::COPPER)), 11.0);
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, ctxFor(ResourceType::STEEL)), 11.0);
+    // A plank is Timber, not Metal — untouched.
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, ctxFor(ResourceType::PLANKS)), 10.0);
+}
+
+TEST(BalanceModifierTests, SwordCategoryBonusCoversEverySwordTier)
+{
+    // "+5% Sword power" boosts every sword material tier through the shared tag.
+    BalanceModifier swordBonus;
+    swordBonus.stat = BalanceStat::ProductionOutputAmount;
+    swordBonus.multiplier = 1.05;
+    swordBonus.resourceCategory = ResourceCategory::Sword;
+    swordBonus.source = "test:swordsmithing";
+
+    BalanceModifierSet modifiers;
+    modifiers.AddModifier(swordBonus);
+
+    auto ctxFor = [](ResourceType type)
+    {
+        BalanceModifierContext ctx;
+        ctx.stat = BalanceStat::ProductionOutputAmount;
+        ctx.resourceType = type;
+        return ctx;
+    };
+
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::COPPER_SWORD)), 105.0);
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::IRON_SWORD)), 105.0);
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::STEEL_SWORD)), 105.0);
+    // A bow is a different weapon category — unaffected by a Sword bonus.
+    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::BOW)), 100.0);
+}
+
+TEST(BalanceModifierTests, ResourceCategoryClassificationIsStable)
+{
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::IRON_ORE), ResourceCategory::Ore);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::IRON), ResourceCategory::Metal);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::BRONZE), ResourceCategory::Metal);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::WOOD), ResourceCategory::Timber);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::BREAD), ResourceCategory::Foodstuff);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::IRON_SWORD), ResourceCategory::Sword);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::BOW), ResourceCategory::Bow);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::ARROWS), ResourceCategory::Ammunition);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::IRON_ARMOR), ResourceCategory::Armor);
+    EXPECT_EQ(ResourceCategoryOf(ResourceType::FOOD_PROVISIONS), ResourceCategory::MilitarySupply);
+    // Every pooled resource must classify to something other than None.
+    for (ResourceType type : resourceTypes)
+        EXPECT_NE(ResourceCategoryOf(type), ResourceCategory::None)
+            << "Unclassified resource: " << rt2s(type);
 }
 
 TEST(BalanceModifierTests, AreaScopeUsesCircularDistance)

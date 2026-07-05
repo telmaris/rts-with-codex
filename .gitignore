@@ -1,0 +1,29 @@
+# Dependencies (source and built artifacts — only committed files: deps/raygui/raygui.h)
+deps/raylib/
+deps/raylib-src/
+
+# Build output
+build/
+build-debug/
+build-test/
+build-tests/
+build-tests-coverage/
+dist/
+test-results/
+
+# Coverage artifacts
+LastCoverageResults.log
+*.gcda
+*.gcno
+
+# Game runtime
+saves/
+logs/
+
+# IDE / editor
+.vs/
+*.user
+*.suo
+
+# Misc
+*.log

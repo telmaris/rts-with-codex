@@ -1,4 +1,4 @@
-#include "../inc/StrategicResource.h"
+#include "data/StrategicResource.h"
 
 #include <gtest/gtest.h>
 
