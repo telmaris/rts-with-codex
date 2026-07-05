@@ -647,7 +647,7 @@ Pozycje świadomie zostawione na później (działają na prototyp, koszt wysoki
 ## Postęp
 
 - [ ] Etap 0 — higiena repo, pełne CI
-- [ ] Etap 1 — GameSession: HostSession/ClientSession, implementacje w .cpp
+- [x] Etap 1 — GameSession: HostSession/ClientSession, implementacje w .cpp (2026-07-05: 1.2, 1.3, 1.4, 1.5 skończone)
 - [ ] Etap 2 — jedna warstwa serializacji
 - [ ] Etap 3 — wspólna baza obliczeń przestrzennych (PathingService)
 - [ ] Etap 4 — InputManager (observer)

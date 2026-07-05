@@ -22,9 +22,9 @@ w fundamentach.
 1. **Deterministyczna symulacja sterowana komendami.** Mutacja stanu wyłącznie przez
    `GameCommand` → `SubmitCommand` → `ProcessCommands` na stałym ticku (`inc/GameWorld.h`).
    Kanoniczny wzorzec lockstep dla RTS MP.
-2. **Abstrakcja sesji** (`inc/GameSession.h`): `IGameSession` z impl. Host/Client/Localhost/Threaded.
-   Single player używa tej samej autorytatywnej ścieżki co host MP — eliminuje klasę bugów
-   "działa w SP, psuje się w MP".
+2. **Abstrakcja sesji** (`inc/GameSession.h`): `IGameSession` z dwoma impl. `HostSession` + `ClientSession`.
+   Single player = HostSession bez transportu; to sama ścieżka co host MP.
+   Eliminuje klasę bugów "działa w SP, psuje się w MP". Background thread w `HostSession` (nie dekorator).
 3. **Fixed-tick z akumulatorem** (100 Hz) + walidacja checksumem co sekundę + resync.
 4. **GameWorld rozbity na partial translation units** (`.Commands`, `.Persistence`, `.Render`,
    `.TileMap`, `.Checksum`) — dobre dla czasów kompilacji i nawigacji.

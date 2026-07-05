@@ -107,10 +107,8 @@ GameWorld            ← symulacja: TileMap + PlayerHandler + Commands
   └─ IController     ← LocalController | AIController | RemoteController
 
 IGameSession         ← abstrakcja nad pętlą symulacji
-  ├─ LocalSinglePlayerSession   ← SP używa tej samej ścieżki co MP host
-  ├─ LocalhostHostSession       ← autorytatywny host MP
-  ├─ LocalhostClientSession     ← klient MP (mirror + resync przez snapshot)
-  └─ ThreadedGameSession        ← dekorator: symulacja na tle wątku
+  ├─ HostSession       ← autorytatywny host (SP + MP); background thread startuje w konstruktorze
+  └─ ClientSession     ← klient MP (mirror + resync przez snapshot); transport abstrakcyjny (Localhost/TCP)
 
 Sceny (Scenes.h/cpp)
   └─ GameScene       ← aktywna sesja + GuiController
@@ -176,7 +174,7 @@ Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save v
 ### Symulacja i pętla gry
 | Ficer | Gdzie szukać |
 |---|---|
-| Fixed-tick, akumulator, UpdateSimulation | `inc/GameSession.h` — `FixedSimulationClock`, `HostGameSession::Update` |
+| Fixed-tick, akumulator, UpdateSimulation | `inc/GameSession.h` — `FixedSimulationClock`, `HostSession` (background thread) |
 | Główna pętla Update (kamera, render, sim) | `src/GameWorld.Render.cpp` — `GameWorld::Update`, `GameWorld::UpdateSimulation` |
 | Inicjalizacja świata, starting base | `src/GameWorld.Init.cpp` — `InitWorld`, `CreateStartingBase` |
 | Kolejkowanie i egzekucja komend | `src/GameWorld.Commands.cpp` — `SubmitCommand`, `ProcessCommands`, `ExecuteCommand` |
@@ -240,7 +238,7 @@ Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save v
 | Ficer | Gdzie szukać |
 |---|---|
 | Interfejs transportu, localhost transport | `inc/GameSession.h` — `IGameTransport`, `LocalhostGameTransport` |
-| Host/Client session, resync, snapshot | `inc/GameSession.h` — `LocalhostHostSession`, `LocalhostClientSession` |
+| Host/Client session, resync, snapshot | `inc/GameSession.h` — `HostSession`, `ClientSession` (transport-agnostic) |
 | TCP transport (LAN) | `inc/TcpGameTransport.h`, `src/TcpGameTransport.cpp` |
 | Serializacja komend i wyników | `inc/GameCommand.h` — `GameCommand::Serialize/TryDeserialize` |
 | Snapshot (pełen stan do join) | `inc/GameSnapshot.h` |
@@ -257,7 +255,7 @@ Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save v
 | Drzewko focusów i technologii (wspólny widget) | `src/GuiResearchTree.cpp` — `ResearchTreePanelWidget` (`ResearchTreeKind`), `FocusGuiSystem`, `TechGuiSystem` |
 | Helpery wspólne GUI (kamera, przyciski HUD) | `src/GuiInternal.h`, `src/GuiCommon.cpp` — `DispatchHudButtonClick`, `WireCommonSystemActions` |
 | Sceny (MainMenu, GameScene, Multiplayer…) | `inc/Scenes.h`, `src/Scenes.cpp` (~2250 linii) |
-| Sesja w GameScene, runtime loop | `src/Scenes.cpp` — `IGameRuntimeLoop`, klasy `SinglePlayerLoop`, `MultiplayerLoop` (ok. linia 1795) |
+| Sesja w GameScene, runtime loop | `src/Scenes.cpp` — `IGameRuntimeLoop`, klasy `HostRuntimeLoop` (SP+MP host), `MultiplayerClientRuntimeLoop` |
 | Renderowanie mapy, tekstury, atlasy | `src/Renderer.cpp`, `inc/Renderer.h` |
 
 ### Zasoby (typy, pool, bufory)
