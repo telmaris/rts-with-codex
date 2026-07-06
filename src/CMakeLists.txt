@@ -28,7 +28,16 @@ target_sources(game
                data/RtsDataFile.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
-               scenes/Scenes.cpp
+               scenes/SceneUtils.cpp
+               scenes/MainMenuScene.cpp
+               scenes/OptionsScene.cpp
+               scenes/NewGameScene.cpp
+               scenes/MultiplayerScene.cpp
+               scenes/ControlsScene.cpp
+               scenes/LoadGameScene.cpp
+               scenes/SaveGameScene.cpp
+               scenes/GameScene.cpp
+               scenes/GameMenuScene.cpp
                ui/Gui.cpp
                ui/InputManager.cpp
                research/ResearchCatalog.cpp
@@ -62,7 +71,10 @@ source_group("economy" FILES economy/Building.cpp economy/BuildingComponents.cpp
 source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp simulation/SectorGraph.cpp)
 source_group("data" FILES data/Resource.cpp data/RtsDataFile.cpp)
 source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
-source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/Scenes.cpp)
+source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
+             scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
+             scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp
+             scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/GameMenuScene.cpp)
 source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/AudioSystem.cpp)

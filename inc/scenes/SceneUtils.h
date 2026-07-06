@@ -1,0 +1,36 @@
+#ifndef SCENE_UTILS_H
+#define SCENE_UTILS_H
+
+#include "ui/Gui.h"
+#include "simulation/MapGenerator.h"
+
+#include <filesystem>
+#include <functional>
+#include <string>
+
+// Small helpers shared by two or more scenes (save-file scenes, and the new
+// game / multiplayer setup scenes). Split out of Scenes.cpp (ETAP 7.3) so
+// each scene's own .cpp doesn't need to duplicate them.
+
+// Converts user-provided save names into filesystem-safe filenames.
+std::string SanitizeSaveName(std::string name);
+
+// Reads world display name from a save file header.
+std::string ReadSaveDisplayName(const std::filesystem::path& path);
+
+// Returns true when a save file with this sanitized name exists.
+bool SaveExists(const std::string& saveName);
+
+// Rebuilds save-list buttons from files in the saves directory.
+void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string)>& onSavePressed);
+
+// Human-readable label for a map size preset.
+std::string MapSizeName(MapSizePreset preset);
+
+// Human-readable label for an AI difficulty index.
+std::string DifficultyName(int difficulty);
+
+// Maps a normalized [0,1] slider value onto an integer range.
+int SliderToInt(float value, int minValue, int maxValue);
+
+#endif
