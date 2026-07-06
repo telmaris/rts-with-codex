@@ -57,6 +57,21 @@ w fundamentach.
 
 ### 🟡 Średnie
 
+- [ ] **`GameWorld` rozpierdol — audyt i segregacja odpowiedzialności**. Obecnie rozbity na:
+  - `GameWorld.cpp` (główny plik)
+  - `GameWorld.Commands.cpp` — przetwarzanie komend
+  - `GameWorld.Init.cpp` — inicjalizacja
+  - `GameWorld.Persistence.cpp` — serializacja (31 KB)
+  - `GameWorld.Render.cpp` — PROBLEM: zawiera `Update()`, `UpdateSimulation()`, `ResupplyDeployedDivisions()` (logika symulacji, nie rendering)
+  - `GameWorld.TileMap.cpp` — operacje na mapie
+  - `GameWorld.Checksum.cpp` — walidacja
+  
+  **Problem:** `.Render.cpp` zawiera czystą logikę symulacji zamiast renderingu. Powinna być:
+  - `GameWorld.SimulationLogic.cpp` (nowy) — `Update()`, tick dispatch, logika podsystemów
+  - `GameWorld.Render.cpp` — TYLKO `DrawMap()` i rendering
+  
+  → Wymaga pełnego audytu: co jest gdzie, dlaczego, czy dział odpowiedzialności są jasne.
+
 - [ ] **`Player` staje się god-objectem** — 769 linii nagłówka, ~150 składowych, 13 includów
   (`inc/Player.h`). Akumuluje ekonomię, armię, technologie, focusy, telemetrię, rejestr budynków.
 - [ ] **Brak enkapsulacji stanu symulacji.** `GameWorld` wystawia `tilemap`/`playerHandler` jako
