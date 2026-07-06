@@ -126,7 +126,14 @@ void GuiController::ChangeSystem(std::string name)
         Log::Msg("[Gui]", "unknown interaction system requested: ", name);
         return;
     }
+
+    if (activeSystem == it->second)
+        return;
+
+    if (activeSystem != nullptr)
+        activeSystem->OnDeactivate();
     activeSystem = it->second;
+    activeSystem->OnActivate();
 }
 
 // Rebuilds the widget draw list through the active system every frame.
@@ -212,6 +219,19 @@ void BasicMapViewSystem::ClearBuildingSelection()
     isBuildingSelected = false;
     buildingInfoPanel.SetBuilding(nullptr);
     researchPanel.SetBuilding(nullptr);
+}
+
+// Runs whenever GuiController switches to a different system. The existing
+// Pressed() handlers (BuildPressed, StatsPressed, ...) already call
+// ClearBuildingSelection() before switching away, but that made the guarantee
+// dependent on every call site remembering to do it. Doing it here too makes
+// it a property of leaving this system, not of how you left it — closing the
+// gap InputEventSubscriber-based bindings need (see GuiPanel::escClose):
+// once this system is inactive, its panels report HasBuilding() == false, so
+// their ESC subscriber becomes a no-op even though it's still registered.
+void BasicMapViewSystem::OnDeactivate()
+{
+    ClearBuildingSelection();
 }
 
 // Advances this object's state for one frame.

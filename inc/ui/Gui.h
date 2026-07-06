@@ -522,11 +522,18 @@ class GuiPanel : public UiWidget
         float contentScrollOffset{0.0f};
         float maxContentScrollOffset{0.0f};
 
-        // ESC closes the topmost panel that owns one of these (ETAP 6.1): the
-        // wrapped subscriber (de)registers itself with InputManager via RAII,
-        // so a panel that goes out of scope also stops listening for free.
+        // ESC closes this panel (ETAP 6.1): the wrapped subscriber
+        // (de)registers itself with InputManager via RAII, so a panel that
+        // goes out of scope also stops listening for free. It stays
+        // registered for the panel's entire lifetime though — not just while
+        // this panel happens to be the visible one — so it guards on
+        // HasBuilding() to stay a no-op whenever there's nothing open. The
+        // owning GuiSystem is expected to clear the building (e.g.
+        // BasicMapViewSystem::OnDeactivate) whenever another system becomes
+        // active, so this can't reach across systems and close a panel that
+        // isn't even on screen.
         InputEventSubscriber<InputType::KeyPressed, KEY_ESCAPE> escClose{
-            [this](const InputEvent&) { Close(); }};
+            [this](const InputEvent&) { if (HasBuilding()) Close(); }};
 };
 
 // Standard side panel for selected building details.

@@ -61,6 +61,16 @@ public:
     // Rebuilds widgets owned by this interaction mode after layout changes.
     virtual void UpdateUiWidgets(Vec2i) = 0;
 
+    // Called by GuiController::ChangeSystem when this system becomes/stops
+    // being the active one. actionMap dispatch (MakeAction) is naturally
+    // scoped already — it only ever looks in the *active* system's map — but
+    // InputEventSubscriber-based bindings (ETAP 4) register globally for the
+    // subscriber's whole lifetime, so a system that owns one (e.g. a panel
+    // with an ESC-close subscriber) must use these hooks to stop reacting
+    // while some other system is active. See BasicMapViewSystem::OnDeactivate.
+    virtual void OnActivate() {}
+    virtual void OnDeactivate() {}
+
     GuiController* owner{nullptr};
     std::map<std::string, std::function<void()>> actionMap;
 };
@@ -426,6 +436,11 @@ public:
 
     // Updates camera drag and visible widgets.
     void Update(double dt) override;
+
+    // Clears building selection so the info/research panels (and any
+    // InputEventSubscriber they own, e.g. GuiPanel::escClose) stop reacting
+    // the moment another GuiSystem becomes active — see GuiSystem::OnDeactivate.
+    void OnDeactivate() override;
 
     GameScene* scene;
     CameraMovement cameraMovement;
