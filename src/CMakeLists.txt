@@ -15,7 +15,17 @@ target_sources(game
                ai/Controller.cpp
                research/Technology.cpp
                economy/Building.cpp
-               economy/BuildingComponents.cpp
+               economy/BuildingComponentsInternal.cpp
+               economy/ProductionComponent.cpp
+               economy/LogisticsComponent.cpp
+               economy/WorkersComponent.cpp
+               economy/StorageComponent.cpp
+               economy/TerritoryComponent.cpp
+               economy/GarrisonComponent.cpp
+               economy/SupplyBufferComponent.cpp
+               economy/RecruitmentComponent.cpp
+               economy/PopulationComponent.cpp
+               economy/SupplyPackageComponent.cpp
                economy/BuildingConfig.cpp
                economy/ConstructionQueue.cpp
                economy/Player.cpp
@@ -67,7 +77,11 @@ source_group("core" FILES
 
 source_group("ai" FILES ai/Controller.cpp ai/DiplomaticState.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
-source_group("economy" FILES economy/Building.cpp economy/BuildingComponents.cpp
+source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInternal.cpp
+             economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
+             economy/StorageComponent.cpp economy/TerritoryComponent.cpp economy/GarrisonComponent.cpp
+             economy/SupplyBufferComponent.cpp economy/RecruitmentComponent.cpp economy/PopulationComponent.cpp
+             economy/SupplyPackageComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/Player.cpp)
 source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp simulation/SectorGraph.cpp)
 source_group("data" FILES data/Resource.cpp data/RtsDataFile.cpp)
