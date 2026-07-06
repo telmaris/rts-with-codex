@@ -459,7 +459,7 @@ struct PopulationComponent : IBuildingComponent
     bool hasFood{true};
     double foodSupplyLevel{1.0};
     double foodSupplyDropPerMissedUpkeep{0.25};
-    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 3};
+    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 1};
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Population; }
     void Update(Building& self, double dt) override;
