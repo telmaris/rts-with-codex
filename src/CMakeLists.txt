@@ -50,6 +50,7 @@ target_sources(game
                ui/GuiBuildModes.cpp
                warfare/ArmyGroup.cpp
                warfare/ArmyOrder.cpp
+               warfare/Division.cpp
                warfare/Equipment.cpp
                warfare/UnitStats.cpp
                warfare/DivisionSector.cpp
@@ -78,5 +79,5 @@ source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUt
 source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/AudioSystem.cpp)
-source_group("warfare" FILES warfare/ArmyGroup.cpp warfare/ArmyOrder.cpp warfare/Equipment.cpp
+source_group("warfare" FILES warfare/ArmyGroup.cpp warfare/ArmyOrder.cpp warfare/Division.cpp warfare/Equipment.cpp
              warfare/UnitStats.cpp warfare/DivisionSector.cpp warfare/MovementPlanner.cpp)

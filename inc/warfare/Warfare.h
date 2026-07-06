@@ -5,6 +5,7 @@
 
 #include "warfare/ArmyGroup.h"
 #include "warfare/ArmyOrder.h"
+#include "warfare/Division.h"
 #include "warfare/Equipment.h"
 #include "warfare/UnitStats.h"
 #include "warfare/DivisionSector.h"
