@@ -508,28 +508,26 @@ void TileMap::RefreshRoadTilesAround(Vec2i pos)
 // Finds the best matching runtime object.
 Building* TileMap::FindNearestStorage(Building* source, Player* player)
 {
-    if (source == nullptr)
+    if (source == nullptr || player == nullptr)
         return nullptr;
 
     Vec2i origin = GetCoordsFromId(source->positionId);
     Building* best = nullptr;
     int bestDistance = std::numeric_limits<int>::max();
 
-    for (auto& tile : tilemap)
+    // ETAP 10: Use Player.storages[] registry instead of scanning entire map.
+    // storages[] contains all StorageComponent buildings owned by player.
+    for (Building* storage : player->storages)
     {
-        auto* building = tile.building.get();
-        if (building == nullptr || building == source)
+        if (storage == nullptr || storage == source)
             continue;
 
-        if (building->owner != player || !building->IsStorageLike())
-            continue;
-
-        Vec2i pos = GetCoordsFromId(building->positionId);
+        Vec2i pos = GetCoordsFromId(storage->positionId);
         int distance = std::abs(pos.x - origin.x) + std::abs(pos.y - origin.y);
         if (distance < bestDistance)
         {
             bestDistance = distance;
-            best = building;
+            best = storage;
         }
     }
 

@@ -60,10 +60,10 @@ public:
     bool IsTechnologyInProgress(const std::string& id) const;
 
     // Registers a newly placed building in player data indexes.
-    void RegisterBuilding(Building* building) { dataTracker.RegisterBuilding(building); }
+    void RegisterBuilding(Building* building);
 
     // Removes a building from player data indexes before it is destroyed.
-    void UnregisterBuilding(Building* building) { dataTracker.UnregisterBuilding(building); }
+    void UnregisterBuilding(Building* building);
 
     // Records a gameplay command accepted for this player.
     void TrackAcceptedCommand(GameCommandType type) { dataTracker.TrackCommand(type); }
@@ -367,6 +367,15 @@ public:
     std::unique_ptr<RoadNetwork> roadNetwork;
     TileMap& tilemap;
     BFactory build;
+
+    // ETAP 10: Strategic building registries — indexed direct access without map scans.
+    // Updated event-driven (onBuildingCreated/Destroyed). Deterministic vector order.
+    std::vector<Building*> storages;          // StorageComponent — resource warehouses
+    std::vector<Building*> militaryBuildings; // GarrisonComponent — barracks, castles, etc
+    std::vector<Building*> supplyHubs;        // SupplyPackageComponent — supply/distribution
+    std::vector<Building*> villages;          // PopulationComponent — civilian settlements
+    uint32_t registryGeneration{0};           // bumped on any registry change — used for cache invalidation
+
     StrategicResourcePool strategicResources;
     TechnologyState technologies;
     FocusState focuses;

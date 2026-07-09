@@ -726,3 +726,49 @@ ResourceFlowSnapshot PlayerEconomyTelemetry::BuildSnapshot(Player& player, doubl
 {
     return player.economyTelemetry.BuildSnapshot(time);
 }
+
+// ─── ETAP 10: Strategic building registries ──────────────────────────────────
+
+void Player::RegisterBuilding(Building* building)
+{
+    dataTracker.RegisterBuilding(building);
+    if (building == nullptr)
+        return;
+
+    // Add to strategic registries based on components (ETAP 10).
+    if (building->HasComponent<StorageComponent>())
+        storages.push_back(building);
+
+    if (building->HasComponent<GarrisonComponent>())
+        militaryBuildings.push_back(building);
+
+    if (building->HasComponent<SupplyPackageComponent>())
+        supplyHubs.push_back(building);
+
+    if (building->HasComponent<PopulationComponent>())
+        villages.push_back(building);
+
+    registryGeneration++;
+}
+
+void Player::UnregisterBuilding(Building* building)
+{
+    dataTracker.UnregisterBuilding(building);
+    if (building == nullptr)
+        return;
+
+    // Remove from strategic registries.
+    auto removeFromRegistry = [building](std::vector<Building*>& registry)
+    {
+        auto it = std::find(registry.begin(), registry.end(), building);
+        if (it != registry.end())
+            registry.erase(it);
+    };
+
+    removeFromRegistry(storages);
+    removeFromRegistry(militaryBuildings);
+    removeFromRegistry(supplyHubs);
+    removeFromRegistry(villages);
+
+    registryGeneration++;
+}

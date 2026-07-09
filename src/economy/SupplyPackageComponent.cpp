@@ -83,17 +83,20 @@ SupplyDemand AggregatePlayerDemand(Building& hub)
     if (hub.owner == nullptr)
         return total;
 
-    for (auto& tile : hub.owner->tilemap.tilemap)
+    // ETAP 10: Use strategic building registries instead of map scan.
+    // militaryBuildings[] already filtered to owner & GarrisonComponent.
+    // villages[] already filtered to owner & PopulationComponent.
+    for (Building* b : hub.owner->militaryBuildings)
     {
-        Building* b = tile.building.get();
-        if (b == nullptr || b == &hub || b->owner != hub.owner)
+        if (b == nullptr || b == &hub)
             continue;
-        if (b->positionId != tile.id)          // visit each building once
+        total.Merge(ComputeMilitaryDemand(*b));
+    }
+
+    for (Building* b : hub.owner->villages)
+    {
+        if (b == nullptr || b == &hub)
             continue;
-        if (auto* garrison = b->GetComponent<GarrisonComponent>())
-        {
-            total.Merge(ComputeMilitaryDemand(*b));
-        }
         if (auto* pop = b->GetComponent<PopulationComponent>())
         {
             total.food += pop->GetFoodDemand();
@@ -304,28 +307,37 @@ void SupplyPackageComponent::DeliverPackages(Building& self)
         if (queue.empty())
             continue;
 
-        // Gather every friendly building that is short on this category,
-        // worst-off first (deterministic tie-break by positionId).
-        // ETAP 9: Food can go to military (GarrisonComponent) or civilian (PopulationComponent).
+        // ETAP 10: Use strategic registries instead of scanning entire map.
+        // Gather every friendly building that is short on this category.
         std::vector<Building*> targets;
-        for (auto& tile : self.owner->tilemap.tilemap)
+        if (category == SupplyCategory::Food)
         {
-            Building* target = tile.building.get();
-            if (target == nullptr || target == &self)
-                continue;
-            if (target->positionId != tile.id)           // visit each building once
-                continue;
-            if (target->owner != self.owner)
-                continue;
-            bool isEligible = false;
-            if (category == SupplyCategory::Food)
-                isEligible = target->HasComponent<GarrisonComponent>() || target->HasComponent<PopulationComponent>();
-            else
-                isEligible = target->HasComponent<GarrisonComponent>();
-            if (!isEligible)
-                continue;
-            if (CategorySupplyDeficit(category, *target) > 0)
-                targets.push_back(target);
+            // Food recipients: military buildings + villages.
+            for (Building* target : self.owner->militaryBuildings)
+            {
+                if (target == nullptr || target == &self)
+                    continue;
+                if (CategorySupplyDeficit(category, *target) > 0)
+                    targets.push_back(target);
+            }
+            for (Building* target : self.owner->villages)
+            {
+                if (target == nullptr || target == &self)
+                    continue;
+                if (CategorySupplyDeficit(category, *target) > 0)
+                    targets.push_back(target);
+            }
+        }
+        else  // Materiel, Weapons
+        {
+            // Other supply categories only go to military buildings.
+            for (Building* target : self.owner->militaryBuildings)
+            {
+                if (target == nullptr || target == &self)
+                    continue;
+                if (CategorySupplyDeficit(category, *target) > 0)
+                    targets.push_back(target);
+            }
         }
         std::sort(targets.begin(), targets.end(), [category](Building* a, Building* b)
         {
