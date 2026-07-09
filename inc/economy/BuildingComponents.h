@@ -309,6 +309,7 @@ struct SupplyBufferComponent : IBuildingComponent
     int receivedFood{0};
     int receivedWeapons{0};
     int receivedMateriel{0};
+    int receivedManpower{0};
     // Maximum stockpile per category: currently hard-coded to 4× a standard
     // division's capacity (4 × 40 = 160); made tunable later via BalanceStat.
     static constexpr int kStockCap = 160;
@@ -467,6 +468,8 @@ struct PopulationComponent : IBuildingComponent
     double GetManpowerProductivity() const;
     double GetWorkerProductivity() const;
     int RequestFoodSupply(Building& self);
+    void AbsorbFoodPackage(SupplyPackage& package);
+    int GetFoodDemand() const;
 };
 
 template<typename T>

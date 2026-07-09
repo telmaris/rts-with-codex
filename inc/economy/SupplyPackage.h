@@ -18,8 +18,9 @@
 
 // Which of a division's three supply pools a package replenishes. See
 // docs/war_system_phase2_design.md (Phase B) — Food/Materiel/Weapons travel as
-// independent package streams rather than one bundle.
-enum class SupplyCategory : uint8_t { Food, Materiel, Weapons };
+// independent package streams rather than one bundle. Manpower is a fourth stream
+// (ETAP 9): transported as SupplyPackage to military buildings for reinforcement.
+enum class SupplyCategory : uint8_t { Food, Materiel, Weapons, Manpower };
 
 // Classifies a resource type into the supply category it belongs to when
 // carried in a package. FOOD_PROVISIONS -> Food; WOOD/PLANKS/TOOLS -> Materiel;
@@ -62,9 +63,10 @@ struct SupplyPackage
     SupplyCategory category{SupplyCategory::Weapons};
     std::vector<SupplyLineItem> items;   // equipment/materiel carried by the package
     int  rations{0};                     // FOOD_PROVISIONS units bundled in (Food packages)
+    int  manpower{0};                    // personnel reinforcements (Manpower packages)
     int  soldierCapacity{0};             // how many soldiers this package can equip
 
-    bool IsEmpty() const { return items.empty() && rations == 0; }
+    bool IsEmpty() const { return items.empty() && rations == 0 && manpower == 0; }
 
     // Total count of items belonging to one equipment category.
     int CountCategory(EquipmentCategory category) const;

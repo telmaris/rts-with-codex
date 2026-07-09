@@ -486,8 +486,17 @@ void Building::ReceptTransport(Transportable* trans)
         {
             Log::Msg(tag, "Supply package arrived; ID: ", positionId,
                      " pos: ", trans->map->GetCoordsFromId(positionId));
-            ApplyPackageToMilitary(pkg->payload, *this);
-            pkg->delivered = true;
+            bool applied = ApplyPackageToMilitary(pkg->payload, *this);
+            // If military application failed (no garrison), try civilian (village food supply).
+            if (!applied && pkg->payload.category == SupplyCategory::Food)
+            {
+                if (auto* pop = GetComponent<PopulationComponent>())
+                {
+                    pop->AbsorbFoodPackage(pkg->payload);
+                    applied = true;
+                }
+            }
+            pkg->delivered = applied;
         }
     }
     else

@@ -90,9 +90,14 @@ SupplyDemand AggregatePlayerDemand(Building& hub)
             continue;
         if (b->positionId != tile.id)          // visit each building once
             continue;
-        if (!b->HasComponent<GarrisonComponent>())
-            continue;
-        total.Merge(ComputeMilitaryDemand(*b));
+        if (auto* garrison = b->GetComponent<GarrisonComponent>())
+        {
+            total.Merge(ComputeMilitaryDemand(*b));
+        }
+        if (auto* pop = b->GetComponent<PopulationComponent>())
+        {
+            total.food += pop->GetFoodDemand();
+        }
     }
     return total;
 }
@@ -168,21 +173,31 @@ namespace
     // neediest-first routing.
     int CategorySupplyDeficit(SupplyCategory category, Building& target)
     {
+        // ETAP 9: Food can be demanded by both military (GarrisonComponent)
+        // and civilian (PopulationComponent) buildings.
+        if (category == SupplyCategory::Food)
+        {
+            int deficit = 0;
+            if (auto* garrison = target.GetComponent<GarrisonComponent>())
+            {
+                for (const auto* division : garrison->divisions)
+                    deficit += std::max(0, division->foodSupplyCapacity - division->foodSupply);
+                if (auto* supply = target.GetComponent<SupplyBufferComponent>())
+                    deficit += std::max(0, supply->buffer.bufferSize - static_cast<int>(supply->buffer.buffer.size()));
+            }
+            if (auto* pop = target.GetComponent<PopulationComponent>())
+            {
+                deficit += pop->GetFoodDemand();
+            }
+            return deficit;
+        }
+
         auto* garrison = target.GetComponent<GarrisonComponent>();
         if (garrison == nullptr)
             return 0;
 
         switch (category)
         {
-            case SupplyCategory::Food:
-            {
-                int deficit = 0;
-                for (const auto* division : garrison->divisions)
-                    deficit += std::max(0, division->foodSupplyCapacity - division->foodSupply);
-                if (auto* supply = target.GetComponent<SupplyBufferComponent>())
-                    deficit += std::max(0, supply->buffer.bufferSize - static_cast<int>(supply->buffer.buffer.size()));
-                return deficit;
-            }
             case SupplyCategory::Materiel:
             {
                 int deficit = 0;
@@ -289,8 +304,9 @@ void SupplyPackageComponent::DeliverPackages(Building& self)
         if (queue.empty())
             continue;
 
-        // Gather every friendly military building that is short on this category,
+        // Gather every friendly building that is short on this category,
         // worst-off first (deterministic tie-break by positionId).
+        // ETAP 9: Food can go to military (GarrisonComponent) or civilian (PopulationComponent).
         std::vector<Building*> targets;
         for (auto& tile : self.owner->tilemap.tilemap)
         {
@@ -299,7 +315,14 @@ void SupplyPackageComponent::DeliverPackages(Building& self)
                 continue;
             if (target->positionId != tile.id)           // visit each building once
                 continue;
-            if (target->owner != self.owner || !target->HasComponent<GarrisonComponent>())
+            if (target->owner != self.owner)
+                continue;
+            bool isEligible = false;
+            if (category == SupplyCategory::Food)
+                isEligible = target->HasComponent<GarrisonComponent>() || target->HasComponent<PopulationComponent>();
+            else
+                isEligible = target->HasComponent<GarrisonComponent>();
+            if (!isEligible)
                 continue;
             if (CategorySupplyDeficit(category, *target) > 0)
                 targets.push_back(target);
@@ -543,6 +566,32 @@ namespace
 
         return used;
     }
+
+    // Manpower package: reinforcements distributed to divisions, neediest first
+    // (lowest strength relative to baseline/role). Manpower is numeric (one unit
+    // adds one strength point directly).
+    bool ApplyManpowerPackage(SupplyPackage& package, GarrisonComponent& garrison)
+    {
+        if (package.manpower <= 0)
+            return false;
+
+        bool used = false;
+        std::vector<SoldierDivision*> order(garrison.divisions.begin(), garrison.divisions.end());
+        std::sort(order.begin(), order.end(), [](const SoldierDivision* a, const SoldierDivision* b)
+        {
+            return a->strength < b->strength;
+        });
+        for (SoldierDivision* division : order)
+        {
+            if (package.manpower <= 0)
+                break;
+            int give = std::min(package.manpower, 10);  // cap per-division reinforcement to avoid debalance
+            division->strength += give;
+            package.manpower -= give;
+            used = true;
+        }
+        return used;
+    }
 }
 
 bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
@@ -560,6 +609,7 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
             case SupplyCategory::Food:     registry->receivedFood     += package.rations;      break;
             case SupplyCategory::Materiel: registry->receivedMateriel += package.TotalItems(); break;
             case SupplyCategory::Weapons:  registry->receivedWeapons  += package.TotalItems(); break;
+            case SupplyCategory::Manpower: registry->receivedManpower += package.manpower;    break;
         }
     }
 
@@ -632,6 +682,10 @@ bool ApplyPackageToMilitary(SupplyPackage& package, Building& target)
                 return used;
             }
             return ApplyMaterielPackage(package, *garrison);
+        }
+        case SupplyCategory::Manpower:
+        {
+            return ApplyManpowerPackage(package, *garrison);
         }
         case SupplyCategory::Weapons:
         default:

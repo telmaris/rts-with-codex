@@ -9,6 +9,37 @@
 #undef GOLD
 #endif
 
+// ─── Resource Taxonomy ─────────────────────────────────────────────────────
+// Resources fall into four classes, each with different transport/storage rules:
+//
+// 1. CONCRETE — individual items produced by buildings and transported over roads
+//    as Transportable resource objects. Stored in StorageComponent/SupplyBufferComponent.
+//    Types: WOOD, PLANKS, BREAD, MEAT, TOOLS, all ore/metal, armor, weapons (SWORD, BOW, etc).
+//    Transport: BeginTransport(source, receiver, resource)
+//
+// 2. STRATEGIC — global aggregates tracked as Stat<int> on Player (no per-building instance).
+//    Types: MANPOWER (recruitment pool), COINS (treasury), WORKFORCE (construction slots).
+//    Never transported; modified by commands (Recruit, Build) or Player::AddManpower/AddCoins.
+//
+// 3. LOCAL — supply streams tracked per military building in SupplyBufferComponent:
+//    Food, Weapons, Materiel. Each stream has a separate capacity/consumption model.
+//    Refilled by SupplyPackage bundles from supply hubs, distributed to divisions.
+//
+// 4. PACKAGED — transport bundles of LOCAL resources: SupplyPackage with category
+//    (Food/Weapons/Materiel/Manpower), items[], and metadata. Roadworthy; decomposed
+//    into individual LOCAL buffers on arrival at destination (military or village building).
+//    Never stored as concrete; always in-transit until absorption.
+//
+// Resource -> Supply mapping (for builders):
+//   CONCRETE: WOOD, PLANKS, LEATHER, COAL, STONE, WHEAT, FLOUR, BREAD, MEAT, WATER, BEER,
+//             COINS, PAPER, TOOLS, equipment (SWORD, BOW, etc), ores/metals
+//   STRATEGIC: (stored on Player, not in this enum)
+//   LOCAL: FOOD_PROVISIONS (food stream), WEAPON_SUPPLY (weapons stream), WOOD/PLANKS/TOOLS/STONE (materiel stream)
+//   PACKAGED: assembled by SupplyPackageComponent, see SupplyPackage.h
+//
+// Note: FOOD_PROVISIONS is hybrid — also used as concrete resource in storage networks,
+// but when packed into SupplyPackage it becomes LOCAL (category=Food).
+
 enum class ResourceType : uint8_t
 {
     Null = 255,

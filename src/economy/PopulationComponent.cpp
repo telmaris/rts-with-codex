@@ -19,14 +19,14 @@ void PopulationComponent::Update(Building& self, double dt)
     if (self.owner == nullptr)
         return;
 
-    int rejected = RequestFoodSupply(self);
+    // ETAP 9: Villages now receive food via supply packages (SupplyCategory::Food)
+    // instead of pulling from storage (RequestFoodSupply). Legacy pull-request
+    // kept for backward compat, but disabled by default. Check GetFoodDemand() instead.
     bool hasBufferedFood = !foodBuffer.buffer.empty();
     bool hasIncomingFood = CountIncomingResources(&self, ResourceType::FOOD_PROVISIONS) > 0;
-    if (rejected > 0 && !hasBufferedFood && !hasIncomingFood)
+    if (!hasBufferedFood && !hasIncomingFood)
     {
-        double pressure = std::clamp(static_cast<double>(rejected) /
-                              std::max(1, foodBuffer.bufferSize), 0.0, 1.0);
-        double dropRate = (0.025 + 0.055 * pressure) / std::max(0.45, foodSupplyLevel);
+        double dropRate = 0.08 / std::max(0.45, foodSupplyLevel);  // No food → rapid productivity drop
         foodSupplyLevel = std::max(0.0, foodSupplyLevel - dropRate * dt);
     }
 
@@ -94,5 +94,23 @@ int PopulationComponent::RequestFoodSupply(Building& self)
         if (missing <= 0) break;
     }
     return std::max(0, missing);
+}
+
+void PopulationComponent::AbsorbFoodPackage(SupplyPackage& package)
+{
+    if (package.category != SupplyCategory::Food)
+        return;
+
+    int capacity = foodBuffer.bufferSize;
+    while (package.rations > 0 && static_cast<int>(foodBuffer.buffer.size()) < capacity)
+    {
+        foodBuffer.GenerateResource(ResourceType::FOOD_PROVISIONS);
+        package.rations--;
+    }
+}
+
+int PopulationComponent::GetFoodDemand() const
+{
+    return std::max(0, foodBuffer.bufferSize - static_cast<int>(foodBuffer.buffer.size()));
 }
 
