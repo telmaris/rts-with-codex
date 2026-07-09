@@ -12,6 +12,7 @@ target_sources(game
                core/GameWorld.Commands.cpp
                core/GameWorld.Checksum.cpp
                core/GameWorld.Render.cpp
+               core/GameWorld.Battles.cpp
                ai/Controller.cpp
                research/Technology.cpp
                economy/Building.cpp
@@ -74,7 +75,7 @@ target_sources(game
 source_group("core" FILES
              core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
              core/GameWorld.Persistence.cpp core/GameWorld.Commands.cpp
-             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp)
+             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Battles.cpp)
 
 source_group("ai" FILES ai/Controller.cpp ai/DiplomaticState.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)

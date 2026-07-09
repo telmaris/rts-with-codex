@@ -38,6 +38,13 @@ public:
     Battle(int battleId, Vec2i sector) : id(battleId), quadrant(sector) {}
 
     bool IsValid() const { return id > 0 && quadrant.x >= 0 && quadrant.y >= 0; }
+
+    enum class Side { None, Attacker, Defender };
+
+    Side SideOf(int divisionId) const;
+    // Adds a division id to the given side (and its owning player id to the
+    // side's player list) if not already present on either side. No-op otherwise.
+    void AddToSide(Side side, int divisionId, int playerId);
 };
 
 #endif

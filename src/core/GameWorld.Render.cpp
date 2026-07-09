@@ -21,9 +21,10 @@ namespace
     // have starved to death (strength <= 0). Deterministic: players in map id
     // order, divisions in forces push_back order.
     //
-    // NOTE: field COMBAT was removed (see git history) — divisions no longer fight,
-    // capture buildings, retreat or encircle. This pass is what remains of the old
-    // RunFieldCombat: movement + logistics upkeep only.
+    // NOTE: this pass is logistics/upkeep only. Field combat was removed long ago
+    // and has been rebuilt as GameWorld::UpdateBattles (ETAP 11.2, called right
+    // after this function from UpdateSimulation) — that is where divisions fight,
+    // retreat and get locked out; nothing here sets `engaged`.
     void UpdateDeployedDivisions(GameWorld& world, double dt)
     {
         for (auto& [pid, player] : world.playerHandler.players)
@@ -36,11 +37,11 @@ namespace
                 SoldierDivision& div = *fptr;
                 if (div.occupiedTile.x < 0) continue;   // garrisoned — handled elsewhere
 
-                // Supply upkeep. With combat gone a division is never `engaged`, so
-                // this drains only the idle food ration (weapons/materiel are spent
-                // in battle, which no longer happens). Starvation still bleeds
-                // strength when the food pool hits zero.
-                ConsumeDivisionSupply(div, dt, /*engaged=*/false, /*deployed=*/true, conservation);
+                // Supply upkeep. `engaged` reflects last tick's Battle state (set/
+                // cleared in UpdateBattles, which runs after this pass), so a
+                // division mid-fight pays the higher combat rate. Starvation still
+                // bleeds strength when the food pool hits zero.
+                ConsumeDivisionSupply(div, dt, /*engaged=*/div.engaged, /*deployed=*/true, conservation);
 
                 // Physical tile: worldPos while marching, occupiedTile at rest.
                 const Vec2i tile = (div.inTransit && div.worldPos.x >= 0.0f)
@@ -143,6 +144,10 @@ void GameWorld::UpdateSimulation(double dt)
     // Field combat/conquest was removed. Deployed divisions still march (handled in
     // GarrisonComponent::Update) and consume supply / reinforce here.
     UpdateDeployedDivisions(*this, dt);
+    // ETAP 11.2: Battle lifecycle — engagement detection + aggregated per-tick
+    // resolution for every active field battle. Runs after movement/upkeep so it
+    // sees this tick's arrivals.
+    UpdateBattles(dt);
     // BUG 3b/3d — resupply deployed divisions from nearest stockpile, once per second.
     if (simulationTick % 100 == 0)
         ResupplyDeployedDivisions();

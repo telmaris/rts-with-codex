@@ -56,6 +56,14 @@ class GameWorld
         // stockpile within SupplyRange tiles. Also called from UpdateSimulation (1 Hz).
         // Exposed so tests can drive it directly without a full world tick.
         void ResupplyDeployedDivisions();
+        // ETAP 11.2: creates/joins Battle instances from divisions carrying an
+        // active Attack order adjacent to enemy-held ground, resolves one tick of
+        // combat for every active battle, and applies end-of-battle consequences
+        // (attacker lockout on defeat, defender retreat-home on defeat). Called
+        // once per simulation tick from UpdateSimulation; exposed for tests.
+        void UpdateBattles(double dt);
+        // Read-only view of active battles (GUI/telemetry/tests).
+        const std::map<int, Battle>& GetBattles() const { return battles; }
         // Draws terrain, roads, buildings and territory overlays.
         void DrawMap();
         // Captures render-safe world state for another thread.
