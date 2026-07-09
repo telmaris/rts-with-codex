@@ -9,6 +9,7 @@
 #include "simulation/PathingService.h"
 #include "economy/Player.h"
 #include "ui/Renderer.h"
+#include "warfare/Battle.h"
 
 class AudioSystem;
 
@@ -100,6 +101,8 @@ class GameWorld
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;
         std::unique_ptr<PathingService> pathingService;
+        std::map<int, Battle> battles;         // ETAP 11: Active battles indexed by id; deterministic (std::map)
+        int nextBattleId{1};                   // Auto-incrementing battle id for uniqueness
         std::uint64_t nextCommandId{1};
         std::uint64_t simulationTick{0};
         Vec2f cachedCameraTarget{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};

@@ -361,6 +361,8 @@ public:
 
     // Army management
     ArmyGroupRegistry armyGroups;
+    // ETAP 11: Active battles involving this player's divisions (for telemetry)
+    std::vector<int> activeBattleIds;    // Ids of Battle objects in GameWorld.battles
     // Global army modifiers from tech/focus (keys: "tech:...", "focus:...")
     BalanceModifierSet armyModifierSet;
 
