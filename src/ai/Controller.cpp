@@ -1825,14 +1825,10 @@ AIStrategicPlan PrimitiveAIModel::SelectStrategicPlan(const AIStrategySnapshot& 
 // Initializes PrimitiveAIModel::CountOwnedBuildings.
 int PrimitiveAIModel::CountOwnedBuildings(GameWorld& world, Player* player, BuildingType type) const
 {
-    int count = 0;
-    for (auto& tile : world.tilemap.tilemap)
-    {
-        Building* building = tile.building.get();
-        if (building != nullptr && building->owner == player && building->buildingType == type)
-            count++;
-    }
-    return count;
+    (void)world;
+    if (player == nullptr)
+        return 0;
+    return player->GetTrackedBuildingCount(type);
 }
 
 int PrimitiveAIModel::CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingType type) const

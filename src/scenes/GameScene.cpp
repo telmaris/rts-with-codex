@@ -168,17 +168,24 @@ namespace
             AppendDiagnostics(scene, widgets);
 
             // Keep the world lock held through widget rendering: every widget's
-            // Update() (called from render.Draw) reads live simulation state —
+            // Update() (called from render.DrawContent) reads live simulation state —
             // garrison divisions, battle markers, order arrows — so releasing the
             // lock before drawing races the sim thread mutating those vectors (with
             // unique_ptr storage a torn read dereferences a freed pointer → garbage
-            // colours, vanishing markers, flickering arrows). Correctness over the
-            // small sim-thread stall of holding it across the GPU draw.
-            scene.render.Draw(widgets, dt);
+            // colours, vanishing markers, flickering arrows).
+            //
+            // But we must NOT hold it across the present: EndDrawing() blocks on
+            // vsync / the frame cap (FLAG_VSYNC_HINT + SetTargetFPS), and holding
+            // worldMutex across that ~frame-long wait starves the 100 Hz background
+            // sim thread — the whole simulation crawls (build/production/transport
+            // stall). So issue all draw calls under the lock via DrawContent(),
+            // then release the lock, then PresentFrame() unlocked.
+            scene.render.DrawContent(widgets, dt);
 
             // Win/lose banner — driven by the deterministic sim state (a player is
             // defeated when its HQ is captured). Read from the live world (host/SP);
-            // MP clients rendering from a snapshot show nothing here yet.
+            // MP clients rendering from a snapshot show nothing here yet. Drawn under
+            // the lock and before the present so it lands in this frame.
             GameWorld* stateWorld = renderWorld != nullptr ? renderWorld : scene.game.get();
             if (stateWorld != nullptr)
             {
@@ -200,6 +207,13 @@ namespace
                     DrawText(hint, sw / 2 - hw / 2, sh / 2 + 44, 22, Color{210, 214, 220, 235});
                 }
             }
+
+            // Release the world lock BEFORE presenting so the sim thread runs
+            // freely during the vsync / frame-cap wait inside EndDrawing().
+            if (worldLock.owns_lock())
+                worldLock.unlock();
+
+            scene.render.PresentFrame();
         }
 
         void AppendDiagnostics(GameScene& scene, std::vector<UiWidget*>& widgets)

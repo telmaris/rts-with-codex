@@ -85,8 +85,15 @@ namespace
     }
 }
 
-// Draws all cached world layers and UI widgets to the window.
+// Draws all cached world layers and UI widgets to the window, then presents.
 void Renderer::Draw(std::vector<UiWidget*> ui, double dt)
+{
+    DrawContent(std::move(ui), dt);
+    PresentFrame();
+}
+
+// Issues all draw calls but does not present. See header for the locking rationale.
+void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
 {
     BeginDrawing();
     ClearBackground(BLACK);
@@ -111,7 +118,12 @@ void Renderer::Draw(std::vector<UiWidget*> ui, double dt)
     {
         ptr->Update(dt);
     }
+}
 
+// Presents the frame. EndDrawing performs the vsync / frame-cap wait, so any
+// world lock the caller held for drawing must already be released here.
+void Renderer::PresentFrame()
+{
     EndDrawing();
 }
 

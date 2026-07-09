@@ -63,8 +63,16 @@ class Renderer
 
     Renderer();
 
-    // Draws all render layers and UI widgets.
+    // Draws all render layers and UI widgets, then presents the frame.
+    // Convenience wrapper = DrawContent + PresentFrame.
     void Draw(std::vector<UiWidget*> ui = {}, double dt = 0);
+    // Begins the frame and issues all draw calls (layers + widgets) but does NOT
+    // present. Lets a caller draw under a lock and release it before the
+    // vsync-blocking present. Must be paired with PresentFrame().
+    void DrawContent(std::vector<UiWidget*> ui = {}, double dt = 0);
+    // Presents the frame (EndDrawing). This is where vsync / frame-cap blocking
+    // happens, so callers holding a lock should release it before calling this.
+    void PresentFrame();
     // Draws a full texture on a render layer at tile coordinates.
     void DrawOnLayer(int, Texture2D, Vec2i);
     // Draws one atlas tile on a render layer at tile coordinates.

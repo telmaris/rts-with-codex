@@ -66,8 +66,10 @@ składa paczki, `ArmyGroupRegistry` grupuje dywizje.
   hashuje ruchu/pozycji/health dywizji. Nowe pola dywizji nie wymagają zmiany
   checksumu **dopóki** ewolucja jest deterministyczna (te same operacje na
   wszystkich klientach). Nie wprowadzać RNG bez wspólnego seeda.
-- MP: `DrawReadyGameplay` trzyma world-lock przez `render.Draw` (widgety czytają
-  live `forces`). Nowe widgety czytające dywizje — bez własnego lockowania.
+- MP: `DrawReadyGameplay` trzyma world-lock przez `render.DrawContent` (widgety
+  czytają live `forces`), ale **zwalnia go przed `render.PresentFrame()`** — nie
+  wolno trzymać locka przez `EndDrawing()` (vsync/frame-cap), bo to głodzi wątek
+  symulacji 100 Hz. Nowe widgety czytające dywizje — bez własnego lockowania.
 - Serializacja: przy dodaniu pól dywizji → **bump save version** i rozszerz DIVS
   blok (`GameWorld.Persistence.cpp`), z backward-compat odczytem (brak pola = default).
 - Nowe komendy → **bump `GameCommand::WireVersion`**, dopisz do
