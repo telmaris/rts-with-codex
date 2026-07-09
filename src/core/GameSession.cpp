@@ -97,7 +97,8 @@ void HostSession::Update(double dt)
 
 GameWorld* HostSession::GetWorld()
 {
-    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    // No lock needed: world pointer is const after construction. Removing lock fixes GUI freeze
+    // caused by main thread (GameScene) waiting for background thread (RunSimulation) to release mutex.
     return world;
 }
 
