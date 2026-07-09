@@ -8,11 +8,12 @@ int CountIncomingResources(Building* target, ResourceType type)
     if (target == nullptr || target->owner == nullptr)
         return 0;
 
+    // OPTIMIZATION: Iterate only tracked buildings (much smaller set than full tilemap),
+    // then check if they have transportables. Avoids 1M tile scans per call.
     int incoming = 0;
-    for (auto& tile : target->owner->tilemap.tilemap)
+    for (Building* carrier : target->owner->GetTrackedBuildings())
     {
-        Building* carrier = tile.building.get();
-        if (carrier == nullptr)
+        if (carrier == nullptr || carrier->transportables.empty())
             continue;
 
         for (auto* t : carrier->transportables)

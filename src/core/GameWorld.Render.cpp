@@ -137,7 +137,8 @@ void GameWorld::ResupplyDeployedDivisions()
     {
         if (player == nullptr) continue;
 
-        // Collect friendly depot buildings (military with supply stockpile).
+        // ETAP 10 FIX: Collect friendly depot buildings from Player.militaryBuildings[] registry,
+        // not by scanning tilemap. Eliminates O(1M) tile scans per second.
         struct Depot
         {
             int positionId;
@@ -145,18 +146,16 @@ void GameWorld::ResupplyDeployedDivisions()
             SupplyBufferComponent* supply;
         };
         std::vector<Depot> depots;
-        for (const auto& tile : player->tilemap.tilemap)
+        for (Building* b : player->militaryBuildings)
         {
-            Building* b = tile.building.get();
-            if (b == nullptr || b->owner != player.get()) continue;
-            auto* garrison = b->GetComponent<GarrisonComponent>();
-            auto* supply   = b->GetComponent<SupplyBufferComponent>();
-            if (garrison == nullptr || supply == nullptr) continue;
+            if (b == nullptr) continue;
+            auto* supply = b->GetComponent<SupplyBufferComponent>();
+            if (supply == nullptr) continue;
             depots.push_back({b->positionId, player->tilemap.GetCoordsFromId(b->positionId), supply});
         }
 
-        // Sort by positionId for determinism (tilemap iteration is already ascending
-        // but be explicit so the order is a documented invariant, not an accident).
+        // Already sorted in registry (insertion order by positionId during build);
+        // but sort explicitly for determinism (independent of registry insert order).
         std::sort(depots.begin(), depots.end(), [](const Depot& a, const Depot& b)
         { return a.positionId < b.positionId; });
 
