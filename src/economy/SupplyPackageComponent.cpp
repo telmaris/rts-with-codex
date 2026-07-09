@@ -111,12 +111,11 @@ std::map<ResourceType, int> SurveyNetworkSupplies(Building& hub)
     if (hub.owner == nullptr)
         return available;
 
-    for (auto& tile : hub.owner->tilemap.tilemap)
+    // OPTIMIZATION: Use Player.storages[] registry instead of scanning entire tilemap.
+    // Eliminates O(1M) tile scans when packing supply packages.
+    for (Building* source : hub.owner->storages)
     {
-        Building* source = tile.building.get();
         if (source == nullptr || source->owner != hub.owner)
-            continue;
-        if (source->positionId != tile.id)      // visit each building once
             continue;
 
         auto* storage = source->GetComponent<StorageComponent>();
@@ -140,16 +139,15 @@ int TakeFromNetwork(Building& hub, ResourceType type, int amount)
         return 0;
 
     int taken = 0;
-    for (auto& tile : hub.owner->tilemap.tilemap)
+    // OPTIMIZATION: Use Player.storages[] registry instead of scanning entire tilemap.
+    for (Building* source : hub.owner->storages)
     {
         if (taken >= amount)
             break;
 
-        Building* source = tile.building.get();
         if (source == nullptr || source->owner != hub.owner)
             continue;
-        if (source->positionId != tile.id)
-            continue;
+        // Registry already deduplicates, no need for positionId check
 
         auto* storage = source->GetComponent<StorageComponent>();
         if (storage == nullptr)

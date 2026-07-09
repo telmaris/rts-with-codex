@@ -97,10 +97,10 @@ void StorageComponent::Update(Building& self, double dt)
             continue;
 
         visitedReceivers.clear();
-        for (auto& tile : self.owner->tilemap.tilemap)
+        // OPTIMIZATION: Iterate tracked buildings instead of full tilemap (~100 vs 1M tiles).
+        for (Building* receiver : self.owner->GetTrackedBuildings())
         {
-            Building* receiver = tile.building.get();
-            if (receiver == nullptr || receiver == &self || receiver->owner != self.owner)
+            if (receiver == nullptr || receiver == &self)
                 continue;
             if (std::find(visitedReceivers.begin(), visitedReceivers.end(), receiver) != visitedReceivers.end())
                 continue;
