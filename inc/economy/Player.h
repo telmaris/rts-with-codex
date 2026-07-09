@@ -372,10 +372,9 @@ public:
 
     // ETAP 10: Strategic building registries — indexed direct access without map scans.
     // Updated event-driven (onBuildingCreated/Destroyed). Deterministic vector order.
-    std::vector<Building*> storages;          // StorageComponent — resource warehouses
+    std::vector<Building*> storages;          // StorageComponent — resource warehouses (includes HQ)
     std::vector<Building*> militaryBuildings; // GarrisonComponent — barracks, castles, etc
     std::vector<Building*> supplyHubs;        // SupplyPackageComponent — supply/distribution
-    std::vector<Building*> headquarters;      // BuildingType::Headquarters — player's capital
     std::vector<Building*> villages;          // PopulationComponent — civilian settlements
     uint32_t registryGeneration{0};           // bumped on any registry change — used for cache invalidation
 

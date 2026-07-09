@@ -745,9 +745,6 @@ void Player::RegisterBuilding(Building* building)
     if (building->HasComponent<SupplyPackageComponent>())
         supplyHubs.push_back(building);
 
-    if (building->buildingType == BuildingType::Headquarters)
-        headquarters.push_back(building);
-
     if (building->HasComponent<PopulationComponent>())
         villages.push_back(building);
 
@@ -771,7 +768,6 @@ void Player::UnregisterBuilding(Building* building)
     removeFromRegistry(storages);
     removeFromRegistry(militaryBuildings);
     removeFromRegistry(supplyHubs);
-    removeFromRegistry(headquarters);
     removeFromRegistry(villages);
 
     registryGeneration++;
