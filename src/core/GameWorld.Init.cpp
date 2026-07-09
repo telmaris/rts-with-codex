@@ -184,20 +184,6 @@ Vec2i GameWorld::CreateStartingBase(Player* player, Vec2i hqAnchor, unsigned int
     if (village != nullptr)
         BuildStartRoad(player, villageAnchor, villageFootprint, hqAnchor, hqFootprint);
 
-    // ETAP 9 FIX: Add Inn to starting base so military buildings can receive Food supply packages.
-    // Without Inn, GuardTower/Barracks have no Food supply network and spam demand forever.
-    Inn innPreview{0};
-    Vec2i innFootprint = innPreview.GetFootprint();
-    Vec2i innAnchor = {hqAnchor.x + hqFootprint.x + 3, hqAnchor.y};
-    innAnchor = ClampAnchor(innAnchor, innFootprint, tilemap.params);
-    if (tilemap.CanBuildFootprint(innAnchor, innFootprint, player))
-    {
-        SetFootprintTerrain(tilemap, innAnchor, innFootprint, TileType::GRASS, resourceRng, 2);
-        player->Build<Inn>(innAnchor, false);
-        // Connect Inn to HQ with a road so Supply Hub can transport Food packages
-        BuildStartRoad(player, innAnchor, innFootprint, hqAnchor, hqFootprint);
-    }
-
     PlaceStartingResourcePatch(tilemap, hqAnchor, hqFootprint, villageAnchor, villageFootprint, TileType::WOOD, resourceRng);
     PlaceStartingResourcePatch(tilemap, hqAnchor, hqFootprint, villageAnchor, villageFootprint, TileType::STONE, resourceRng);
 
