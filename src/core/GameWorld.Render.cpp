@@ -106,7 +106,40 @@ void GameWorld::UpdateSimulation(double dt)
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->construction.Refresh(*player);
-    tilemap.UpdateBuildings(dt);
+    // Update buildings by iterating through Player registries instead of tilemap scan.
+    // Avoids O(1M) tilemap iteration every tick; now O(n_buildings) which is typically ~100-1000.
+    std::vector<int> destroyedBuildingIds;
+    for (auto& [id, player] : playerHandler.players)
+    {
+        if (player == nullptr) continue;
+        for (Building* building : player->GetTrackedBuildings())
+        {
+            if (building == nullptr) continue;
+
+            bool wasUnderConstruction = building->IsUnderConstruction();
+            building->Update(dt);
+
+            if (wasUnderConstruction && !building->IsUnderConstruction())
+            {
+                tilemap.buildingsDirty = true;
+                if (player->roadNetwork != nullptr)
+                {
+                    for (int tileId : tilemap.GetBuildingTileIds(building))
+                        player->roadNetwork->UpdateNavMap(tileId, building);
+                }
+                tilemap.AutoConnectBuilding(building);
+                if (building->GetTerritoryRadius() > 0)
+                    tilemap.RecalculateTerritory(player.get());
+            }
+
+            if (building->GetTerritoryRadius() > 0 && building->GetHitPoints() <= 0)
+                destroyedBuildingIds.push_back(building->positionId);
+        }
+    }
+
+    // Destroy buildings that were defeated
+    for (int id : destroyedBuildingIds)
+        tilemap.DestroyBuildingAt(id);
     // Field combat/conquest was removed. Deployed divisions still march (handled in
     // GarrisonComponent::Update) and consume supply / reinforce here.
     UpdateDeployedDivisions(*this, dt);
