@@ -211,8 +211,7 @@ void LogisticsComponent::DispatchOutputs(Building& self, ProductionComponent& pr
                 if (!avail)
                     break;
 
-                Log::Msg(self.tag, "ID: ", self.id, " ", rt2s(r->type),
-                         " transport started to ", target->name, " with ID ", target->id);
+                // Debug-level: "transport started" is too noisy (spam when retrying without roads)
                 if (!self.owner->BeginTransport(&self, target, r))
                 {
                     prod.outputBuffers[res].AddResource(r);
@@ -239,8 +238,7 @@ int LogisticsComponent::HandleTransportFrom(ResourceType type, int amount, Build
                 prod.outputBuffers[type].AddResource(res);
                 break;
             }
-            Log::Msg(self.tag, "ID: ", self.id, " ", rt2s(res->type),
-                     " transport started to ", receiver->name, " with ID ", receiver->id);
+            // Debug-level: "transport started" is too noisy (spam when retrying without roads)
             if (self.owner->BeginTransport(&self, receiver, res))
                 sent++;
             else

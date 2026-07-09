@@ -71,8 +71,7 @@ int StorageComponent::HandleTransport(ResourceType type, int amount, Building* r
                 buffers[type].AddResource(res);
                 break;
             }
-            Log::Msg(self.tag, "ID: ", self.id, " ", rt2s(res->type),
-                     " transport started to ", receiver->name, " with ID ", receiver->id);
+            // Debug-level: "transport started" is too noisy (spam when retrying without roads)
             if (self.owner->BeginTransport(&self, receiver, res))
                 sent++;
             else

@@ -142,14 +142,15 @@ void RoadNetwork::Update(double dt)
 bool RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* res)
 {
     auto path = CalculatePath(src, dest);
-    if(path.empty()) 
+    if(path.empty())
     {
-        Log::Msg(tag, "Path is empty! aborting transport...");
+        // Debug-level: no spam when supply packages retry without drogi (happens constantly).
+        // Only log if you really need to debug routing issues (use Logger level DEBUG to see).
         return false;
     }
     if (!CanReserveTransportPath(dest, res, path))
     {
-        Log::Msg(tag, "Transport path or destination is full! aborting transport...");
+        // Debug-level: destination full is common during supply congestion, don't spam logs.
         return false;
     }
     res->BeginTransport(src, dest, tilemap, path);
