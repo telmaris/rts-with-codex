@@ -160,29 +160,22 @@ DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
 
 namespace
 {
-    // Deterministic adaptation of HoI4's combat algorithm: expected values in
-    // place of dice rolls (lockstep MP cannot tolerate RNG). See
-    // docs/war_system_phase2_design.md, Phase C, for the full derivation and the
-    // HoI4 wiki example these constants are calibrated against.
-    constexpr float kHitChanceVsDefense = 0.10f;
-    constexpr float kHitChanceNoDefense = 0.40f;
-    constexpr float kHpDieAvg           = 1.5f;   // average of a d2 (HP die)
-    constexpr float kOrgDieAvg          = 2.5f;   // average of a d4 (org die)
-    constexpr float kOrgDieAvgArmored   = 3.5f;   // average of a d6 (armored, unpierced)
-    constexpr float kHpDamageBase       = 0.06f;
-    constexpr float kOrgDamageBase      = 0.053f;
+    // Cohesion-first combat (HoI4-style): every hit lands on organization first;
+    // strength (manpower) is only lost as a consequence of the DEFENDER lacking
+    // the supplies to absorb that hit without real casualties. A fully-supplied
+    // division gets ground down and eventually breaks/retreats but keeps its
+    // men; an under-supplied one bleeds strength on top. See the design note on
+    // ResolveOneSidedDamage below and docs/war_system_phase2_design.md Phase C
+    // for the historical (now superseded) two-track derivation.
+    constexpr float kOrgDamageBase        = 0.6f;
+    constexpr float kMinDamageFraction    = 0.15f;  // floor so 0 defense stats can't fully no-sell
     constexpr float kCombatSecondsPerHour = 60.0f;  // 1 "combat hour" = 60s of sim time (tunable)
 
-    // BUG 4 fix — constant damage floor (HP-independent, per combat-hour).
-    // Guarantees that even a near-dead division deals minimum damage so battles
-    // always resolve in finite time. Calibrated so two equal swordsman divisions
-    // (strength≈200, maxCohesion≈40) fight to a conclusion in roughly 30–60 s of
-    // simulation time: kConstantOrgFloor drains org fast (drives retreat), then
-    // kConstantHpFloor drains strength (kills). Both scale with `h` identically to
-    // the HP-scaled term, so the ratio is preserved at any dt. Tunable here without
-    // touching the rest of the formula.
-    constexpr float kConstantOrgFloor = 80.0f;   // ≈ 1.33 org/s for a swordsman pair
-    constexpr float kConstantHpFloor  = 200.0f;  // ≈ 3.33 strength/s for a swordsman pair
+    // Constant per-combat-hour organization floor (BUG 4 fix), so even a
+    // near-dead division still grinds the fight toward a conclusion. Calibrated
+    // so two equal swordsman divisions (maxCohesion≈40) break in roughly
+    // 20–30 s of simulation time — see ResolveOneSidedDamage.
+    constexpr float kConstantOrgFloor = 100.0f;
 
     // Small deterministic variance fraction (±7.5 %) that simulates the
     // random-but-averaged-out dice rolls HoI4 uses. Seeded from the simulation tick
@@ -225,32 +218,35 @@ namespace
 
     // One-directional expected damage: `attacker` hitting `defender` over `h`
     // combat-hours, with a variance multiplier applied for non-zero randomness.
-    // Fills the HP (strength) and organization (cohesion) loss inflicted on the
-    // defender.
+    //
+    // Cohesion is the single damage channel: raw damage is the attacker's attack
+    // (light or armored, whichever applies to the defender) plus piercing,
+    // knocked down by the defender's defense (never below a small floor
+    // fraction, so 0 defense can't fully no-sell a hit). That total — plus the
+    // constant floor that guarantees a finite fight — is scaled by the
+    // ATTACKER's supply efficiency (an unsupplied attacker hits far softer) and
+    // lands entirely on the defender's organization.
+    //
+    // Strength (manpower) loss is NOT a second damage roll — it is the fraction
+    // of that cohesion hit the DEFENDER couldn't absorb without real casualties,
+    // driven by the defender's OWN supply shortage (1 - supplyEfficiency). A
+    // fully-supplied defender (food + weapons in hand) takes zero permanent
+    // losses from a duel: it gets pushed back, not killed. Losses come from
+    // fighting undersupplied.
     void ResolveOneSidedDamage(const DivisionCombatStats& attacker, const DivisionCombatStats& defender,
                                float h, float varianceMul, float& hpLoss, float& orgLoss)
     {
-        const float attackA = attacker.lightAttack + attacker.shock * 0.5f;
-        const int attacks  = static_cast<int>(std::lround(attackA / 10.0f));
-        const int defenses = static_cast<int>(std::lround(defender.defense / 10.0f));
-
-        const float hits = static_cast<float>(std::min(attacks, defenses)) * kHitChanceVsDefense +
-                           static_cast<float>(std::max(0, attacks - defenses)) * kHitChanceNoDefense;
-
-        const bool armoredUnpierced = attacker.isArmored && attacker.armor > defender.piercing;
-        const float orgDie = armoredUnpierced ? kOrgDieAvgArmored : kOrgDieAvg;
+        const float rawAttack = (defender.isArmored ? attacker.armoredAttack : attacker.lightAttack)
+                                 + attacker.piercing;
+        const float mitigated = std::max(rawAttack * kMinDamageFraction, rawAttack - defender.defense);
 
         const float hpScaling = HpScaling(attacker.strength, attacker.maxStrength);
 
-        // Scaled term (from HoI4 formula) + HP-independent floor (BUG 4 fix).
-        // The floor ensures even a near-dead division deals enough damage to
-        // conclude the battle in finite time. The whole output — floor included —
-        // is gated by the attacker's supplyEfficiency, so a division fighting on
-        // empty ammo/rations hits far softer (fixes "unsupplied enemies hit full").
-        hpLoss  = (hits * kHpDieAvg * kHpDamageBase  * hpScaling * attacker.hpDamageMultiplier
-                   + kConstantHpFloor) * h * varianceMul * attacker.supplyEfficiency;
-        orgLoss = (hits * orgDie    * kOrgDamageBase * hpScaling * attacker.orgDamageMultiplier
-                   + kConstantOrgFloor) * h * varianceMul * attacker.supplyEfficiency;
+        orgLoss = (mitigated * kOrgDamageBase * hpScaling * defender.orgDamageMultiplier + kConstantOrgFloor)
+                  * h * varianceMul * attacker.supplyEfficiency;
+
+        const float defenderShortage = 1.0f - defender.supplyEfficiency;  // 0 = fully supplied, no casualties
+        hpLoss = orgLoss * defenderShortage * defender.hpDamageMultiplier;
     }
 }
 

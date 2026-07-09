@@ -51,7 +51,11 @@ namespace
                 const bool inOwnTerritory = world.GetTileMap().IsInside(tile) &&
                     world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(tile)].owner == player.get();
 
-                RegenerateDivisionCohesion(div, dt, inOwnTerritory, &player->balanceModifiers);
+                // Organization only rebuilds out of combat (HoI4-style) — regenerating
+                // it every tick even while `engaged` was fighting the Battle-system's
+                // drain in the same tick and made fights take ~3x longer than intended.
+                if (!div.engaged)
+                    RegenerateDivisionCohesion(div, dt, inOwnTerritory, &player->balanceModifiers);
                 ReinforceDivisionStrength(div, *player, dt, &player->balanceModifiers);
             }
         }
@@ -81,6 +85,113 @@ namespace
         for (auto& [pid, player] : world.GetPlayerHandler().players)
             if (player != nullptr)
                 player->RebuildGarrisonViews();
+    }
+
+    // The frontline advances with the army: a deployed division claims the ground
+    // it stands on for its owner, so pushing into enemy land flips those tiles
+    // immediately (the border moves with the troops). Runs every tick after
+    // Battle resolution; re-asserts over any building-driven RecalculateTerritory.
+    // Ground is not vacated when troops leave — it stays yours until a building
+    // recompute or an enemy re-occupies it. Deterministic (map + vector iteration
+    // order). Restored from the pre-ETAP-11 combat system (git history), which
+    // this claim logic never depended on beyond "a division stands here".
+    void ClaimTilesUnderDivisions(GameWorld& world)
+    {
+        TileMap& tilemap = world.GetTileMap();
+        for (auto& [pid, player] : world.GetPlayerHandler().players)
+        {
+            if (player == nullptr) continue;
+            for (const auto& fptr : player->forces)
+            {
+                const SoldierDivision& d = *fptr;
+                // Physical tile: worldPos while marching, occupiedTile at rest.
+                Vec2i tile{-1, -1};
+                if (d.inTransit && d.worldPos.x >= 0.0f)
+                    tile = {std::clamp(static_cast<int>(d.worldPos.x / TILE_SIZE), 0, tilemap.params.sizeX - 1),
+                            std::clamp(static_cast<int>(d.worldPos.y / TILE_SIZE), 0, tilemap.params.sizeY - 1)};
+                else if (d.occupiedTile.x >= 0)
+                    tile = d.occupiedTile;
+                else
+                    continue;
+                if (!tilemap.IsInside(tile)) continue;
+                // Claim the WHOLE 2x2 quadrant the division stands in — territory
+                // moves per-province, not per-tile. As the unit marches it passes
+                // through each quadrant on its route (100 Hz → no skipping), so the
+                // front advances smoothly and contiguously behind the army.
+                Vec2i cell = SectorCellOf(tile);
+                Vec2i anchor{cell.x * 2, cell.y * 2};
+                for (int dy = 0; dy < 2; dy++)
+                    for (int dx = 0; dx < 2; dx++)
+                    {
+                        Vec2i qt{anchor.x + dx, anchor.y + dy};
+                        if (!tilemap.IsInside(qt)) continue;
+                        Tile& t = tilemap.tilemap[tilemap.GetIdFromCoords(qt)];
+                        if (t.owner != player.get())
+                        {
+                            t.owner = player.get();
+                            tilemap.territoryDirty = true;
+                        }
+                    }
+            }
+        }
+    }
+
+    // Auto-close encirclements: any ground a player has surrounded (a pocket that
+    // cannot reach the map edge without crossing that player's territory) flips to
+    // them. A defeated enemy building inside is left for capture, but the pocket
+    // around it becomes yours — so after you clear the enemy the hole disappears.
+    // Flood from the border through non-P tiles; whatever isn't reached is enclosed.
+    // Deterministic (map iteration + border-seed order). Throttled by the caller.
+    void CloseEncirclements(GameWorld& world)
+    {
+        TileMap& tilemap = world.GetTileMap();
+        const int W = tilemap.params.sizeX;
+        const int H = tilemap.params.sizeY;
+        const int N = W * H;
+        if (N <= 0 || static_cast<int>(tilemap.tilemap.size()) != N)
+            return;
+
+        for (auto& [pid, playerPtr] : world.GetPlayerHandler().players)
+        {
+            if (playerPtr == nullptr) continue;
+            Player* P = playerPtr.get();
+
+            std::vector<char> reached(N, 0);
+            std::vector<int> stack;
+            auto seed = [&](int x, int y)
+            {
+                int id = y * W + x;
+                if (tilemap.tilemap[id].owner != P && !reached[id])
+                { reached[id] = 1; stack.push_back(id); }
+            };
+            for (int x = 0; x < W; x++) { seed(x, 0); seed(x, H - 1); }
+            for (int y = 0; y < H; y++) { seed(0, y); seed(W - 1, y); }
+
+            const int dxs[4] = {1, -1, 0, 0};
+            const int dys[4] = {0, 0, 1, -1};
+            while (!stack.empty())
+            {
+                int id = stack.back(); stack.pop_back();
+                int x = id % W, y = id / W;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = x + dxs[k], ny = y + dys[k];
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                    int nid = ny * W + nx;
+                    if (!reached[nid] && tilemap.tilemap[nid].owner != P)
+                    { reached[nid] = 1; stack.push_back(nid); }
+                }
+            }
+
+            for (int id = 0; id < N; id++)
+            {
+                Tile& t = tilemap.tilemap[id];
+                if (reached[id] || t.owner == P) continue;
+                if (t.HasBuilding()) continue;  // leave the building; capture handles it
+                t.owner = P;
+                tilemap.territoryDirty = true;
+            }
+        }
     }
 }
 
@@ -148,6 +259,13 @@ void GameWorld::UpdateSimulation(double dt)
     // resolution for every active field battle. Runs after movement/upkeep so it
     // sees this tick's arrivals.
     UpdateBattles(dt);
+    // Territory follows the army: a division claims the 2x2 quadrant it stands on
+    // for its owner every tick (restored — was stripped along with the old combat
+    // system). Encirclement auto-closure is coarse in time (5 Hz is plenty and
+    // keeps the per-player flood-fill off the hot 100 Hz path).
+    ClaimTilesUnderDivisions(*this);
+    if (simulationTick % 20 == 0)
+        CloseEncirclements(*this);
     // BUG 3b/3d — resupply deployed divisions from nearest stockpile, once per second.
     if (simulationTick % 100 == 0)
         ResupplyDeployedDivisions();

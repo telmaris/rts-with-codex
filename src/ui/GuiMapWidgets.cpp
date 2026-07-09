@@ -7,6 +7,7 @@
 #include "economy/Player.h"
 #include "warfare/DivisionSector.h"
 #include "warfare/ArmyOrder.h"
+#include "warfare/UnitStats.h"
 
 #include <algorithm>
 #include <cmath>
@@ -727,24 +728,22 @@ void MilitaryDivisionBarWidget::Update(double dt)
                 ? static_cast<int>(std::lround(100.0 * value / capacity)) : 0;
             return std::to_string(std::clamp(p, 0, 100)) + "%";
         };
+        // Five numbers only, in the order they actually matter for a fight
+        // (ETAP 11 rework): Cohesion decides who breaks, HP is what it costs to
+        // rebuild, and the three supply levels explain why either is moving.
+        const BalanceModifierSet* mods = building->owner != nullptr ? &building->owner->balanceModifiers : nullptr;
+        const float maxCohesion = ResolveDivisionMaxCohesion(*hovered, mods);
+        auto ratioPct = [](float value, float maxValue) {
+            int p = maxValue > 0.0f ? static_cast<int>(std::lround(100.0 * value / maxValue)) : 0;
+            return std::to_string(std::clamp(p, 0, 100)) + "%";
+        };
         Tooltip::Draw(std::string(MilitaryUnitLabel(hovered->type)) + " division #" + std::to_string(hovered->id), {
-            "Health: " + std::to_string(hovered->health) + "/" + std::to_string(hovered->maxHealth),
-            "Strength: " + std::to_string(hovered->strength),
-            "Endurance: " + std::to_string(hovered->endurance),
-            "Morale: " + std::to_string(hovered->morale),
-            "Experience: " + std::to_string(hovered->experience),
-            "Speed: " + FormatOneDecimal(hovered->speedTilesPerMinute) + " tiles/min",
-            "Food supply: " + pct(hovered->foodSupply, hovered->foodSupplyCapacity),
-            "Weapon supply: " + pct(hovered->weaponSupply, hovered->weaponSupplyCapacity),
-            "Materiel supply: " + pct(hovered->materielSupply, hovered->materielSupplyCapacity),
-            "Combat readiness: " +
-                std::to_string(static_cast<int>(std::lround(DivisionSupplyEfficiency(*hovered) * 100.0f))) + "%",
-            "Order: " + std::string(MilitaryOrderLabel(hovered->currentOrder)),
-            "Weapon: " + EquipmentLabel(hovered->equipment.weapon),
-            "Armor: " + EquipmentLabel(hovered->equipment.armor),
-            "Ranged: " + EquipmentLabel(hovered->equipment.rangedWeapon),
-            "Ammo: " + EquipmentLabel(hovered->equipment.ammo)
-        }, 310.0f);
+            "Cohesion: " + ratioPct(hovered->cohesion, maxCohesion),
+            "HP: " + std::to_string(hovered->health) + "/" + std::to_string(hovered->maxHealth),
+            "Food: " + pct(hovered->foodSupply, hovered->foodSupplyCapacity),
+            "Weapons: " + pct(hovered->weaponSupply, hovered->weaponSupplyCapacity),
+            "Materiel: " + pct(hovered->materielSupply, hovered->materielSupplyCapacity),
+        }, 220.0f);
     }
 }
 

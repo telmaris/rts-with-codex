@@ -2074,3 +2074,46 @@ TEST(Supply, ConservationFromTechApplies)
 
     EXPECT_NEAR(PlayerSupplyConservation(player), 0.15, 1e-6);
 }
+
+// ─── ETAP 11.2 follow-up: territory follows the army ──────────────────────────
+// Restored from the pre-refactor combat system (git history): a deployed
+// division claims the whole 2x2 quadrant it physically stands on for its owner,
+// every tick — independent of whether a Battle is active there (an undefended
+// enemy quadrant is simply walked into and annexed).
+TEST(WarSystem, DivisionClaimsQuadrantItStandsOn)
+{
+    GameWorld world;
+    auto attacker = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* attackerPtr = attacker.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(attacker);
+    auto defender = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* defenderPtr = defender.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(defender);
+
+    FillGrass(world.GetTileMapForTesting(), defenderPtr, 20, 20);
+    // RebuildGarrisonViews (runs at the top of every UpdateSimulation tick) drops
+    // any division with no garrison building to fall back to — give the attacker
+    // a home so it survives the tick.
+    world.GetTileMapForTesting().tilemap[world.GetTileMapForTesting().GetIdFromCoords({0, 0})].owner = attackerPtr;
+    auto* hq = dynamic_cast<Headquarters*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({0, 0}), attackerPtr, std::make_unique<Headquarters>(1)));
+    ASSERT_NE(hq, nullptr);
+    hq->constructionRemaining = 0.0;
+
+    auto division = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    division->occupiedTile = {4, 4};
+    division->strength = 200;
+    division->garrisonBuildingId = hq->positionId;
+    attackerPtr->forces.push_back(std::move(division));
+
+    Vec2i cell = SectorCellOf({4, 4});
+    int tileId = world.GetTileMapForTesting().GetIdFromCoords({cell.x * 2, cell.y * 2});
+    ASSERT_EQ(world.GetTileMapForTesting().tilemap[tileId].owner, defenderPtr);
+
+    world.UpdateSimulation(0.01);
+
+    EXPECT_EQ(world.GetTileMapForTesting().tilemap[tileId].owner, attackerPtr);
+    // The whole 2x2 quadrant flips, not just the tile the division stands on.
+    int neighborId = world.GetTileMapForTesting().GetIdFromCoords({cell.x * 2 + 1, cell.y * 2 + 1});
+    EXPECT_EQ(world.GetTileMapForTesting().tilemap[neighborId].owner, attackerPtr);
+}
