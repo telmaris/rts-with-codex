@@ -27,7 +27,7 @@ namespace
     // retreat and get locked out; nothing here sets `engaged`.
     void UpdateDeployedDivisions(GameWorld& world, double dt)
     {
-        for (auto& [pid, player] : world.playerHandler.players)
+        for (auto& [pid, player] : world.GetPlayerHandler().players)
         {
             if (player == nullptr) continue;
             const double conservation = PlayerSupplyConservation(*player);
@@ -45,11 +45,11 @@ namespace
 
                 // Physical tile: worldPos while marching, occupiedTile at rest.
                 const Vec2i tile = (div.inTransit && div.worldPos.x >= 0.0f)
-                    ? Vec2i{std::clamp(static_cast<int>(div.worldPos.x / TILE_SIZE), 0, world.tilemap.params.sizeX - 1),
-                            std::clamp(static_cast<int>(div.worldPos.y / TILE_SIZE), 0, world.tilemap.params.sizeY - 1)}
+                    ? Vec2i{std::clamp(static_cast<int>(div.worldPos.x / TILE_SIZE), 0, world.GetTileMap().params.sizeX - 1),
+                            std::clamp(static_cast<int>(div.worldPos.y / TILE_SIZE), 0, world.GetTileMap().params.sizeY - 1)}
                     : div.occupiedTile;
-                const bool inOwnTerritory = world.tilemap.IsInside(tile) &&
-                    world.tilemap.tilemap[world.tilemap.GetIdFromCoords(tile)].owner == player.get();
+                const bool inOwnTerritory = world.GetTileMap().IsInside(tile) &&
+                    world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(tile)].owner == player.get();
 
                 RegenerateDivisionCohesion(div, dt, inOwnTerritory, &player->balanceModifiers);
                 ReinforceDivisionStrength(div, *player, dt, &player->balanceModifiers);
@@ -59,7 +59,7 @@ namespace
         // Remove divisions that have starved to death (strength <= 0). They are
         // player-owned (not building-owned), so drop them from forces and prune any
         // army group left empty.
-        for (auto& [pid, player] : world.playerHandler.players)
+        for (auto& [pid, player] : world.GetPlayerHandler().players)
         {
             if (player == nullptr) continue;
             bool removedAny = false;
@@ -78,7 +78,7 @@ namespace
 
         // Views held raw pointers into forces — rebuild so garrison stats/GUI and the
         // next tick see the current set after any removals.
-        for (auto& [pid, player] : world.playerHandler.players)
+        for (auto& [pid, player] : world.GetPlayerHandler().players)
             if (player != nullptr)
                 player->RebuildGarrisonViews();
     }

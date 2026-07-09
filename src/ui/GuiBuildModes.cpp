@@ -160,7 +160,7 @@ namespace
         if (!requiredTerrain.empty())
         {
             bool terrainOk = scene != nullptr && scene->game != nullptr && hoveredTile.x >= 0 && hoveredTile.y >= 0 &&
-                scene->game->tilemap.HasRequiredTerrainForBuilding(option.buildingType, hoveredTile, option.footprint, 2);
+                scene->game->GetTileMap().HasRequiredTerrainForBuilding(option.buildingType, hoveredTile, option.footprint, 2);
             std::string terrainLabel = "Requires: ";
             for (size_t i = 0; i < requiredTerrain.size(); i++)
             {
@@ -742,7 +742,7 @@ bool BuildGuiSystem::CanPlaceSelected(Vec2i tilePos) const
 {
     if (selectedPreview == nullptr || scene->game == nullptr)
         return false;
-    if (!scene->game->tilemap.IsInsideFootprint(tilePos, selectedPreview->GetFootprint()))
+    if (!scene->game->GetTileMap().IsInsideFootprint(tilePos, selectedPreview->GetFootprint()))
         return false;
 
     Player* player = GuiLocalPlayer(scene);
@@ -750,8 +750,8 @@ bool BuildGuiSystem::CanPlaceSelected(Vec2i tilePos) const
         return false;
 
     const auto& definition = GetBuildingDefinition(selectedPreview->buildingType);
-    bool debugFreeBuild = scene->game->tilemap.params.debugMode;
-    return scene->game->tilemap.CanPlaceBuilding(selectedPreview->buildingType, tilePos, selectedPreview->GetFootprint(), player) &&
+    bool debugFreeBuild = scene->game->GetTileMap().params.debugMode;
+    return scene->game->GetTileMap().CanPlaceBuilding(selectedPreview->buildingType, tilePos, selectedPreview->GetFootprint(), player) &&
            (debugFreeBuild || player->CanBuildDefinition(definition));
 }
 
@@ -905,7 +905,7 @@ void DestroyGuiSystem::Update(double dt)
 
     Vec2i tilePos = ScreenToTile(scene, GetMousePosition());
     hoveredBuilding = tilePos.x >= 0 && tilePos.y >= 0
-        ? scene->game->tilemap.GetBuilding(tilePos)
+        ? scene->game->GetTileMap().GetBuilding(tilePos)
         : nullptr;
     if (hoveredBuilding != nullptr && hoveredBuilding->owner != GuiLocalPlayer(scene))
         hoveredBuilding = nullptr;
@@ -1094,7 +1094,7 @@ void BorderDeployMode::RmbPressed()
     selectedFrontierTiles.clear();
 
     Player* localPlayer = GuiLocalPlayer(scene);
-    if (localPlayer != nullptr && IsFrontierTile(dragStart, scene->game->tilemap, *localPlayer))
+    if (localPlayer != nullptr && IsFrontierTile(dragStart, scene->game->GetTileMap(), *localPlayer))
     {
         selectedFrontierTiles.push_back(dragStart);
     }
@@ -1120,7 +1120,7 @@ void BorderDeployMode::RmbReleased()
         return;
 
     // Collect the frontier segment from drag start to end.
-    selectedFrontierTiles = CollectFrontierSegment(dragStart, dragEnd, scene->game->tilemap, *localPlayer);
+    selectedFrontierTiles = CollectFrontierSegment(dragStart, dragEnd, scene->game->GetTileMap(), *localPlayer);
 
     if (selectedFrontierTiles.empty())
     {
@@ -1132,8 +1132,8 @@ void BorderDeployMode::RmbReleased()
     std::vector<int> tileIds;
     for (Vec2i tile : selectedFrontierTiles)
     {
-        if (scene->game->tilemap.IsInside(tile))
-            tileIds.push_back(scene->game->tilemap.GetIdFromCoords(tile));
+        if (scene->game->GetTileMap().IsInside(tile))
+            tileIds.push_back(scene->game->GetTileMap().GetIdFromCoords(tile));
     }
 
     Log::Msg("[BorderDeploy]", "Selected ", tileIds.size(), " frontier tiles");

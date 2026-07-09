@@ -47,7 +47,7 @@ namespace
     // Grants local debug resources when the current world allows debug helpers.
     void GrantDebugResources(GameScene* scene, int amount)
     {
-        if (scene == nullptr || scene->game == nullptr || !scene->game->tilemap.params.debugMode)
+        if (scene == nullptr || scene->game == nullptr || !scene->game->GetTileMap().params.debugMode)
             return;
 
         Building* headquarters = FindLocalHeadquarters(scene);
@@ -469,7 +469,7 @@ void BasicMapViewSystem::CenterOnHeadquartersPressed()
     if (headquarters == nullptr)
         return;
 
-    Vec2i anchor = scene->game->tilemap.GetCoordsFromId(headquarters->positionId);
+    Vec2i anchor = scene->game->GetTileMap().GetCoordsFromId(headquarters->positionId);
     Vec2i footprint = headquarters->GetFootprint();
     Vec2f hqWorldCenter{
         static_cast<float>((anchor.x + footprint.x * 0.5f) * TILE_SIZE),
@@ -575,7 +575,7 @@ void BasicMapViewSystem::LmbPressed()
     if (tilePos.x < 0 || tilePos.y < 0)
         return;
 
-    auto &tile = scene->game->tilemap[tilePos];
+    auto &tile = scene->game->GetTileMap()[tilePos];
 
     Log::Msg("[Input]", "Tile ID: ", tile.id, " clicked!");
 
@@ -585,7 +585,7 @@ void BasicMapViewSystem::LmbPressed()
         // Circular click hitbox: only register a building hit near its footprint
         // centre (diameter 0.85 of the footprint side), so corner clicks feel like
         // clicking the ground rather than the building.
-        Vec2i anchor = scene->game->tilemap.GetCoordsFromId(building->positionId);
+        Vec2i anchor = scene->game->GetTileMap().GetCoordsFromId(building->positionId);
         Vec2i fp = building->GetFootprint();
         Vec2f centerWorld{(anchor.x + fp.x * 0.5f) * TILE_SIZE, (anchor.y + fp.y * 0.5f) * TILE_SIZE};
         Vec2f centerScreen = scene->render.WorldToScreen(centerWorld);
@@ -718,8 +718,8 @@ void BasicMapViewSystem::RmbPressed()
             {
                 if (enemyTile.x >= 0) break;
                 if (lp != nullptr && p.playerId == lp->id) continue;
-                auto plit = scene->game->playerHandler.players.find(p.playerId);
-                if (plit == scene->game->playerHandler.players.end() || !plit->second) continue;
+                auto plit = scene->game->GetPlayerHandler().players.find(p.playerId);
+                if (plit == scene->game->GetPlayerHandler().players.end() || !plit->second) continue;
                 for (Building* b : plit->second->GetTrackedBuildingsWithComponent<GarrisonComponent>())
                 {
                     if (enemyTile.x >= 0) break;
@@ -732,7 +732,7 @@ void BasicMapViewSystem::RmbPressed()
             }
             if (enemyTile.x >= 0)
             {
-                int targetId = scene->game->tilemap.GetIdFromCoords(enemyTile);
+                int targetId = scene->game->GetTileMap().GetIdFromCoords(enemyTile);
                 for (int divId : divIds)
                     scene->SubmitLocalCommand(GameCommand::AttackTile(
                         scene->game->GetLocalPlayerId(), home->positionId, divId, targetId));
@@ -783,7 +783,7 @@ void BasicMapViewSystem::RmbPressed()
                 : nullptr;
             if (hit != nullptr && hit->owner != nullptr && hit->owner != localPlayer && hit->tile.x >= 0)
             {
-                int targetTileId = scene->game->tilemap.GetIdFromCoords(hit->tile);
+                int targetTileId = scene->game->GetTileMap().GetIdFromCoords(hit->tile);
                 for (int divId : divIds)
                 {
                     scene->SubmitLocalCommand(GameCommand::AttackTile(
@@ -798,7 +798,7 @@ void BasicMapViewSystem::RmbPressed()
             Vec2i tilePos = ScreenToTile(scene, mousePos);
             if (tilePos.x >= 0 && tilePos.y >= 0)
             {
-                Building* clicked = scene->game->tilemap.GetBuilding(tilePos);
+                Building* clicked = scene->game->GetTileMap().GetBuilding(tilePos);
                 // A road is traversable terrain, not an order target — treat clicking
                 // it as clicking open ground so divisions can be moved onto/through it.
                 if (clicked != nullptr && clicked->buildingType == BuildingType::Road)
@@ -845,7 +845,7 @@ void BasicMapViewSystem::RmbPressed()
                 else if (clicked == nullptr)
                 {
                     // Empty ground → move divisions to this sector.
-                    int tileId = scene->game->tilemap.GetIdFromCoords(tilePos);
+                    int tileId = scene->game->GetTileMap().GetIdFromCoords(tilePos);
                     for (int divId : divIds)
                     {
                         scene->SubmitLocalCommand(GameCommand::MoveDivision(
@@ -868,7 +868,7 @@ void BasicMapViewSystem::RmbPressed()
         if (tilePos.x >= 0 && tilePos.y >= 0)
         {
             auto* selected = ActivePanel()->GetBuilding();
-            auto* receiver = scene->game->tilemap.GetBuilding(tilePos);
+            auto* receiver = scene->game->GetTileMap().GetBuilding(tilePos);
             if (selected != nullptr && receiver != nullptr && selected != receiver)
             {
                 bool alternativeReceiver = InputManager::IsKeyDown(KEY_LEFT_CONTROL) || InputManager::IsKeyDown(KEY_RIGHT_CONTROL);

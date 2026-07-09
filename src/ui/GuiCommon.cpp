@@ -15,8 +15,8 @@ Player* GuiLocalPlayer(GameScene* scene)
     if (scene == nullptr || scene->game == nullptr)
         return nullptr;
 
-    auto it = scene->game->playerHandler.players.find(scene->game->GetLocalPlayerId());
-    return it != scene->game->playerHandler.players.end() ? it->second.get() : nullptr;
+    auto it = scene->game->GetPlayerHandler().players.find(scene->game->GetLocalPlayerId());
+    return it != scene->game->GetPlayerHandler().players.end() ? it->second.get() : nullptr;
 }
 
 bool HasUniversity(GameScene* scene)
@@ -27,7 +27,7 @@ bool HasUniversity(GameScene* scene)
 
 Vec2i GetMapSize(GameScene* scene)
 {
-    return Vec2i{scene->game->tilemap.params.sizeX, scene->game->tilemap.params.sizeY};
+    return Vec2i{scene->game->GetTileMap().params.sizeX, scene->game->GetTileMap().params.sizeY};
 }
 
 namespace
@@ -97,7 +97,7 @@ Vec2i ScreenToTile(GameScene* scene, Vector2 screen)
     Vec2i tilePos{
         static_cast<int>(world.x / TILE_SIZE),
         static_cast<int>(world.y / TILE_SIZE)};
-    if (!scene->game->tilemap.IsInside(tilePos))
+    if (!scene->game->GetTileMap().IsInside(tilePos))
         return {-1, -1};
 
     return tilePos;

@@ -82,6 +82,24 @@ class GameWorld
         // Returns the global pathfinding service (ETAP 3.4 integration point)
         PathingService* GetPathingService() const { return pathingService.get(); }
 
+        // ETAP 12.1 — tilemap/playerHandler are private; this is the only access
+        // point. Const-qualified callers (e.g. code holding a `const GameWorld&`)
+        // get a read-only view; non-const callers still get a mutable one, since
+        // TileMap's own accessors (GetBuilding, operator[], ...) aren't const-
+        // qualified yet — tightening that is follow-up work, tracked in
+        // docs/grand_refactor_plan.md ETAP 12. Even so, gameplay state must only
+        // be MUTATED through GameCommand (ProcessCommands) or persistence; UI code
+        // reading through the non-const overload must not write.
+        TileMap& GetTileMap() { return tilemap; }
+        const TileMap& GetTileMap() const { return tilemap; }
+        PlayerHandler& GetPlayerHandler() { return playerHandler; }
+        const PlayerHandler& GetPlayerHandler() const { return playerHandler; }
+        // Mutable escape hatch for tests that construct simulation objects
+        // directly (e.g. a standalone Player) — same object as GetTileMap(),
+        // named separately so call sites make the intent explicit.
+        TileMap& GetTileMapForTesting() { return tilemap; }
+        PlayerHandler& GetPlayerHandlerForTesting() { return playerHandler; }
+
     private:
         // Creates one player and initializes display/controller metadata.
         Player* CreatePlayer(int id, PlayerControllerType controllerType, const std::string& name, Color color);
@@ -97,14 +115,14 @@ class GameWorld
         bool ExecuteCommand(const GameCommand& command);
     
     public:
-        TileMap tilemap;
-        PlayerHandler playerHandler;
         Renderer*     render{nullptr};
         AudioSystem*  audio{nullptr};
         std::string worldName{"default"};
         int localPlayerId{0};
 
     private:
+        TileMap tilemap;
+        PlayerHandler playerHandler;
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;

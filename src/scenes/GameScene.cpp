@@ -318,8 +318,8 @@ void GameScene::Update(double dt)
                 audioSystem->PlaySound("error");
         }
 
-        auto pit = game->playerHandler.players.find(localId);
-        if (pit != game->playerHandler.players.end())
+        auto pit = game->GetPlayerHandler().players.find(localId);
+        if (pit != game->GetPlayerHandler().players.end())
         {
             const Player* p = pit->second.get();
             std::size_t techCount  = p->technologies.GetUnlocked().size();
@@ -468,8 +468,8 @@ bool GameScene::LoadGame(std::string name)
     {
         runtimeLoop = std::make_unique<HostRuntimeLoop>(std::make_unique<HostSession>(*game));
         {
-            auto pit = game->playerHandler.players.find(game->GetLocalPlayerId());
-            if (pit != game->playerHandler.players.end())
+            auto pit = game->GetPlayerHandler().players.find(game->GetLocalPlayerId());
+            if (pit != game->GetPlayerHandler().players.end())
             {
                 prevUnlockedTechCount  = pit->second->technologies.GetUnlocked().size();
                 prevUnlockedFocusCount = pit->second->focuses.GetUnlocked().size();

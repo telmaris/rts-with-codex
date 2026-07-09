@@ -45,10 +45,10 @@ namespace
 
     bool AnyDivisionOnTile(const GameWorld& world, Vec2i tile, int excludingPlayerId = -1, int excludingDivisionId = -1)
     {
-        if (!world.tilemap.IsInside(tile))
+        if (!world.GetTileMap().IsInside(tile))
             return false;
 
-        for (const auto& [pid, player] : world.playerHandler.players)
+        for (const auto& [pid, player] : world.GetPlayerHandler().players)
         {
             if (player == nullptr)
                 continue;
@@ -79,7 +79,7 @@ namespace
         std::set<int> blocked;
         if (mover == nullptr)
             return blocked;
-        for (const auto& [pid, player] : world.playerHandler.players)
+        for (const auto& [pid, player] : world.GetPlayerHandler().players)
         {
             if (player == nullptr || player.get() == mover)
                 continue;
@@ -100,8 +100,8 @@ namespace
                         for (int dx = 0; dx < 2; dx++)
                         {
                             Vec2i t{anchor.x + dx, anchor.y + dy};
-                            if (world.tilemap.IsInside(t))
-                                blocked.insert(world.tilemap.GetIdFromCoords(t));
+                            if (world.GetTileMap().IsInside(t))
+                                blocked.insert(world.GetTileMap().GetIdFromCoords(t));
                         }
                 }
             }
@@ -122,7 +122,7 @@ namespace
         std::set<int> blocked = EnemyOccupiedTiles(world, mover);
         if (mover == nullptr)
             return blocked;
-        const auto& tiles = world.tilemap.tilemap;
+        const auto& tiles = world.GetTileMap().tilemap;
         for (int id = 0; id < static_cast<int>(tiles.size()); id++)
         {
             const Player* o = tiles[id].owner;
@@ -148,7 +148,7 @@ namespace
     std::vector<Vec2i> AdjacentWalkableTilesAroundBuilding(const GameWorld& world, const Building& target, Vec2i prefer)
     {
         std::vector<Vec2i> result;
-        Vec2i anchor = world.tilemap.GetCoordsFromId(target.positionId);
+        Vec2i anchor = world.GetTileMap().GetCoordsFromId(target.positionId);
         Vec2i footprint = target.GetFootprint();
         for (int y = anchor.y - 1; y <= anchor.y + footprint.y; y++)
         {
@@ -159,7 +159,7 @@ namespace
                 if (insideFootprint)
                     continue;
                 Vec2i tile{x, y};
-                if (!world.tilemap.IsInside(tile) || !IsTileWalkableForDivision(world.tilemap, tile))
+                if (!world.GetTileMap().IsInside(tile) || !IsTileWalkableForDivision(world.GetTileMap(), tile))
                     continue;
                 if (AnyDivisionOnTile(world, tile))
                     continue;
@@ -181,7 +181,7 @@ namespace
 
     bool TileAdjacentToBuilding(const GameWorld& world, Vec2i tile, const Building& target)
     {
-        Vec2i anchor = world.tilemap.GetCoordsFromId(target.positionId);
+        Vec2i anchor = world.GetTileMap().GetCoordsFromId(target.positionId);
         Vec2i footprint = target.GetFootprint();
         int clampedX = std::clamp(tile.x, anchor.x, anchor.x + footprint.x - 1);
         int clampedY = std::clamp(tile.y, anchor.y, anchor.y + footprint.y - 1);
@@ -200,7 +200,7 @@ namespace
                 if (dx == 0 && dy == 0)
                     continue;
                 Vec2i tile{target.x + dx, target.y + dy};
-                if (!world.tilemap.IsInside(tile) || !IsTileWalkableForDivision(world.tilemap, tile))
+                if (!world.GetTileMap().IsInside(tile) || !IsTileWalkableForDivision(world.GetTileMap(), tile))
                     continue;
                 if (AnyDivisionOnTile(world, tile))
                     continue;
@@ -229,10 +229,10 @@ namespace
         if (division.worldPos.x >= 0.0f)
         {
             return {
-                std::clamp(static_cast<int>(division.worldPos.x / TILE_SIZE), 0, world.tilemap.params.sizeX - 1),
-                std::clamp(static_cast<int>(division.worldPos.y / TILE_SIZE), 0, world.tilemap.params.sizeY - 1)};
+                std::clamp(static_cast<int>(division.worldPos.x / TILE_SIZE), 0, world.GetTileMap().params.sizeX - 1),
+                std::clamp(static_cast<int>(division.worldPos.y / TILE_SIZE), 0, world.GetTileMap().params.sizeY - 1)};
         }
-        return world.tilemap.GetCoordsFromId(source.positionId);
+        return world.GetTileMap().GetCoordsFromId(source.positionId);
     }
 
     bool SetDivisionOrder(GarrisonComponent& garrison, int divisionId, MilitaryOrderType order, int targetId)
@@ -300,7 +300,7 @@ namespace
         if (division == nullptr)
             return false;
 
-        int targetTileId = world.tilemap.GetIdFromCoords(targetTile);
+        int targetTileId = world.GetTileMap().GetIdFromCoords(targetTile);
 
         Vec2i start = DivisionStartTile(world, source, *division);
         if (division->occupiedTile.x >= 0 &&

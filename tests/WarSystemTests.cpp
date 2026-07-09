@@ -207,7 +207,7 @@ TEST(Persistence, DivisionCohesionRoundTrips)
 
     GameWorld world;
     world.InitMultiplayerWorld("cohesion-save-test", nullptr, nullptr, params, 0, true);
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     auto garrisons = player->GetTrackedBuildingsWithComponent<GarrisonComponent>();
@@ -227,7 +227,7 @@ TEST(Persistence, DivisionCohesionRoundTrips)
     ASSERT_TRUE(loaded.LoadFromFile(path, nullptr, nullptr));
     std::remove(path.c_str());
 
-    Player* loadedPlayer = loaded.playerHandler.players.at(0).get();
+    Player* loadedPlayer = loaded.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(loadedPlayer, nullptr);
     SoldierDivision* found = nullptr;
     for (const auto& f : loadedPlayer->forces)
@@ -245,7 +245,7 @@ TEST(Persistence, DivisionMaterielRoundTrips)
 
     GameWorld world;
     world.InitMultiplayerWorld("materiel-save-test", nullptr, nullptr, params, 0, true);
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     auto garrisons = player->GetTrackedBuildingsWithComponent<GarrisonComponent>();
@@ -266,7 +266,7 @@ TEST(Persistence, DivisionMaterielRoundTrips)
     ASSERT_TRUE(loaded.LoadFromFile(path, nullptr, nullptr));
     std::remove(path.c_str());
 
-    Player* loadedPlayer = loaded.playerHandler.players.at(0).get();
+    Player* loadedPlayer = loaded.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(loadedPlayer, nullptr);
     SoldierDivision* found = nullptr;
     for (const auto& f : loadedPlayer->forces)
@@ -899,7 +899,7 @@ TEST(Recruitment, TryPayEquipmentCategoryConsumesAllTiersProportionally)
     EXPECT_LT(copperLeft, 10);          // copper was consumed
     EXPECT_LT(steelLeft, 5);            // steel was consumed too
     EXPECT_GT(steelLeft, 0);            // but not drained first
-    EXPECT_EQ(copperLeft + steelLeft, 5);   // 15 stocked − 10 paid = 5 left
+    EXPECT_EQ(copperLeft + steelLeft, 5);   // 15 stocked �?� 10 paid = 5 left
     EXPECT_EQ(rep, ResourceType::STEEL_SWORD);  // representative = best tier taken
 }
 
@@ -1130,7 +1130,7 @@ TEST(DivisionSector, TerritoryAndClipsCellToOwnedTiles)
     map.tilemap[map.GetIdFromCoords({3, 3})].owner = nullptr;
 
     DivisionSector withTerritory = ResolveDivisionSector(map, {2, 2}, &player);
-    EXPECT_EQ(withTerritory.TileCount(), 3);    // owned ∩ walkable
+    EXPECT_EQ(withTerritory.TileCount(), 3);    // owned �?� walkable
 
     DivisionSector ignoringTerritory = ResolveDivisionSector(map, {2, 2}, nullptr);
     EXPECT_EQ(ignoringTerritory.TileCount(), 4); // walkable only
@@ -1288,7 +1288,7 @@ namespace
 // tracks the PHYSICAL position of in-transit divisions, so the moment the
 // column's body crosses a quadrant held by an enemy it is engaged, halted
 // (intercepted) and the battle plays out there. Regression for "wojsko
-// przeciwnika przejeżdża przez moje dywizje jak gdyby nigdy nic".
+// przeciwnika przejeLLdLLa przez moje dywizje jak gdyby nigdy nic".
 // Full command path: a field division that is NOT yet adjacent to an enemy
 // military building, ordered via IssueMilitaryOrder(Attack), must march up to
 // the building, engage, and siege it down — no manual order/tile poking.
@@ -1328,7 +1328,7 @@ namespace
 // rear quadrant instead of fighting to the last man (the soft-loss rule).
 // A division surrounded on every side (no cardinal-neighbour quadrant is farther
 // from the enemy than where it stands) cannot organize a retreat — the HoI4
-// kocioł — and is destroyed outright once its strength runs out.
+// kocioL� — and is destroyed outright once its strength runs out.
 // ─── War Phase 2 — Phase C: Supply Conservation ──────────────────────────────
 
 // ─── BUG 4: Combat finite-time resolution + deterministic RNG ────────────────
@@ -1339,13 +1339,13 @@ namespace
 TEST(Recruitment, TrainedDivisionDeploysNextToBarracks)
 {
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* playerPtr = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, playerPtr, 20, 20);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 20);
 
-    auto* hq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<Headquarters>(1)));
+    auto* hq = dynamic_cast<Headquarters*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({2, 2}), playerPtr, std::make_unique<Headquarters>(1)));
     ASSERT_NE(hq, nullptr);
     hq->constructionRemaining = 0.0;
     hq->storage.buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 50};
@@ -1353,8 +1353,8 @@ TEST(Recruitment, TrainedDivisionDeploysNextToBarracks)
     hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 50};
     hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(50);
 
-    auto* barracks = dynamic_cast<Barracks*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
+    auto* barracks = dynamic_cast<Barracks*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
     ASSERT_NE(barracks, nullptr);
     barracks->constructionRemaining = 0.0;
     barracks->garrison.cap = 50;
@@ -1369,7 +1369,7 @@ TEST(Recruitment, TrainedDivisionDeploysNextToBarracks)
     EXPECT_GE(recruit.occupiedTile.x, 0);          // deployed, not garrisoned inside
     EXPECT_FALSE(recruit.inTransit);
     // Beside the building: within the 3-ring search area around the footprint.
-    Vec2i anchor = world.tilemap.GetCoordsFromId(barracks->positionId);
+    Vec2i anchor = world.GetTileMapForTesting().GetCoordsFromId(barracks->positionId);
     Vec2i footprint = barracks->GetFootprint();
     EXPECT_GE(recruit.occupiedTile.x, anchor.x - 3);
     EXPECT_LE(recruit.occupiedTile.x, anchor.x + footprint.x + 2);
@@ -1385,15 +1385,15 @@ TEST(Recruitment, TrainedDivisionDeploysNextToBarracks)
 TEST(Recruitment, DefendOrderIntoBarracksIsRejected)
 {
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* playerPtr = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, playerPtr, 20, 20);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 20);
 
-    auto* tower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
-    auto* barracks = dynamic_cast<Barracks*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
+    auto* tower = dynamic_cast<GuardTower*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
+    auto* barracks = dynamic_cast<Barracks*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
     ASSERT_NE(tower, nullptr);
     ASSERT_NE(barracks, nullptr);
     GarrisonAdd(*tower, CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1));
@@ -1412,13 +1412,13 @@ TEST(Recruitment, DefendOrderIntoBarracksIsRejected)
 TEST(ArmyManagement, AssignToArmyTransfersDivisionsBetweenArmies)
 {
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* playerPtr = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, playerPtr, 20, 20);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 20);
 
-    auto* tower = dynamic_cast<GuardTower*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
+    auto* tower = dynamic_cast<GuardTower*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
     ASSERT_NE(tower, nullptr);
     GarrisonAdd(*tower, CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1));
     GarrisonAdd(*tower, CreateMilitaryDivision(MilitaryUnitType::Archer, 2));
@@ -1454,23 +1454,23 @@ TEST(ArmyManagement, AssignToArmyTransfersDivisionsBetweenArmies)
 TEST(MovementBlocking, EnemyOccupiedTilesArePassableOnlyAround)
 {
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* p = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, p, 12, 12);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), p, 12, 12);
 
     // Baseline: an open path exists on clear ground.
-    auto open = PlanDivisionPath(world.tilemap, {2, 2}, {8, 2});
+    auto open = PlanDivisionPath(world.GetTileMapForTesting(), {2, 2}, {8, 2});
     ASSERT_GE(open.size(), 2u);
 
     // A goal held by an enemy division is unreachable (must be fought, not entered).
-    std::set<int> blockedGoal{world.tilemap.GetIdFromCoords({8, 2})};
-    EXPECT_TRUE(PlanDivisionPath(world.tilemap, {2, 2}, {8, 2}, {}, &blockedGoal).empty());
+    std::set<int> blockedGoal{world.GetTileMapForTesting().GetIdFromCoords({8, 2})};
+    EXPECT_TRUE(PlanDivisionPath(world.GetTileMapForTesting(), {2, 2}, {8, 2}, {}, &blockedGoal).empty());
 
     // A single enemy tile on the straight line is routed around, never through.
-    const int wallTile = world.tilemap.GetIdFromCoords({5, 2});
+    const int wallTile = world.GetTileMapForTesting().GetIdFromCoords({5, 2});
     std::set<int> wall{wallTile};
-    auto detour = PlanDivisionPath(world.tilemap, {2, 2}, {8, 2}, {}, &wall);
+    auto detour = PlanDivisionPath(world.GetTileMapForTesting(), {2, 2}, {8, 2}, {}, &wall);
     ASSERT_GE(detour.size(), 2u);
     EXPECT_EQ(std::count(detour.begin(), detour.end(), wallTile), 0);
 }
@@ -1480,21 +1480,21 @@ TEST(MovementBlocking, EnemyOccupiedTilesArePassableOnlyAround)
 TEST(DivisionMovement, CommandsOverflowFullTargetSectorIntoAdjacentSector)
 {
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* playerPtr = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, playerPtr, 20, 20);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 20);
 
     auto* tower = dynamic_cast<GuardTower*>(
-        world.tilemap.PlaceLoadedBuilding(
-            world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
+        world.GetTileMapForTesting().PlaceLoadedBuilding(
+            world.GetTileMapForTesting().GetIdFromCoords({2, 2}), playerPtr, std::make_unique<GuardTower>(1)));
     ASSERT_NE(tower, nullptr);
 
     for (int id = 1; id <= 5; id++)
         GarrisonAdd(*tower, CreateMilitaryDivision(MilitaryUnitType::Swordsman, id));
 
     const Vec2i targetTile{12, 12};
-    const int targetTileId = world.tilemap.GetIdFromCoords(targetTile);
+    const int targetTileId = world.GetTileMapForTesting().GetIdFromCoords(targetTile);
     for (int id = 1; id <= 5; id++)
     {
         world.SubmitCommand(GameCommand::MoveDivision(
@@ -1727,13 +1727,13 @@ TEST(Recruitment, SwordsmanSucceedsWithMixedCopperAndIronSwords)
     // a Swordsman (which costs 40 swords of any tier) must succeed and consume ~20
     // of each type.
     GameWorld world;
-    auto player = std::make_unique<Player>(0, world.tilemap);
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
     Player* playerPtr = player.get();
-    world.playerHandler.players[0] = std::move(player);
-    FillGrass(world.tilemap, playerPtr, 20, 20);
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 20);
 
-    auto* hq = dynamic_cast<Headquarters*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({2, 2}), playerPtr, std::make_unique<Headquarters>(1)));
+    auto* hq = dynamic_cast<Headquarters*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({2, 2}), playerPtr, std::make_unique<Headquarters>(1)));
     ASSERT_NE(hq, nullptr);
     hq->constructionRemaining = 0.0;
 
@@ -1749,8 +1749,8 @@ TEST(Recruitment, SwordsmanSucceedsWithMixedCopperAndIronSwords)
     hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 50};
     hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(20);
 
-    auto* barracks = dynamic_cast<Barracks*>(world.tilemap.PlaceLoadedBuilding(
-        world.tilemap.GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
+    auto* barracks = dynamic_cast<Barracks*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+        world.GetTileMapForTesting().GetIdFromCoords({10, 10}), playerPtr, std::make_unique<Barracks>(2)));
     ASSERT_NE(barracks, nullptr);
     barracks->constructionRemaining = 0.0;
     barracks->garrison.cap = 50;
@@ -1847,12 +1847,12 @@ TEST(ResupplyDeployed, DeployedDivisionPullsWeaponsFromNearbyDepot)
     GameWorld world;
     world.InitMultiplayerWorld("resupply-test", nullptr, nullptr, params, 0, true);
 
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     // Find the HQ.
     Headquarters* hq = nullptr;
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMapForTesting().tilemap)
     {
         if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
             && tile.building->owner == player)
@@ -1872,7 +1872,7 @@ TEST(ResupplyDeployed, DeployedDivisionPullsWeaponsFromNearbyDepot)
     auto division = std::make_unique<SwordsmanDivision>();
     division->weaponSupply = 0;
     division->weaponSupplyCapacity = 40;
-    Vec2i hqCoords = world.tilemap.GetCoordsFromId(hq->positionId);
+    Vec2i hqCoords = world.GetTileMapForTesting().GetCoordsFromId(hq->positionId);
     division->occupiedTile = hqCoords;   // deployed right at the HQ
     SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
     ASSERT_NE(raw, nullptr);
@@ -1894,11 +1894,11 @@ TEST(ResupplyDeployed, OutOfRangeDivisionNotResupplied)
     GameWorld world;
     world.InitMultiplayerWorld("resupply-range-test", nullptr, nullptr, params, 0, true);
 
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     Headquarters* hq = nullptr;
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMapForTesting().tilemap)
     {
         if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
             && tile.building->owner == player)
@@ -1917,10 +1917,10 @@ TEST(ResupplyDeployed, OutOfRangeDivisionNotResupplied)
     auto division = std::make_unique<SwordsmanDivision>();
     division->weaponSupply = 0;
     division->weaponSupplyCapacity = 40;
-    Vec2i hqCoords = world.tilemap.GetCoordsFromId(hq->positionId);
+    Vec2i hqCoords = world.GetTileMapForTesting().GetCoordsFromId(hq->positionId);
     Vec2i farTile  = {hqCoords.x + 50, hqCoords.y + 50};
-    if (!world.tilemap.IsInside(farTile))
-        farTile = {world.tilemap.params.sizeX - 1, world.tilemap.params.sizeY - 1};
+    if (!world.GetTileMapForTesting().IsInside(farTile))
+        farTile = {world.GetTileMapForTesting().params.sizeX - 1, world.GetTileMapForTesting().params.sizeY - 1};
     division->occupiedTile = farTile;
     SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
     ASSERT_NE(raw, nullptr);
@@ -1944,7 +1944,7 @@ TEST(ResupplyDeployed, ManpowerReinforcementRestoresStrengthWhenInRange)
     GameWorld world;
     world.InitMultiplayerWorld("reinforce-test", nullptr, nullptr, params, 0, true);
 
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     // Add significant Manpower to the player's pool.
@@ -1952,7 +1952,7 @@ TEST(ResupplyDeployed, ManpowerReinforcementRestoresStrengthWhenInRange)
 
     // Craft a deployed division at reduced strength with food and weapon supply.
     Headquarters* hq = nullptr;
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMapForTesting().tilemap)
     {
         if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
             && tile.building->owner == player)
@@ -1968,7 +1968,7 @@ TEST(ResupplyDeployed, ManpowerReinforcementRestoresStrengthWhenInRange)
     division->strength     = maxStrength / 2;   // half strength → deficit
     division->foodSupply   = division->foodSupplyCapacity;
     division->weaponSupply = division->weaponSupplyCapacity;
-    division->occupiedTile = world.tilemap.GetCoordsFromId(hq->positionId);
+    division->occupiedTile = world.GetTileMapForTesting().GetCoordsFromId(hq->positionId);
     SoldierDivision* raw = player->AddForce(std::move(division), hq->positionId);
     ASSERT_NE(raw, nullptr);
 
@@ -1994,14 +1994,14 @@ TEST(ResupplyDeployed, EmptyManpowerPoolPreventsReinforcement)
     GameWorld world;
     world.InitMultiplayerWorld("reinforce-empty-test", nullptr, nullptr, params, 0, true);
 
-    Player* player = world.playerHandler.players.at(0).get();
+    Player* player = world.GetPlayerHandlerForTesting().players.at(0).get();
     ASSERT_NE(player, nullptr);
 
     // Drain Manpower completely.
     player->strategicResources.values[StrategicResourceType::Manpower] = 0.0;
 
     Headquarters* hq = nullptr;
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMapForTesting().tilemap)
     {
         if (tile.building != nullptr && tile.building->buildingType == BuildingType::Headquarters
             && tile.building->owner == player)
@@ -2055,7 +2055,7 @@ TEST(Supply, ConservationReducesRequiredSupply)
 TEST(Supply, ConservationIsCapped)
 {
     GameWorld world;
-    Player player{0, world.tilemap};
+    Player player{0, world.GetTileMapForTesting()};
     player.balanceModifiers.AddModifier(BalanceModifier{
         BalanceStat::SupplyConservation, /*additive*/5.0, /*multiplier*/1.0, {}, {}, {}, {}, "test.overflow"});
 
@@ -2066,7 +2066,7 @@ TEST(Supply, ConservationIsCapped)
 TEST(Supply, ConservationFromTechApplies)
 {
     GameWorld world;
-    Player player{0, world.tilemap};
+    Player player{0, world.GetTileMapForTesting()};
     EXPECT_DOUBLE_EQ(PlayerSupplyConservation(player), 0.0);
 
     player.balanceModifiers.AddModifier(BalanceModifier{

@@ -20,7 +20,7 @@ namespace
     // Returns the screen-space rectangle covering a building's footprint.
     Rectangle BuildingScreenRect(GameScene* scene, Building* building)
     {
-        Vec2i anchor = scene->game->tilemap.GetCoordsFromId(building->positionId);
+        Vec2i anchor = scene->game->GetTileMap().GetCoordsFromId(building->positionId);
         Vec2i footprint = building->GetFootprint();
         Vec2f worldTopLeft{
             static_cast<float>(anchor.x * TILE_SIZE),
@@ -180,7 +180,7 @@ namespace
     {
         if (div.worldPos.x >= 0.0f)
             return div.worldPos;
-        Vec2i c = scene->game->tilemap.GetCoordsFromId(building->positionId);
+        Vec2i c = scene->game->GetTileMap().GetCoordsFromId(building->positionId);
         Vec2i fp = building->GetFootprint();
         return {(c.x + fp.x * 0.5f) * TILE_SIZE,
                 (c.y + fp.y * 0.5f) * TILE_SIZE - TILE_SIZE * 0.8f};
@@ -279,11 +279,11 @@ void MilitaryOrderWidget::Update(double dt)
             Vector2 to;
             if (hasOrder)
             {
-                if (Building* target = scene->game->tilemap.GetBuilding(division.orderTargetPositionId))
+                if (Building* target = scene->game->GetTileMap().GetBuilding(division.orderTargetPositionId))
                     to = BuildingScreenCenter(scene, target);
                 else
                 {
-                    Vec2i t = scene->game->tilemap.GetCoordsFromId(division.orderTargetPositionId);
+                    Vec2i t = scene->game->GetTileMap().GetCoordsFromId(division.orderTargetPositionId);
                     Vec2f s = scene->render.WorldToScreen({(t.x + 0.5f) * TILE_SIZE, (t.y + 0.5f) * TILE_SIZE});
                     to = {s.x, s.y};
                 }
@@ -311,7 +311,7 @@ void MilitaryOrderWidget::Update(double dt)
     // stray bubbles at its corners, none of them centred on the fight.
     struct EngagedUnit { int playerId; int divId; Vec2i tile; Vec2f world; int siegeTarget; };
     std::vector<EngagedUnit> engaged;
-    for (auto& [pid, player] : scene->game->playerHandler.players)
+    for (auto& [pid, player] : scene->game->GetPlayerHandler().players)
     {
         if (player == nullptr) continue;
         for (Building* b : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
@@ -323,7 +323,7 @@ void MilitaryOrderWidget::Update(double dt)
                 {
                     int siege = -1;
                     if (d->currentOrder == MilitaryOrderType::Attack && d->orderTargetPositionId >= 0 &&
-                        scene->game->tilemap.GetBuilding(d->orderTargetPositionId) != nullptr)
+                        scene->game->GetTileMap().GetBuilding(d->orderTargetPositionId) != nullptr)
                         siege = d->orderTargetPositionId;
                     engaged.push_back({pid, d->id, d->occupiedTile, d->worldPos, siege});
                 }
@@ -370,7 +370,7 @@ void MilitaryOrderWidget::Update(double dt)
             if (engaged[idx].siegeTarget != commonSiege) { commonSiege = -1; break; }
 
         Vector2 mid;
-        Building* siegeBuilding = commonSiege >= 0 ? scene->game->tilemap.GetBuilding(commonSiege) : nullptr;
+        Building* siegeBuilding = commonSiege >= 0 ? scene->game->GetTileMap().GetBuilding(commonSiege) : nullptr;
         if (siegeBuilding != nullptr)
         {
             mid = BuildingScreenCenter(scene, siegeBuilding);
@@ -424,8 +424,8 @@ void MilitaryOrderWidget::DrawFieldBattlePanel()
 
     auto find = [&](int playerId, int divId, Player*& ownerOut) -> const SoldierDivision*
     {
-        auto pit = scene->game->playerHandler.players.find(playerId);
-        Player* p = pit != scene->game->playerHandler.players.end() ? pit->second.get() : nullptr;
+        auto pit = scene->game->GetPlayerHandler().players.find(playerId);
+        Player* p = pit != scene->game->GetPlayerHandler().players.end() ? pit->second.get() : nullptr;
         if (p == nullptr) return nullptr;
         for (Building* bb : p->GetTrackedBuildingsWithComponent<GarrisonComponent>())
         {
@@ -458,7 +458,7 @@ void MilitaryOrderWidget::DrawFieldBattlePanel()
         {
             if (d->currentOrder == MilitaryOrderType::Attack && d->orderTargetPositionId >= 0)
             {
-                Building* b = scene->game->tilemap.GetBuilding(d->orderTargetPositionId);
+                Building* b = scene->game->GetTileMap().GetBuilding(d->orderTargetPositionId);
                 if (b != nullptr && b->HasComponent<TerritoryComponent>())
                 { targetBuilding = b; break; }
             }
@@ -880,7 +880,7 @@ bool ArmyBarWidget::HandleClick(Vec2i point)
             // Also select its divisions if we have a bar reference.
             if (bar != nullptr && !army->divisions.empty())
             {
-                Building* home = scene->game->tilemap.GetBuilding(army->divisions.front().homeTileId);
+                Building* home = scene->game->GetTileMap().GetBuilding(army->divisions.front().homeTileId);
                 if (home != nullptr)
                 {
                     std::vector<int> ids;
@@ -918,7 +918,7 @@ void DivisionMapWidget::Update(double dt)
         bool moving{false};
     };
 
-    for (auto& [playerId, player] : scene->game->playerHandler.players)
+    for (auto& [playerId, player] : scene->game->GetPlayerHandler().players)
     {
         if (player == nullptr) continue;
         for (auto* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
@@ -1033,7 +1033,7 @@ void MoveTargetWidget::Update(double dt)
     // Draws a subtle outline (+ optional tint) around a single map tile.
     auto drawTileOutline = [&](Vec2i pos, Color lineCol, Color fillCol, float thick)
     {
-        if (!scene->game->tilemap.IsInside(pos))
+        if (!scene->game->GetTileMap().IsInside(pos))
             return;
         Vec2f sTL = scene->render.WorldToScreen({pos.x * static_cast<float>(TILE_SIZE),
                                                  pos.y * static_cast<float>(TILE_SIZE)});
@@ -1049,8 +1049,8 @@ void MoveTargetWidget::Update(double dt)
     {
         if (!sector.IsValid())
             return;
-        for (int tileId : sector.TileIds(scene->game->tilemap))
-            drawTileOutline(scene->game->tilemap.GetCoordsFromId(tileId), lineCol, fillCol, thick);
+        for (int tileId : sector.TileIds(scene->game->GetTileMap()))
+            drawTileOutline(scene->game->GetTileMap().GetCoordsFromId(tileId), lineCol, fillCol, thick);
     };
 
     // Subtly outline the QUADRANT each selected division is physically in.
@@ -1067,14 +1067,14 @@ void MoveTargetWidget::Update(double dt)
 
             Vec2i physTile{-1, -1};
             if (div.worldPos.x >= 0.0f)
-                physTile = {std::clamp(static_cast<int>(div.worldPos.x / TILE_SIZE), 0, scene->game->tilemap.params.sizeX - 1),
-                            std::clamp(static_cast<int>(div.worldPos.y / TILE_SIZE), 0, scene->game->tilemap.params.sizeY - 1)};
+                physTile = {std::clamp(static_cast<int>(div.worldPos.x / TILE_SIZE), 0, scene->game->GetTileMap().params.sizeX - 1),
+                            std::clamp(static_cast<int>(div.worldPos.y / TILE_SIZE), 0, scene->game->GetTileMap().params.sizeY - 1)};
             else if (div.occupiedTile.x >= 0)
                 physTile = div.occupiedTile;
 
             if (physTile.x >= 0)
             {
-                drawSectorOutline(ResolveDivisionSector(scene->game->tilemap, physTile, nullptr),
+                drawSectorOutline(ResolveDivisionSector(scene->game->GetTileMap(), physTile, nullptr),
                                   Color{135, 228, 158, 165}, Color{0, 0, 0, 0}, 1.5f);
             }
             else
@@ -1107,11 +1107,11 @@ void MoveTargetWidget::Update(double dt)
 
     // Hovering an enemy military building with a selection: highlight the whole
     // building so an attack target is visible instead of being aimed at blind.
-    Building* hoveredBuilding = scene->game->tilemap.GetBuilding(tile);
+    Building* hoveredBuilding = scene->game->GetTileMap().GetBuilding(tile);
     if (hoveredBuilding != nullptr && hoveredBuilding->owner != localPlayer &&
         IsMilitaryAttackTarget(*hoveredBuilding))
     {
-        Vec2i anchor = scene->game->tilemap.GetCoordsFromId(hoveredBuilding->positionId);
+        Vec2i anchor = scene->game->GetTileMap().GetCoordsFromId(hoveredBuilding->positionId);
         Vec2i fp = hoveredBuilding->GetFootprint();
         for (int yy = 0; yy < fp.y; yy++)
             for (int xx = 0; xx < fp.x; xx++)
@@ -1123,10 +1123,10 @@ void MoveTargetWidget::Update(double dt)
     // Target quadrant under the cursor. Resolve WITHOUT the owner restriction so
     // it shows on enemy/neutral ground too — you push into enemy land, so the
     // target must be visible there (the move itself isn't territory-locked).
-    DivisionSector targetSector = ResolveDivisionSector(scene->game->tilemap, tile, nullptr);
+    DivisionSector targetSector = ResolveDivisionSector(scene->game->GetTileMap(), tile, nullptr);
     bool valid = targetSector.IsValid();
-    bool intoEnemy = scene->game->tilemap.IsInside(tile) &&
-                     scene->game->tilemap.tilemap[scene->game->tilemap.GetIdFromCoords(tile)].owner != localPlayer;
+    bool intoEnemy = scene->game->GetTileMap().IsInside(tile) &&
+                     scene->game->GetTileMap().tilemap[scene->game->GetTileMap().GetIdFromCoords(tile)].owner != localPlayer;
 
     // Green over own ground, amber when pushing into enemy/neutral ground.
     Color fill = !valid ? Color{220, 70, 60, 16}

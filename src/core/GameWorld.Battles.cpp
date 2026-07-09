@@ -24,7 +24,7 @@ namespace
     std::vector<DivisionRef> CollectDeployedDivisions(GameWorld& world)
     {
         std::vector<DivisionRef> all;
-        for (auto& [pid, player] : world.playerHandler.players)
+        for (auto& [pid, player] : world.GetPlayerHandler().players)
         {
             if (player == nullptr) continue;
             for (auto& fptr : player->forces)
@@ -85,13 +85,13 @@ namespace
 
         if (div.garrisonBuildingId < 0)
             return;
-        Building* home = world.tilemap.GetBuilding(div.garrisonBuildingId);
+        Building* home = world.GetTileMap().GetBuilding(div.garrisonBuildingId);
         if (home == nullptr || home->owner != ref.owner)
             return;
         auto* garrison = home->GetComponent<GarrisonComponent>();
         if (garrison == nullptr)
             return;
-        Vec2i homeTile = world.tilemap.GetCoordsFromId(home->positionId);
+        Vec2i homeTile = world.GetTileMap().GetCoordsFromId(home->positionId);
         garrison->MoveDivisionTo(div.id, homeTile, *home, /*requireOwnedTerritory=*/true, /*snapToSector=*/true);
     }
 

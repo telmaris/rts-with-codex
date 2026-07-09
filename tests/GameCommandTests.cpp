@@ -1,4 +1,4 @@
-#include "core/GameCommand.h"
+﻿#include "core/GameCommand.h"
 #include "core/GameSession.h"
 #include "core/GameWorld.h"
 
@@ -171,15 +171,15 @@ TEST(GameCommandTests, MultiplayerWorldAssignsStableServerSlotsAndColors)
 
     ASSERT_EQ(hostWorld.GetLocalPlayerId(), 0);
     ASSERT_EQ(clientWorld.GetLocalPlayerId(), 1);
-    ASSERT_TRUE(hostWorld.playerHandler.players.contains(0));
-    ASSERT_TRUE(hostWorld.playerHandler.players.contains(1));
-    ASSERT_TRUE(clientWorld.playerHandler.players.contains(0));
-    ASSERT_TRUE(clientWorld.playerHandler.players.contains(1));
+    ASSERT_TRUE(hostWorld.GetPlayerHandlerForTesting().players.contains(0));
+    ASSERT_TRUE(hostWorld.GetPlayerHandlerForTesting().players.contains(1));
+    ASSERT_TRUE(clientWorld.GetPlayerHandlerForTesting().players.contains(0));
+    ASSERT_TRUE(clientWorld.GetPlayerHandlerForTesting().players.contains(1));
 
-    Color hostSlot0 = hostWorld.playerHandler.players[0]->color;
-    Color clientSlot0 = clientWorld.playerHandler.players[0]->color;
-    Color hostSlot1 = hostWorld.playerHandler.players[1]->color;
-    Color clientSlot1 = clientWorld.playerHandler.players[1]->color;
+    Color hostSlot0 = hostWorld.GetPlayerHandlerForTesting().players[0]->color;
+    Color clientSlot0 = clientWorld.GetPlayerHandlerForTesting().players[0]->color;
+    Color hostSlot1 = hostWorld.GetPlayerHandlerForTesting().players[1]->color;
+    Color clientSlot1 = clientWorld.GetPlayerHandlerForTesting().players[1]->color;
 
     EXPECT_EQ(hostSlot0.r, clientSlot0.r);
     EXPECT_EQ(hostSlot0.g, clientSlot0.g);
@@ -187,7 +187,7 @@ TEST(GameCommandTests, MultiplayerWorldAssignsStableServerSlotsAndColors)
     EXPECT_EQ(hostSlot1.r, clientSlot1.r);
     EXPECT_EQ(hostSlot1.g, clientSlot1.g);
     EXPECT_EQ(hostSlot1.b, clientSlot1.b);
-    EXPECT_EQ(hostWorld.playerHandler.players[1]->controllerType, PlayerControllerType::Remote);
-    EXPECT_EQ(clientWorld.playerHandler.players[1]->controllerType, PlayerControllerType::LocalHuman);
-    EXPECT_EQ(clientWorld.playerHandler.players[2]->controllerType, PlayerControllerType::Remote);
+    EXPECT_EQ(hostWorld.GetPlayerHandlerForTesting().players[1]->controllerType, PlayerControllerType::Remote);
+    EXPECT_EQ(clientWorld.GetPlayerHandlerForTesting().players[1]->controllerType, PlayerControllerType::LocalHuman);
+    EXPECT_EQ(clientWorld.GetPlayerHandlerForTesting().players[2]->controllerType, PlayerControllerType::Remote);
 }

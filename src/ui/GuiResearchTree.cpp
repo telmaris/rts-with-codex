@@ -348,7 +348,7 @@ void ResearchTreePanelWidget::Update(double dt)
     DrawRectangleRounded(title, 0.025f, 8, Color{42, 50, 62, 255});
     DrawCloseButton(bounds);
 
-    bool debugMode = scene->game->tilemap.params.debugMode;
+    bool debugMode = scene->game->GetTileMap().params.debugMode;
     if (debugMode)
     {
         Rectangle reloadBtn{bounds.x + bounds.width - 44.0f - 8.0f - 110.0f, bounds.y + 11.0f, 110.0f, 30.0f};

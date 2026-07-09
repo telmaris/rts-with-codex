@@ -230,8 +230,8 @@ AIController::AIController(int controlledPlayerId)
 // Advances this object's state for one frame.
 void AIController::Update(GameWorld& world, double dt)
 {
-    auto playerIt = world.playerHandler.players.find(playerId);
-    if (playerIt == world.playerHandler.players.end())
+    auto playerIt = world.GetPlayerHandler().players.find(playerId);
+    if (playerIt == world.GetPlayerHandler().players.end())
         return;
 
     if (model != nullptr)
@@ -520,16 +520,16 @@ bool PrimitiveAIModel::TryBuildRoads(GameWorld& world, Player* player)
         if (HasAdjacentRoad(world, building))
             continue;
 
-        for (int tileId : world.tilemap.GetAdjacentTileIds(building))
+        for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
         {
-            if (tileId < 0 || tileId >= static_cast<int>(world.tilemap.tilemap.size()))
+            if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
                 continue;
-            Tile& tile = world.tilemap[tileId];
+            Tile& tile = world.GetTileMap()[tileId];
             if (tile.owner != player || tile.HasBuilding() || reservedRoadTiles.contains(tileId))
                 continue;
-            Vec2i pos = world.tilemap.GetCoordsFromId(tileId);
+            Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
             const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
-            if (!world.tilemap.CanPlaceBuilding(BuildingType::Road, pos, roadDefinition.footprint, player))
+            if (!world.GetTileMap().CanPlaceBuilding(BuildingType::Road, pos, roadDefinition.footprint, player))
                 continue;
             world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, pos));
             reservedRoadTiles[tileId] = 6.0;
@@ -538,7 +538,7 @@ bool PrimitiveAIModel::TryBuildRoads(GameWorld& world, Player* player)
         }
     }
 
-    for (auto& tile : world.tilemap.tilemap)
+    for (auto& tile : world.GetTileMap().tilemap)
     {
         Building* building = tile.building.get();
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
@@ -563,9 +563,9 @@ AIMapAssessment PrimitiveAIModel::AssessMap(GameWorld& world, Player* player) co
         return assessment;
 
     Building* headquarters = FindOwnedHeadquarters(player);
-    Vec2i origin{world.tilemap.params.sizeX / 2, world.tilemap.params.sizeY / 2};
+    Vec2i origin{world.GetTileMap().params.sizeX / 2, world.GetTileMap().params.sizeY / 2};
     if (headquarters != nullptr)
-        origin = world.tilemap.GetCoordsFromId(headquarters->positionId);
+        origin = world.GetTileMap().GetCoordsFromId(headquarters->positionId);
 
     auto isStrategicResource = [](TileType type)
     {
@@ -573,9 +573,9 @@ AIMapAssessment PrimitiveAIModel::AssessMap(GameWorld& world, Player* player) co
     };
 
     int nearestUnownedStrategic = 9999;
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMap().tilemap)
     {
-        Vec2i pos = world.tilemap.GetCoordsFromId(tile.id);
+        Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
         int distance = std::abs(pos.x - origin.x) + std::abs(pos.y - origin.y);
         if (tile.owner != nullptr && tile.owner != player)
         {
@@ -747,12 +747,12 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
 
     if (axis == AIStrategyAxis::Expansion || axis == AIStrategyAxis::Risk)
     {
-        for (const auto& tile : world.tilemap.tilemap)
+        for (const auto& tile : world.GetTileMap().tilemap)
         {
             if (tile.owner != player)
                 continue;
             ownedTiles++;
-            Vec2i pos = world.tilemap.GetCoordsFromId(tile.id);
+            Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
             const std::array<Vec2i, 4> neighbours{
                 Vec2i{pos.x + 1, pos.y},
                 Vec2i{pos.x - 1, pos.y},
@@ -762,9 +762,9 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
             bool isBorder = false;
             for (Vec2i neighbour : neighbours)
             {
-                if (!world.tilemap.IsInside(neighbour))
+                if (!world.GetTileMap().IsInside(neighbour))
                     continue;
-                const Tile& other = world.tilemap.tilemap[world.tilemap.GetIdFromCoords(neighbour)];
+                const Tile& other = world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(neighbour)];
                 if (other.owner != player)
                 {
                     isBorder = true;
@@ -780,7 +780,7 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
     if (axis == AIStrategyAxis::Expansion)
     {
         int terrainResources = 0;
-        for (const auto& tile : world.tilemap.tilemap)
+        for (const auto& tile : world.GetTileMap().tilemap)
             if (tile.owner == player && (tile.tileType == TileType::WOOD || tile.tileType == TileType::STONE || tile.tileType == TileType::IRON_ORE || tile.tileType == TileType::COAL))
                 terrainResources++;
         if (completedBuildings < 8)
@@ -818,7 +818,7 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
     if (axis == AIStrategyAxis::Diplomacy)
     {
         int enemyMilitaryBuildings = 0;
-        for (const auto& tile : world.tilemap.tilemap)
+        for (const auto& tile : world.GetTileMap().tilemap)
         {
             const Building* building = tile.GetBuilding();
             if (building == nullptr || building->owner == nullptr || building->owner == player || building->IsUnderConstruction())
@@ -1017,7 +1017,7 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
         int ownMilitary = CountOwnedBuildings(world, player, BuildingType::GuardTower)
                         + CountOwnedBuildings(world, player, BuildingType::Fortress)
                         + CountOwnedBuildings(world, player, BuildingType::Castle);
-        for (const auto& tile : world.tilemap.tilemap)
+        for (const auto& tile : world.GetTileMap().tilemap)
         {
             const Building* b = tile.GetBuilding();
             if (b == nullptr || b->owner == nullptr || b->owner == player || b->IsUnderConstruction())
@@ -1834,7 +1834,7 @@ int PrimitiveAIModel::CountOwnedBuildings(GameWorld& world, Player* player, Buil
 int PrimitiveAIModel::CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingType type) const
 {
     int count = 0;
-    for (auto& tile : world.tilemap.tilemap)
+    for (auto& tile : world.GetTileMap().tilemap)
     {
         Building* building = tile.building.get();
         if (building != nullptr && building->owner == player && building->buildingType == type)
@@ -2055,23 +2055,23 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
     Vec2i targetPos{};
     bool hasTarget = target != nullptr;
     if (hasTarget)
-        targetPos = world.tilemap.GetCoordsFromId(target->positionId);
+        targetPos = world.GetTileMap().GetCoordsFromId(target->positionId);
     Building* headquarters = FindOwnedHeadquarters(player);
     Vec2i headquartersPos{};
     bool hasHeadquarters = headquarters != nullptr;
     if (hasHeadquarters)
-        headquartersPos = world.tilemap.GetCoordsFromId(headquarters->positionId);
+        headquartersPos = world.GetTileMap().GetCoordsFromId(headquarters->positionId);
 
-    for (const auto& tile : world.tilemap.tilemap)
+    for (const auto& tile : world.GetTileMap().tilemap)
     {
         if (tile.owner != player || tile.HasBuilding())
             continue;
 
-        Vec2i pos = world.tilemap.GetCoordsFromId(tile.id);
-        if (!world.tilemap.CanPlaceBuilding(type, pos, definition.footprint, player))
+        Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
+        if (!world.GetTileMap().CanPlaceBuilding(type, pos, definition.footprint, player))
             continue;
 
-        if (preferredTile != TileType::GRASS && world.tilemap[world.tilemap.GetIdFromCoords(pos)].tileType != preferredTile)
+        if (preferredTile != TileType::GRASS && world.GetTileMap()[world.GetTileMap().GetIdFromCoords(pos)].tileType != preferredTile)
             continue;
 
         if (preferredTile == TileType::GRASS)
@@ -2079,7 +2079,7 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
             bool terrainMatches = true;
             for (int y = 0; y < definition.footprint.y && terrainMatches; y++)
                 for (int x = 0; x < definition.footprint.x && terrainMatches; x++)
-                    terrainMatches = world.tilemap[{pos.x + x, pos.y + y}].tileType == TileType::GRASS;
+                    terrainMatches = world.GetTileMap()[{pos.x + x, pos.y + y}].tileType == TileType::GRASS;
 
             if (!terrainMatches)
                 continue;
@@ -2087,7 +2087,7 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
 
         int distanceToTarget = hasTarget ? std::abs(pos.x - targetPos.x) + std::abs(pos.y - targetPos.y) : 0;
         int distanceToHeadquarters = hasHeadquarters ? std::abs(pos.x - headquartersPos.x) + std::abs(pos.y - headquartersPos.y) : 0;
-        int infrastructureDistance = DistanceToNearestInfrastructure(world.tilemap, player, pos);
+        int infrastructureDistance = DistanceToNearestInfrastructure(world.GetTileMap(), player, pos);
         int borderPenalty = 0;
         const std::array<Vec2i, 4> neighbours{
             Vec2i{pos.x + 1, pos.y},
@@ -2097,12 +2097,12 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
         };
         for (Vec2i neighbour : neighbours)
         {
-            if (!world.tilemap.IsInside(neighbour))
+            if (!world.GetTileMap().IsInside(neighbour))
             {
                 borderPenalty += 10;
                 continue;
             }
-            if (world.tilemap[world.tilemap.GetIdFromCoords(neighbour)].owner != player)
+            if (world.GetTileMap()[world.GetTileMap().GetIdFromCoords(neighbour)].owner != player)
                 borderPenalty += 6;
         }
 
@@ -2127,7 +2127,7 @@ Building* PrimitiveAIModel::FindNearestRoadTarget(GameWorld& world, Player* play
     if (pather == nullptr || source == nullptr)
         return nullptr;
 
-    auto sourcePos = world.tilemap.GetCoordsFromId(source->positionId);
+    auto sourcePos = world.GetTileMap().GetCoordsFromId(source->positionId);
 
     // Stage 1: Find nearest Road/Storage/HQ infrastructure
     auto infrastructure_predicate = [&](const Building* building) -> bool {
@@ -2150,7 +2150,7 @@ Building* PrimitiveAIModel::FindNearestRoadTarget(GameWorld& world, Player* play
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
 
-        int distance = TileDistance(world.tilemap, source, building);
+        int distance = TileDistance(world.GetTileMap(), source, building);
         if (distance < bestReceiverDistance)
         {
             bestReceiverDistance = distance;
@@ -2200,10 +2200,10 @@ Building* PrimitiveAIModel::FindNearestStorageConnectedRoad(GameWorld& world, Pl
     if (storageNodes.empty())
         return nullptr;
 
-    Vec2i sourcePos = world.tilemap.GetCoordsFromId(source->positionId);
+    Vec2i sourcePos = world.GetTileMap().GetCoordsFromId(source->positionId);
     Building* bestRoad = nullptr;
     int bestDistance = std::numeric_limits<int>::max();
-    for (auto& tile : world.tilemap.tilemap)
+    for (auto& tile : world.GetTileMap().tilemap)
     {
         Building* road = tile.building.get();
         if (road == nullptr || road->owner != player || road->IsUnderConstruction() || road->buildingType != BuildingType::Road)
@@ -2221,7 +2221,7 @@ Building* PrimitiveAIModel::FindNearestStorageConnectedRoad(GameWorld& world, Pl
         if (!connectedToStorage)
             continue;
 
-        Vec2i roadPos = world.tilemap.GetCoordsFromId(road->positionId);
+        Vec2i roadPos = world.GetTileMap().GetCoordsFromId(road->positionId);
         int distance = std::abs(sourcePos.x - roadPos.x) + std::abs(sourcePos.y - roadPos.y);
         if (distance < bestDistance)
         {
@@ -2239,9 +2239,9 @@ bool PrimitiveAIModel::HasAdjacentRoad(GameWorld& world, const Building* buildin
     if (building == nullptr)
         return false;
 
-    for (int tileId : world.tilemap.GetAdjacentTileIds(building))
+    for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
     {
-        Building* neighbour = world.tilemap.GetBuilding(tileId);
+        Building* neighbour = world.GetTileMap().GetBuilding(tileId);
         if (neighbour != nullptr && neighbour->buildingType == BuildingType::Road)
             return true;
     }
@@ -2267,19 +2267,19 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
     if (player == nullptr || source == nullptr || target == nullptr)
         return false;
 
-    std::vector<int> startIds = world.tilemap.GetAdjacentTileIds(source);
-    std::vector<int> goalIds = world.tilemap.GetAdjacentTileIds(target);
+    std::vector<int> startIds = world.GetTileMap().GetAdjacentTileIds(source);
+    std::vector<int> goalIds = world.GetTileMap().GetAdjacentTileIds(target);
     if (target->buildingType == BuildingType::Road)
         goalIds.push_back(target->positionId);
 
     auto canUseRoadPathTile = [&](int tileId)
     {
-        if (tileId < 0 || tileId >= static_cast<int>(world.tilemap.tilemap.size()))
+        if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
             return false;
         if (reservedRoadTiles.contains(tileId))
             return false;
 
-        Tile& tile = world.tilemap[tileId];
+        Tile& tile = world.GetTileMap()[tileId];
         if (tile.owner != player)
             return false;
 
@@ -2310,7 +2310,7 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
             break;
         }
 
-        Vec2i pos = world.tilemap.GetCoordsFromId(current);
+        Vec2i pos = world.GetTileMap().GetCoordsFromId(current);
         const std::array<Vec2i, 4> neighbours{
             Vec2i{pos.x + 1, pos.y},
             Vec2i{pos.x - 1, pos.y},
@@ -2320,10 +2320,10 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
 
         for (Vec2i nextPos : neighbours)
         {
-            if (!world.tilemap.IsInside(nextPos))
+            if (!world.GetTileMap().IsInside(nextPos))
                 continue;
 
-            int nextId = world.tilemap.GetIdFromCoords(nextPos);
+            int nextId = world.GetTileMap().GetIdFromCoords(nextPos);
             if (parent.contains(nextId) || !canUseRoadPathTile(nextId))
                 continue;
 
@@ -2344,7 +2344,7 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
     int existingRoadTiles = 0;
     for (int tileId : path)
     {
-        Building* building = world.tilemap.GetBuilding(tileId);
+        Building* building = world.GetTileMap().GetBuilding(tileId);
         if (building != nullptr && building->buildingType == BuildingType::Road)
             existingRoadTiles++;
         else if (building == nullptr)
@@ -2360,13 +2360,13 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
     constexpr int maxRoadCommandsPerTick = 8;
     for (int tileId : path)
     {
-        Building* building = world.tilemap.GetBuilding(tileId);
+        Building* building = world.GetTileMap().GetBuilding(tileId);
         if (building != nullptr)
             continue;
         if (reservedRoadTiles.contains(tileId))
             continue;
 
-        world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, world.tilemap.GetCoordsFromId(tileId)));
+        world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, world.GetTileMap().GetCoordsFromId(tileId)));
         reservedRoadTiles[tileId] = 6.0;
         submitted = true;
         submittedCount++;
@@ -2414,7 +2414,7 @@ Building* PrimitiveAIModel::FindNearestEnemyMilitary(GameWorld& world, Player* p
     if (pather == nullptr || source == nullptr)
         return nullptr;
 
-    auto sourcePos = world.tilemap.GetCoordsFromId(source->positionId);
+    auto sourcePos = world.GetTileMap().GetCoordsFromId(source->positionId);
 
     auto predicate = [&](const Building* building) -> bool {
         if (building == nullptr || building->owner == player || building->IsUnderConstruction())
