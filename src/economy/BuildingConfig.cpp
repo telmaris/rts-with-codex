@@ -67,12 +67,8 @@ namespace
                     {ResourceType::STEEL_SWORD, 60, 0},
                     {ResourceType::BOW, 60, 0},
                     {ResourceType::ARROWS, 120, 0},
-                    {ResourceType::HORSE, 60, 0},
-                    {ResourceType::WEAPON_SUPPLY, 60, 0}
-                },
-                {},
-                {},
-                {13, 1000}},
+                    {ResourceType::HORSE, 60, 0}
+                }},
             BuildingDefinition{
                 BuildingType::Village,
                 "Village",
@@ -129,8 +125,7 @@ namespace
                     {ResourceType::STEEL_SWORD, 60, 0},
                     {ResourceType::BOW, 60, 0},
                     {ResourceType::ARROWS, 120, 0},
-                    {ResourceType::HORSE, 60, 0},
-                    {ResourceType::WEAPON_SUPPLY, 60, 0}
+                    {ResourceType::HORSE, 60, 0}
                 }},
             BuildingDefinition{
                 BuildingType::Woodcutter,
@@ -216,68 +211,6 @@ namespace
                 {{ResourceType::IRON_ORE, 8}, {ResourceType::COAL, 8}},
                 {{ResourceType::IRON, 16}})},
             BuildingDefinition{
-                BuildingType::GuardTower,
-                "Guard Tower",
-                "[GuardTower]",
-                "assets/textures/building/guard_tower.png",
-                "Cost TBD",
-                {{ResourceType::WOOD, 80}, {ResourceType::STONE, 90}, {ResourceType::PLANKS, 30}},
-                {2, 2},
-                6,
-                24.0,
-                0.0,
-                {},
-                {},
-                {},
-                {},
-                {},
-                {6, 300, 25, 10, 20, 20, 40}},
-            BuildingDefinition{
-                BuildingType::Fortress,
-                "Fortress",
-                "[Fortress]",
-                "assets/textures/building/fortress.png",
-                "Cost TBD",
-                {{ResourceType::WOOD, 150}, {ResourceType::STONE, 220}, {ResourceType::PLANKS, 75}, {ResourceType::IRON, 45}},
-                {3, 3},
-                7,
-                45.0,
-                0.0,
-                {},
-                {},
-                {},
-                {},
-                {},
-                {10, 800, 70, 35, 70, 80, 160}},
-            BuildingDefinition{
-                BuildingType::Castle,
-                "Castle",
-                "[Castle]",
-                "assets/textures/building/castle.png",
-                "Cost TBD",
-                {{ResourceType::WOOD, 260}, {ResourceType::STONE, 420}, {ResourceType::PLANKS, 140}, {ResourceType::IRON, 120}},
-                {4, 4},
-                8,
-                75.0,
-                0.0,
-                {},
-                {},
-                {},
-                {},
-                {},
-                {15, 1600, 140, 80, 160, 200, 400}},
-            BuildingDefinition{
-                BuildingType::SupplyHub,
-                "Supply Hub",
-                "[SupplyHub]",
-                "assets/textures/building/storage.png",
-                "Cost TBD",
-                {{ResourceType::WOOD, 60}, {ResourceType::STONE, 35}, {ResourceType::PLANKS, 25}, {ResourceType::IRON, 10}},
-                {3, 3},
-                4,
-                20.0,
-                0.0},
-            BuildingDefinition{
                 BuildingType::Road,
                 "Road",
                 "[Road]",
@@ -327,11 +260,7 @@ namespace
         if (value == "Glassworks") return BuildingType::Glassworks;
         if (value == "Powderworks") return BuildingType::Powderworks;
         if (value == "University") return BuildingType::University;
-        if (value == "GuardTower") return BuildingType::GuardTower;
-        if (value == "Fortress") return BuildingType::Fortress;
-        if (value == "Castle") return BuildingType::Castle;
         if (value == "Barracks") return BuildingType::Barracks;
-        if (value == "SupplyHub") return BuildingType::SupplyHub;
         if (value == "Road") return BuildingType::Road;
         return BuildingType::Building;
     }
@@ -360,7 +289,6 @@ namespace
         if (value == "BEER") return ResourceType::BEER;
         if (value == "COINS") return ResourceType::COINS;
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
-        if (value == "WEAPON_SUPPLY") return ResourceType::WEAPON_SUPPLY;
         if (value == "PAPER") return ResourceType::PAPER;
         if (value == "TOOLS") return ResourceType::TOOLS;
         if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
@@ -580,19 +508,6 @@ namespace
                     else if (key == "food_package_upkeep") definition.village.foodPackageUpkeep = std::stod(value);
                 });
             }
-            else if (command == "military")
-            {
-                ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
-                {
-                    if (key == "territory_radius") definition.military.territoryRadius = std::stoi(value);
-                    else if (key == "hit_points") definition.military.hitPoints = std::stoi(value);
-                    else if (key == "strength") definition.military.combatStrength = std::stoi(value);
-                    else if (key == "garrison") definition.military.garrison = std::stoi(value);
-                    else if (key == "garrison_capacity") definition.military.garrisonCapacity = std::stoi(value);
-                    else if (key == "supply") definition.military.supply = std::stoi(value);
-                    else if (key == "supply_capacity") definition.military.supplyCapacity = std::stoi(value);
-                });
-            }
         }
 
         return definition;
@@ -675,11 +590,7 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::University,
         BuildingType::StorageBuilding,
         BuildingType::Village,
-        BuildingType::Barracks,
-        BuildingType::SupplyHub,
-        BuildingType::GuardTower,
-        BuildingType::Fortress,
-        BuildingType::Castle};
+        BuildingType::Barracks};
     return types;
 }
 
@@ -791,24 +702,3 @@ void ApplyStorageDefinition(Building& building, const BuildingDefinition& defini
     }
 }
 
-// Applies parsed configuration to runtime state.
-void ApplyMilitaryDefinition(Building& building, const BuildingDefinition& definition)
-{
-    auto* territory = building.GetComponent<TerritoryComponent>();
-    auto* garrison  = building.GetComponent<GarrisonComponent>();
-    auto* supply    = building.GetComponent<SupplyBufferComponent>();
-    if (territory == nullptr || garrison == nullptr || supply == nullptr)
-        return;
-
-    territory->radius = definition.military.territoryRadius;
-    territory->hp     = definition.military.hitPoints;
-    territory->maxHp  = definition.military.hitPoints;
-    garrison->strength = definition.military.combatStrength;
-    garrison->garrison = 0;
-    garrison->cap      = definition.military.garrisonCapacity;
-    supply->capacity = definition.military.supplyCapacity;
-    supply->buffer.Clear();
-    supply->buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, supply->capacity.GetBase()};
-    supply->buffer.SetStoredAmount(definition.military.supply);
-    supply->stored = static_cast<int>(supply->buffer.buffer.size());
-}

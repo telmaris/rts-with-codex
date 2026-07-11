@@ -147,17 +147,8 @@ namespace
             case BalanceStat::TransportTime: return "Transport time";
             case BalanceStat::RoadCapacity: return "Road capacity";
             case BalanceStat::RoadSpeed: return "Road speed";
-            case BalanceStat::MilitaryStrength: return "Military strength";
-            case BalanceStat::AttackDamage: return "Attack damage";
-            case BalanceStat::HitPoints: return "Hit points";
-            case BalanceStat::TerritoryRadius: return "Territory radius";
-            case BalanceStat::GarrisonCapacity: return "Garrison capacity";
-            case BalanceStat::SupplyCapacity: return "Supply capacity";
-            case BalanceStat::SupplyConsumption: return "Supply consumption";
             case BalanceStat::ManpowerRate: return "Manpower growth";
             case BalanceStat::PopulationCap: return "Population cap";
-            case BalanceStat::RecruitmentTime: return "Recruitment time";
-            case BalanceStat::RecruitmentManpowerCost: return "Recruitment manpower cost";
             case BalanceStat::BuilderAmount: return "Builders";
             default: return "Effect";
         }
@@ -171,9 +162,6 @@ namespace
             case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
-            case BalanceStat::SupplyConsumption:
-            case BalanceStat::RecruitmentTime:
-            case BalanceStat::RecruitmentManpowerCost:
                 return true;
             default:
                 return false;
@@ -212,7 +200,6 @@ namespace
             case BalanceStat::BuildTime: return "Build speed";
             case BalanceStat::ProductionCycleTime: return "Production speed";
             case BalanceStat::TransportTime: return "Transport speed";
-            case BalanceStat::RecruitmentTime: return "Recruitment speed";
             default: return FocusStatLabel(stat);
         }
     }
@@ -240,9 +227,6 @@ namespace
             case BuildingType::Glassworks: return "Glassworks";
             case BuildingType::Powderworks: return "Powderworks";
             case BuildingType::University: return "University";
-            case BuildingType::GuardTower: return "Guard Tower";
-            case BuildingType::Fortress: return "Fortress";
-            case BuildingType::Castle: return "Castle";
             case BuildingType::Barracks: return "Barracks";
             case BuildingType::Road: return "Road";
             default: return "Building";
@@ -269,15 +253,12 @@ namespace
         bool showAsRate = lowerIsBetter && std::abs(modifier.multiplier - 1.0) > 0.001 &&
                           (modifier.stat == BalanceStat::BuildTime ||
                            modifier.stat == BalanceStat::ProductionCycleTime ||
-                           modifier.stat == BalanceStat::TransportTime ||
-                           modifier.stat == BalanceStat::RecruitmentTime);
+                           modifier.stat == BalanceStat::TransportTime);
         stream << (showAsRate ? ImprovedRateLabel(modifier.stat) : FocusStatLabel(modifier.stat));
         if (modifier.buildingType.has_value())
             stream << " for " << FocusBuildingLabel(modifier.buildingType.value());
         if (modifier.resourceType.has_value())
             stream << " producing " << rt2s(modifier.resourceType.value());
-        if (modifier.unitType.has_value())
-            stream << " for " << MilitaryUnitLabel(modifier.unitType.value());
         stream << ": ";
 
         bool hasValue = false;

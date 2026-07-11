@@ -1,10 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
 #include "simulation/MapGenerator.h"
-#include "warfare/DivisionSector.h"
-#include "warfare/MovementPlanner.h"
-#include "simulation/SectorGraph.h"
-#include "warfare/Equipment.h"
 #include "BuildingComponentsInternal.h"
 
 #include <algorithm>
@@ -94,19 +90,6 @@ int PopulationComponent::RequestFoodSupply(Building& self)
         if (missing <= 0) break;
     }
     return std::max(0, missing);
-}
-
-void PopulationComponent::AbsorbFoodPackage(SupplyPackage& package)
-{
-    if (package.category != SupplyCategory::Food)
-        return;
-
-    int capacity = foodBuffer.bufferSize;
-    while (package.rations > 0 && static_cast<int>(foodBuffer.buffer.size()) < capacity)
-    {
-        foodBuffer.GenerateResource(ResourceType::FOOD_PROVISIONS);
-        package.rations--;
-    }
 }
 
 int PopulationComponent::GetFoodDemand() const

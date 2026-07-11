@@ -84,7 +84,6 @@ TEST(PlayerEconomyTests, NewPlayerStartsWithTribalStateModifiers)
 
     EXPECT_EQ(player.stateDevelopment.GetDefinition().id, "tribal_society");
     EXPECT_GT(player.ModifyBalance(BalanceStat::ManpowerRate, 1.0, BuildingType::Building), 1.0);
-    EXPECT_LT(player.ModifyBalance(BalanceStat::RecruitmentTime, 10.0, BuildingType::Building), 10.0);
 }
 
 TEST(PlayerEconomyTests, TribalManpowerGrowthAppliesToPopulationComponent)
@@ -247,7 +246,6 @@ TEST(PlayerEconomyTests, BuildCostModifierReducesEffectiveBuildCosts)
         0.0,
         0.5,
         BalanceModifierScope::Global(),
-        std::nullopt,
         std::nullopt,
         std::nullopt,
         "test:build_cost_discount"});

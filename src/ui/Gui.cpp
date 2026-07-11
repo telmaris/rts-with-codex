@@ -3,7 +3,6 @@
 #include "economy/Player.h"
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
-#include "warfare/Equipment.h"
 
 #include <algorithm>
 #include <array>
@@ -140,7 +139,6 @@ namespace
             case ResourceType::BEER: return Color{184, 128, 48, 255};
             case ResourceType::COINS: return Color{230, 190, 82, 255};
             case ResourceType::FOOD_PROVISIONS: return Color{113, 162, 92, 255};
-            case ResourceType::WEAPON_SUPPLY: return Color{117, 119, 124, 255};
             case ResourceType::PAPER: return Color{213, 211, 190, 255};
             case ResourceType::TOOLS: return Color{120, 136, 145, 255};
             case ResourceType::COPPER_SWORD: return Color{178, 105, 70, 255};
@@ -179,7 +177,6 @@ namespace
             case ResourceType::BEER: return "Be";
             case ResourceType::COINS: return "$";
             case ResourceType::FOOD_PROVISIONS: return "Fd";
-            case ResourceType::WEAPON_SUPPLY: return "Wp";
             case ResourceType::PAPER: return "Pa";
             case ResourceType::TOOLS: return "Tl";
             case ResourceType::COPPER_SWORD: return "CuS";
@@ -541,46 +538,6 @@ namespace
         return richness;
     }
 
-    // Initializes MilitaryOrderLabel.
-    const char* MilitaryOrderLabel(MilitaryOrderType order)
-    {
-        switch (order)
-        {
-            case MilitaryOrderType::Attack: return "Attack";
-            case MilitaryOrderType::Support: return "Support";
-            case MilitaryOrderType::Defend: return "Defend";
-            case MilitaryOrderType::None:
-            default: return "None";
-        }
-    }
-
-    // Initializes UnitLabel.
-    const char* UnitLabel(MilitaryUnitType type)
-    {
-        return MilitaryUnitLabel(type);
-    }
-
-    // Returns a compact recruitment cost line for barracks UI.
-    std::string RecruitmentCostLabel(Building* building, MilitaryUnitType type)
-    {
-        auto* owner = building != nullptr ? building->owner : nullptr;
-        int manpower = owner != nullptr
-            ? owner->ModifyBalanceIntForBuilding(BalanceStat::RecruitmentManpowerCost, GetBaseRecruitmentManpowerCost(type), building, ResourceType::Null, type, 0)
-            : GetBaseRecruitmentManpowerCost(type);
-        double time = owner != nullptr
-            ? owner->ModifyBalanceForBuilding(BalanceStat::RecruitmentTime, GetBaseRecruitmentTime(type), building, ResourceType::Null, type)
-            : GetBaseRecruitmentTime(type);
-
-        std::ostringstream timeText;
-        timeText << std::fixed << std::setprecision(1) << time;
-        std::string result = std::string(UnitLabel(type)) + ": " + std::to_string(manpower) + " MP, " + timeText.str() + "s";
-        for (const auto& [resource, amount] : GetBaseRecruitmentResourceCosts(type))
-            result += ", " + std::to_string(amount) + " " + rt2s(resource);
-        for (const auto& [category, amount] : GetBaseRecruitmentEquipmentCosts(type))
-            result += ", " + std::to_string(amount) + " " + EquipmentCategoryLabel(category);
-        return result;
-    }
-
     // Returns a readable label for one modifier stat.
     const char* BalanceStatLabel(BalanceStat stat)
     {
@@ -594,17 +551,8 @@ namespace
             case BalanceStat::TransportTime: return "Transport time";
             case BalanceStat::RoadCapacity: return "Road capacity";
             case BalanceStat::RoadSpeed: return "Road speed";
-            case BalanceStat::MilitaryStrength: return "Military strength";
-            case BalanceStat::AttackDamage: return "Attack damage";
-            case BalanceStat::HitPoints: return "Hit points";
-            case BalanceStat::TerritoryRadius: return "Territory radius";
-            case BalanceStat::GarrisonCapacity: return "Garrison capacity";
-            case BalanceStat::SupplyCapacity: return "Supply capacity";
-            case BalanceStat::SupplyConsumption: return "Supply use";
             case BalanceStat::ManpowerRate: return "Manpower growth";
             case BalanceStat::PopulationCap: return "Population cap";
-            case BalanceStat::RecruitmentTime: return "Recruitment time";
-            case BalanceStat::RecruitmentManpowerCost: return "Recruitment cost";
             case BalanceStat::BuilderAmount: return "Builders";
             default: return "Effect";
         }
@@ -618,9 +566,6 @@ namespace
             case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
-            case BalanceStat::SupplyConsumption:
-            case BalanceStat::RecruitmentTime:
-            case BalanceStat::RecruitmentManpowerCost:
                 return true;
             default:
                 return false;
@@ -644,7 +589,6 @@ namespace
             case BalanceStat::BuildTime: return "Build speed";
             case BalanceStat::ProductionCycleTime: return "Production speed";
             case BalanceStat::TransportTime: return "Transport speed";
-            case BalanceStat::RecruitmentTime: return "Recruitment speed";
             default: return BalanceStatLabel(stat);
         }
     }
@@ -670,11 +614,7 @@ namespace
             case BuildingType::Paperworks: return "Paperworks";
             case BuildingType::Smith: return "Smith";
             case BuildingType::University: return "University";
-            case BuildingType::GuardTower: return "Guard tower";
-            case BuildingType::Fortress: return "Fortress";
-            case BuildingType::Castle: return "Castle";
             case BuildingType::Barracks: return "Barracks";
-            case BuildingType::SupplyHub: return "Supply hub";
             case BuildingType::Road: return "Road";
             default: return "Building";
         }
@@ -693,8 +633,7 @@ namespace
         bool showAsRate = lowerIsBetter && std::abs(modifier.multiplier - 1.0) > 0.0001 &&
                           (modifier.stat == BalanceStat::BuildTime ||
                            modifier.stat == BalanceStat::ProductionCycleTime ||
-                           modifier.stat == BalanceStat::TransportTime ||
-                           modifier.stat == BalanceStat::RecruitmentTime);
+                           modifier.stat == BalanceStat::TransportTime);
         text += showAsRate ? ImprovedRateLabel(modifier.stat) : BalanceStatLabel(modifier.stat);
         if (std::abs(modifier.additive) > 0.0001)
         {
@@ -1725,49 +1664,6 @@ void GuiPanel::Update(double dt)
         return;
     }
 
-    if (auto* packaging = building->GetComponent<SupplyPackageComponent>())
-    {
-        UiText::Draw("Supply hub", contentX, y, 22, Color{190, 198, 208, 255});
-        y += 30;
-
-        // Survey what the network can currently feed the hub (does not consume).
-        int weaponsAvailable = 0;
-        int rationsAvailable = 0;
-        for (const auto& [type, amount] : SurveyNetworkSupplies(*building))
-        {
-            if (type == ResourceType::FOOD_PROVISIONS)
-                rationsAvailable += amount;
-            else
-                weaponsAvailable += amount;
-        }
-
-        std::vector<std::string> stats{
-            "Food ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Food)) + "/" + std::to_string(packaging->maxReadyPackages),
-            "Materiel ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Materiel)) + "/" + std::to_string(packaging->maxReadyPackages),
-            "Weapons ready: " + std::to_string(packaging->ReadyPackageCount(SupplyCategory::Weapons)) + "/" + std::to_string(packaging->maxReadyPackages),
-            "In transit: " + std::to_string(packaging->inFlight.size()),
-            "Assembled (total): " + std::to_string(packaging->totalPackagesAssembled),
-            "Delivered to front: " + std::to_string(packaging->totalPackagesDelivered),
-            "Gear in network: " + std::to_string(weaponsAvailable),
-            "Rations in network: " + std::to_string(rationsAvailable)};
-
-        for (const auto& stat : stats)
-        {
-            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, RAYWHITE);
-            y += 24;
-        }
-
-        y += 8;
-        DrawTextFit("Draws the best available gear + rations from your",
-                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 16.0f}, 13, Color{170, 178, 188, 255});
-        y += 18;
-        DrawTextFit("storage network and ships weapon supply to the front.",
-                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 16.0f}, 13, Color{170, 178, 188, 255});
-
-        drawDestroyButton();
-        return;
-    }
-
     if (building->IsStorageLike())
     {
         UiText::Draw("Storage", contentX, y, 22, Color{190, 198, 208, 255});
@@ -1859,156 +1755,6 @@ void GuiPanel::Update(double dt)
                 DrawRectangleRounded(fill, 0.2f, 4, Color{79, 181, 128, 255});
                 y += rowH;
             }
-        }
-        drawDestroyButton();
-        return;
-    }
-
-    auto* garrison = building->GetComponent<GarrisonComponent>();
-    auto* territory = building->GetComponent<TerritoryComponent>();
-    auto* supplyBuffer = building->GetComponent<SupplyBufferComponent>();
-    if (garrison != nullptr && territory != nullptr)
-    {
-        bool barracks = building->HasComponent<RecruitmentComponent>();
-        // Only defensive works (tower/fortress/castle) present garrison state.
-        // The Barracks is a training factory and the HQ a capital � both merely
-        // home field divisions and must not read as garrison buildings.
-        bool defensiveGarrison = IsDefensiveGarrisonBuilding(*building);
-        UiText::Draw(barracks ? "Military training" : "Military", contentX, y, 22, Color{190, 198, 208, 255});
-        y += 32;
-
-        std::vector<std::string> stats{
-            "Hit points: " + std::to_string(territory->hp) + "/" + std::to_string(territory->GetMaxHp(*building)),
-            "Territory radius: " + std::to_string(territory->GetRadius(*building))};
-        if (barracks)
-            stats.insert(stats.begin(), "Recruitment creates divisions");
-
-        int weaponSupply = 0;
-        int weaponSupplyCapacity = 0;
-        int foodSupply = 0;
-        int foodSupplyCapacity = 0;
-        int materielSupply = 0;
-        int materielSupplyCapacity = 0;
-        float readinessSum = 0.0f;
-        if (defensiveGarrison)
-        {
-            const BalanceModifierSet* unitMods =
-                building->owner != nullptr ? &building->owner->balanceModifiers : nullptr;
-
-            int activeDivisionOrders = 0;
-            DivisionCombatStats combatSum{};
-            for (const auto& divisionPtr : garrison->divisions)
-            {
-                const auto& division = *divisionPtr;
-                weaponSupply += division.weaponSupply;
-                weaponSupplyCapacity += division.weaponSupplyCapacity;
-                foodSupply += division.foodSupply;
-                foodSupplyCapacity += division.foodSupplyCapacity;
-                materielSupply += division.materielSupply;
-                materielSupplyCapacity += division.materielSupplyCapacity;
-                readinessSum += DivisionSupplyEfficiency(division);
-                if (division.currentOrder != MilitaryOrderType::None)
-                    activeDivisionOrders++;
-
-                DivisionCombatStats cs = ComputeDivisionCombatStats(division, unitMods);
-                combatSum.lightAttack += cs.lightAttack;
-                combatSum.armoredAttack += cs.armoredAttack;
-                combatSum.defense += cs.defense;
-                combatSum.morale += cs.morale;
-                combatSum.equipmentQuality += cs.equipmentQuality;
-            }
-
-            stats.insert(stats.begin() + 1, "Effective strength: " + std::to_string(garrison->GetEffectiveStrength(*building)));
-            stats.push_back("Divisions: " + std::to_string(garrison->divisions.size()) + "/" + std::to_string(garrison->GetDivisionCap(*building)));
-            stats.push_back("Active orders: " + std::to_string(activeDivisionOrders + (garrison->currentOrder != MilitaryOrderType::None ? 1 : 0)));
-
-            if (int divCount = static_cast<int>(garrison->divisions.size()); divCount > 0)
-            {
-                auto round1 = [](float v) { return std::to_string(static_cast<int>(std::lround(v))); };
-                stats.push_back("Atk L/A: " + round1(combatSum.lightAttack / divCount) + "/" +
-                                round1(combatSum.armoredAttack / divCount) +
-                                "  Def: " + round1(combatSum.defense / divCount));
-                stats.push_back("Morale: " + round1(combatSum.morale / divCount) +
-                                "  Gear: " + std::to_string(static_cast<int>(std::lround(
-                                    combatSum.equipmentQuality / divCount * 100.0f))) + "%");
-                stats.push_back("Combat readiness: " + std::to_string(static_cast<int>(std::lround(
-                                    readinessSum / divCount * 100.0f))) + "%  (supply-gated)");
-            }
-        }
-
-        int line = 20;
-        for (const auto& stat : stats)
-        {
-            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(line)}, line - 3, RAYWHITE);
-            y += line + 4;
-        }
-
-        if (defensiveGarrison)
-        {
-            y += 8;
-            // showPercent: military supplies are reported as a percentage of the
-            // garrison's establishment (weapon/food/materiel), which is what the
-            // simulation actually consumes � raw point counts were confusing.
-            auto drawRatio = [&](const std::string& label, int value, int capacity, Color fillColor,
-                                 bool showPercent)
-            {
-                float ratio = capacity > 0 ? std::clamp(value / static_cast<float>(capacity), 0.0f, 1.0f) : 0.0f;
-                std::string caption = label;
-                if (showPercent)
-                    caption += ": " + std::to_string(static_cast<int>(std::lround(ratio * 100.0f))) + "%";
-                DrawTextFit(caption, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 15, Color{190, 198, 208, 255});
-                y += 20;
-                Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 12.0f};
-                DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
-                Rectangle fill = bar;
-                fill.width *= ratio;
-                DrawRectangleRounded(fill, 0.2f, 4, fillColor);
-                y += 22;
-            };
-
-            drawRatio("Garrison", static_cast<int>(garrison->divisions.size()), garrison->GetDivisionCap(*building), Color{86, 145, 222, 255}, false);
-            // Division-level supply pools as percentages (what combat/consumption use).
-            drawRatio("Food supply", foodSupply, foodSupplyCapacity, Color{206, 148, 88, 255}, true);
-            drawRatio("Weapon supply", weaponSupply, weaponSupplyCapacity, Color{126, 142, 162, 255}, true);
-            drawRatio("Materiel supply", materielSupply, materielSupplyCapacity, Color{150, 176, 140, 255}, true);
-            if (garrison->currentOrder != MilitaryOrderType::None || garrison->HasActiveDivisionOrders())
-            {
-                UiText::DrawFit("Orders active",
-                    Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f},
-                    17,
-                    Color{255, 214, 112, 255});
-                y += 24;
-            }
-        }
-        if (auto* recruitment = building->GetComponent<RecruitmentComponent>())
-        {
-            int buttonH = std::max(28, destroyButton.size.y - 4);
-            int recruitY = bottom - destroyButton.size.y - margin - buttonH;
-            int buttonGap = 6;
-            int buttonW = (contentW - buttonGap * 2) / 3;
-
-            std::string queue = "Queue: " + std::to_string(recruitment->queue.size());
-            if (!recruitment->queue.empty())
-                queue += " (" + std::string(UnitLabel(recruitment->queue.front().type)) + ")";
-            DrawTextFit(queue, Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 82), static_cast<float>(contentW), 18.0f}, 14, Color{190, 198, 208, 255});
-            DrawTextFit(RecruitmentCostLabel(building, MilitaryUnitType::Militia), Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 60), static_cast<float>(contentW), 16.0f}, 13, Color{190, 198, 208, 255});
-            DrawTextFit(RecruitmentCostLabel(building, MilitaryUnitType::Swordsman), Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 42), static_cast<float>(contentW), 16.0f}, 13, Color{190, 198, 208, 255});
-            DrawTextFit(RecruitmentCostLabel(building, MilitaryUnitType::Archer), Rectangle{static_cast<float>(contentX), static_cast<float>(recruitY - 24), static_cast<float>(contentW), 16.0f}, 13, Color{190, 198, 208, 255});
-
-            recruitMilitiaButton.pos = Vec2i{contentX, recruitY};
-            recruitMilitiaButton.size = Vec2i{buttonW, buttonH};
-            recruitMilitiaButton.ChangeText("Militia");
-            recruitMilitiaButton.Update(dt);
-
-            recruitSwordsmanButton.pos = Vec2i{contentX + buttonW + buttonGap, recruitY};
-            recruitSwordsmanButton.size = Vec2i{buttonW, buttonH};
-            recruitSwordsmanButton.ChangeText("Sword");
-            recruitSwordsmanButton.Update(dt);
-
-            recruitArcherButton.pos = Vec2i{contentX + (buttonW + buttonGap) * 2, recruitY};
-            recruitArcherButton.size = Vec2i{buttonW, buttonH};
-            recruitArcherButton.ChangeText("Archer");
-            recruitArcherButton.Update(dt);
         }
         drawDestroyButton();
         return;
@@ -2214,21 +1960,6 @@ GuiPanel::GuiPanel()
     {
         if (building != nullptr)
             destroyRequested = true;
-    };
-    recruitMilitiaButton.func = [this]()
-    {
-        if (building != nullptr && recruitRequested)
-            recruitRequested(building, MilitaryUnitType::Militia);
-    };
-    recruitSwordsmanButton.func = [this]()
-    {
-        if (building != nullptr && recruitRequested)
-            recruitRequested(building, MilitaryUnitType::Swordsman);
-    };
-    recruitArcherButton.func = [this]()
-    {
-        if (building != nullptr && recruitRequested)
-            recruitRequested(building, MilitaryUnitType::Archer);
     };
 }
 

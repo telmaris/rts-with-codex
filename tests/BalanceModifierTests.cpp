@@ -14,9 +14,6 @@ namespace
             case BalanceStat::BuildTime:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
-            case BalanceStat::SupplyConsumption:
-            case BalanceStat::RecruitmentTime:
-            case BalanceStat::RecruitmentManpowerCost:
                 return true;
             default:
                 return false;
@@ -48,7 +45,6 @@ TEST(BalanceModifierTests, AppliesOnlyToMatchingStatAndBuilding)
         BalanceModifierScope::Global(),
         BuildingType::Woodcutter,
         ResourceType::WOOD,
-        std::nullopt,
         "test:wood_bonus"});
 
     BalanceModifierContext matching;
@@ -144,7 +140,6 @@ TEST(BalanceModifierTests, AreaScopeUsesCircularDistance)
         BalanceModifierScope::Area({10, 10}, 3),
         BuildingType::Road,
         std::nullopt,
-        std::nullopt,
         "test:local_road_speed"});
 
     BalanceModifierContext inside;
@@ -158,35 +153,11 @@ TEST(BalanceModifierTests, AreaScopeUsesCircularDistance)
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(1.0, outside), 1.0);
 }
 
-TEST(BalanceModifierTests, UnitTypeModifierRequiresUnitContext)
-{
-    BalanceModifierSet modifiers;
-    modifiers.AddModifier(BalanceModifier{
-        BalanceStat::RecruitmentTime,
-        0.0,
-        0.5,
-        BalanceModifierScope::Global(),
-        BuildingType::Barracks,
-        std::nullopt,
-        MilitaryUnitType::Archer,
-        "test:archer_training"});
-
-    BalanceModifierContext noUnitContext;
-    noUnitContext.stat = BalanceStat::RecruitmentTime;
-    noUnitContext.buildingType = BuildingType::Barracks;
-
-    BalanceModifierContext archerContext = noUnitContext;
-    archerContext.unitType = MilitaryUnitType::Archer;
-
-    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, noUnitContext), 10.0);
-    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, archerContext), 5.0);
-}
-
 TEST(BalanceModifierTests, ClearSourcePrefixRemovesTechnologyGroup)
 {
     BalanceModifierSet modifiers;
-    modifiers.AddModifier(BalanceModifier{BalanceStat::BuildTime, 1.0, 1.0, BalanceModifierScope::Global(), std::nullopt, std::nullopt, std::nullopt, "tech:a"});
-    modifiers.AddModifier(BalanceModifier{BalanceStat::BuildTime, 2.0, 1.0, BalanceModifierScope::Global(), std::nullopt, std::nullopt, std::nullopt, "local:a"});
+    modifiers.AddModifier(BalanceModifier{BalanceStat::BuildTime, 1.0, 1.0, BalanceModifierScope::Global(), std::nullopt, std::nullopt, "tech:a"});
+    modifiers.AddModifier(BalanceModifier{BalanceStat::BuildTime, 2.0, 1.0, BalanceModifierScope::Global(), std::nullopt, std::nullopt, "local:a"});
 
     modifiers.ClearSourcePrefix("tech:");
 
@@ -246,14 +217,13 @@ TEST(BalanceModifierTests, StateDevelopmentModifiersApplyExpectedTradeoffs)
     EXPECT_LT(modifiers.ModifyDouble(1.0, manpower), 1.0);
 }
 
-TEST(BalanceModifierTests, StateDevelopmentManpowerAndRecruitmentModifiersAreSystemWide)
+TEST(BalanceModifierTests, StateDevelopmentManpowerModifiersAreSystemWide)
 {
     for (const auto& definition : GetStateDevelopmentDefinitions())
     {
         for (const auto& modifier : definition.modifiers)
         {
-            if (modifier.stat == BalanceStat::ManpowerRate ||
-                modifier.stat == BalanceStat::RecruitmentTime)
+            if (modifier.stat == BalanceStat::ManpowerRate)
             {
                 EXPECT_FALSE(modifier.buildingType.has_value()) << definition.id;
             }

@@ -15,12 +15,10 @@
 
 class GameScene;
 class GuiController;
-class DivisionMapWidget;
-class ArmyOrderPanelWidget;
 
 // Implementations are split across thematic translation units:
 //   src/GuiController.cpp   - controller core, input routing, BasicMapViewSystem
-//   src/GuiMapWidgets.cpp   - military/map overlay widgets (divisions, battles)
+//   src/GuiMapWidgets.cpp   - map overlay widgets (selection/warning highlights)
 //   src/GuiHudPanels.cpp    - strategic HUD, statistics panel + StatsGuiSystem
 //   src/GuiResearchTree.cpp - research tree panel + Focus/Tech systems
 //   src/GuiBuildModes.cpp   - build/road/destroy interaction modes
@@ -105,8 +103,6 @@ public:
     std::shared_ptr<GuiSystem> activeSystem;
 
     std::vector<UiWidget*> ui;
-    std::unique_ptr<DivisionMapWidget> divisionMapOverlay;
-    std::unique_ptr<ArmyOrderPanelWidget> armyOrderPanel;
     GameScene *scene{nullptr};
 };
 
@@ -144,166 +140,6 @@ public:
     void Update(double dt) override;
 
     GameScene* scene{nullptr};
-};
-
-// One engaged division in a field battle, identified by player + division id.
-struct FieldBattleParticipant
-{
-    int playerId{-1};
-    int divisionId{-1};
-};
-
-// A clickable field-battle marker: every division consolidated into one fight
-// (divisions touching the same melee) plus the screen point of its static bubble.
-struct FieldBattleMarker
-{
-    Vector2 screenPos{0.0f, 0.0f};
-    float radius{14.0f};
-    std::vector<FieldBattleParticipant> participants;
-
-    bool Contains(int playerId, int divisionId) const
-    {
-        for (const auto& p : participants)
-            if (p.playerId == playerId && p.divisionId == divisionId)
-                return true;
-        return false;
-    }
-};
-
-// Draws visible military orders and active battle indicators for the local player.
-class MilitaryOrderWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-    // Returns the battle circle hit at a screen point, or nullptr.
-    const FieldBattleMarker* HitTest(Vec2i point) const;
-    // Opens the battle details panel for a consolidated field battle.
-    void SelectBattle(const FieldBattleMarker& m)
-    {
-        detailsOpen = true;
-        selectedParticipants = m.participants;
-    }
-    void CloseDetails() { detailsOpen = false; selectedParticipants.clear(); }
-
-    // Renders the consolidated field-battle details panel for the open fight.
-    void DrawFieldBattlePanel();
-
-    GameScene* scene{nullptr};
-    std::vector<FieldBattleMarker> battleMarkers;  // rebuilt each frame
-
-    bool detailsOpen{false};
-    // Sticky selection: the set of divisions in the open battle, refreshed each
-    // frame against live markers so the panel survives divisions joining/leaving.
-    std::vector<FieldBattleParticipant> selectedParticipants;
-};
-
-// Pickable map marker for a stack of co-located divisions (HOI4-style counter).
-struct DivisionMapMarker
-{
-    Building* homeBuilding{nullptr};
-    Player* owner{nullptr};
-    std::vector<int> divisionIds;   // all divisions drawn under this one symbol
-    Vec2i tile{-1, -1};
-    Vector2 screenPos{0.0f, 0.0f};
-    Color color{200, 200, 200, 255};
-};
-
-// Rebuilds pick data for division counters drawn on the world layer.
-class DivisionMapWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-
-    // Returns the marker hit at a screen point, or nullptr if none.
-    const DivisionMapMarker* HitTest(Vec2i screenPoint) const;
-
-    GameScene* scene{nullptr};
-    std::vector<DivisionMapMarker> markers; // rebuilt each frame in Update()
-    static constexpr float kMarkerHalfW = 20.0f;
-    static constexpr float kMarkerHalfH = 14.0f;
-};
-
-class MilitaryDivisionBarWidget;
-class ArmyBarWidget;
-
-// When divisions are selected, highlights the 2x2 quadrant under the cursor (the
-// destination for a right-click move order) and rings the selected divisions.
-class MoveTargetWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-
-    GameScene* scene{nullptr};
-    MilitaryDivisionBarWidget* bar{nullptr};  // source of the current selection
-    ArmyBarWidget* armyBar{nullptr};          // suppress highlight over this panel
-    bool drawBox{false};                      // draw the drag-selection rectangle
-    Rectangle boxRect{0, 0, 0, 0};
-};
-
-// Bottom army strip listing divisions stationed in the selected military building.
-class MilitaryDivisionBarWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-    bool HandleClick(Vec2i point);
-    bool IsSelected(int divId) const;
-
-    // Replaces the selection (and home building) atomically. Update() wipes the
-    // selection when it sees the building change (user clicked another building);
-    // programmatic selection must sync prevBuilding or its fresh ids get wiped on
-    // the very next frame (the "first drag-select does nothing" bug).
-    void SetSelection(Building* home, std::vector<int> ids)
-    {
-        building = home;
-        prevBuilding = home;
-        selectedDivisionIds = std::move(ids);
-    }
-
-    Building* building{nullptr};
-    Building* prevBuilding{nullptr};
-    std::vector<int> selectedDivisionIds;
-};
-
-// Bottom army strip (HOI4-style): floating cards, one per army, that grow with
-// the army count — no fixed background panel. A trailing "+" always groups the
-// currently selected divisions into a new army.
-class ArmyBarWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-    // Returns true only when the click actually hit a card or the "+" button.
-    bool HandleClick(Vec2i point);
-    // True when the point is over an army card or the "+" button (for highlight
-    // suppression) — not the whole nominal widget rectangle.
-    bool IsOverContent(Vec2i point) const;
-    // Returns the army id whose card contains the point, or -1 if none. Used by the
-    // RMB handler to transfer the current selection into that army.
-    int ArmyIdAt(Vec2i point) const;
-
-    GameScene* scene{nullptr};
-    MilitaryDivisionBarWidget* bar{nullptr};  // current division selection source
-
-    // Rebuilt each frame in Update() so HandleClick uses the exact drawn layout.
-    std::vector<std::pair<int, Rectangle>> cardRects;  // armyId -> rect
-    Rectangle plusRect{0, 0, 0, 0};
-    Rectangle contentBounds{0, 0, 0, 0};  // bounding box of the whole strip
-};
-
-// Right-side panel with army order buttons; appears when an army is selected via ArmyBarWidget.
-// Allows issuing strategic commands like "Border Deploy", "Attack", etc.
-class ArmyOrderPanelWidget : public UiWidget
-{
-public:
-    void Update(double dt) override;
-    bool HandleClick(Vec2i point);
-    // Returns the screen rectangle occupied by this panel (or {0,0,0,0} if not visible).
-    Rectangle GetBounds() const;
-
-    GameScene* scene{nullptr};
-    ArmyBarWidget* armyBar{nullptr};  // reference to detect which army is selected
-
-    // Layout cache for button hit-testing
-    std::vector<std::pair<std::string, Rectangle>> buttonRects;  // action name -> rect
 };
 
 // ─── HUD and full-screen panels ──────────────────────────────────────────────
@@ -432,7 +268,6 @@ public:
     void RmbReleased();
     // Zooms camera around cursor.
     void Scroll();
-    void SubmitRecruitCommand(Building* building, MilitaryUnitType unitType);
 
     // Updates camera drag and visible widgets.
     void Update(double dt) override;
@@ -449,14 +284,9 @@ public:
     ResearchPanel researchPanel;
     SelectedBuildingWidget selectedBuildingWidget;
     ProductionWarningWidget productionWarningWidget;
-    MilitaryOrderWidget militaryOrderWidget;
-    MilitaryDivisionBarWidget militaryDivisionBarWidget;
-    ArmyBarWidget armyBarWidget;
-    MoveTargetWidget moveTargetWidget;
     StrategicResourceHudWidget strategicHudWidget;
 
     bool isBuildingSelected{false};
-    bool isDivisionOnlyMode{false}; // garrison bar only, no building info panel
 
     // Drag-box selection state (box-select divisions on the map).
     bool pendingBox{false};   // LMB pressed on open ground, may become a box drag
@@ -589,31 +419,6 @@ private:
     SelectedBuildingWidget destroyTargetWidget;
     Building* hoveredBuilding{nullptr};
     StrategicResourceHudWidget strategicHudWidget;
-};
-
-// Border deployment mode: mark frontier segments via RMB drag to position army.
-class BorderDeployMode : public GuiSystem
-{
-public:
-    explicit BorderDeployMode(GuiController* con);
-    BorderDeployMode() = delete;
-
-    void UpdateUiWidgets(Vec2i) override { }
-    void Update(double dt) override;
-
-private:
-    void RmbPressed();
-    void RmbReleased();
-    void ReturnToMapView();
-
-    GameScene* scene{nullptr};
-    CameraMovement cameraMovement;
-
-    // RMB drag state for frontier selection.
-    bool dragging{false};
-    Vec2i dragStart{-1, -1};
-    Vec2i dragEnd{-1, -1};
-    std::vector<Vec2i> selectedFrontierTiles;
 };
 
 class StatsGuiSystem : public GuiSystem

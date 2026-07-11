@@ -49,21 +49,49 @@ TEST(BuildingPlacementTests, FootprintMustFitInsideMap)
     EXPECT_FALSE(map.IsInsideFootprint({6, 6}, {3, 3}));
 }
 
-TEST(BuildingPlacementTests, FootprintRequiresSingleOwnerAndNoOccupancy)
+TEST(BuildingPlacementTests, FootprintBlockedByOccupancy)
 {
     TileMap map;
     Player player{0, map};
-    Player enemy{1, map};
     FillOwnedGrassMap(map, &player);
 
     EXPECT_TRUE(map.CanBuildFootprint({2, 2}, {2, 2}, &player));
 
-    map.tilemap[map.GetIdFromCoords({3, 3})].owner = &enemy;
-    EXPECT_FALSE(map.CanBuildFootprint({2, 2}, {2, 2}, &player));
-
-    map.tilemap[map.GetIdFromCoords({3, 3})].owner = &player;
     map.tilemap[map.GetIdFromCoords({2, 2})].buildingRef = reinterpret_cast<Building*>(0x1);
     EXPECT_FALSE(map.CanBuildFootprint({2, 2}, {2, 2}, &player));
+}
+
+// TD(etap-1): territory ownership no longer gates placement — replaced by the
+// enemy-proximity rule (reguła bliskości, radius = 3 tiles).
+TEST(BuildingPlacementTests, EnemyProximityBlocksPlacementWithinRadius)
+{
+    TileMap map;
+    Player player{0, map};
+    Player enemy{1, map};
+    FillOwnedGrassMap(map, nullptr, 20, 20);
+
+    int enemyTileId = map.GetIdFromCoords({10, 10});
+    map.tilemap[enemyTileId].building = std::make_unique<Woodcutter>(1);
+    map.tilemap[enemyTileId].building->owner = &enemy;
+
+    // Exactly at the 3-tile radius boundary: still blocked.
+    EXPECT_FALSE(map.CanBuildFootprint({7, 10}, {1, 1}, &player));
+    // One tile further out: outside the radius, no longer blocked.
+    EXPECT_TRUE(map.CanBuildFootprint({6, 10}, {1, 1}, &player));
+}
+
+TEST(BuildingPlacementTests, OwnStructuresNeverBlockPlacement)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrassMap(map, nullptr, 20, 20);
+
+    int ownTileId = map.GetIdFromCoords({10, 10});
+    map.tilemap[ownTileId].building = std::make_unique<Woodcutter>(1);
+    map.tilemap[ownTileId].building->owner = &player;
+
+    // Directly adjacent to a friendly structure — always fine, regardless of radius.
+    EXPECT_TRUE(map.CanBuildFootprint({9, 10}, {1, 1}, &player));
 }
 
 TEST(BuildingPlacementTests, ResourceProducerRequiresMatchingTerrainAndRichness)

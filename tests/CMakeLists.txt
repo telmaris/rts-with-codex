@@ -24,10 +24,8 @@ add_executable(rts_tests
     ResourceBufferTests.cpp
     ResearchCatalogTests.cpp
     RoadNetworkTests.cpp
-    StrategicResourceTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
-    WarSystemTests.cpp
 )
 
 target_link_libraries(rts_tests

@@ -4,14 +4,12 @@
 #include "core/Utils.h"
 #include "economy/BuildingFactory.h"
 #include "economy/BuildingConfig.h"
-#include "warfare/ArmyGroup.h"
 #include "economy/BalanceModifiers.h"
 #include "core/GameCommand.h"
 #include "simulation/RoadNetwork.h"
 #include "data/StrategicResource.h"
 #include "research/StateDevelopment.h"
 #include "research/Technology.h"
-#include "economy/ArmyRegistry.h"
 #include "economy/PlayerDataTracker.h"
 #include "economy/PlayerEconomy.h"
 #include "economy/ConstructionQueue.h"
@@ -23,8 +21,6 @@
 
 class TileMap;
 class Player;
-class SoldierDivision;
-enum class EquipmentCategory : uint8_t;  // full definition in Equipment.h
 
 enum class PlayerControllerType
 {
@@ -44,16 +40,9 @@ public:
         diplomatic.ownerId = i;
         RefreshTechnologyModifiers();
     }
-    // Out-of-line (defined in Player.cpp) so the unique_ptr<SoldierDivision> vector
-    // can hold an incomplete type in this header.
-    ~Player();
 
     void UpdateFocus(double dt);
     void UpdateResearch(double dt);
-    void UpdateArmyOrders(double dt);  // Local army command simulation
-
-    // Sets up an army order (called deterministically on all clients from command handler).
-    void SetArmyOrder(int armyId, ArmyOrderType orderType, const std::vector<int>& targetTileIds = {}, int objectiveTileId = -1);
 
     void UpdateEconomyTelemetry(double dt) { economyTelemetry.Update(*this, dt); }
 
@@ -103,8 +92,7 @@ public:
         static_assert(std::is_base_of<Building, T>::value);
         T preview{0};
         Vec2i anchor = tilemap.GetCoordsFromId(tilePos);
-        const bool allowDivisions = (preview.buildingType == BuildingType::Road);
-        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this, allowDivisions))
+        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this))
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
@@ -148,7 +136,7 @@ public:
         effective.reserve(definition.buildCosts.size());
         for (const auto& cost : definition.buildCosts)
         {
-            int amount = ModifyBalanceInt(BalanceStat::BuildCost, cost.amount, definition.type, cost.type, std::nullopt, 0);
+            int amount = ModifyBalanceInt(BalanceStat::BuildCost, cost.amount, definition.type, cost.type, 0);
             effective.push_back({cost.type, amount});
         }
         return effective;
@@ -169,86 +157,75 @@ public:
                strategicResources.Get(StrategicResourceType::Soldiers);
     }
 
-    ArmyRegistry GetArmyRegistry() const;
     double GetFoodProductivity() const;
 
     double ModifyBalance(BalanceStat stat, double base, BuildingType buildingType = BuildingType::Building,
-                         ResourceType resourceType = ResourceType::Null,
-                         std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                         ResourceType resourceType = ResourceType::Null) const
     {
-        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, buildingType, resourceType, unitType));
+        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, buildingType, resourceType));
     }
 
     int ModifyBalanceInt(BalanceStat stat, int base, BuildingType buildingType = BuildingType::Building,
                          ResourceType resourceType = ResourceType::Null,
-                         std::optional<MilitaryUnitType> unitType = std::nullopt,
                          int minimum = 0) const
     {
-        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, buildingType, resourceType, unitType), minimum);
+        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, buildingType, resourceType), minimum);
     }
 
     double ModifyBalanceAt(BalanceStat stat, double base, BuildingType buildingType, Vec2i position,
-                           ResourceType resourceType = ResourceType::Null,
-                           std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                           ResourceType resourceType = ResourceType::Null) const
     {
-        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, buildingType, resourceType, unitType, position));
+        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, buildingType, resourceType, position));
     }
 
     int ModifyBalanceIntAt(BalanceStat stat, int base, BuildingType buildingType, Vec2i position,
                            ResourceType resourceType = ResourceType::Null,
-                           std::optional<MilitaryUnitType> unitType = std::nullopt,
                            int minimum = 0) const
     {
-        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, buildingType, resourceType, unitType, position), minimum);
+        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, buildingType, resourceType, position), minimum);
     }
 
     double ModifyBalanceForBuilding(BalanceStat stat, double base, const Building* building,
-                                    ResourceType resourceType = ResourceType::Null,
-                                    std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                                    ResourceType resourceType = ResourceType::Null) const
     {
-        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, building, resourceType, unitType));
+        return balanceModifiers.ModifyDouble(base, MakeBalanceContext(stat, building, resourceType));
     }
 
     int ModifyBalanceIntForBuilding(BalanceStat stat, int base, const Building* building,
                                     ResourceType resourceType = ResourceType::Null,
-                                    std::optional<MilitaryUnitType> unitType = std::nullopt,
                                     int minimum = 0) const
     {
-        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, building, resourceType, unitType), minimum);
+        return balanceModifiers.ModifyInt(base, MakeBalanceContext(stat, building, resourceType), minimum);
     }
 
     // Resolves a floating-point stat for a concrete building context.
     double ResolveStat(const Stat<double>& stat, const Building* building,
-                       ResourceType resourceType = ResourceType::Null,
-                       std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                       ResourceType resourceType = ResourceType::Null) const
     {
-        return ModifyBalanceForBuilding(stat.GetStatId(), stat.GetBase(), building, resourceType, unitType);
+        return ModifyBalanceForBuilding(stat.GetStatId(), stat.GetBase(), building, resourceType);
     }
 
     // Resolves an integer stat for a concrete building context.
     int ResolveStat(const Stat<int>& stat, const Building* building,
                     ResourceType resourceType = ResourceType::Null,
-                    std::optional<MilitaryUnitType> unitType = std::nullopt,
                     int minimum = 0) const
     {
-        return ModifyBalanceIntForBuilding(stat.GetStatId(), stat.GetBase(), building, resourceType, unitType, minimum);
+        return ModifyBalanceIntForBuilding(stat.GetStatId(), stat.GetBase(), building, resourceType, minimum);
     }
 
     // Resolves a floating-point stat for a map-position context before a building exists.
     double ResolveStatAt(const Stat<double>& stat, BuildingType buildingType, Vec2i position,
-                         ResourceType resourceType = ResourceType::Null,
-                         std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                         ResourceType resourceType = ResourceType::Null) const
     {
-        return ModifyBalanceAt(stat.GetStatId(), stat.GetBase(), buildingType, position, resourceType, unitType);
+        return ModifyBalanceAt(stat.GetStatId(), stat.GetBase(), buildingType, position, resourceType);
     }
 
     // Resolves an integer stat for a map-position context before a building exists.
     int ResolveStatAt(const Stat<int>& stat, BuildingType buildingType, Vec2i position,
                       ResourceType resourceType = ResourceType::Null,
-                      std::optional<MilitaryUnitType> unitType = std::nullopt,
                       int minimum = 0) const
     {
-        return ModifyBalanceIntAt(stat.GetStatId(), stat.GetBase(), buildingType, position, resourceType, unitType, minimum);
+        return ModifyBalanceIntAt(stat.GetStatId(), stat.GetBase(), buildingType, position, resourceType, minimum);
     }
 
     bool CanResearchTechnology(const std::string& id) const;
@@ -274,10 +251,9 @@ public:
 
     BalanceModifierContext MakeBalanceContext(BalanceStat stat, BuildingType buildingType,
                                               ResourceType resourceType = ResourceType::Null,
-                                              std::optional<MilitaryUnitType> unitType = std::nullopt,
                                               std::optional<Vec2i> position = std::nullopt) const
     {
-        BalanceModifierContext context{stat, buildingType, resourceType, unitType};
+        BalanceModifierContext context{stat, buildingType, resourceType};
         context.position = position;
         if (position.has_value() && tilemap.IsInside(position.value()))
         {
@@ -288,14 +264,12 @@ public:
     }
 
     BalanceModifierContext MakeBalanceContext(BalanceStat stat, const Building* building,
-                                              ResourceType resourceType = ResourceType::Null,
-                                              std::optional<MilitaryUnitType> unitType = std::nullopt) const
+                                              ResourceType resourceType = ResourceType::Null) const
     {
         BalanceModifierContext context = MakeBalanceContext(
             stat,
             building != nullptr ? building->buildingType : BuildingType::Building,
-            resourceType,
-            unitType);
+            resourceType);
 
         if (building == nullptr)
             return context;
@@ -318,36 +292,11 @@ public:
     // Overflow beyond available storage capacity is dropped.
     void RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs);
 
-    // Total count of stored equipment matching an equipment category (any material).
-    int CountEquipmentCategory(EquipmentCategory category) const;
-    // Consumes `amount` of stored equipment of the given category, lowest quality
-    // first (so premium gear is saved for the front). Consumes nothing and returns
-    // false when the network holds too little. `representativeOut`, when given,
-    // receives the highest-quality type actually consumed (what the unit carries).
-    bool TryPayEquipmentCategory(EquipmentCategory category, int amount,
-                                 ResourceType* representativeOut = nullptr);
-
     // Starts resource transport through this player's road network.
     bool BeginTransport(Building* src, Building* dest, Resource* res)
     {
         return roadNetwork->BeginTransport(src, dest, res);
     }
-
-    // ── Divisions are owned by the PLAYER, not by buildings ──────────────────
-    // `forces` is the single owner of every division this player has (garrisoned
-    // or deployed in the field). A building's GarrisonComponent only holds a
-    // non-owning *view* of the forces homed at it (SoldierDivision.garrisonBuildingId),
-    // rebuilt by RebuildGarrisonViews(). So capturing/destroying a building never
-    // deletes the player's field army, and a division is decoupled from the
-    // barracks that trained it.
-    std::vector<std::unique_ptr<SoldierDivision>> forces;
-
-    // Returns the player's division with this id, or nullptr.
-    SoldierDivision* FindForce(int id);
-    // Adds a freshly created division to the player, homed at `buildingId`.
-    SoldierDivision* AddForce(std::unique_ptr<SoldierDivision> division, int buildingId);
-    // Rebuilds every garrison building's non-owning division view from `forces`.
-    void RebuildGarrisonViews();
 
     int id;
     std::string name{"Player"};
@@ -359,13 +308,6 @@ public:
     // written only inside the simulation tick. The scene reads it for win/lose UI.
     bool defeated{false};
 
-    // Army management
-    ArmyGroupRegistry armyGroups;
-    // ETAP 11: Active battles involving this player's divisions (for telemetry)
-    std::vector<int> activeBattleIds;    // Ids of Battle objects in GameWorld.battles
-    // Global army modifiers from tech/focus (keys: "tech:...", "focus:...")
-    BalanceModifierSet armyModifierSet;
-
     std::unique_ptr<RoadNetwork> roadNetwork;
     TileMap& tilemap;
     BFactory build;
@@ -373,8 +315,6 @@ public:
     // ETAP 10: Strategic building registries — indexed direct access without map scans.
     // Updated event-driven (onBuildingCreated/Destroyed). Deterministic vector order.
     std::vector<Building*> storages;          // StorageComponent — resource warehouses (includes HQ)
-    std::vector<Building*> militaryBuildings; // GarrisonComponent — barracks, castles, etc
-    std::vector<Building*> supplyHubs;        // SupplyPackageComponent — supply/distribution
     std::vector<Building*> villages;          // PopulationComponent — civilian settlements
     uint32_t registryGeneration{0};           // bumped on any registry change — used for cache invalidation
 

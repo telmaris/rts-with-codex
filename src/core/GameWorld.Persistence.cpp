@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 19\n";
+    out << "RTS_SAVE 20\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -149,15 +149,6 @@ bool GameWorld::SaveToFile(const std::string& path) const
             out << "ENDSTOR\n";
         }
 
-        if (building->buildingType == BuildingType::Headquarters)
-        {
-            const auto* territory = building->GetComponent<TerritoryComponent>();
-            if (territory == nullptr)
-                return false;
-            out << "HQ " << territory->radius.GetBase() << ' ' << territory->hp << ' '
-                << territory->maxHp.GetBase() << '\n';
-        }
-
         if (const auto* pop = building->GetComponent<PopulationComponent>())
         {
             out << "VIL " << pop->manpowerRate.GetBase() << ' ' << pop->upkeepTimer << ' '
@@ -165,58 +156,6 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << pop->hasFood << ' ' << pop->populationCap.GetBase() << ' '
                 << pop->foodSupplyLevel << ' ' << pop->foodBuffer.bufferSize << ' '
                 << pop->foodBuffer.buffer.size() << '\n';
-        }
-
-        if (const auto* g = building->GetComponent<GarrisonComponent>())
-        {
-            // Not every garrisoned building keeps its own resupply buffer (e.g. the
-            // Headquarters — it's a fallback home for divisions, not a supply depot),
-            // so the supply fields are written as zero when absent rather than
-            // failing the whole save.
-            const auto* sb = building->GetComponent<SupplyBufferComponent>();
-            const auto* tr = building->GetComponent<TerritoryComponent>();
-            if (tr == nullptr)
-                return false;
-            int supplyAmount = sb != nullptr ? static_cast<int>(sb->buffer.buffer.size()) : 0;
-            double supplyCapacity = sb != nullptr ? sb->capacity.GetBase() : 0.0;
-            int weaponStock   = sb != nullptr ? sb->weaponStock   : 0;
-            int materielStock = sb != nullptr ? sb->materielStock : 0;
-            out << "MIL " << tr->radius.GetBase() << ' ' << tr->hp << ' '
-                << tr->maxHp.GetBase() << ' ' << g->strength.GetBase() << ' '
-                << g->garrison << ' ' << g->cap.GetBase() << ' '
-                << supplyAmount << ' ' << supplyCapacity << ' '
-                << g->militia << ' ' << g->swordsmen << ' '
-                << g->archers << ' ' << static_cast<int>(g->currentOrder) << ' '
-                << g->orderTargetId << ' ' << g->orderCooldown << ' '
-                << weaponStock << ' ' << materielStock << '\n';
-            out << "DIVS " << g->nextDivisionId << ' ' << g->divisions.size() << '\n';
-            for (const auto& divisionPtr : g->divisions)
-            {
-                const auto& division = *divisionPtr;
-                out << "DIV " << division.id << ' ' << static_cast<int>(division.type) << ' '
-                    << division.manpowerScale << ' ' << division.maxHealth << ' ' << division.health << ' '
-                    << division.endurance << ' ' << division.strength << ' ' << division.morale << ' '
-                    << division.experience << ' ' << static_cast<int>(division.equipment.weapon) << ' '
-                    << static_cast<int>(division.equipment.armor) << ' '
-                    << static_cast<int>(division.equipment.rangedWeapon) << ' '
-                    << static_cast<int>(division.equipment.ammo) << ' '
-                    << division.foodSupply << ' ' << division.foodSupplyCapacity << ' '
-                    << division.weaponSupply << ' ' << division.weaponSupplyCapacity << ' '
-                    << division.speedTilesPerMinute << ' '
-                    << static_cast<int>(division.currentOrder) << ' '
-                    << division.orderTargetPositionId << ' ' << division.orderCooldown << ' '
-                    << division.cohesion << ' '
-                    << division.materielSupply << ' ' << division.materielSupplyCapacity << '\n';
-            }
-            out << "ENDDIVS\n";
-        }
-
-        if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
-        {
-            out << "RECRUIT " << recruitment->queue.size() << '\n';
-            for (const auto& job : recruitment->queue)
-                out << "JOB " << static_cast<int>(job.type) << ' ' << job.remaining << '\n';
-            out << "ENDRECRUIT\n";
         }
 
         out << "ENDB\n";
@@ -235,7 +174,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     std::string tag;
     int version = 0;
     in >> tag >> version;
-    if (tag != "RTS_SAVE" || (version < 1 || version > 19))
+    // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
+    // dropped, not merely extended — a breaking change per the rework plan.
+    // Older saves are rejected outright rather than partially parsed.
+    if (tag != "RTS_SAVE" || version != 20)
         return false;
 
     render = renderer;
@@ -591,12 +533,6 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 in >> tag;
                 if (tag != "ENDSTOR") return false;
             }
-            else if (tag == "HQ")
-            {
-                auto* territory = placed->GetComponent<TerritoryComponent>();
-                if (territory == nullptr) return false;
-                in >> territory->radius >> territory->hp >> territory->maxHp;
-            }
             else if (tag == "VIL")
             {
                 auto* population = placed->GetComponent<PopulationComponent>();
@@ -616,145 +552,11 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                     pop.hasFood = pop.foodSupplyLevel > 0.0;
                 }
             }
-            else if (tag == "MIL")
-            {
-                auto* garrison = placed->GetComponent<GarrisonComponent>();
-                auto* supply = placed->GetComponent<SupplyBufferComponent>();
-                auto* territory = placed->GetComponent<TerritoryComponent>();
-                if (garrison == nullptr || territory == nullptr) return false;
-                auto& g  = *garrison;
-                auto& tr = *territory;
-                int supplyStored = 0;
-                double supplyCapacity = 0.0;
-                in >> tr.radius >> tr.hp >> tr.maxHp
-                   >> g.strength >> g.garrison >> g.cap
-                   >> supplyStored >> supplyCapacity;
-                // All military buildings (including Headquarters since v19) have a
-                // SupplyBufferComponent; the two fields above are always present in MIL records.
-                if (supply != nullptr)
-                {
-                    auto& sb = *supply;
-                    sb.capacity = supplyCapacity;
-                    sb.buffer.Clear();
-                    sb.buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, sb.capacity.GetBase()};
-                    sb.buffer.SetStoredAmount(supplyStored);
-                    sb.stored = static_cast<int>(sb.buffer.buffer.size());
-                }
-                if (version >= 6)
-                {
-                    int order = 0;
-                    in >> g.militia >> g.swordsmen >> g.archers
-                       >> order >> g.orderTargetId >> g.orderCooldown;
-                    g.currentOrder = static_cast<MilitaryOrderType>(order);
-                }
-                // v19: weapon/materiel stockpile fields (BUG 3a).
-                // Backward-compat: missing in v<19 → default to 0.
-                if (version >= 19 && supply != nullptr)
-                {
-                    in >> supply->weaponStock >> supply->materielStock;
-                    if (supply->weaponStock < 0)   supply->weaponStock   = 0;
-                    if (supply->weaponStock   > SupplyBufferComponent::kStockCap) supply->weaponStock   = SupplyBufferComponent::kStockCap;
-                    if (supply->materielStock < 0) supply->materielStock = 0;
-                    if (supply->materielStock > SupplyBufferComponent::kStockCap) supply->materielStock = SupplyBufferComponent::kStockCap;
-                }
-            }
-            else if (tag == "DIVS")
-            {
-                auto* garrison = placed->GetComponent<GarrisonComponent>();
-                if (garrison == nullptr || version < 8) return false;
-
-                int count = 0;
-                in >> garrison->nextDivisionId >> count;
-                garrison->divisions.clear();
-                for (int n = 0; n < count; n++)
-                {
-                    int unitType = 0;
-                    int weapon = static_cast<int>(ResourceType::Null);
-                    int armor  = static_cast<int>(ResourceType::Null);
-                    int ranged = static_cast<int>(ResourceType::Null);
-                    int ammo   = static_cast<int>(ResourceType::Null);
-                    int order  = 0;
-                    int id = 0;
-                    in >> tag >> id >> unitType;
-                    if (tag != "DIV") return false;
-
-                    // Reconstruct the concrete subclass from the saved type tag.
-                    auto divisionPtr = CreateMilitaryDivision(static_cast<MilitaryUnitType>(unitType), id);
-                    MilitaryDivision& division = *divisionPtr;
-
-                    in >> division.manpowerScale
-                       >> division.maxHealth >> division.health >> division.endurance
-                       >> division.strength >> division.morale >> division.experience
-                       >> weapon >> armor >> ranged >> ammo;
-                    division.stats = division.BaseStats();
-                    division.equipment.weapon       = static_cast<ResourceType>(weapon);
-                    division.equipment.armor        = static_cast<ResourceType>(armor);
-                    division.equipment.rangedWeapon = static_cast<ResourceType>(ranged);
-                    division.equipment.ammo         = static_cast<ResourceType>(ammo);
-                    if (version >= 9)
-                    {
-                        in >> division.foodSupply >> division.foodSupplyCapacity
-                           >> division.weaponSupply >> division.weaponSupplyCapacity;
-                        if (version >= 10)
-                            in >> division.speedTilesPerMinute;
-                        in >> order >> division.orderTargetPositionId >> division.orderCooldown;
-                        division.currentOrder = static_cast<MilitaryOrderType>(order);
-                    }
-                    else
-                    {
-                        division.foodSupplyCapacity   = division.manpowerScale;
-                        division.foodSupply            = division.manpowerScale;
-                        division.weaponSupplyCapacity  = division.manpowerScale;
-                        division.weaponSupply          = division.manpowerScale;
-                    }
-                    if (version >= 17)
-                        in >> division.cohesion;
-                    else
-                        division.cohesion = division.stats.maxCohesion.GetBase();
-                    if (version >= 18)
-                        in >> division.materielSupply >> division.materielSupplyCapacity;
-                    // else: materiel pool keeps the constructor default (full, per-type).
-                    // Divisions are owned by the player; AddForce homes it at this
-                    // building and updates the garrison view.
-                    if (placed->owner != nullptr)
-                        placed->owner->AddForce(std::move(divisionPtr), placed->positionId);
-                }
-
-                in >> tag;
-                if (tag != "ENDDIVS") return false;
-                garrison->Recount();
-                garrison->garrison = garrison->GetTotalTroops();
-            }
-            else if (tag == "RECRUIT")
-            {
-                auto* recruitment = placed->GetComponent<RecruitmentComponent>();
-                if (recruitment == nullptr || version < 6) return false;
-
-                int count = 0;
-                in >> count;
-                recruitment->queue.clear();
-                for (int n = 0; n < count; n++)
-                {
-                    int unitType = 0;
-                    double remaining = 0.0;
-                    in >> tag >> unitType >> remaining;
-                    if (tag != "JOB") return false;
-                    recruitment->queue.push_back({static_cast<MilitaryUnitType>(unitType), remaining});
-                }
-
-                in >> tag;
-                if (tag != "ENDRECRUIT") return false;
-            }
             else
             {
                 return false;
             }
         }
-    }
-
-    for (auto& [id, player] : playerHandler.players)
-    {
-        tilemap.RecalculateTerritory(player.get());
     }
 
     for (auto& [id, player] : playerHandler.players)

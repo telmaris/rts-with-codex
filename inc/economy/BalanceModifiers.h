@@ -69,7 +69,6 @@ struct BalanceModifierContext
     BalanceStat stat{BalanceStat::BuildTime};
     BuildingType buildingType{BuildingType::Building};
     ResourceType resourceType{ResourceType::Null};
-    std::optional<MilitaryUnitType> unitType;
     std::optional<Vec2i> position;
     std::optional<int> buildingId;
     std::optional<int> positionId;
@@ -84,7 +83,6 @@ struct BalanceModifier
     BalanceModifierScope scope;
     std::optional<BuildingType> buildingType;
     std::optional<ResourceType> resourceType;
-    std::optional<MilitaryUnitType> unitType;
     std::string source;
     // Category-scoped bonus: applies to every resource of this category (e.g. a
     // "+10% Metal production" / "+5% Sword power" modifier). Matched against the
@@ -103,8 +101,6 @@ struct BalanceModifier
         if (resourceCategory.has_value() &&
             (context.resourceType == ResourceType::Null ||
              ResourceCategoryOf(context.resourceType) != resourceCategory.value()))
-            return false;
-        if (unitType.has_value() && (!context.unitType.has_value() || unitType.value() != context.unitType.value()))
             return false;
         return AppliesToScope(context);
     }

@@ -16,19 +16,17 @@ enum class GameCommandType
     BuildBuilding,
     DestroyBuilding,
     SetReceiver,
-    IssueMilitaryOrder,
-    RecruitUnit,
     StartFocus,
-    StartTechnologyResearch,
-    MoveDivision,
-    FormArmy,
-    AttackTile,
-    AssignToArmy
+    StartTechnologyResearch
 };
 
 struct GameCommand
 {
-    static constexpr int WireVersion = 9;  // + AssignToArmy (transfer divisions between armies)
+    // TD(etap-1): dropped the old war system's command types (IssueMilitaryOrder,
+    // MoveDivision, FormArmy, AttackTile, AssignToArmy, RecruitUnit) and their wire
+    // fields (militaryOrderType, militaryUnitType, divisionId) — replacements land
+    // data-driven in the Tower Defense rework (ETAP 3+).
+    static constexpr int WireVersion = 10;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -58,87 +56,6 @@ struct GameCommand
         command.sourceTileId = sourceTileId;
         command.targetTileId = targetTileId;
         command.alternativeReceiver = alternativeReceiver;
-        return command;
-    }
-
-    static GameCommand IssueMilitaryOrder(int playerId, MilitaryOrderType orderType, int sourceTileId, int targetTileId, int divisionId = -1)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::IssueMilitaryOrder;
-        command.militaryOrderType = orderType;
-        command.sourceTileId = sourceTileId;
-        command.targetTileId = targetTileId;
-        command.divisionId = divisionId;
-        return command;
-    }
-
-    static GameCommand MoveDivision(int playerId, int sourceTileId, int divisionId, int targetTileId)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::MoveDivision;
-        command.sourceTileId = sourceTileId;
-        command.divisionId = divisionId;
-        command.targetTileId = targetTileId;
-        return command;
-    }
-
-    static GameCommand AttackTile(int playerId, int sourceTileId, int divisionId, int targetTileId)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::AttackTile;
-        command.sourceTileId = sourceTileId;
-        command.divisionId = divisionId;
-        command.targetTileId = targetTileId;
-        return command;
-    }
-
-    // Moves the given divisions (home building = homeTileId) into an existing army.
-    static GameCommand AssignToArmy(int playerId, int armyId, int homeTileId, const std::vector<int>& divisionIds)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::AssignToArmy;
-        command.sourceTileId = homeTileId;
-        command.targetTileId = armyId;  // reuse target field for the destination army id
-        std::string packed;
-        for (size_t i = 0; i < divisionIds.size(); i++)
-        {
-            if (i > 0)
-                packed += ',';
-            packed += std::to_string(divisionIds[i]);
-        }
-        command.researchId = std::move(packed);
-        return command;
-    }
-
-    static GameCommand FormArmy(int playerId, int homeTileId, const std::vector<int>& divisionIds)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::FormArmy;
-        command.sourceTileId = homeTileId;
-        // Division ids packed into researchId (comma-separated), reusing the wire field.
-        std::string packed;
-        for (size_t i = 0; i < divisionIds.size(); i++)
-        {
-            if (i > 0)
-                packed += ',';
-            packed += std::to_string(divisionIds[i]);
-        }
-        command.researchId = std::move(packed);
-        return command;
-    }
-
-    static GameCommand RecruitUnit(int playerId, int barracksTileId, MilitaryUnitType unitType)
-    {
-        GameCommand command;
-        command.playerId = playerId;
-        command.type = GameCommandType::RecruitUnit;
-        command.sourceTileId = barracksTileId;
-        command.militaryUnitType = unitType;
         return command;
     }
 
@@ -174,9 +91,6 @@ struct GameCommand
            << sourceTileId
            << targetTileId
            << (chargeCost ? 1 : 0)
-           << static_cast<int>(militaryOrderType)
-           << static_cast<int>(militaryUnitType)
-           << divisionId
            << (alternativeReceiver ? 1 : 0)
            << researchId;
         return ar.GetString();
@@ -197,9 +111,6 @@ struct GameCommand
         int sourceTileId = 0;
         int targetTileId = 0;
         int chargeCost = 0;
-        int militaryOrderType = 0;
-        int militaryUnitType = 0;
-        int divisionId = 0;
         int alternativeReceiver = 0;
         std::string researchId;
 
@@ -213,9 +124,6 @@ struct GameCommand
            >> sourceTileId
            >> targetTileId
            >> chargeCost
-           >> militaryOrderType
-           >> militaryUnitType
-           >> divisionId
            >> alternativeReceiver
            >> researchId;
 
@@ -232,9 +140,6 @@ struct GameCommand
         parsed.sourceTileId = sourceTileId;
         parsed.targetTileId = targetTileId;
         parsed.chargeCost = chargeCost != 0;
-        parsed.militaryOrderType = static_cast<MilitaryOrderType>(militaryOrderType);
-        parsed.militaryUnitType = static_cast<MilitaryUnitType>(militaryUnitType);
-        parsed.divisionId = divisionId;
         parsed.alternativeReceiver = alternativeReceiver != 0;
         parsed.researchId = std::move(researchId);
         command = std::move(parsed);
@@ -250,9 +155,6 @@ struct GameCommand
     int sourceTileId{-1};
     int targetTileId{-1};
     bool chargeCost{true};
-    MilitaryOrderType militaryOrderType{MilitaryOrderType::None};
-    MilitaryUnitType militaryUnitType{MilitaryUnitType::Militia};
-    int divisionId{-1};
     bool alternativeReceiver{false};
     std::string researchId;
 
@@ -263,14 +165,8 @@ struct GameCommand
             case GameCommandType::BuildBuilding:
             case GameCommandType::DestroyBuilding:
             case GameCommandType::SetReceiver:
-            case GameCommandType::IssueMilitaryOrder:
-            case GameCommandType::RecruitUnit:
             case GameCommandType::StartFocus:
             case GameCommandType::StartTechnologyResearch:
-            case GameCommandType::MoveDivision:
-            case GameCommandType::FormArmy:
-            case GameCommandType::AttackTile:
-            case GameCommandType::AssignToArmy:
                 return true;
         }
         return false;

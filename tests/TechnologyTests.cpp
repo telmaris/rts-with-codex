@@ -129,7 +129,7 @@ technology archery
     cost PAPER 3
     cost IRON_SWORD 2
     cost BRONZE_SWORD 1
-    modifier RecruitmentTime multiplier 0.75 building Barracks unit Archer
+    modifier BuildTime multiplier 0.75 building Barracks
     modifier ProductionOutputAmount additive 2 multiplier 1.25 building Woodcutter resource WOOD
     tags WARFARE military, archers government
 end
@@ -154,10 +154,9 @@ end
     EXPECT_EQ(archery.costs[2].type, ResourceType::BRONZE_SWORD);
 
     ASSERT_EQ(archery.modifiers.size(), 2u);
-    EXPECT_EQ(archery.modifiers[0].stat, BalanceStat::RecruitmentTime);
-    EXPECT_FALSE(archery.modifiers[0].buildingType.has_value());
-    ASSERT_TRUE(archery.modifiers[0].unitType.has_value());
-    EXPECT_EQ(archery.modifiers[0].unitType.value(), MilitaryUnitType::Archer);
+    EXPECT_EQ(archery.modifiers[0].stat, BalanceStat::BuildTime);
+    ASSERT_TRUE(archery.modifiers[0].buildingType.has_value());
+    EXPECT_EQ(archery.modifiers[0].buildingType.value(), BuildingType::Barracks);
     EXPECT_EQ(archery.modifiers[1].resourceType, ResourceType::WOOD);
     EXPECT_DOUBLE_EQ(archery.modifiers[1].additive, 2.0);
     EXPECT_DOUBLE_EQ(archery.modifiers[1].multiplier, 1.25);

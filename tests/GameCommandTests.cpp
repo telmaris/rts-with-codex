@@ -27,21 +27,6 @@ TEST(GameCommandTests, SerializesAndDeserializesBuildCommand)
     EXPECT_FALSE(parsed.chargeCost);
 }
 
-TEST(GameCommandTests, SerializesAndDeserializesMilitaryOrder)
-{
-    GameCommand original = GameCommand::IssueMilitaryOrder(1, MilitaryOrderType::Support, 11, 22, 7);
-
-    GameCommand parsed;
-    ASSERT_TRUE(GameCommand::TryDeserialize(original.Serialize(), parsed));
-
-    EXPECT_EQ(parsed.playerId, 1);
-    EXPECT_EQ(parsed.type, GameCommandType::IssueMilitaryOrder);
-    EXPECT_EQ(parsed.militaryOrderType, MilitaryOrderType::Support);
-    EXPECT_EQ(parsed.sourceTileId, 11);
-    EXPECT_EQ(parsed.targetTileId, 22);
-    EXPECT_EQ(parsed.divisionId, 7);
-}
-
 TEST(GameCommandTests, SerializesAndDeserializesFocusAndResearchIds)
 {
     GameCommand focus = GameCommand::StartFocus(3, "tribal_council");

@@ -1,6 +1,4 @@
 #include "core/GameWorldInternal.h"
-#include "simulation/SectorGraph.h"
-#include "warfare/DivisionSector.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,210 +9,16 @@
 
 using namespace GameWorldInternal;
 
-namespace
-{
-    // ─── Deployed-division upkeep ─────────────────────────────────────────────
-    // Per-tick maintenance for divisions deployed on the map (occupiedTile set).
-    // Garrisoned (in-building) divisions are handled in GarrisonComponent::Update,
-    // so nothing is double-counted here. Consumes supply, regenerates cohesion,
-    // draws manpower reinforcements while supplied, and removes divisions that
-    // have starved to death (strength <= 0). Deterministic: players in map id
-    // order, divisions in forces push_back order.
-    //
-    // NOTE: this pass is logistics/upkeep only. Field combat was removed long ago
-    // and has been rebuilt as GameWorld::UpdateBattles (ETAP 11.2, called right
-    // after this function from UpdateSimulation) — that is where divisions fight,
-    // retreat and get locked out; nothing here sets `engaged`.
-    void UpdateDeployedDivisions(GameWorld& world, double dt)
-    {
-        for (auto& [pid, player] : world.GetPlayerHandler().players)
-        {
-            if (player == nullptr) continue;
-            const double conservation = PlayerSupplyConservation(*player);
-            for (auto& fptr : player->forces)
-            {
-                if (fptr == nullptr) continue;
-                SoldierDivision& div = *fptr;
-                if (div.occupiedTile.x < 0) continue;   // garrisoned — handled elsewhere
-
-                // Supply upkeep. `engaged` reflects last tick's Battle state (set/
-                // cleared in UpdateBattles, which runs after this pass), so a
-                // division mid-fight pays the higher combat rate. Starvation still
-                // bleeds strength when the food pool hits zero.
-                ConsumeDivisionSupply(div, dt, /*engaged=*/div.engaged, /*deployed=*/true, conservation);
-
-                // Physical tile: worldPos while marching, occupiedTile at rest.
-                const Vec2i tile = (div.inTransit && div.worldPos.x >= 0.0f)
-                    ? Vec2i{std::clamp(static_cast<int>(div.worldPos.x / TILE_SIZE), 0, world.GetTileMap().params.sizeX - 1),
-                            std::clamp(static_cast<int>(div.worldPos.y / TILE_SIZE), 0, world.GetTileMap().params.sizeY - 1)}
-                    : div.occupiedTile;
-                const bool inOwnTerritory = world.GetTileMap().IsInside(tile) &&
-                    world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(tile)].owner == player.get();
-
-                // Always driven toward the (supply-scaled) effective ceiling: erodes
-                // downward even while `engaged` (lost supply hurts immediately), but
-                // only regenerates upward out of combat — see RegenerateDivisionCohesion.
-                RegenerateDivisionCohesion(div, dt, inOwnTerritory, div.engaged, &player->balanceModifiers);
-                // Manpower replacements only flow OUT of combat — reinforcing an
-                // engaged division would fight the Battle system's strength drain
-                // in the same tick (the same tug-of-war the cohesion regen gate
-                // above fixes; CombatObserver flags it as an anomaly).
-                if (!div.engaged)
-                    ReinforceDivisionStrength(div, *player, dt, &player->balanceModifiers);
-            }
-        }
-
-        // Remove divisions that have starved to death (strength <= 0). They are
-        // player-owned (not building-owned), so drop them from forces and prune any
-        // army group left empty.
-        for (auto& [pid, player] : world.GetPlayerHandler().players)
-        {
-            if (player == nullptr) continue;
-            bool removedAny = false;
-            for (const auto& f : player->forces)
-                if (f != nullptr && f->strength <= 0)
-                {
-                    player->armyGroups.RemoveDivision(f->id);
-                    removedAny = true;
-                }
-            auto& forces = player->forces;
-            forces.erase(std::remove_if(forces.begin(), forces.end(),
-                [](const std::unique_ptr<SoldierDivision>& d) { return d == nullptr || d->strength <= 0; }), forces.end());
-            if (removedAny)
-                player->armyGroups.PruneEmptyArmies();
-        }
-
-        // Views held raw pointers into forces — rebuild so garrison stats/GUI and the
-        // next tick see the current set after any removals.
-        for (auto& [pid, player] : world.GetPlayerHandler().players)
-            if (player != nullptr)
-                player->RebuildGarrisonViews();
-    }
-
-    // The frontline advances with the army: a deployed division claims the ground
-    // it stands on for its owner, so pushing into enemy land flips those tiles
-    // immediately (the border moves with the troops). Runs every tick after
-    // Battle resolution; re-asserts over any building-driven RecalculateTerritory.
-    // Ground is not vacated when troops leave — it stays yours until a building
-    // recompute or an enemy re-occupies it. Deterministic (map + vector iteration
-    // order). Restored from the pre-ETAP-11 combat system (git history), which
-    // this claim logic never depended on beyond "a division stands here".
-    void ClaimTilesUnderDivisions(GameWorld& world)
-    {
-        TileMap& tilemap = world.GetTileMap();
-        for (auto& [pid, player] : world.GetPlayerHandler().players)
-        {
-            if (player == nullptr) continue;
-            for (const auto& fptr : player->forces)
-            {
-                const SoldierDivision& d = *fptr;
-                // Physical tile: worldPos while marching, occupiedTile at rest.
-                Vec2i tile{-1, -1};
-                if (d.inTransit && d.worldPos.x >= 0.0f)
-                    tile = {std::clamp(static_cast<int>(d.worldPos.x / TILE_SIZE), 0, tilemap.params.sizeX - 1),
-                            std::clamp(static_cast<int>(d.worldPos.y / TILE_SIZE), 0, tilemap.params.sizeY - 1)};
-                else if (d.occupiedTile.x >= 0)
-                    tile = d.occupiedTile;
-                else
-                    continue;
-                if (!tilemap.IsInside(tile)) continue;
-                // Claim the WHOLE 2x2 quadrant the division stands in — territory
-                // moves per-province, not per-tile. As the unit marches it passes
-                // through each quadrant on its route (100 Hz → no skipping), so the
-                // front advances smoothly and contiguously behind the army.
-                Vec2i cell = SectorCellOf(tile);
-                Vec2i anchor{cell.x * 2, cell.y * 2};
-                for (int dy = 0; dy < 2; dy++)
-                    for (int dx = 0; dx < 2; dx++)
-                    {
-                        Vec2i qt{anchor.x + dx, anchor.y + dy};
-                        if (!tilemap.IsInside(qt)) continue;
-                        Tile& t = tilemap.tilemap[tilemap.GetIdFromCoords(qt)];
-                        if (t.owner != player.get())
-                        {
-                            t.owner = player.get();
-                            tilemap.territoryDirty = true;
-                        }
-                    }
-            }
-        }
-    }
-
-    // Auto-close encirclements: any ground a player has surrounded (a pocket that
-    // cannot reach the map edge without crossing that player's territory) flips to
-    // them. A defeated enemy building inside is left for capture, but the pocket
-    // around it becomes yours — so after you clear the enemy the hole disappears.
-    // Flood from the border through non-P tiles; whatever isn't reached is enclosed.
-    // Deterministic (map iteration + border-seed order). Throttled by the caller.
-    void CloseEncirclements(GameWorld& world)
-    {
-        TileMap& tilemap = world.GetTileMap();
-        const int W = tilemap.params.sizeX;
-        const int H = tilemap.params.sizeY;
-        const int N = W * H;
-        if (N <= 0 || static_cast<int>(tilemap.tilemap.size()) != N)
-            return;
-
-        for (auto& [pid, playerPtr] : world.GetPlayerHandler().players)
-        {
-            if (playerPtr == nullptr) continue;
-            Player* P = playerPtr.get();
-
-            std::vector<char> reached(N, 0);
-            std::vector<int> stack;
-            auto seed = [&](int x, int y)
-            {
-                int id = y * W + x;
-                if (tilemap.tilemap[id].owner != P && !reached[id])
-                { reached[id] = 1; stack.push_back(id); }
-            };
-            for (int x = 0; x < W; x++) { seed(x, 0); seed(x, H - 1); }
-            for (int y = 0; y < H; y++) { seed(0, y); seed(W - 1, y); }
-
-            const int dxs[4] = {1, -1, 0, 0};
-            const int dys[4] = {0, 0, 1, -1};
-            while (!stack.empty())
-            {
-                int id = stack.back(); stack.pop_back();
-                int x = id % W, y = id / W;
-                for (int k = 0; k < 4; k++)
-                {
-                    int nx = x + dxs[k], ny = y + dys[k];
-                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-                    int nid = ny * W + nx;
-                    if (!reached[nid] && tilemap.tilemap[nid].owner != P)
-                    { reached[nid] = 1; stack.push_back(nid); }
-                }
-            }
-
-            for (int id = 0; id < N; id++)
-            {
-                Tile& t = tilemap.tilemap[id];
-                if (reached[id] || t.owner == P) continue;
-                if (t.HasBuilding()) continue;  // leave the building; capture handles it
-                t.owner = P;
-                tilemap.territoryDirty = true;
-            }
-        }
-    }
-}
-
 // Advances authoritative gameplay state for one simulation tick.
 void GameWorld::UpdateSimulation(double dt)
 {
     simulationTick++;
-    // Refresh each building's non-owning division view from the player's forces so
-    // commands (movement/occupancy) and building updates see the current garrisons.
-    for (auto& [id, player] : playerHandler.players)
-        if (player != nullptr)
-            player->RebuildGarrisonViews();
     UpdateControllers(dt);
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
         {
             player->UpdateFocus(dt);
             player->UpdateResearch(dt);
-            player->UpdateArmyOrders(dt);  // Local army order simulation (issues MoveDivision commands)
         }
     ProcessCommands();
     // Assign each player's builders to the front of their construction queue
@@ -224,7 +28,6 @@ void GameWorld::UpdateSimulation(double dt)
             player->construction.Refresh(*player);
     // Update buildings by iterating through Player registries instead of tilemap scan.
     // Avoids O(1M) tilemap iteration every tick; now O(n_buildings) which is typically ~100-1000.
-    std::vector<int> destroyedBuildingIds;
     for (auto& [id, player] : playerHandler.players)
     {
         if (player == nullptr) continue;
@@ -244,35 +47,10 @@ void GameWorld::UpdateSimulation(double dt)
                         player->roadNetwork->UpdateNavMap(tileId, building);
                 }
                 tilemap.AutoConnectBuilding(building);
-                if (building->GetTerritoryRadius() > 0)
-                    tilemap.RecalculateTerritory(player.get());
             }
-
-            if (building->GetTerritoryRadius() > 0 && building->GetHitPoints() <= 0)
-                destroyedBuildingIds.push_back(building->positionId);
         }
     }
 
-    // Destroy buildings that were defeated
-    for (int id : destroyedBuildingIds)
-        tilemap.DestroyBuildingAt(id);
-    // Field combat/conquest was removed. Deployed divisions still march (handled in
-    // GarrisonComponent::Update) and consume supply / reinforce here.
-    UpdateDeployedDivisions(*this, dt);
-    // ETAP 11.2: Battle lifecycle — engagement detection + aggregated per-tick
-    // resolution for every active field battle. Runs after movement/upkeep so it
-    // sees this tick's arrivals.
-    UpdateBattles(dt);
-    // Territory follows the army: a division claims the 2x2 quadrant it stands on
-    // for its owner every tick (restored — was stripped along with the old combat
-    // system). Encirclement auto-closure is coarse in time (5 Hz is plenty and
-    // keeps the per-player flood-fill off the hot 100 Hz path).
-    ClaimTilesUnderDivisions(*this);
-    if (simulationTick % 20 == 0)
-        CloseEncirclements(*this);
-    // BUG 3b/3d — resupply deployed divisions from nearest stockpile, once per second.
-    if (simulationTick % 100 == 0)
-        ResupplyDeployedDivisions();
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->UpdateEconomyTelemetry(dt);
@@ -283,108 +61,6 @@ void GameWorld::Update(double dt)
 {
     UpdateSimulation(dt);
     DrawMap();
-}
-
-// BUG 3b/3d — deployed divisions pull supply from the nearest friendly military
-// building or HQ within SupplyRange Manhattan tiles. Deterministic: players in map
-// id order, depots by positionId asc, divisions in forces-push_back order.
-// Called once per second from UpdateSimulation; also exposed for direct test use.
-void GameWorld::ResupplyDeployedDivisions()
-{
-    constexpr double kBaseSupplyRange = 20.0;   // base tiles; BalanceStat::SupplyRange
-
-    for (auto& [pid, player] : playerHandler.players)
-    {
-        if (player == nullptr) continue;
-
-        // ETAP 10 FIX: Collect friendly depot buildings from Player.militaryBuildings[] registry,
-        // not by scanning tilemap. Eliminates O(1M) tile scans per second.
-        struct Depot
-        {
-            int positionId;
-            Vec2i coords;
-            SupplyBufferComponent* supply;
-        };
-        std::vector<Depot> depots;
-        for (Building* b : player->militaryBuildings)
-        {
-            if (b == nullptr) continue;
-            auto* supply = b->GetComponent<SupplyBufferComponent>();
-            if (supply == nullptr) continue;
-            depots.push_back({b->positionId, player->tilemap.GetCoordsFromId(b->positionId), supply});
-        }
-
-        // Already sorted in registry (insertion order by positionId during build);
-        // but sort explicitly for determinism (independent of registry insert order).
-        std::sort(depots.begin(), depots.end(), [](const Depot& a, const Depot& b)
-        { return a.positionId < b.positionId; });
-
-        const double supplyRange = player->ResolveStat(
-            Stat<double>{BalanceStat::SupplyRange, kBaseSupplyRange}, nullptr);
-
-        for (auto& fptr : player->forces)
-        {
-            if (fptr == nullptr) continue;
-            SoldierDivision& div = *fptr;
-            if (div.occupiedTile.x < 0) continue;   // garrisoned — handled by GarrisonComponent::Update
-
-            // Nearest depot within range (tie-break: lower positionId first).
-            Depot* best = nullptr;
-            int bestDist = std::numeric_limits<int>::max();
-            for (auto& depot : depots)
-            {
-                int dist = std::abs(depot.coords.x - div.occupiedTile.x)
-                         + std::abs(depot.coords.y - div.occupiedTile.y);
-                if (dist > static_cast<int>(supplyRange)) continue;
-                if (best == nullptr || dist < bestDist ||
-                    (dist == bestDist && depot.positionId < best->positionId))
-                {
-                    best    = &depot;
-                    bestDist = dist;
-                }
-            }
-
-            if (best == nullptr) continue;   // out of supply range → no resupply
-
-            SupplyBufferComponent& sb = *best->supply;
-
-            // Food: pull from the building's food ResourceBuffer.
-            {
-                int need = div.foodSupplyCapacity - div.foodSupply;
-                while (need > 0 && !sb.buffer.buffer.empty())
-                {
-                    sb.buffer.buffer.pop_back();
-                    div.foodSupply++;
-                    need--;
-                }
-                sb.stored = static_cast<int>(sb.buffer.buffer.size());
-            }
-
-            // Weapons: pull from building's weaponStock.
-            if (sb.weaponStock > 0)
-            {
-                int need = div.weaponSupplyCapacity - div.weaponSupply;
-                if (need > 0)
-                {
-                    int give       = std::min(need, sb.weaponStock);
-                    div.weaponSupply  += give;
-                    sb.weaponStock    -= give;
-                }
-            }
-
-            // Materiel: pull from building's materielStock.
-            if (sb.materielStock > 0)
-            {
-                int need = div.materielSupplyCapacity - div.materielSupply;
-                if (need > 0)
-                {
-                    int give         = std::min(need, sb.materielStock);
-                    div.materielSupply  += give;
-                    sb.materielStock    -= give;
-                }
-            }
-        }
-    }
 }
 
 bool GameWorld::IsPlayerDefeated(int playerId) const

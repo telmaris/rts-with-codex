@@ -9,8 +9,6 @@
 #include "data/Resource.h"
 #include "simulation/Transport.h"
 #include "core/Stat.h"
-#include "warfare/UnitStats.h"
-#include "warfare/Division.h"
 #include "economy/BuildingComponents.h"
 
 class Player;
@@ -21,7 +19,6 @@ enum class BuildingType : int
     Building = 0,
     ProductionBuilding = 1,
     StorageBuilding = 2,
-    MilitaryBuilding = 3,
     Road = 4,
     Headquarters = 5,
 
@@ -36,11 +33,7 @@ enum class BuildingType : int
     Inn = 19,
     Paperworks = 20,
 
-    GuardTower = 21,
-    Fortress = 22,
-    Castle = 23,
     Barracks = 24,
-    SupplyHub = 25,
 
     Smith = 31,
     University = 32,
@@ -145,8 +138,6 @@ public:
     int GetWorkerCapacity() const;
     bool IsProductionStalled() const;
     bool CanBlockProduction() const;
-    int GetHitPoints() const;
-    int GetTerritoryRadius() const;
 
     bool IsProductionBlocked() const { return productionBlocked; }
     void SetProductionBlocked(bool blocked) { productionBlocked = blocked; }
@@ -285,7 +276,9 @@ public:
     StorageComponent storage;
 };
 
-// Player's starting building: a storage hub that also projects territory.
+// Player's starting building: a storage hub. HP/defense/siege mechanics are
+// reintroduced by a dedicated HqComponent in the Tower Defense rework (ETAP 6);
+// until then the HQ is a plain storage building that cannot be destroyed.
 class Headquarters : public Building
 {
 public:
@@ -294,20 +287,8 @@ public:
 
     bool CanBeManuallyDestroyed() const override { return false; }
 
-    int GetMaxHitPoints() const { return territory.GetMaxHp(*this); }
-    int GetEffectiveStrength() const { return 20; }
-    void ReceiveDamage(int damage) { territory.ReceiveDamage(damage); }
-
     // --- Component members ---
-    StorageComponent   storage;
-    TerritoryComponent territory;
-    // Fallback home for field divisions whose building was captured/destroyed, so
-    // deployed troops are not deleted along with the lost building.
-    GarrisonComponent     garrison;
-    // BUG 3c: HQ is a full supply depot — it receives weapon/food/materiel
-    // packages just like any military building, and deployed divisions in
-    // range can draw from its stockpile.
-    SupplyBufferComponent supplyBuffer;
+    StorageComponent storage;
 };
 
 // Settlement that generates manpower and consumes food upkeep over time.
@@ -326,90 +307,13 @@ public:
     PopulationComponent population;
 };
 
-// Military buildings project territory, hold a garrison, and execute combat
-// orders. All of that lives in the territory/garrison/supply components; the
-// concrete classes only assemble the right set.
-class GuardTower : public Building
-{
-public:
-    GuardTower() = default;
-    GuardTower(int);
-
-    TerritoryComponent    territory;
-    GarrisonComponent     garrison;
-    SupplyBufferComponent supplyBuffer;
-};
-
-class Fortress : public Building
-{
-public:
-    Fortress() = default;
-    Fortress(int);
-
-    TerritoryComponent    territory;
-    GarrisonComponent     garrison;
-    SupplyBufferComponent supplyBuffer;
-};
-
-class Castle : public Building
-{
-public:
-    Castle() = default;
-    Castle(int);
-
-    TerritoryComponent    territory;
-    GarrisonComponent     garrison;
-    SupplyBufferComponent supplyBuffer;
-};
-
+// Recruitment factory. Reworked on top of the new BattleUnit/UnitRoster
+// architecture in ETAP 3 — a bare shell (buildable, no behaviour) until then.
 class Barracks : public Building
 {
 public:
     Barracks() = default;
     Barracks(int);
-
-    bool QueueRecruitment(MilitaryUnitType type)
-        { return recruitment.QueueUnit(type, *this, garrison); }
-
-    TerritoryComponent    territory;
-    GarrisonComponent     garrison;
-    SupplyBufferComponent supplyBuffer;
-    RecruitmentComponent  recruitment;
-};
-
-// True for defensive works whose garrison physically mans the building. The
-// Barracks (a training factory) and the Headquarters (the capital, and the
-// fallback home for field divisions) deliberately do NOT count: they can be
-// attacked, but divisions never station inside or defend them from within, and
-// the GUI must not present them as garrison buildings.
-inline bool IsDefensiveGarrisonBuilding(const Building& building)
-{
-    return building.buildingType == BuildingType::GuardTower ||
-           building.buildingType == BuildingType::Fortress ||
-           building.buildingType == BuildingType::Castle;
-}
-
-// Buildings an army may besiege and capture: defensive works and the enemy
-// capital (taking the HQ is the conquest path). Civil buildings — the Barracks
-// factory included — are NOT military targets: divisions neither siege them nor
-// do they count as attack destinations for the AI.
-inline bool IsMilitaryAttackTarget(const Building& building)
-{
-    return IsDefensiveGarrisonBuilding(building) ||
-           building.buildingType == BuildingType::Headquarters;
-}
-
-// Logistics building (pilot): draws finished gear + rations from the player's
-// storage network on demand, converts them into weapon-supply packages and ships
-// them to the front. It owns no storage of its own — it never stockpiles
-// equipment. All behaviour lives in the dedicated SupplyPackageComponent.
-class SupplyHub : public Building
-{
-public:
-    SupplyHub() = default;
-    SupplyHub(int);
-
-    SupplyPackageComponent packaging;
 };
 
 #endif

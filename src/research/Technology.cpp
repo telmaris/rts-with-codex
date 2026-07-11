@@ -32,17 +32,8 @@ namespace
         if (value == "TransportTime") return BalanceStat::TransportTime;
         if (value == "RoadCapacity") return BalanceStat::RoadCapacity;
         if (value == "RoadSpeed") return BalanceStat::RoadSpeed;
-        if (value == "MilitaryStrength") return BalanceStat::MilitaryStrength;
-        if (value == "AttackDamage") return BalanceStat::AttackDamage;
-        if (value == "HitPoints") return BalanceStat::HitPoints;
-        if (value == "TerritoryRadius") return BalanceStat::TerritoryRadius;
-        if (value == "GarrisonCapacity") return BalanceStat::GarrisonCapacity;
-        if (value == "SupplyCapacity") return BalanceStat::SupplyCapacity;
-        if (value == "SupplyConsumption") return BalanceStat::SupplyConsumption;
         if (value == "ManpowerRate") return BalanceStat::ManpowerRate;
         if (value == "PopulationCap") return BalanceStat::PopulationCap;
-        if (value == "RecruitmentTime") return BalanceStat::RecruitmentTime;
-        if (value == "RecruitmentManpowerCost") return BalanceStat::RecruitmentManpowerCost;
         if (value == "BuilderAmount") return BalanceStat::BuilderAmount;
         return BalanceStat::BuildTime;
     }
@@ -100,12 +91,6 @@ namespace
             case BuildingType::Barracks:
                 AddTag(tags, "military");
                 break;
-            case BuildingType::GuardTower:
-            case BuildingType::Fortress:
-            case BuildingType::Castle:
-                AddTag(tags, "military");
-                AddTag(tags, "expansion");
-                break;
             case BuildingType::Headquarters:
                 AddTag(tags, "expansion");
                 break;
@@ -123,7 +108,6 @@ namespace
                 AddTag(tags, "manpower");
                 break;
             case ResourceType::PAPER: break;
-            case ResourceType::WEAPON_SUPPLY:
             case ResourceType::COPPER_SWORD:
             case ResourceType::BRONZE_SWORD:
             case ResourceType::IRON_SWORD:
@@ -175,23 +159,7 @@ namespace
                 case BalanceStat::TransportTime:
                 case BalanceStat::RoadCapacity:
                 case BalanceStat::RoadSpeed:
-                case BalanceStat::SupplyCapacity:
-                case BalanceStat::SupplyConsumption:
                     AddTag(definition.tags, "logistics");
-                    break;
-                case BalanceStat::MilitaryStrength:
-                case BalanceStat::AttackDamage:
-                case BalanceStat::HitPoints:
-                case BalanceStat::GarrisonCapacity:
-                case BalanceStat::RecruitmentTime:
-                    AddTag(definition.tags, "military");
-                    break;
-                case BalanceStat::TerritoryRadius:
-                    AddTag(definition.tags, "expansion");
-                    break;
-                case BalanceStat::RecruitmentManpowerCost:
-                    AddTag(definition.tags, "military");
-                    AddTag(definition.tags, "manpower");
                     break;
                 case BalanceStat::ManpowerRate:
                 case BalanceStat::PopulationCap:
@@ -224,9 +192,6 @@ namespace
         if (value == "Paperworks") return BuildingType::Paperworks;
         if (value == "Smith") return BuildingType::Smith;
         if (value == "University") return BuildingType::University;
-        if (value == "GuardTower") return BuildingType::GuardTower;
-        if (value == "Fortress") return BuildingType::Fortress;
-        if (value == "Castle") return BuildingType::Castle;
         if (value == "Barracks") return BuildingType::Barracks;
         if (value == "Road") return BuildingType::Road;
         return BuildingType::Building;
@@ -256,7 +221,6 @@ namespace
         if (value == "BEER") return ResourceType::BEER;
         if (value == "COINS") return ResourceType::COINS;
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
-        if (value == "WEAPON_SUPPLY") return ResourceType::WEAPON_SUPPLY;
         if (value == "PAPER") return ResourceType::PAPER;
         if (value == "TOOLS") return ResourceType::TOOLS;
         if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
@@ -303,14 +267,6 @@ namespace
         return ResourceCategory::None;
     }
 
-    // Converts text to a military unit type identifier.
-    MilitaryUnitType ParseMilitaryUnitType(const std::string& value)
-    {
-        if (value == "Swordsman") return MilitaryUnitType::Swordsman;
-        if (value == "Archer") return MilitaryUnitType::Archer;
-        return MilitaryUnitType::Militia;
-    }
-
     // Returns built-in technologies used when the data file is missing.
     std::vector<TechnologyDefinition> MakeDefaultTechnologies()
     {
@@ -325,8 +281,8 @@ namespace
                 {},
                 {{ResourceType::PAPER, 10}, {ResourceType::WOOD, 30}, {ResourceType::TOOLS, 2}},
                 {
-                    BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.85, BalanceModifierScope::Global(), BuildingType::Woodcutter, std::nullopt, std::nullopt, "tech:forestry"},
-                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Woodcutter, ResourceType::WOOD, std::nullopt, "tech:forestry"}
+                    BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.85, BalanceModifierScope::Global(), BuildingType::Woodcutter, std::nullopt, "tech:forestry"},
+                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Woodcutter, ResourceType::WOOD, "tech:forestry"}
                 },
                 {},
                 "Core Sciences",
@@ -340,12 +296,10 @@ namespace
                 "",
                 {"forestry"},
                 {{ResourceType::PAPER, 12}, {ResourceType::STONE, 30}},
-                {
-                    BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Headquarters, std::nullopt, std::nullopt, "tech:masonry"},
-                    BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::GuardTower, std::nullopt, std::nullopt, "tech:masonry"},
-                    BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Fortress, std::nullopt, std::nullopt, "tech:masonry"},
-                    BalanceModifier{BalanceStat::HitPoints, 0.0, 1.15, BalanceModifierScope::Global(), BuildingType::Castle, std::nullopt, std::nullopt, "tech:masonry"}
-                },
+                // TD(etap-1): the HitPoints modifiers this tech used to grant HQ/defensive
+                // buildings were dropped with TerritoryComponent; HQ defense returns as a
+                // dedicated HqComponent stat in ETAP 6.
+                {},
                 {},
                 "Core Sciences",
                 20},
@@ -359,8 +313,8 @@ namespace
                 {"forestry"},
                 {{ResourceType::PAPER, 18}, {ResourceType::PLANKS, 25}},
                 {
-                    BalanceModifier{BalanceStat::RoadSpeed, 0.0, 1.20, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, std::nullopt, "tech:logistics"},
-                    BalanceModifier{BalanceStat::RoadCapacity, 2.0, 1.0, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, std::nullopt, "tech:logistics"}
+                    BalanceModifier{BalanceStat::RoadSpeed, 0.0, 1.20, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, "tech:logistics"},
+                    BalanceModifier{BalanceStat::RoadCapacity, 2.0, 1.0, BalanceModifierScope::Global(), BuildingType::Road, std::nullopt, "tech:logistics"}
                 },
                 {},
                 "Engineering",
@@ -375,8 +329,8 @@ namespace
                 {"forestry"},
                 {{ResourceType::PAPER, 15}, {ResourceType::FOOD_PROVISIONS, 10}},
                 {
-                    BalanceModifier{BalanceStat::PopulationCap, 20.0, 1.0, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, std::nullopt, "tech:village_records"},
-                    BalanceModifier{BalanceStat::ManpowerRate, 0.0, 1.10, BalanceModifierScope::Global(), std::nullopt, std::nullopt, std::nullopt, "tech:village_records"}
+                    BalanceModifier{BalanceStat::PopulationCap, 20.0, 1.0, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, "tech:village_records"},
+                    BalanceModifier{BalanceStat::ManpowerRate, 0.0, 1.10, BalanceModifierScope::Global(), std::nullopt, std::nullopt, "tech:village_records"}
                 },
                 {},
                 "Social Sciences",
@@ -391,8 +345,8 @@ namespace
                 {"forestry"},
                 {{ResourceType::PAPER, 16}, {ResourceType::TOOLS, 6}, {ResourceType::IRON, 12}},
                 {
-                    BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.80, BalanceModifierScope::Global(), BuildingType::LumberMill, std::nullopt, std::nullopt, "tech:sawmill_blades"},
-                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::LumberMill, ResourceType::PLANKS, std::nullopt, "tech:sawmill_blades"}
+                    BalanceModifier{BalanceStat::ProductionCycleTime, 0.0, 0.80, BalanceModifierScope::Global(), BuildingType::LumberMill, std::nullopt, "tech:sawmill_blades"},
+                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::LumberMill, ResourceType::PLANKS, "tech:sawmill_blades"}
                 },
                 {},
                 "Engineering",
@@ -407,9 +361,9 @@ namespace
                 {"masonry"},
                 {{ResourceType::PAPER, 22}, {ResourceType::TOOLS, 8}, {ResourceType::PLANKS, 20}},
                 {
-                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::IRON_ORE, std::nullopt, "tech:deep_mining"},
-                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::COAL, std::nullopt, "tech:deep_mining"},
-                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::STONE, std::nullopt, "tech:deep_mining"}
+                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::IRON_ORE, "tech:deep_mining"},
+                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::COAL, "tech:deep_mining"},
+                    BalanceModifier{BalanceStat::ProductionOutputAmount, 1.0, 1.0, BalanceModifierScope::Global(), BuildingType::Mine, ResourceType::STONE, "tech:deep_mining"}
                 },
                 {},
                 "Natural Sciences",
@@ -430,7 +384,7 @@ namespace
                 {},
                 {{ResourceType::PAPER, 5}, {ResourceType::WOOD, 20}},
                 {
-                    BalanceModifier{BalanceStat::PopulationCap, 10.0, 1.0, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, std::nullopt, "focus:frontier_settlement"}
+                    BalanceModifier{BalanceStat::PopulationCap, 10.0, 1.0, BalanceModifierScope::Global(), BuildingType::Village, std::nullopt, "focus:frontier_settlement"}
                 }},
             TechnologyDefinition{
                 "militia_charter",
@@ -441,10 +395,9 @@ namespace
                 "",
                 {"frontier_settlement"},
                 {{ResourceType::PAPER, 8}, {ResourceType::FOOD_PROVISIONS, 8}},
-                {
-                    BalanceModifier{BalanceStat::GarrisonCapacity, 5.0, 1.0, BalanceModifierScope::Global(), BuildingType::GuardTower, std::nullopt, std::nullopt, "focus:militia_charter"},
-                    BalanceModifier{BalanceStat::RecruitmentTime, 0.0, 0.90, BalanceModifierScope::Global(), std::nullopt, std::nullopt, MilitaryUnitType::Militia, "focus:militia_charter"}
-                }},
+                // TD(etap-1): garrison/recruitment-time modifiers dropped with
+                // GarrisonComponent/RecruitmentComponent; recruitment bonuses return in ETAP 3.
+                {}},
             TechnologyDefinition{
                 "academic_patronage",
                 "Academic Patronage",
@@ -455,7 +408,7 @@ namespace
                 {"frontier_settlement"},
                 {{ResourceType::PAPER, 12}, {ResourceType::COINS, 5}},
                 {
-                    BalanceModifier{BalanceStat::BuildTime, 0.0, 0.90, BalanceModifierScope::Global(), BuildingType::University, std::nullopt, std::nullopt, "focus:academic_patronage"}
+                    BalanceModifier{BalanceStat::BuildTime, 0.0, 0.90, BalanceModifierScope::Global(), BuildingType::University, std::nullopt, "focus:academic_patronage"}
                 }}
         };
     }
@@ -482,12 +435,9 @@ namespace
                 modifier.resourceType = ParseResourceType(value);
             else if (key == "category")
                 modifier.resourceCategory = ParseResourceCategory(value);
-            else if (key == "unit")
-                modifier.unitType = ParseMilitaryUnitType(value);
         }
 
-        if (modifier.stat == BalanceStat::ManpowerRate ||
-            modifier.stat == BalanceStat::RecruitmentTime)
+        if (modifier.stat == BalanceStat::ManpowerRate)
         {
             modifier.buildingType.reset();
         }

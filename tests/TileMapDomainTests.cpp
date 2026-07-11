@@ -120,26 +120,3 @@ TEST(TileMapDomainTests, AutoConnectAndConnectReceiverToggleProductionLinks)
     EXPECT_TRUE(mill->HasReceiver(ResourceType::PLANKS));
 }
 
-TEST(TileMapDomainTests, TerritoryRecalculationUsesLivingMilitaryBuildingsWithoutOverwritingEnemy)
-{
-    TileMap map;
-    Player player{0, map};
-    Player enemy{1, map};
-    FillMap(map, nullptr);
-
-    map.tilemap[map.GetIdFromCoords({5, 5})].owner = &enemy;
-    auto* tower = dynamic_cast<GuardTower*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({3, 3}), &player, std::make_unique<GuardTower>(1)));
-    ASSERT_NE(tower, nullptr);
-    tower->territory.radius = 3;
-    tower->territory.hp = 100;
-
-    map.RecalculateTerritory(&player);
-
-    EXPECT_EQ(map.tilemap[map.GetIdFromCoords({5, 5})].owner, &enemy);
-    EXPECT_EQ(map.tilemap[map.GetIdFromCoords({3, 3})].owner, &player);
-
-    tower->territory.hp = 0;
-    map.RecalculateTerritory(&player);
-    EXPECT_EQ(map.tilemap[map.GetIdFromCoords({3, 3})].owner, nullptr);
-}

@@ -16,14 +16,11 @@ namespace
     {
         int freeManpower{0};
         int workers{0};
-        int soldiers{0};
-        ArmyRegistry army;
         int totalPopulation{0};
         int populationCap{0};
         double manpowerGainPerMinute{0.0};
         int foodSupplyPercent{100};
         double villageFoodConsumptionPerMinute{0.0};
-        double militaryFoodConsumptionPerMinute{0.0};
         std::map<ResourceType, int> storedResources;
         std::map<ResourceType, int> productionRatesPerMinute;
         std::map<ResourceType, int> consumptionRatesPerMinute;
@@ -40,8 +37,6 @@ namespace
 
         stats.freeManpower = static_cast<int>(std::floor(player->strategicResources.Get(StrategicResourceType::Manpower)));
         stats.workers = static_cast<int>(std::floor(player->strategicResources.Get(StrategicResourceType::Workers)));
-        stats.army = player->GetArmyRegistry();
-        stats.soldiers = stats.army.TotalTroops();
         stats.totalPopulation = static_cast<int>(std::floor(player->GetTotalPopulation()));
         stats.populationCap = player->GetPopulationCap();
         stats.foodSupplyPercent = static_cast<int>(std::round(player->GetFoodProductivity() * 100.0));
@@ -68,16 +63,6 @@ namespace
             stats.manpowerGainPerMinute += player->ResolveStat(population->manpowerRate, building) * productivity * 60.0;
             if (population->upkeepInterval > 0.0)
                 stats.villageFoodConsumptionPerMinute += population->foodPackageUpkeep * (60.0 / population->upkeepInterval);
-        }
-        for (const auto* building : player->GetTrackedBuildingsWithComponent<SupplyBufferComponent>())
-        {
-            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
-                continue;
-
-            const auto* supply = building->GetComponent<SupplyBufferComponent>();
-            const auto* garrison = building->GetComponent<GarrisonComponent>();
-            if (supply != nullptr && garrison != nullptr)
-                stats.militaryFoodConsumptionPerMinute += supply->GetSupplyConsumption(*building, *garrison);
         }
         for (const auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
         {
@@ -119,7 +104,6 @@ namespace
             case ResourceType::PAPER: return "Paper";
             case ResourceType::TOOLS: return "Tools";
             case ResourceType::FOOD_PROVISIONS: return "Food";
-            case ResourceType::WEAPON_SUPPLY: return "Weapon";
             case ResourceType::COPPER_SWORD: return "CuSw";
             case ResourceType::IRON_SWORD: return "FeSw";
             case ResourceType::STEEL_SWORD: return "StSw";
@@ -301,23 +285,15 @@ void StrategicResourceHudWidget::Update(double dt)
         Tooltip::Draw("Manpower", {
             "Free: " + std::to_string(stats.freeManpower),
             "Workers: " + std::to_string(stats.workers),
-            "Soldiers: " + std::to_string(stats.soldiers),
-            "Militia: " + std::to_string(stats.army.militia),
-            "Swordsmen: " + std::to_string(stats.army.swordsmen),
-            "Archers: " + std::to_string(stats.army.archers),
-            "Training queue: " + std::to_string(stats.army.TotalQueued()),
             "Total: " + std::to_string(stats.totalPopulation) + "/" + std::to_string(stats.populationCap),
             "Gain: +" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min"
         }, 280.0f);
     }
     else if (CheckCollisionPointRec(mouse, Rectangle{foodIcon.x, bounds.y, 155.0f, bounds.height}))
     {
-        double totalConsumption = stats.villageFoodConsumptionPerMinute + stats.militaryFoodConsumptionPerMinute;
         Tooltip::Draw("Food Supply", {
             "Supply: " + std::to_string(stats.foodSupplyPercent) + "%",
-            "Village consumption: " + FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min",
-            "Military consumption: " + FormatOneDecimal(stats.militaryFoodConsumptionPerMinute) + " / min",
-            "Total consumption: " + FormatOneDecimal(totalConsumption) + " / min"
+            "Village consumption: " + FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min"
         }, 290.0f);
     }
     else if (showWood && CheckCollisionPointRec(mouse, Rectangle{resourceX, bounds.y, 116.0f, bounds.height}))
@@ -477,28 +453,17 @@ void StatsPanelWidget::Update(double dt)
         UiText::DrawFit(value, Rectangle{col.x + col.width * 0.58f, y, col.width * 0.38f - 12.0f, 22.0f}, 20, valueColor);
     };
 
-    drawColumn(left, "Population & army");
+    drawColumn(left, "Population & economy");
     drawRow(left, 0, "Free manpower", std::to_string(stats.freeManpower));
     drawRow(left, 1, "Workers", std::to_string(stats.workers));
     drawRow(left, 2, "Total / cap", std::to_string(stats.totalPopulation) + " / " + std::to_string(stats.populationCap));
     drawRow(left, 3, "Growth", "+" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min", Color{154, 238, 166, 255});
     drawRow(left, 4, "Food supply", std::to_string(stats.foodSupplyPercent) + "%", stats.foodSupplyPercent < 60 ? Color{248, 126, 126, 255} : Color{154, 238, 166, 255});
-    drawRow(left, 5, "Food use", FormatOneDecimal(stats.villageFoodConsumptionPerMinute + stats.militaryFoodConsumptionPerMinute) + " / min");
-    drawRow(left, 7, "Militia", std::to_string(stats.army.militia));
-    drawRow(left, 8, "Swordsmen", std::to_string(stats.army.swordsmen));
-    drawRow(left, 9, "Archers", std::to_string(stats.army.archers));
-    drawRow(left, 10, "Training queue", std::to_string(stats.army.TotalQueued()));
-    drawRow(left, 11, "Army strength", std::to_string(stats.army.strength));
-    drawRow(left, 12, "Army supply", std::to_string(stats.army.supply) + " / " + std::to_string(stats.army.supplyCapacity));
-    drawRow(left, 14, "Buildings", std::to_string(stats.buildingCount));
-    drawRow(left, 15, "Roads", std::to_string(stats.roadCount));
-    drawRow(left, 16, "Military buildings", std::to_string(
-        player->GetTrackedBuildingCount(BuildingType::Headquarters, true) +
-        player->GetTrackedBuildingCount(BuildingType::GuardTower, true) +
-        player->GetTrackedBuildingCount(BuildingType::Fortress, true) +
-        player->GetTrackedBuildingCount(BuildingType::Castle, true) +
-        player->GetTrackedBuildingCount(BuildingType::Barracks, true)));
-    drawRow(left, 17, "Build commands", std::to_string(player->GetAcceptedCommandCount(GameCommandType::BuildBuilding)));
+    drawRow(left, 5, "Food use", FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min");
+    drawRow(left, 7, "Buildings", std::to_string(stats.buildingCount));
+    drawRow(left, 8, "Roads", std::to_string(stats.roadCount));
+    drawRow(left, 9, "Recruitment buildings", std::to_string(player->GetTrackedBuildingCount(BuildingType::Barracks, true)));
+    drawRow(left, 10, "Build commands", std::to_string(player->GetAcceptedCommandCount(GameCommandType::BuildBuilding)));
 
     drawColumn(chart, showingConsumption ? "Consumption graph" : "Production graph");
     Rectangle plot{chart.x + 46.0f, chart.y + 64.0f, chart.width - 72.0f, chart.height - 142.0f};

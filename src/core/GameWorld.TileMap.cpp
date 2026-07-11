@@ -1,5 +1,4 @@
 #include "core/GameWorldInternal.h"
-#include "simulation/SectorGraph.h"
 
 using namespace GameWorldInternal;
 
@@ -102,14 +101,6 @@ void TileMap::BuildOnTile(int id, Player *player, std::unique_ptr<Building> &&bu
             RefreshRoadTilesAround(anchor);
 
         buildingsDirty = true;
-        if (!placed->IsUnderConstruction())
-        {
-            if (placed->GetTerritoryRadius() > 0)
-            {
-                Vec2i center{anchor.x + footprint.x / 2, anchor.y + footprint.y / 2};
-                SetTerritory(center, placed->GetTerritoryRadius() * 2 + 1, player);
-            }
-        }
     }
 }
 
@@ -143,7 +134,6 @@ void TileMap::DestroyBuildingAt(int id)
     }
 
     bool wasRoad = building->HasComponent<RoadComponent>();
-    bool projectedTerritory = building->HasComponent<TerritoryComponent>();
     if (owner != nullptr)
         owner->UnregisterBuilding(building);
     if (auto* workers = building->GetComponent<WorkerComponent>())
@@ -168,8 +158,6 @@ void TileMap::DestroyBuildingAt(int id)
         RefreshRoadTilesAround(anchor);
 
     buildingsDirty = true;
-    if (projectedTerritory)
-        RecalculateTerritory(owner);
 }
 
 // Initializes TileMap::PlaceLoadedBuilding.
@@ -210,7 +198,6 @@ Building* TileMap::PlaceLoadedBuilding(int id, Player *player, std::unique_ptr<B
 // Advances UpdateBuildings for one frame or simulation tick.
 void TileMap::UpdateBuildings(double dt)
 {
-    std::vector<int> destroyedBuildings;
     for(auto& tile : tilemap)
     {
         if(tile.building == nullptr)
@@ -231,17 +218,7 @@ void TileMap::UpdateBuildings(double dt)
             }
 
             AutoConnectBuilding(tile.building.get());
-            if (tile.building->GetTerritoryRadius() > 0)
-                RecalculateTerritory(owner);
         }
-
-        if (tile.building->GetTerritoryRadius() > 0 && tile.building->GetHitPoints() <= 0)
-            destroyedBuildings.push_back(tile.id);
-    }
-
-    for (int id : destroyedBuildings)
-    {
-        DestroyBuildingAt(id);
     }
 }
 
@@ -287,7 +264,7 @@ bool TileMap::IsInsideFootprint(Vec2i anchor, Vec2i footprint) const
 }
 
 // Returns whether this condition is currently true.
-bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, bool allowDivisions) const
+bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const
 {
     if (!IsInsideFootprint(anchor, footprint))
         return false;
@@ -297,18 +274,43 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, b
         for (int x = 0; x < footprint.x; x++)
         {
             const Tile& tile = tilemap[GetIdFromCoords({anchor.x + x, anchor.y + y})];
-            if (tile.owner != player || tile.HasBuilding())
-                return false;
-            // Roads are traversable terrain — armies march on them, so a deployed
-            // friendly division does not block laying a road. Solid buildings are
-            // still blocked by any division occupying their footprint.
-            if (!allowDivisions && player != nullptr &&
-                DivisionOnTile(*player, {anchor.x + x, anchor.y + y}, -1) >= 0)
+            if (tile.HasBuilding())
                 return false;
         }
     }
 
+    // TD(etap-1) reguła bliskości: 3 kratki od wrogiej struktury (replaces the old
+    // "must already own this ground" territory gate).
+    constexpr int kEnemyProximityRadius = 3;
+    if (IsWithinEnemyProximity(anchor, footprint, player, kEnemyProximityRadius))
+        return false;
+
     return true;
+}
+
+// True when any tile within `radius` of the footprint (expanded bounding box) is
+// occupied by a building owned by a different player. Own buildings and unowned
+// ground never block; distance is Chebyshev (grid-square), not Euclidean.
+bool TileMap::IsWithinEnemyProximity(Vec2i anchor, Vec2i footprint, const Player* player, int radius) const
+{
+    if (player == nullptr || radius <= 0)
+        return false;
+
+    int minX = std::max(0, anchor.x - radius);
+    int maxX = std::min(params.sizeX - 1, anchor.x + footprint.x - 1 + radius);
+    int minY = std::max(0, anchor.y - radius);
+    int maxY = std::min(params.sizeY - 1, anchor.y + footprint.y - 1 + radius);
+
+    for (int y = minY; y <= maxY; y++)
+    {
+        for (int x = minX; x <= maxX; x++)
+        {
+            const Building* building = tilemap[GetIdFromCoords({x, y})].GetBuilding();
+            if (building != nullptr && building->owner != nullptr && building->owner != player)
+                return true;
+        }
+    }
+    return false;
 }
 
 // Returns whether this condition is currently true.
@@ -359,9 +361,7 @@ bool TileMap::HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec
 // Returns whether this condition is currently true.
 bool TileMap::CanPlaceBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, Player* player) const
 {
-    // Roads are traversable terrain — friendly divisions do not block road placement.
-    const bool allowDivisions = (type == BuildingType::Road);
-    if (!CanBuildFootprint(anchor, footprint, player, allowDivisions))
+    if (!CanBuildFootprint(anchor, footprint, player))
         return false;
 
     if (!HasRequiredTerrainForBuilding(type, anchor, footprint, 2))
@@ -619,68 +619,6 @@ void TileMap::AutoConnectBuilding(Building* building)
     {
         if (!building->HasSupplier(input.type))
             building->SetSupplier(input.type, storage);
-    }
-}
-
-// Updates the requested state value.
-void TileMap::SetTerritory(Vec2i source, int size, Player* player)
-{
-    if (player == nullptr || size <= 0)
-        return;
-
-    int half = size / 2;
-    int minX = std::max(0, source.x - half);
-    int maxX = std::min(params.sizeX - 1, source.x + half);
-    int minY = std::max(0, source.y - half);
-    int maxY = std::min(params.sizeY - 1, source.y + half);
-
-    Log::Msg("Set territory", "territory bounds: ", minX, " ", minY, " -> ", maxX, " ", maxY);
-    int radiusSq = half * half;
-    int edgeAllowance = std::max(1, half);
-
-    for(int x = minX; x <= maxX; x++)
-    {
-        for(int y = minY; y <= maxY; y++)
-        {
-            int dx = x - source.x;
-            int dy = y - source.y;
-            if (dx * dx + dy * dy > radiusSq + edgeAllowance)
-                continue;
-
-            Tile& tile = tilemap[GetIdFromCoords({x, y})];
-            if (tile.owner == nullptr || tile.owner == player)
-                tile.SetOwner(player);
-        }
-    }
-    territoryDirty = true;
-}
-
-// Initializes TileMap::RecalculateTerritory.
-void TileMap::RecalculateTerritory(Player* player)
-{
-    if (player == nullptr)
-        return;
-
-    for (auto& tile : tilemap)
-    {
-        if (tile.owner == player)
-            tile.owner = nullptr;
-    }
-    territoryDirty = true;
-
-    for (auto& tile : tilemap)
-    {
-        Building* building = tile.building.get();
-        if (building == nullptr || building->owner != player)
-            continue;
-
-        if (building->GetTerritoryRadius() <= 0 || building->GetHitPoints() <= 0 || building->IsUnderConstruction())
-            continue;
-
-        Vec2i anchor = GetCoordsFromId(building->positionId);
-        Vec2i footprint = building->GetFootprint();
-        Vec2i center{anchor.x + footprint.x / 2, anchor.y + footprint.y / 2};
-        SetTerritory(center, building->GetTerritoryRadius() * 2 + 1, player);
     }
 }
 

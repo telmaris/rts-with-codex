@@ -525,7 +525,7 @@ bool PrimitiveAIModel::TryBuildRoads(GameWorld& world, Player* player)
             if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
                 continue;
             Tile& tile = world.GetTileMap()[tileId];
-            if (tile.owner != player || tile.HasBuilding() || reservedRoadTiles.contains(tileId))
+            if (tile.HasBuilding() || reservedRoadTiles.contains(tileId))
                 continue;
             Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
             const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
@@ -730,18 +730,8 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
 
     if (axis == AIStrategyAxis::Military)
     {
-        ArmyRegistry army = player->GetArmyRegistry();
-        double population = std::max(1.0, player->GetTotalPopulation());
-        double militaryShare = army.TotalTroops() / population;
-        double targetShare = 0.08 + settings.personality.militarism * 0.18;
-        if (militaryShare < targetShare)
-            push(axis, static_cast<float>((targetShare - militaryShare) / targetShare), ResourceType::Null, "army below target share");
-        if (army.strength < 80)
-            push(axis, (80 - army.strength) / 80.0f * (0.45f + settings.personality.militarism), ResourceType::Null, "low army strength");
-        if (army.supplyCapacity > 0 && army.supply < army.supplyCapacity * 0.35)
-            push(axis, 0.45f + settings.personality.logisticsAwareness * 0.25f, ResourceType::FOOD_PROVISIONS, "low army supply readiness");
-        if (army.garrisonCapacity < completedBuildings / 3)
-            push(axis, 0.30f + settings.personality.defensiveBias * 0.35f, ResourceType::Null, "thin garrisons");
+        // TD(etap-1): stubbed — no signals until the Tower Defense rework adds a
+        // unit-roster-based read of military standing (ETAP 3+).
         return signals;
     }
 
@@ -817,17 +807,16 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
 
     if (axis == AIStrategyAxis::Diplomacy)
     {
-        int enemyMilitaryBuildings = 0;
+        int rivalBuildings = 0;
         for (const auto& tile : world.GetTileMap().tilemap)
         {
             const Building* building = tile.GetBuilding();
             if (building == nullptr || building->owner == nullptr || building->owner == player || building->IsUnderConstruction())
                 continue;
-            if (building->GetHitPoints() > 0)
-                enemyMilitaryBuildings++;
+            rivalBuildings++;
         }
-        if (enemyMilitaryBuildings > 0)
-            push(axis, std::min(1.0f, 0.20f + enemyMilitaryBuildings * 0.08f * (settings.personality.aggression + settings.personality.opportunism)), ResourceType::Null, "known armed rivals");
+        if (rivalBuildings > 0)
+            push(axis, std::min(1.0f, 0.20f + rivalBuildings * 0.02f * (settings.personality.aggression + settings.personality.opportunism)), ResourceType::Null, "known rivals");
         return signals;
     }
 
@@ -940,22 +929,10 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
     }
 
     case AIStrategyAxis::Military:
-    {
-        AIMapAssessment map = AssessMap(world, player);
-        ArmyRegistry army = player->GetArmyRegistry();
-        float strengthScore = std::tanh(army.strength / 60.0f - 1.0f);
-        float supplyScore = army.supplyCapacity > 0
-            ? std::tanh(static_cast<float>(army.supply) / army.supplyCapacity * 3.0f - 1.5f)
-            : 0.0f;
-        float threatScore = 0.0f;
-        if (map.nearestEnemyDistance < 9999)
-        {
-            float proximity = std::clamp(1.0f - map.nearestEnemyDistance / 25.0f, 0.0f, 1.0f);
-            float ownStrength = std::clamp(army.strength / 80.0f, 0.0f, 1.5f);
-            threatScore = -proximity * std::max(0.0f, 1.5f - ownStrength);
-        }
-        return std::clamp(strengthScore * 0.50f + supplyScore * 0.20f + threatScore * 0.30f, -1.0f, 1.0f);
-    }
+        // TD(etap-1): stubbed neutral — see AnalyzeAxis. Other axes' formulas
+        // (goal/plan scoring) read this via GetPressure/GetAxisScore; 0.0 keeps
+        // them inert without crashing on the removed ArmyRegistry.
+        return 0.0f;
 
     case AIStrategyAxis::Expansion:
     {
@@ -1012,24 +989,10 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
     }
 
     case AIStrategyAxis::Diplomacy:
-    {
-        int enemyMilitary = 0;
-        int ownMilitary = CountOwnedBuildings(world, player, BuildingType::GuardTower)
-                        + CountOwnedBuildings(world, player, BuildingType::Fortress)
-                        + CountOwnedBuildings(world, player, BuildingType::Castle);
-        for (const auto& tile : world.GetTileMap().tilemap)
-        {
-            const Building* b = tile.GetBuilding();
-            if (b == nullptr || b->owner == nullptr || b->owner == player || b->IsUnderConstruction())
-                continue;
-            if (b->GetHitPoints() > 0)
-                enemyMilitary++;
-        }
-        if (enemyMilitary == 0)
-            return 0.7f;
-        float ratio = static_cast<float>(ownMilitary) / std::max(1, enemyMilitary);
-        return std::clamp(std::tanh(ratio * 1.5f - 1.0f), -1.0f, 1.0f);
-    }
+        // TD(etap-1): stubbed — fortification building comparison relied on the
+        // removed GuardTower/Fortress/Castle classes and HP concept. Neutral
+        // score until the Tower Defense rework gives this axis a fresh signal.
+        return 0.5f;
 
     case AIStrategyAxis::Risk:
     {
@@ -1039,10 +1002,6 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
         int foodCons = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, ResourceType::FOOD_PROVISIONS);
         if (foodCons > 0 && foodProd < foodCons)
             acc -= 0.5f * (1.0f - static_cast<float>(foodProd) / foodCons);
-
-        ArmyRegistry army = player->GetArmyRegistry();
-        if (army.supplyCapacity > 0 && army.supply < army.supplyCapacity * 0.3)
-            acc -= 0.3f;
 
         AIMapAssessment map = AssessMap(world, player);
         if (map.nearestEnemyDistance < 18)
@@ -1131,16 +1090,6 @@ namespace
             case BuildingType::Powderworks:
                 set(AIStrategyAxis::Resources, 0.55f);
                 set(AIStrategyAxis::Military, 0.45f); break;
-            case BuildingType::GuardTower:
-                set(AIStrategyAxis::Military, 0.70f);
-                set(AIStrategyAxis::Risk, 0.60f);
-                set(AIStrategyAxis::Expansion, 0.35f); break;
-            case BuildingType::Fortress:
-                set(AIStrategyAxis::Military, 0.90f);
-                set(AIStrategyAxis::Risk, 0.70f); break;
-            case BuildingType::Castle:
-                set(AIStrategyAxis::Military, 1.00f);
-                set(AIStrategyAxis::Risk, 0.60f); break;
             case BuildingType::Barracks:
                 set(AIStrategyAxis::Military, 1.00f); break;
             default:
@@ -1240,12 +1189,8 @@ std::vector<AIMilestone> PrimitiveAIModel::BuildMilestoneChain(AIStrategicGoal g
     { return AIMilestone{AIMilestoneKind::ProductionRate, BuildingType::Building, r, "", n, label}; };
     auto Stock = [](ResourceType r, int n, const char* label)
     { return AIMilestone{AIMilestoneKind::ResourceStock, BuildingType::Building, r, "", n, label}; };
-    auto Army = [](int n, const char* label)
-    { return AIMilestone{AIMilestoneKind::ArmyStrength, BuildingType::Building, ResourceType::Null, "", n, label}; };
     auto Tag = [](const char* tag, int n, const char* label)
     { return AIMilestone{AIMilestoneKind::TechWithTag, BuildingType::Building, ResourceType::Null, tag, n, label}; };
-
-    bool aggressive = settings.personality.aggression > 0.55f || settings.personality.militarism > 0.55f;
 
     switch (goal)
     {
@@ -1260,10 +1205,8 @@ std::vector<AIMilestone> PrimitiveAIModel::BuildMilestoneChain(AIStrategicGoal g
             };
         case AIStrategicGoal::ExpandTerritory:
             return {
-                B(BuildingType::GuardTower, 1, "border tower"),
                 B(BuildingType::Woodcutter, 2, "extra extraction"),
-                B(BuildingType::StorageBuilding, 1, "forward storage"),
-                B(BuildingType::GuardTower, 2, "second tower")
+                B(BuildingType::StorageBuilding, 1, "forward storage")
             };
         case AIStrategicGoal::DevelopInfrastructure:
             return {
@@ -1274,27 +1217,20 @@ std::vector<AIMilestone> PrimitiveAIModel::BuildMilestoneChain(AIStrategicGoal g
                 B(BuildingType::Windmill, 1, "windmill"),
                 B(BuildingType::Bakery, 1, "bakery")
             };
+        // TD(etap-1): BuildMilitary/LaunchOffensive/Fortify used to chain through
+        // Barracks recruitment and GuardTower/Fortress defenses; both the army
+        // strength milestone and those building types are gone. Reduced to a
+        // harmless single-step chain so the goal/milestone state machine never
+        // stalls if personality weights still select one of these goals — a real
+        // military chain returns with the Tower Defense unit/tower systems.
         case AIStrategicGoal::BuildMilitary:
-            return {
-                B(BuildingType::Barracks, 1, "barracks"),
-                Army(40, "starter army"),
-                Rate(ResourceType::FOOD_PROVISIONS, 4, "supply flow"),
-                Army(80, "standing army"),
-                B(BuildingType::GuardTower, aggressive ? 3 : 2, "defensive towers")
-            };
         case AIStrategicGoal::LaunchOffensive:
             return {
-                B(BuildingType::Barracks, 1, "barracks"),
-                Army(60, "assault force"),
-                Stock(ResourceType::FOOD_PROVISIONS, 15, "campaign supplies"),
-                AIMilestone{AIMilestoneKind::AttackReady, BuildingType::Building, ResourceType::Null, "", 70, "strike"}
+                B(BuildingType::Barracks, 1, "barracks")
             };
         case AIStrategicGoal::Fortify:
             return {
-                B(BuildingType::GuardTower, 2, "perimeter towers"),
-                B(BuildingType::StorageBuilding, 2, "deep reserves"),
-                B(BuildingType::Fortress, 1, "fortress"),
-                Army(50, "garrison force")
+                B(BuildingType::StorageBuilding, 2, "deep reserves")
             };
     }
     return {};
@@ -1319,8 +1255,13 @@ double PrimitiveAIModel::MilestoneProgress(GameWorld& world, Player* player, con
             return ratio(GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute, m.resource), m.threshold);
         case AIMilestoneKind::ResourceStock:
             return ratio(CountStoredResource(world, player, m.resource), m.threshold);
+        // TD(etap-1): stubbed complete — ArmyRegistry is gone and no goal chain
+        // still emits these two kinds (see BuildMilitaryChain), but the switch
+        // must stay exhaustive. Always-satisfied so a stray milestone can never
+        // stall the goal state machine.
         case AIMilestoneKind::ArmyStrength:
-            return ratio(player->GetArmyRegistry().strength, m.threshold);
+        case AIMilestoneKind::AttackReady:
+            return 1.0;
         case AIMilestoneKind::TechWithTag:
         {
             int count = 0;
@@ -1328,12 +1269,6 @@ double PrimitiveAIModel::MilestoneProgress(GameWorld& world, Player* player, con
                 if (player->technologies.HasTechnology(def.id) && HasTag(def, m.tag))
                     count++;
             return ratio(count, m.threshold);
-        }
-        case AIMilestoneKind::AttackReady:
-        {
-            ArmyRegistry army = player->GetArmyRegistry();
-            bool supplied = army.supplyCapacity <= 0 || army.supply >= army.supplyCapacity * 0.4;
-            return (army.strength >= m.threshold && supplied) ? 1.0 : ratio(army.strength, m.threshold) * 0.9;
         }
     }
     return 1.0;
@@ -1421,29 +1356,6 @@ Building* PrimitiveAIModel::FindUniversity(GameWorld& world, Player* player) con
             return building;
     }
     return nullptr;
-}
-
-Building* PrimitiveAIModel::FindRecruitmentBarracks(GameWorld& world, Player* player) const
-{
-    Building* best = nullptr;
-    int fewestQueued = std::numeric_limits<int>::max();
-    for (auto* building : player->GetTrackedBuildings())
-    {
-        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
-            continue;
-        if (building->buildingType != BuildingType::Barracks)
-            continue;
-        const auto* recruitment = building->GetComponent<RecruitmentComponent>();
-        if (recruitment == nullptr || building->GetComponent<GarrisonComponent>() == nullptr)
-            continue;
-        int queued = static_cast<int>(recruitment->queue.size());
-        if (queued < fewestQueued)
-        {
-            fewestQueued = queued;
-            best = building;
-        }
-    }
-    return fewestQueued <= 2 ? best : nullptr;  // don't pile up endless recruitment jobs
 }
 
 std::string PrimitiveAIModel::SelectResearchTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const
@@ -1576,7 +1488,6 @@ std::vector<AIActionCandidate> PrimitiveAIModel::GatherActionCandidates(GameWorl
     addBuild(BuildingType::StorageBuilding, false);
     addBuild(BuildingType::Village, false);
     addBuild(BuildingType::University, false);
-    addBuild(BuildingType::GuardTower, false);
     if (settings.personality.militarism > 0.4f || goalState.goal == AIStrategicGoal::BuildMilitary
         || goalState.goal == AIStrategicGoal::LaunchOffensive)
         addBuild(BuildingType::Barracks, false);
@@ -1606,34 +1517,12 @@ std::vector<AIActionCandidate> PrimitiveAIModel::GatherActionCandidates(GameWorl
         }
     }
 
-    // (f) Recruit — when we have a barracks with spare queue and the manpower.
-    if (player->strategicResources.Get(StrategicResourceType::Manpower) >= 1.0)
-    {
-        Building* barracks = FindRecruitmentBarracks(world, player);
-        if (barracks != nullptr)
-        {
-            AIActionCandidate c;
-            c.kind = AIActionKind::Recruit;
-            c.sourceTileId = barracks->positionId;
-            c.unitType = MilitaryUnitType::Militia;
-            candidates.push_back(std::move(c));
-        }
-    }
-
-    // (g) Attack — when offensive-minded and an enemy is reachable.
-    if (attackTimer <= 0.0)
-    {
-        Building* bestMilitary = FindBestMilitary(world, player);
-        Building* enemy = bestMilitary != nullptr ? FindNearestEnemyMilitary(world, player, bestMilitary) : nullptr;
-        if (bestMilitary != nullptr && enemy != nullptr)
-        {
-            AIActionCandidate c;
-            c.kind = AIActionKind::Attack;
-            c.sourceTileId = bestMilitary->positionId;
-            c.targetTileId = enemy->positionId;
-            candidates.push_back(std::move(c));
-        }
-    }
+    // TD(etap-1): Recruit/Attack candidate generation removed with the old war
+    // system (RecruitmentComponent/GarrisonComponent/ArmyRegistry) — no candidate
+    // of either kind is ever produced now, so ScoreAction/ExecuteAction's cases
+    // for them are unreachable stubs kept only so those switches stay exhaustive.
+    // A fresh recruitment/attack pipeline returns with the Tower Defense unit
+    // roster and military-road systems (ETAP 3+).
 
     return candidates;
 }
@@ -1683,25 +1572,12 @@ double PrimitiveAIModel::ScoreAction(GameWorld& world, Player* player, const AIA
             double drive = 0.7 + settings.personality.planning * 0.5;
             return base * drive * alignment * noise;
         }
+        // TD(etap-1): unreachable — GatherActionCandidates never emits these
+        // kinds anymore (see its comment). Kept only so this switch stays
+        // exhaustive; scores are irrelevant since no candidate exists to score.
         case AIActionKind::Recruit:
-        {
-            ArmyRegistry army = player->GetArmyRegistry();
-            double militaryPressure = snapshot.GetPressure(AIStrategyAxis::Military);
-            double base = 9.0 + militaryPressure * 16.0;
-            double goalBoost = (goalState.goal == AIStrategicGoal::BuildMilitary || goalState.goal == AIStrategicGoal::LaunchOffensive) ? 1.5 : 0.8;
-            double supplyCap = army.supplyCapacity > 0 && army.supply < army.supplyCapacity * 0.2 ? 0.4 : 1.0;
-            return base * (0.5 + settings.personality.militarism) * alignment * goalBoost * supplyCap * noise;
-        }
         case AIActionKind::Attack:
-        {
-            double readiness = std::clamp(static_cast<double>(snapshot.GetAxisScore(AIStrategyAxis::Military)), 0.0, 1.0) * 0.5
-                             + std::clamp(static_cast<double>(snapshot.GetAxisScore(AIStrategyAxis::Diplomacy)), 0.0, 1.0) * 0.5;
-            if (snapshot.GetAxisScore(AIStrategyAxis::Risk) < -0.4f)
-                readiness *= 0.3;  // don't march out while the home front is collapsing
-            double base = 8.0 + readiness * 40.0;
-            double goalBoost = goalState.goal == AIStrategicGoal::LaunchOffensive ? 1.6 : 0.7;
-            return base * (0.3 + settings.personality.aggression + settings.personality.opportunism * 0.4) * alignment * goalBoost * noise;
-        }
+            return 0.0;
     }
     return 0.0;
 }
@@ -1736,25 +1612,10 @@ bool PrimitiveAIModel::ExecuteAction(GameWorld& world, Player* player, const AIA
             world.SubmitCommand(GameCommand::StartFocus(player->id, candidate.researchId));
             return true;
         }
+        // TD(etap-1): unreachable — see GatherActionCandidates/ScoreAction.
         case AIActionKind::Recruit:
-        {
-            if (candidate.sourceTileId < 0)
-                return false;
-            world.SubmitCommand(GameCommand::RecruitUnit(player->id, candidate.sourceTileId, candidate.unitType));
-            return true;
-        }
         case AIActionKind::Attack:
-        {
-            if (candidate.sourceTileId < 0 || candidate.targetTileId < 0)
-                return false;
-            // attackTimer is reset by the caller (RunUnifiedDecision) before dispatch.
-            // Combat is division-based: order the source garrison's divisions to
-            // march on and siege the target (divisionId < 0 = whole garrison).
-            world.SubmitCommand(GameCommand::IssueMilitaryOrder(
-                player->id, MilitaryOrderType::Attack,
-                candidate.sourceTileId, candidate.targetTileId));
-            return true;
-        }
+            return false;
     }
     return false;
 }
@@ -2064,7 +1925,10 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
 
     for (const auto& tile : world.GetTileMap().tilemap)
     {
-        if (tile.owner != player || tile.HasBuilding())
+        // TD(etap-1): tile ownership no longer expands (RecalculateTerritory is
+        // gone) — placement is now gated solely by CanPlaceBuilding's occupancy +
+        // enemy-proximity rule, matching what the human player's build UI allows.
+        if (tile.HasBuilding())
             continue;
 
         Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
@@ -2280,9 +2144,6 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
             return false;
 
         Tile& tile = world.GetTileMap()[tileId];
-        if (tile.owner != player)
-            return false;
-
         Building* building = tile.GetBuilding();
         return building == nullptr || building->buildingType == BuildingType::Road;
     };
@@ -2377,53 +2238,3 @@ bool PrimitiveAIModel::SubmitRoadPath(GameWorld& world, Player* player, const Bu
     return submitted;
 }
 
-// Finds the best matching runtime object.
-Building* PrimitiveAIModel::FindBestMilitary(GameWorld& world, Player* player) const
-{
-    Building* bestMilitary = nullptr;
-    int bestSourceStrength = -1;
-    (void)world;
-    if (player == nullptr)
-        return nullptr;
-
-    for (Building* building : player->GetTrackedBuildingsWithComponent<GarrisonComponent>())
-    {
-        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
-            continue;
-
-        const auto* territory = building->GetComponent<TerritoryComponent>();
-        const auto* garrison = building->GetComponent<GarrisonComponent>();
-        if (territory == nullptr || garrison == nullptr || territory->hp <= 0)
-            continue;
-
-        int strength = garrison->GetEffectiveStrength(*building);
-        if (strength > bestSourceStrength)
-        {
-            bestSourceStrength = strength;
-            bestMilitary = building;
-        }
-    }
-    return bestMilitary;
-}
-
-// Finds the best matching runtime object.
-Building* PrimitiveAIModel::FindNearestEnemyMilitary(GameWorld& world, Player* player, const Building* source) const
-{
-    // Use PathingService to find nearest enemy military building
-    PathingService* pather = world.GetPathingService();
-    if (pather == nullptr || source == nullptr)
-        return nullptr;
-
-    auto sourcePos = world.GetTileMap().GetCoordsFromId(source->positionId);
-
-    auto predicate = [&](const Building* building) -> bool {
-        if (building == nullptr || building->owner == player || building->IsUnderConstruction())
-            return false;
-        if (!IsMilitaryAttackTarget(*building))
-            return false;
-        const auto* territory = building->GetComponent<TerritoryComponent>();
-        return territory != nullptr && territory->hp > 0;
-    };
-
-    return pather->FindNearestBuilding(sourcePos, predicate, Domain::Global());
-}

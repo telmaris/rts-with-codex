@@ -12,7 +12,6 @@ target_sources(game
                core/GameWorld.Commands.cpp
                core/GameWorld.Checksum.cpp
                core/GameWorld.Render.cpp
-               core/GameWorld.Battles.cpp
                ai/Controller.cpp
                research/Technology.cpp
                economy/Building.cpp
@@ -21,21 +20,16 @@ target_sources(game
                economy/LogisticsComponent.cpp
                economy/WorkersComponent.cpp
                economy/StorageComponent.cpp
-               economy/TerritoryComponent.cpp
-               economy/GarrisonComponent.cpp
-               economy/SupplyBufferComponent.cpp
-               economy/RecruitmentComponent.cpp
                economy/PopulationComponent.cpp
-               economy/SupplyPackageComponent.cpp
                economy/BuildingConfig.cpp
                economy/ConstructionQueue.cpp
                economy/Player.cpp
                scenes/Game.cpp
                data/Resource.cpp
+               data/Equipment.cpp
                simulation/RoadNetwork.cpp
                simulation/PathingService.cpp
                simulation/MapGenerator.cpp
-               simulation/SectorGraph.cpp
                data/RtsDataFile.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
@@ -59,14 +53,6 @@ target_sources(game
                ui/GuiHudPanels.cpp
                ui/GuiResearchTree.cpp
                ui/GuiBuildModes.cpp
-               warfare/ArmyGroup.cpp
-               warfare/ArmyOrder.cpp
-               warfare/Division.cpp
-               warfare/Battle.cpp
-               warfare/Equipment.cpp
-               warfare/UnitStats.cpp
-               warfare/DivisionSector.cpp
-               warfare/MovementPlanner.cpp
                ai/DiplomaticState.cpp
                ui/AudioSystem.cpp
                WinmmStubs.cpp)
@@ -75,18 +61,16 @@ target_sources(game
 source_group("core" FILES
              core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
              core/GameWorld.Persistence.cpp core/GameWorld.Commands.cpp
-             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Battles.cpp)
+             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp)
 
 source_group("ai" FILES ai/Controller.cpp ai/DiplomaticState.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
 source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInternal.cpp
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
-             economy/StorageComponent.cpp economy/TerritoryComponent.cpp economy/GarrisonComponent.cpp
-             economy/SupplyBufferComponent.cpp economy/RecruitmentComponent.cpp economy/PopulationComponent.cpp
-             economy/SupplyPackageComponent.cpp
+             economy/StorageComponent.cpp economy/PopulationComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/Player.cpp)
-source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp simulation/SectorGraph.cpp)
-source_group("data" FILES data/Resource.cpp data/RtsDataFile.cpp)
+source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp)
+source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/RtsDataFile.cpp)
 source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
@@ -95,5 +79,3 @@ source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUt
 source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/AudioSystem.cpp)
-source_group("warfare" FILES warfare/ArmyGroup.cpp warfare/ArmyOrder.cpp warfare/Division.cpp warfare/Battle.cpp warfare/Equipment.cpp
-             warfare/UnitStats.cpp warfare/DivisionSector.cpp warfare/MovementPlanner.cpp)

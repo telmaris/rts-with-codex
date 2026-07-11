@@ -3,8 +3,6 @@
 #include "economy/ProductionBuildings.h"
 #include "economy/Player.h"
 #include "simulation/MapGenerator.h"
-#include "economy/SupplyTransport.h"
-#include "warfare/Equipment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -125,18 +123,6 @@ void Building::AddResource(Resource* res)
         return;
     }
 
-    if (auto* supply = GetComponent<SupplyBufferComponent>())
-    {
-        if (res->type != ResourceType::FOOD_PROVISIONS || !CanReceiveResource(res->type))
-        {
-            if (res->sourceBuilding != nullptr)
-                res->sourceBuilding->ReturnOutgoingResource(res);
-            return;
-        }
-        supply->AddResource(res);
-        return;
-    }
-
     if (auto* pop = GetComponent<PopulationComponent>())
     {
         if (res->type != ResourceType::FOOD_PROVISIONS || !CanReceiveResource(res->type))
@@ -163,8 +149,6 @@ Resource Building::GetResource(ResourceType type)
     }
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->GetResource(type);
-    if (auto* supply = GetComponent<SupplyBufferComponent>())
-        return type == ResourceType::FOOD_PROVISIONS ? supply->GetResource() : Resource{};
     if (auto* pop = GetComponent<PopulationComponent>())
     {
         if (type != ResourceType::FOOD_PROVISIONS) return Resource{};
@@ -189,9 +173,7 @@ void Building::ReturnOutgoingResource(Resource* res)
     }
     if (res->type != ResourceType::FOOD_PROVISIONS)
         return;
-    if (auto* supply = GetComponent<SupplyBufferComponent>())
-        supply->ReturnOutgoingResource(res);
-    else if (auto* pop = GetComponent<PopulationComponent>())
+    if (auto* pop = GetComponent<PopulationComponent>())
         pop->foodBuffer.AddResource(res);
 }
 
@@ -255,9 +237,6 @@ int Building::HandleTransport(ResourceType type, int amount, Building* receiver)
     }
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->HandleTransport(type, amount, receiver, *this);
-    if (auto* supply = GetComponent<SupplyBufferComponent>())
-        return type == ResourceType::FOOD_PROVISIONS
-            ? supply->HandleTransport(amount, receiver, *this) : 0;
     return 0;
 }
 
@@ -267,8 +246,7 @@ bool Building::CanAcceptResource(ResourceType type) const
         return prod->inputBuffers.contains(type);
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanAccept(type);
-    if (GetComponent<SupplyBufferComponent>() != nullptr ||
-        GetComponent<PopulationComponent>() != nullptr)
+    if (GetComponent<PopulationComponent>() != nullptr)
         return type == ResourceType::FOOD_PROVISIONS;
     return false;
 }
@@ -283,8 +261,6 @@ bool Building::CanReceiveResource(ResourceType type) const
     }
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanReceive(type);
-    if (auto* supply = GetComponent<SupplyBufferComponent>())
-        return type == ResourceType::FOOD_PROVISIONS && supply->CanReceive();
     if (auto* pop = GetComponent<PopulationComponent>())
         return type == ResourceType::FOOD_PROVISIONS &&
                static_cast<int>(pop->foodBuffer.buffer.size()) < pop->foodBuffer.bufferSize;
@@ -372,18 +348,6 @@ int Building::GetWorkerCapacity() const
 bool Building::CanBlockProduction() const
 {
     return HasComponent<ProductionComponent>();
-}
-
-int Building::GetHitPoints() const
-{
-    auto* territory = GetComponent<TerritoryComponent>();
-    return territory != nullptr ? territory->hp : 0;
-}
-
-int Building::GetTerritoryRadius() const
-{
-    auto* territory = GetComponent<TerritoryComponent>();
-    return territory != nullptr ? territory->GetRadius(*this) : 0;
 }
 
 bool Building::IsProductionStalled() const
@@ -483,22 +447,6 @@ void Building::ReceptTransport(Transportable* trans)
                      positionId, " pos: ", trans->map->GetCoordsFromId(positionId));
             AddResource(ptr);
         }
-        else if (auto* pkg = dynamic_cast<SupplyPackageTransportable*>(trans))
-        {
-            Log::Msg(tag, "Supply package arrived; ID: ", positionId,
-                     " pos: ", trans->map->GetCoordsFromId(positionId));
-            bool applied = ApplyPackageToMilitary(pkg->payload, *this);
-            // If military application failed (no garrison), try civilian (village food supply).
-            if (!applied && pkg->payload.category == SupplyCategory::Food)
-            {
-                if (auto* pop = GetComponent<PopulationComponent>())
-                {
-                    pop->AbsorbFoodPackage(pkg->payload);
-                    applied = true;
-                }
-            }
-            pkg->delivered = applied;
-        }
     }
     else
     {
@@ -550,18 +498,9 @@ Headquarters::Headquarters(int actualId)
 {
     id = actualId;
     RegisterComponent(&storage);
-    RegisterComponent(&territory);
-    RegisterComponent(&garrison);
-    // BUG 3c: HQ acts as a full supply depot — must register supplyBuffer so
-    // GetComponent<SupplyBufferComponent>() returns non-null and the save/load
-    // reads weaponStock/materielStock fields consistently for this building.
-    RegisterComponent(&supplyBuffer);
     const auto& def = GetBuildingDefinition(BuildingType::Headquarters);
     ApplyBuildingDefinition(*this, def);
     ApplyStorageDefinition(*this, def);
-    territory.radius = def.military.territoryRadius;
-    territory.hp     = def.military.hitPoints;
-    territory.maxHp  = def.military.hitPoints;
 }
 
 // ─── Village ─────────────────────────────────────────────────────────────────
@@ -579,62 +518,12 @@ Village::Village(int actualId)
     RegisterComponent(&population);
 }
 
-// ─── GuardTower / Fortress / Castle ──────────────────────────────────────────
-
-GuardTower::GuardTower(int actualId)
-{
-    id = actualId;
-    RegisterComponent(&territory);
-    RegisterComponent(&garrison);
-    RegisterComponent(&supplyBuffer);
-    const auto& def = GetBuildingDefinition(BuildingType::GuardTower);
-    ApplyBuildingDefinition(*this, def);
-    ApplyMilitaryDefinition(*this, def);
-}
-
-Fortress::Fortress(int actualId)
-{
-    id = actualId;
-    RegisterComponent(&territory);
-    RegisterComponent(&garrison);
-    RegisterComponent(&supplyBuffer);
-    const auto& def = GetBuildingDefinition(BuildingType::Fortress);
-    ApplyBuildingDefinition(*this, def);
-    ApplyMilitaryDefinition(*this, def);
-}
-
-Castle::Castle(int actualId)
-{
-    id = actualId;
-    RegisterComponent(&territory);
-    RegisterComponent(&garrison);
-    RegisterComponent(&supplyBuffer);
-    const auto& def = GetBuildingDefinition(BuildingType::Castle);
-    ApplyBuildingDefinition(*this, def);
-    ApplyMilitaryDefinition(*this, def);
-}
-
 // ─── Barracks ────────────────────────────────────────────────────────────────
 
 Barracks::Barracks(int actualId)
 {
     id = actualId;
-    RegisterComponent(&territory);
-    RegisterComponent(&garrison);
-    RegisterComponent(&supplyBuffer);
-    RegisterComponent(&recruitment);
     const auto& def = GetBuildingDefinition(BuildingType::Barracks);
-    ApplyBuildingDefinition(*this, def);
-    ApplyMilitaryDefinition(*this, def);
-}
-
-// ─── SupplyHub ───────────────────────────────────────────────────────────────
-
-SupplyHub::SupplyHub(int actualId)
-{
-    id = actualId;
-    RegisterComponent(&packaging);
-    const auto& def = GetBuildingDefinition(BuildingType::SupplyHub);
     ApplyBuildingDefinition(*this, def);
 }
 

@@ -9,8 +9,7 @@ int ConstructionQueue::EffectiveBuilders(const Player& player) const
 {
     // Never drop below a single builder, otherwise construction would deadlock.
     return player.ModifyBalanceInt(BalanceStat::BuilderAmount, builders.GetBase(),
-                                   BuildingType::Building, ResourceType::Null,
-                                   std::nullopt, 1);
+                                   BuildingType::Building, ResourceType::Null, 1);
 }
 
 void ConstructionQueue::Refresh(Player& player)

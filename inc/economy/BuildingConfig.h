@@ -53,17 +53,6 @@ struct VillageDefinition
     double foodPackageUpkeep{1.0};
 };
 
-struct MilitaryDefinition
-{
-    int territoryRadius{0};
-    int hitPoints{0};
-    int combatStrength{0};
-    int garrison{0};
-    int garrisonCapacity{0};
-    int supply{0};
-    int supplyCapacity{0};
-};
-
 struct BuildingDefinition
 {
     BuildingType type{BuildingType::Building};
@@ -81,7 +70,6 @@ struct BuildingDefinition
     std::vector<ResourceBufferDefinition> storageBuffers;
     RoadDefinition road;
     VillageDefinition village;
-    MilitaryDefinition military;
     std::vector<std::string> requiredTechnologies;
     std::vector<std::string> requiredFocuses;
     std::vector<ProductionRecipeDefinition> recipes;
@@ -114,8 +102,5 @@ void ApplyProductionRecipes(Building& building, const BuildingDefinition& defini
 
 // Applies storage buffer data to a building's storage component.
 void ApplyStorageDefinition(Building& building, const BuildingDefinition& definition);
-
-// Applies military stats to a building's territory/garrison/supply components.
-void ApplyMilitaryDefinition(Building& building, const BuildingDefinition& definition);
 
 #endif

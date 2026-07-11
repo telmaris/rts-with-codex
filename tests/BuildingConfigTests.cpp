@@ -85,13 +85,6 @@ TEST(BuildingConfigTests, AppliesDefinitionsToRuntimeBuildings)
     ApplyStorageDefinition(storage, hq);
     EXPECT_FALSE(storage.storage.buffers.empty());
 
-    GuardTower military{3};
-    const auto& tower = GetBuildingDefinition(BuildingType::GuardTower);
-    ApplyMilitaryDefinition(military, tower);
-    EXPECT_EQ(military.territory.hp, tower.military.hitPoints);
-    EXPECT_EQ(military.garrison.GetTotalTroops(), 0);
-    EXPECT_EQ(military.garrison.garrison, 0);
-    EXPECT_EQ(military.supplyBuffer.stored, tower.military.supply);
 }
 
 TEST(BuildingConfigTests, LoadsBuildingDataFileWithProductionStorageRoadVillageAndMilitarySections)
@@ -109,7 +102,6 @@ building Headquarters
     texture_id 42
     storage WOOD 100 50
     storage STONE 90
-    military territory_radius 14 hit_points 1100 strength 5 garrison 3 garrison_capacity 40 supply 12 supply_capacity 60
 end
 building Woodcutter
     name "Fast Woodcutter"
@@ -159,9 +151,6 @@ end
     EXPECT_EQ(hq.storageBuffers[0].type, ResourceType::WOOD);
     EXPECT_EQ(hq.storageBuffers[0].initialAmount, 50);
     EXPECT_EQ(hq.storageBuffers[1].initialAmount, 0);
-    EXPECT_EQ(hq.military.territoryRadius, 14);
-    EXPECT_EQ(hq.military.hitPoints, 1100);
-    EXPECT_EQ(hq.military.supplyCapacity, 60);
 
     const auto& woodcutter = definitions[1];
     EXPECT_EQ(woodcutter.buildCostText, "WOOD 11, STONE 4");

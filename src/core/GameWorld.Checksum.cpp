@@ -1,5 +1,8 @@
 #include "core/GameWorld.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace
 {
     void HashValue(std::uint64_t& hash, std::uint64_t value)
@@ -33,7 +36,19 @@ std::uint64_t GameWorld::BuildChecksum() const
 
         HashInt(hash, player->dataTracker.CountBuildings(BuildingType::Headquarters));
         HashValue(hash, static_cast<std::uint64_t>(player->dataTracker.buildings.size()));
-        for (const auto* building : player->dataTracker.buildings)
+
+        // dataTracker.buildings is a std::set<Building*> ordered by raw pointer
+        // value, which differs between independently-allocated host/client
+        // processes. Sort by the stable, assigned building id before hashing so
+        // the checksum doesn't depend on heap layout.
+        std::vector<const Building*> orderedBuildings(player->dataTracker.buildings.begin(),
+                                                        player->dataTracker.buildings.end());
+        std::sort(orderedBuildings.begin(), orderedBuildings.end(), [](const Building* a, const Building* b)
+        {
+            return a->id < b->id;
+        });
+
+        for (const auto* building : orderedBuildings)
         {
             if (building == nullptr)
                 continue;

@@ -1,10 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
 #include "simulation/MapGenerator.h"
-#include "warfare/DivisionSector.h"
-#include "warfare/MovementPlanner.h"
-#include "simulation/SectorGraph.h"
-#include "warfare/Equipment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,7 +19,7 @@ float WorkerComponent::GetRatio() const
 int WorkerComponent::GetModifiedCapacity(const Building& self) const
 {
     return self.owner != nullptr
-        ? self.owner->ResolveStat(capacity, &self, ResourceType::Null, std::nullopt, 0)
+        ? self.owner->ResolveStat(capacity, &self, ResourceType::Null, 0)
         : capacity.GetBase();
 }
 

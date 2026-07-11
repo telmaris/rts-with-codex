@@ -1,10 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
 #include "simulation/MapGenerator.h"
-#include "warfare/DivisionSector.h"
-#include "warfare/MovementPlanner.h"
-#include "simulation/SectorGraph.h"
-#include "warfare/Equipment.h"
 #include "BuildingComponentsInternal.h"
 
 #include <algorithm>

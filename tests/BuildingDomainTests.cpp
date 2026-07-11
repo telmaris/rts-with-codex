@@ -93,15 +93,7 @@ TEST(BuildingDomainTests, BuildingCapabilitiesExposeAttachedComponents)
 
     Headquarters headquarters{3};
     EXPECT_TRUE(headquarters.HasComponent<StorageComponent>());
-    EXPECT_TRUE(headquarters.HasComponent<TerritoryComponent>());
     EXPECT_EQ(headquarters.GetComponent<StorageComponent>(), &headquarters.storage);
-    EXPECT_EQ(headquarters.GetComponent<TerritoryComponent>(), &headquarters.territory);
-
-    Barracks barracks{4};
-    EXPECT_TRUE(barracks.HasComponent<GarrisonComponent>());
-    EXPECT_TRUE(barracks.HasComponent<SupplyBufferComponent>());
-    EXPECT_TRUE(barracks.HasComponent<RecruitmentComponent>());
-    EXPECT_EQ(barracks.GetComponent<RecruitmentComponent>(), &barracks.recruitment);
 }
 
 TEST(BuildingDomainTests, ProductionBuildingReportsBuffersConnectionsAndStalledState)
@@ -399,78 +391,6 @@ TEST(BuildingDomainTests, ProducerPushesResourceImmediatelyWhenProductionComplet
     EXPECT_TRUE(woodcutter->HasReceiver(ResourceType::WOOD));
 }
 
-TEST(BuildingDomainTests, MilitaryBuildingTracksTroopsDamageAndOrders)
-{
-    GuardTower tower{11};
-    tower.garrison.militia = 2;
-    tower.garrison.swordsmen = 1;
-    tower.garrison.archers = 1;
-    tower.territory.hp = 20;
-    tower.garrison.cap = 8;
-    tower.supplyBuffer.capacity = 5;
-
-    EXPECT_EQ(tower.garrison.GetTotalTroops(), 4);
-    EXPECT_EQ(tower.garrison.GetFreeGarrisonSpace(tower), 4);
-    EXPECT_GT(tower.garrison.GetEffectiveStrength(tower), 0);
-    EXPECT_EQ(tower.supplyBuffer.GetModifiedCapacity(tower), 5);
-
-    tower.territory.ReceiveDamage(7);
-    EXPECT_EQ(tower.GetHitPoints(), 13);
-    tower.territory.ReceiveDamage(999);
-    EXPECT_EQ(tower.GetHitPoints(), 0);
-
-    tower.garrison.IssueOrder(MilitaryOrderType::Defend, 123);
-    EXPECT_EQ(tower.garrison.currentOrder, MilitaryOrderType::Defend);
-    EXPECT_EQ(tower.garrison.orderTargetId, 123);
-    tower.garrison.ClearOrder();
-    EXPECT_EQ(tower.garrison.currentOrder, MilitaryOrderType::None);
-}
-
-TEST(BuildingDomainTests, BarracksConsumesManpowerAndCompletesRecruitment)
-{
-    TileMap map;
-    Player player{0, map};
-    FillOwnedGrass(map, &player);
-
-    auto* hq = dynamic_cast<Headquarters*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({5, 5}), &player, std::make_unique<Headquarters>(200)));
-    ASSERT_NE(hq, nullptr);
-    hq->constructionRemaining = 0.0;
-    // Fixture amounts cover the full establishment cost of one Militia + one
-    // Swordsman + one Archer division (Phase A recruitment costs — see
-    // GetBaseRecruitmentResourceCosts/GetBaseRecruitmentManpowerCost).
-    hq->storage.buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 60};
-    hq->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(60);
-    hq->storage.buffers[ResourceType::WEAPON_SUPPLY] = ResourceBuffer{ResourceType::WEAPON_SUPPLY, 80};
-    hq->storage.buffers[ResourceType::WEAPON_SUPPLY].SetStoredAmount(80);
-    hq->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 40};
-    hq->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(40);
-    hq->storage.buffers[ResourceType::BOW] = ResourceBuffer{ResourceType::BOW, 40};
-    hq->storage.buffers[ResourceType::BOW].SetStoredAmount(40);
-    hq->storage.buffers[ResourceType::ARROWS] = ResourceBuffer{ResourceType::ARROWS, 80};
-    hq->storage.buffers[ResourceType::ARROWS].SetStoredAmount(80);
-
-    Barracks barracks{30};
-    barracks.owner = &player;
-    barracks.garrison.cap = 50;
-    barracks.constructionRemaining = 0.0;
-    player.strategicResources.Set(StrategicResourceType::Manpower, 420);
-
-    ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Militia));
-    ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Swordsman));
-    ASSERT_TRUE(barracks.QueueRecruitment(MilitaryUnitType::Archer));
-    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 0.0);
-
-    barracks.Update(100.0);
-    barracks.Update(100.0);
-    barracks.Update(100.0);
-
-    EXPECT_EQ(barracks.garrison.militia, 1);
-    EXPECT_EQ(barracks.garrison.swordsmen, 1);
-    EXPECT_EQ(barracks.garrison.archers, 1);
-    EXPECT_TRUE(barracks.recruitment.queue.empty());
-}
-
 TEST(BuildingDomainTests, RoadStatsUseConfiguredBaseValues)
 {
     Road road{20};
@@ -523,16 +443,10 @@ TEST(BuildingDomainTests, ConfiguredBuildingConstructorsApplyRuntimeDefinitions)
 
     Headquarters hq{14};
     Village village{15};
-    GuardTower tower{16};
-    Fortress fortress{17};
-    Castle castle{18};
     Barracks barracks{19};
     EXPECT_EQ(hq.buildingType, BuildingType::Headquarters);
     EXPECT_FALSE(hq.CanBeManuallyDestroyed());
     EXPECT_EQ(village.buildingType, BuildingType::Village);
-    EXPECT_EQ(tower.buildingType, BuildingType::GuardTower);
-    EXPECT_EQ(fortress.buildingType, BuildingType::Fortress);
-    EXPECT_EQ(castle.buildingType, BuildingType::Castle);
     EXPECT_EQ(barracks.buildingType, BuildingType::Barracks);
 }
 
@@ -664,7 +578,7 @@ TEST(BuildingDomainTests, ConstructionQueueLimitsActiveBuildersAndTracksPosition
     // A BuilderAmount buff (tech / focus / national) widens the active window.
     player.balanceModifiers.AddModifier(BalanceModifier{
         BalanceStat::BuilderAmount, 1.0, 1.0, BalanceModifierScope::Global(),
-        std::nullopt, std::nullopt, std::nullopt, "tech:masons"});
+        std::nullopt, std::nullopt, "tech:masons"});
     EXPECT_EQ(player.construction.EffectiveBuilders(player), 2);
     player.construction.Refresh(player);
     EXPECT_TRUE(player.construction.IsActive(second->id));
@@ -701,79 +615,3 @@ TEST(BuildingDomainTests, RefundBuildCostReturnsResourcesToStorageAndDropsOverfl
     storage->storage.buffers[ResourceType::WOOD].Clear();
 }
 
-TEST(BuildingDomainTests, MilitaryOrdersAttackSupportAndDefendUpdateCombatState)
-{
-    TileMap map;
-    Player player{0, map};
-    Player enemy{1, map};
-    FillOwnedGrass(map, &player, 20, 20);
-    player.roadNetwork = std::make_unique<RoadNetwork>(map);
-    enemy.roadNetwork = std::make_unique<RoadNetwork>(map);
-
-    auto* attacker = dynamic_cast<GuardTower*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<GuardTower>(1)));
-    auto* defender = dynamic_cast<GuardTower*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({10, 1}), &enemy, std::make_unique<GuardTower>(2)));
-    ASSERT_NE(attacker, nullptr);
-    ASSERT_NE(defender, nullptr);
-    attacker->constructionRemaining = 0.0;
-    defender->constructionRemaining = 0.0;
-    const int beforeHitPoints = defender->GetHitPoints();
-
-    attacker->garrison.IssueOrder(MilitaryOrderType::Attack, defender->positionId);
-    attacker->Update(1.0);
-    // Buildings no longer deal direct damage — only stationed divisions do.
-    EXPECT_EQ(defender->GetHitPoints(), beforeHitPoints);
-    EXPECT_EQ(attacker->garrison.currentOrder, MilitaryOrderType::Attack);
-    EXPECT_EQ(attacker->garrison.orderCooldown, 0.0);
-
-    auto* source = dynamic_cast<GuardTower*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 10}), &player, std::make_unique<GuardTower>(3)));
-    auto* target = dynamic_cast<GuardTower*>(
-        map.PlaceLoadedBuilding(map.GetIdFromCoords({10, 10}), &player, std::make_unique<GuardTower>(4)));
-    ASSERT_NE(source, nullptr);
-    ASSERT_NE(target, nullptr);
-    source->constructionRemaining = 0.0;
-    target->constructionRemaining = 0.0;
-    source->garrison.militia = 1;
-    source->garrison.swordsmen = 1;
-    target->garrison.cap = 5;
-
-    source->garrison.IssueOrder(MilitaryOrderType::Support, target->positionId);
-    source->Update(1.0);
-    EXPECT_EQ(source->garrison.GetTotalTroops(), 1);
-    EXPECT_EQ(target->garrison.militia, 1);
-    EXPECT_GT(source->garrison.orderCooldown, 0.0);
-
-    source->garrison.IssueOrder(MilitaryOrderType::Defend, target->positionId);
-    source->Update(1.0);
-    EXPECT_EQ(source->garrison.currentOrder, MilitaryOrderType::Defend);
-    EXPECT_DOUBLE_EQ(source->garrison.orderCooldown, 3.0);
-}
-
-TEST(BuildingDomainTests, MilitarySupplyBufferAcceptsReturnsAndRejectsResources)
-{
-    GuardTower tower{50};
-    tower.supplyBuffer.capacity = 2;
-    tower.supplyBuffer.buffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 2};
-
-    Resource food{ResourceType::FOOD_PROVISIONS};
-    tower.AddResource(&food);
-    EXPECT_EQ(tower.supplyBuffer.stored, 1);
-    EXPECT_TRUE(tower.CanAcceptResource(ResourceType::FOOD_PROVISIONS));
-    EXPECT_TRUE(tower.CanReceiveResource(ResourceType::FOOD_PROVISIONS));
-
-    Resource returned{ResourceType::FOOD_PROVISIONS};
-    tower.ReturnOutgoingResource(&returned);
-    EXPECT_EQ(tower.supplyBuffer.stored, 2);
-    EXPECT_FALSE(tower.CanReceiveResource(ResourceType::FOOD_PROVISIONS));
-
-    Resource fetched = tower.GetResource(ResourceType::FOOD_PROVISIONS);
-    EXPECT_EQ(fetched.type, ResourceType::FOOD_PROVISIONS);
-    EXPECT_EQ(tower.supplyBuffer.stored, 1);
-
-    Resource wrong{ResourceType::WOOD};
-    tower.AddResource(&wrong);
-    EXPECT_EQ(tower.supplyBuffer.stored, 1);
-    EXPECT_EQ(tower.GetResource(ResourceType::WOOD).type, ResourceType::Null);
-}

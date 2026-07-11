@@ -20,37 +20,25 @@ struct RoadPath
     bool IsValid() const { return found && !tiles.empty(); }
 };
 
-struct FieldPath
-{
-    std::vector<int> tiles;  // Tile IDs (mixed road/terrain)
-    int tileCount = 0;
-    double totalCost = 0.0;
-    bool found = false;
-
-    bool IsValid() const { return found && !tiles.empty(); }
-};
-
 struct PathOptions
 {
     double maxCost = 1e9;  // Maximum acceptable path cost
     bool allowDiagonal = true;
 };
 
-// Domain filter for FindNearest
+// Domain filter for FindNearest. TD(etap-1): Territory/TerritoryUnion dropped
+// along with the old territory system — every call site already used Global().
 class Domain
 {
 public:
-    enum class Type { Global, Territory, TerritoryUnion };
+    enum class Type { Global };
 
-    static Domain Global() { return Domain(Type::Global, {}); }
-    static Domain Territory(int playerId) { return Domain(Type::Territory, {playerId}); }
-    static Domain TerritoryUnion(const std::vector<int>& playerIds) { return Domain(Type::TerritoryUnion, playerIds); }
+    static Domain Global() { return Domain(Type::Global); }
 
     Type type = Type::Global;
-    std::vector<int> playerIds;
 
 private:
-    Domain(Type t, const std::vector<int>& ids) : type(t), playerIds(ids) {}
+    explicit Domain(Type t) : type(t) {}
 };
 
 // Central service for pathfinding and distance calculations
@@ -61,9 +49,6 @@ public:
 
     // Road pathfinding using Dijkstra
     RoadPath FindRoadPath(Vec2i from, Vec2i to, const PathOptions& options = PathOptions());
-
-    // Mixed terrain/road pathfinding (uses MovementPlanner logic)
-    FieldPath FindFieldPath(Vec2i from, Vec2i to, const std::vector<int>& blockedTiles = {});
 
     // Distance calculations (Euclidean/Manhattan)
     double Distance(Vec2f a, Vec2f b) const;

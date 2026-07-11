@@ -37,8 +37,6 @@ building Headquarters
     storage BOW 60 0
     storage ARROWS 120 0
     storage HORSE 60 0
-    storage WEAPON_SUPPLY 60 0
-    military territory_radius 13 hit_points 1000
 end
 
 building Village
@@ -91,7 +89,6 @@ building StorageBuilding
     storage BOW 60
     storage ARROWS 120
     storage HORSE 60
-    storage WEAPON_SUPPLY 60
 end
 
 building Woodcutter
@@ -658,47 +655,6 @@ building University
     end
 end
 
-building GuardTower
-    name "Guard Tower"
-    tag "[GuardTower]"
-    texture "assets/textures/building/guard_tower.png"
-    build_cost WOOD 60
-    build_cost STONE 30
-    build_cost PLANKS 30
-    build_time 24.0
-    footprint 2 2
-    texture_id 6
-    military territory_radius 8 hit_points 300 strength 25 garrison 10 garrison_capacity 20 supply 20 supply_capacity 40
-end
-
-building Fortress
-    name "Fortress"
-    tag "[Fortress]"
-    texture "assets/textures/building/fortress.png"
-    build_cost WOOD 150
-    build_cost STONE 220
-    build_cost PLANKS 75
-    build_cost IRON 45
-    build_time 45.0
-    footprint 3 3
-    texture_id 7
-    military territory_radius 13 hit_points 800 strength 70 garrison 35 garrison_capacity 70 supply 80 supply_capacity 160
-end
-
-building Castle
-    name "Castle"
-    tag "[Castle]"
-    texture "assets/textures/building/castle.png"
-    build_cost WOOD 260
-    build_cost STONE 420
-    build_cost PLANKS 140
-    build_cost IRON 120
-    build_time 75.0
-    footprint 4 4
-    texture_id 8
-    military territory_radius 20 hit_points 1600 strength 140 garrison 80 garrison_capacity 160 supply 200 supply_capacity 400
-end
-
 building Barracks
     name "Barracks"
     tag "[Barracks]"
@@ -711,20 +667,6 @@ building Barracks
     build_time 42.0
     footprint 4 4
     texture_id 18
-    military territory_radius 0 hit_points 600 strength 15 garrison 0 garrison_capacity 80 supply 0 supply_capacity 120
-end
-
-building SupplyHub
-    name "Supply Hub"
-    tag "[SupplyHub]"
-    texture "assets/textures/building/storage.png"
-    build_cost WOOD 60
-    build_cost STONE 35
-    build_cost PLANKS 25
-    build_cost IRON 10
-    build_time 20.0
-    footprint 3 3
-    texture_id 4
 end
 
 building Road

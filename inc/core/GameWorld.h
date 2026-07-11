@@ -9,7 +9,6 @@
 #include "simulation/PathingService.h"
 #include "economy/Player.h"
 #include "ui/Renderer.h"
-#include "warfare/Battle.h"
 
 class AudioSystem;
 
@@ -52,18 +51,6 @@ class GameWorld
         void Update(double);
         // Advances only authoritative gameplay state, without touching visual layers.
         void UpdateSimulation(double dt);
-        // BUG 3b/3d: pull supply for every deployed division from the nearest friendly
-        // stockpile within SupplyRange tiles. Also called from UpdateSimulation (1 Hz).
-        // Exposed so tests can drive it directly without a full world tick.
-        void ResupplyDeployedDivisions();
-        // ETAP 11.2: creates/joins Battle instances from divisions carrying an
-        // active Attack order adjacent to enemy-held ground, resolves one tick of
-        // combat for every active battle, and applies end-of-battle consequences
-        // (attacker lockout on defeat, defender retreat-home on defeat). Called
-        // once per simulation tick from UpdateSimulation; exposed for tests.
-        void UpdateBattles(double dt);
-        // Read-only view of active battles (GUI/telemetry/tests).
-        const std::map<int, Battle>& GetBattles() const { return battles; }
         // Draws terrain, roads, buildings and territory overlays.
         void DrawMap();
         // Captures render-safe world state for another thread.
@@ -127,8 +114,6 @@ class GameWorld
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;
         std::unique_ptr<PathingService> pathingService;
-        std::map<int, Battle> battles;         // ETAP 11: Active battles indexed by id; deterministic (std::map)
-        int nextBattleId{1};                   // Auto-incrementing battle id for uniqueness
         std::uint64_t nextCommandId{1};
         std::uint64_t simulationTick{0};
         Vec2f cachedCameraTarget{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};

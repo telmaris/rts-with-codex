@@ -3,12 +3,10 @@
 #include "simulation/RoadNetwork.h"
 #include "economy/Building.h"
 #include "core/Utils.h"
-#include "warfare/MovementPlanner.h"
 #include <cmath>
 #include <queue>
 #include <vector>
 #include <algorithm>
-#include <set>
 
 PathingService::PathingService(TileMap& tilemap, RoadNetwork& roadNetwork)
     : tilemap(tilemap), roadNetwork(roadNetwork)
@@ -22,24 +20,6 @@ RoadPath PathingService::FindRoadPath(Vec2i from, Vec2i to, const PathOptions& o
     int toTile = to.y * tilemap.params.sizeX + to.x;
 
     return DijkstraRoad(fromTile, toTile, options);
-}
-
-FieldPath PathingService::FindFieldPath(Vec2i from, Vec2i to, const std::vector<int>& blockedTiles)
-{
-    // Delegate to MovementPlanner for mixed terrain/road pathfinding
-    std::set<int> blocked(blockedTiles.begin(), blockedTiles.end());
-    std::vector<int> path = PlanDivisionPath(tilemap, from, to, {}, &blocked);
-
-    if (path.empty())
-        return FieldPath();
-
-    double totalCost = 0.0;
-    for (size_t i = 1; i < path.size(); i++)
-    {
-        totalCost += 1.0;  // Unit cost per tile (TODO: use terrain costs)
-    }
-
-    return FieldPath{path, static_cast<int>(path.size()), totalCost, true};
 }
 
 double PathingService::Distance(Vec2f a, Vec2f b) const
@@ -147,7 +127,6 @@ Building* PathingService::FindNearestBuilding(Vec2i from, const std::function<bo
             Building* building = tilemap.tilemap[current].building.get();
             if (predicate(building))
             {
-                // TODO: Check domain filtering (Territory/TerritoryUnion)
                 return building;
             }
         }

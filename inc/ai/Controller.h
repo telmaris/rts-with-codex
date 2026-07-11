@@ -45,6 +45,11 @@ enum class AIDifficulty
     Hard
 };
 
+// TD(etap-1): Military axis/plans/milestones/actions are stubbed — the old war
+// system (Division/GarrisonComponent/ArmyRegistry) they scored against is gone.
+// The AI plays economy-only; these enumerators stay so the shape of the
+// pipeline (fixed-size axis array, plan/goal switches) doesn't need touching
+// twice. A full military AI overhaul is a separate project (see CLAUDE.md).
 enum class AIStrategyAxis
 {
     Resources,
@@ -130,7 +135,6 @@ struct AIActionCandidate
     std::string researchId;
     int sourceTileId{-1};
     int targetTileId{-1};
-    MilitaryUnitType unitType{};
     double score{0.0};
     std::string debugLabel;
 };
@@ -290,8 +294,6 @@ private:
     bool HasAdjacentRoad(GameWorld& world, const Building* building) const;
     bool HasRoadConnection(GameWorld& world, Player* player, const Building* source, const Building* target) const;
     bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source, const Building* target);
-    Building* FindBestMilitary(GameWorld& world, Player* player) const;
-    Building* FindNearestEnemyMilitary(GameWorld& world, Player* player, const Building* source) const;
     float EvaluateAxis(GameWorld& world, Player* player, AIStrategyAxis axis, const AIModelSettings& settings) const;
 
     // TIER 1 — goal selection with hysteresis.
@@ -316,7 +318,6 @@ private:
     Building* FindUniversity(GameWorld& world, Player* player) const;
     std::string SelectResearchTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
     std::string SelectFocusTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
-    Building* FindRecruitmentBarracks(GameWorld& world, Player* player) const;
 
     double roadTimer{0.0};
     double economyTimer{0.0};

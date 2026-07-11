@@ -169,14 +169,22 @@ class TileMap
         bool IsInside(Vec2i coords) const;
         // Returns true when every footprint tile is inside map bounds.
         bool IsInsideFootprint(Vec2i anchor, Vec2i footprint) const;
-        // Returns true when a footprint can be placed for the player.
-        // Pass allowDivisions=true for traversable building types (e.g. Road)
-        // so that a deployed friendly division does not block placement.
-        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, bool allowDivisions = false) const;
+        // Returns true when a footprint can be placed for the player: every tile is
+        // free of buildings and outside the enemy-proximity radius (see
+        // IsWithinEnemyProximity). Territory ownership no longer gates placement
+        // (TD(etap-1) — replaced by the proximity rule).
+        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const;
         // Returns true when terrain requirements for a building type are satisfied.
         bool HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, int minimumTiles = 2) const;
         // Returns true when all gameplay placement rules are satisfied.
         bool CanPlaceBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, Player* player) const;
+        // True when any tile within `radius` of the (possibly multi-tile) footprint
+        // is occupied by a building owned by a different player. The sole placement
+        // rule that replaces the old radial territory system (TD(etap-1) reguła
+        // bliskości): building/road placement is refused near enemy structures,
+        // which also prevents an enemy from ever attaching their road network to
+        // yours. Own buildings and unowned ground never block.
+        bool IsWithinEnemyProximity(Vec2i anchor, Vec2i footprint, const Player* player, int radius) const;
         // Returns all tile ids occupied by a building footprint.
         std::vector<int> GetBuildingTileIds(const Building* building) const;
         // Returns all tile ids adjacent to a building footprint.
@@ -197,10 +205,6 @@ class TileMap
         void AutoConnectBuilding(Building* building);
         // Makes one building send compatible outputs to another building.
         void ConnectReceiver(Building* source, Building* receiver, bool alternative = false);
-        // Marks rounded territory around a source coordinate for one player.
-        void SetTerritory(Vec2i source, int size, Player* player);
-        // Rebuilds all territory owned by one player from active military buildings.
-        void RecalculateTerritory(Player* player);
 
         // Converts map coordinates to linear tile id.
         int GetIdFromCoords(Vec2i coords) const;

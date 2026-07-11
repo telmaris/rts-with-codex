@@ -2,6 +2,18 @@
 
 ######
 
+### Znany dług: brak realnego resync-after-desync w MP (odkryty ETAP 1, 2026-07-12)
+
+`GameSnapshot` jest czysto wizualny (tylko tekstury/kolory/typ budynku per tile), nie ma
+`GameWorld::LoadFromSnapshot`, a "correction snapshot" wysyłany po wykryciu desyncu nigdy nie
+jest realnie aplikowany do klienta — tylko do fallbacku rysowania mapy. Jeśli host i klient
+kiedykolwiek faktycznie się rozjadą stanem ekonomicznym, klient zostaje rozjechany na stałe.
+Sam checksum miał dodatkowo osobny bug (hashowanie `std::set<Building*>` w kolejności wg adresu
+wskaźnika, niestabilnej między procesami) — to już naprawione. Pełny opis + kierunek naprawy:
+`docs/tech_debt.md`, sekcja "🔴 Wysokie" → "Pełne snapshoty mapy przez TCP".
+
+######
+
 TRANFORMACJA W GRE TOWER DEFENSE z elementem PVP
 
 Jeżeli któryś z wymienionych tematów jest niejasny, przy chociaż cieniu wątpliwości - zapytaj! Podejdź bardzo konserwatywnie do tego temay, gdyż podstawowa architektura musi być wykonana bardzo dokładnie.

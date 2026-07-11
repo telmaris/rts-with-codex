@@ -108,12 +108,4 @@ void WireCommonSystemActions(SystemT& system, CameraMovement& cameraMovement)
     system.actionMap["scroll"] = [&system] { system.Scroll(); };
 }
 
-// ─── Frontier and military helpers ───────────────────────────────────────────
-
-// Returns true if a tile is on the frontier: on the edge between owned and enemy territory.
-bool IsFrontierTile(Vec2i tile, const class TileMap& map, const class Player& owner);
-
-// Walks RMB drag segment and collects all frontier tiles touched.
-std::vector<Vec2i> CollectFrontierSegment(Vec2i start, Vec2i end, const class TileMap& map, const class Player& owner);
-
 #endif

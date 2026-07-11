@@ -1,6 +1,6 @@
 #include "data/Resource.h"
 #include "economy/Building.h"
-#include "warfare/Equipment.h"
+#include "data/Equipment.h"
 
 static ResourcePool resourcePool;
 
@@ -92,7 +92,6 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
             return ResourceCategory::Mount;
 
         case ResourceType::FOOD_PROVISIONS:
-        case ResourceType::WEAPON_SUPPLY:
             return ResourceCategory::MilitarySupply;
 
         default:

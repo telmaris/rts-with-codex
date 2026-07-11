@@ -1,10 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
 #include "simulation/MapGenerator.h"
-#include "warfare/DivisionSector.h"
-#include "warfare/MovementPlanner.h"
-#include "simulation/SectorGraph.h"
-#include "warfare/Equipment.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,7 +12,7 @@
 int RoadComponent::GetModifiedMaxCapacity(const Building& self) const
 {
     return self.owner != nullptr
-        ? self.owner->ResolveStat(maxCapacity, &self, ResourceType::Null, std::nullopt, 0)
+        ? self.owner->ResolveStat(maxCapacity, &self, ResourceType::Null, 0)
         : maxCapacity.GetBase();
 }
 
@@ -156,7 +152,7 @@ int ProductionComponent::GetModifiedOutputAmount(const Building& self, ResourceT
 {
     return self.owner != nullptr
         ? self.owner->ModifyBalanceIntForBuilding(BalanceStat::ProductionOutputAmount,
-                                                   base, &self, type, std::nullopt, 0)
+                                                   base, &self, type, 0)
         : base;
 }
 

@@ -54,6 +54,24 @@ w fundamentach.
   w kodzie sam ostrzega: "Do not stream full maps over TCP". Recovery desyncu = pełny resync.
   Nie skaluje się dla map w stylu Factorio. Lockstep nie powinien potrzebować snapshotów poza
   join-in-progress — jeśli potrzebuje, determinizm przecieka (patrz niżej).
+  → **Odkryte 2026-07-12 (audyt TD etap-1):** `GameSnapshot` (`inc/core/GameSnapshot.h`) jest
+  **czysto wizualny** — trzyma tylko `terrainTextureId`/`ownerColor`/`buildingType`+footprint per
+  tile, żadnego stanu ekonomicznego (bufory zasobów, postęp produkcji, worker count, tech/focus
+  state). `HostSession::SendCorrectionSnapshot()` wysyła go po wykryciu desyncu, ale
+  `GameWorld` **nie ma metody `LoadFromSnapshot`** — po stronie klienta payload ląduje tylko
+  w `ClientSession::latestNetworkSnapshot`/`ConsumeLatestSnapshot()`, które w `GameScene.cpp`
+  służą wyłącznie jako fallback do rysowania mapy (`DrawSnapshot`), nigdy nie są aplikowane z
+  powrotem do żywego `observedWorld`. **Realny recovery-after-desync obecnie nie istnieje** —
+  gdyby stan hosta i klienta kiedykolwiek faktycznie się rozjechały (nie tylko checksum-noise,
+  patrz niżej), klient zostaje rozjechany na stałe. Naprawa = nowy serializowalny format
+  ekonomicznego stanu gry (analogiczny do formatu save) + `GameWorld::LoadFromSnapshot(...)` +
+  podpięcie w `GameScene`/`ClientSession` + nowy wire/save version — realny, osobny feature,
+  nie "brakujące wywołanie". Nie w zakresie ETAP 1 (`docs/tower_defense_rework_plan.md`).
+  Sam checksum (`GameWorld::BuildChecksum()`) miał osobny, już naprawiony bug: hashował
+  `PlayerDataTracker::buildings` (`std::set<Building*>`, porządek wg adresu wskaźnika) w
+  kolejności zależnej od układu sterty procesu — dawało to fałszywe alarmy desyncu między
+  niezależnie zaalokowanymi światami host/client nawet przy identycznym stanie gry. Naprawione
+  2026-07-12: sortowanie po `building->id` przed hashowaniem (`src/core/GameWorld.Checksum.cpp`).
 
 ### 🟡 Średnie
 

@@ -29,10 +29,6 @@ struct PlayerDataTracker
         IndexComponent<RecipeComponent>(building);
         IndexComponent<ResearchComponent>(building);
         IndexComponent<StorageComponent>(building);
-        IndexComponent<TerritoryComponent>(building);
-        IndexComponent<GarrisonComponent>(building);
-        IndexComponent<SupplyBufferComponent>(building);
-        IndexComponent<RecruitmentComponent>(building);
         IndexComponent<PopulationComponent>(building);
     }
 
@@ -57,10 +53,6 @@ struct PlayerDataTracker
         UnindexComponent<RecipeComponent>(building);
         UnindexComponent<ResearchComponent>(building);
         UnindexComponent<StorageComponent>(building);
-        UnindexComponent<TerritoryComponent>(building);
-        UnindexComponent<GarrisonComponent>(building);
-        UnindexComponent<SupplyBufferComponent>(building);
-        UnindexComponent<RecruitmentComponent>(building);
         UnindexComponent<PopulationComponent>(building);
     }
 

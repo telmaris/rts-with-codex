@@ -19,7 +19,6 @@
 #endif
 
 class Building;
-enum class MilitaryUnitType : int;
 
 // Base rectangle widget with anchor-based layout support.
 class UiWidget
@@ -512,10 +511,6 @@ class GuiPanel : public UiWidget
         UiButton lockButton;
         UiButton destroyButton;
         UiButton recipeButton;
-        UiButton recruitMilitiaButton;
-        UiButton recruitSwordsmanButton;
-        UiButton recruitArcherButton;
-        std::function<void(Building*, MilitaryUnitType)> recruitRequested;
         bool destroyRequested{false};
         bool dragging{false};
         Vec2i dragOffset{0, 0};
