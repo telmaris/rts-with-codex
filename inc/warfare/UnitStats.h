@@ -67,6 +67,16 @@ float ResolveDivisionMaxCohesion(const SoldierDivision& division, const BalanceM
 float ResolveDivisionMaxStrength(const SoldierDivision& division, const BalanceModifierSet* mods);
 float ResolveDivisionMorale(const SoldierDivision& division, const BalanceModifierSet* mods);
 
+// "No equipment = no cohesion": the actual ceiling a division's organization can
+// reach right now is its unit-type max SCALED by its current supply efficiency
+// (DivisionSupplyEfficiency) — an unarmed, starving division cannot hold more
+// than a small fraction of its normal organization, no matter how good its
+// morale or how deep in friendly territory it stands. Used as the regeneration
+// cap (RegenerateDivisionCohesion) and the erosion target (ConsumeDivisionSupply)
+// so cohesion actively CRUMBLES toward this ceiling when supply is lost, instead
+// of just failing to regenerate.
+float ResolveEffectiveDivisionMaxCohesion(const SoldierDivision& division, const BalanceModifierSet* mods);
+
 // Combat parameters of a division after applying modifiers AND the quality of
 // the gear it actually carries. This is what battle/UI should read — not the raw
 // Stat bases.
@@ -90,11 +100,16 @@ struct DivisionCombatStats
     bool isArmored{false};         // armoredShare > 0.3 or a mounted unit class
     float hpDamageMultiplier{1.0f};
     float orgDamageMultiplier{1.0f};
-    // Fraction [0.1, 1.0] of combat output this division can actually deliver given
+    // Fraction [0.05, 1.0] of combat output this division can actually deliver given
     // its logistics: an out-of-ammo, starving unit still swings fists (never 0) but
     // hits far softer. Scales the ENTIRE damage output (scaled term + constant
     // floor) so supply % genuinely drives combat. See ComputeDivisionCombatStats.
     float supplyEfficiency{1.0f};
+    // True when this division is NOT currently pressing an Attack order (holding
+    // ground / defending / idle). Gates the opposing side's `shock` bonus — shock
+    // represents breaking a formation that is trying to HOLD a line, not one that
+    // is itself advancing. See ResolveOneSidedDamage.
+    bool isDefending{true};
 };
 
 // Average effectiveness of the gear a division carries (weapon/armor/ranged/ammo),
@@ -155,6 +170,15 @@ DivisionDuelResult ResolveDivisionDuel(const DivisionCombatStats& attacker,
 void ConsumeDivisionSupply(SoldierDivision& division, double dt, bool engaged, bool deployed,
                            double supplyConservation = 0.0);
 
+// Steady-state food consumption estimate (units/minute) for ONE division at its
+// current strength, at rest (garrisoned) or holding position in the field —
+// mirrors the real rates ConsumeDivisionSupply applies (kFoodGarrisonMul /
+// kFoodFieldMul), so HUD readouts show the actual drain instead of an unrelated
+// number. Deliberately ignores march/combat multipliers (transient postures,
+// not representative of a steady economy estimate) and supply conservation
+// (tech-dependent; callers wanting that precision should scale the result).
+float EstimateDivisionFoodPerMinute(const SoldierDivision& division, bool deployed);
+
 // Upper bound for supplyConservation — upkeep and reinforcement can be discounted
 // but never made free (docs/war_system_phase2_design.md Phase C, Supply Conservation).
 constexpr double kMaxSupplyConservation = 0.8;
@@ -169,12 +193,19 @@ constexpr float kEquipmentLossFactor = 0.7f;
 // [0, kMaxSupplyConservation].
 double PlayerSupplyConservation(const Player& player);
 
-// Regenerates cohesion toward its (modifier-resolved) max when the division is
-// NOT in combat (Phase C). Full-rate regen needs materiel supply; morale and
-// standing on the owner's own territory (entrenchment) further scale the rate.
-// A no-op once cohesion is already at (or above) max.
+// Drives cohesion toward its EFFECTIVE ceiling (ResolveEffectiveDivisionMaxCohesion
+// — the unit-type max scaled by current supply efficiency), from either
+// direction:
+//   - ABOVE the ceiling (supply just collapsed and cohesion hasn't caught up
+//     yet): erodes downward at a fast fixed rate. This runs even when `engaged`
+//     — "no equipment = no cohesion" applies mid-fight, not just between fights.
+//   - BELOW the ceiling: regenerates upward, but ONLY when NOT `engaged` (Phase
+//     C / ETAP 11.2 — regenerating while engaged fought the Battle system's
+//     drain in the same tick and made fights take ~3x longer, commit 3ad94c2).
+//     Rate is scaled by materiel supply (repair fuel), morale (recovery rate),
+//     territory (entrenchment) and posture (defense rallies faster than attack).
 void RegenerateDivisionCohesion(SoldierDivision& division, double dt, bool inOwnTerritory,
-                                const BalanceModifierSet* mods);
+                                bool engaged, const BalanceModifierSet* mods);
 
 // Periodic strength reinforcement (Phase C): a supplied division (food and
 // weapons both > 0) rebuilds `strength` toward its max by drawing manpower from

@@ -96,6 +96,8 @@ namespace
         constexpr Color TextDim{190, 198, 208, 255};
         constexpr Color HpFill{75, 185, 100, 230};
         constexpr Color HpBack{35, 38, 45, 220};
+        constexpr Color CohesionFill{95, 160, 235, 230};
+        constexpr Color CohesionBack{35, 38, 45, 220};
     }
 
     // Draws a standard themed panel frame (rounded fill + border) and returns its
@@ -480,7 +482,7 @@ void MilitaryOrderWidget::DrawFieldBattlePanel()
     if (targetBuilding != nullptr) maxRows = std::max(maxRows, (size_t)2);
 
     float colW = 188.0f;
-    float rowH = 40.0f;
+    float rowH = 52.0f;   // taller: fits a cohesion bar + a thinner HP bar per row
     float headerH = 34.0f;
     float w = colW * static_cast<float>(totalCols) + 12.0f * (static_cast<float>(totalCols) + 1.0f);
     float h = 44.0f + headerH + rowH * static_cast<float>(maxRows) + 12.0f;
@@ -510,17 +512,37 @@ void MilitaryOrderWidget::DrawFieldBattlePanel()
             std::string label = "#" + std::to_string(d->id) + " " + MilitaryUnitLabel(d->type);
             UiText::Draw(label, cx + 4.0f, ry, 15, RAYWHITE);
 
-            float ratio = d->maxHealth > 0 ? std::clamp(d->health / static_cast<float>(d->maxHealth), 0.0f, 1.0f) : 0.0f;
-            Rectangle bar{cx + 4.0f, ry + 19.0f, colW - 70.0f, 8.0f};
-            DrawRectangleRec(bar, PanelTheme::HpBack);
-            Rectangle fill = bar; fill.width *= ratio;
-            DrawRectangleRec(fill, PanelTheme::HpFill);
-            UiText::DrawFit("HP " + std::to_string(std::max(0, d->health)),
-                            Rectangle{cx + colW - 62.0f, ry + 3.0f, 58.0f, 16.0f}, 13, PanelTheme::TextDim);
-            // Supply readiness (combat effectiveness after logistics) as a percent.
+            // Cohesion (organization) — the PRIMARY bar: this is what actually
+            // decides who breaks in a fight (ResolveOneSidedDamage grinds this
+            // down; strength/HP is the secondary, usually-static cost — see
+            // below). Ceiling is the SUPPLY-SCALED effective max, not the raw
+            // unit stat, so an out-of-ammo division visibly shows a collapsed
+            // ceiling, not just a half-full bar against a phantom full one.
+            float maxCohesion = ResolveEffectiveDivisionMaxCohesion(*d, nullptr);
+            float cohRatio = maxCohesion > 0.0f ? std::clamp(d->cohesion / maxCohesion, 0.0f, 1.0f) : 0.0f;
+            Rectangle cohBar{cx + 4.0f, ry + 18.0f, colW - 70.0f, 9.0f};
+            DrawRectangleRec(cohBar, PanelTheme::CohesionBack);
+            Rectangle cohFill = cohBar; cohFill.width *= cohRatio;
+            DrawRectangleRec(cohFill, PanelTheme::CohesionFill);
+            UiText::DrawFit("Org " + std::to_string(static_cast<int>(std::lround(d->cohesion))),
+                            Rectangle{cx + colW - 62.0f, ry + 1.0f, 58.0f, 16.0f}, 13, PanelTheme::TextDim);
+
+            // HP (manpower) — secondary, thinner bar: at full supply this barely
+            // moves during a fight by design (losses come from being caught
+            // undersupplied, not from trading blows), so it reads as "the cost
+            // paid so far", not "who's winning right now" (that's cohesion).
+            float hpRatio = d->maxHealth > 0 ? std::clamp(d->health / static_cast<float>(d->maxHealth), 0.0f, 1.0f) : 0.0f;
+            Rectangle hpBar{cx + 4.0f, ry + 32.0f, colW - 70.0f, 5.0f};
+            DrawRectangleRec(hpBar, PanelTheme::HpBack);
+            Rectangle hpFill = hpBar; hpFill.width *= hpRatio;
+            DrawRectangleRec(hpFill, PanelTheme::HpFill);
+
+            // Supply readiness (combat effectiveness after logistics) as a
+            // percent — explains WHY the cohesion ceiling/regen looks the way
+            // it does.
             int readiness = static_cast<int>(std::lround(DivisionSupplyEfficiency(*d) * 100.0f));
-            UiText::DrawFit("Rdy " + std::to_string(readiness) + "%",
-                            Rectangle{cx + colW - 62.0f, ry + 19.0f, 58.0f, 14.0f}, 12,
+            UiText::DrawFit("Sup " + std::to_string(readiness) + "%",
+                            Rectangle{cx + colW - 62.0f, ry + 18.0f, 58.0f, 14.0f}, 12,
                             readiness < 60 ? Color{238, 160, 96, 255} : PanelTheme::TextDim);
             ry += rowH;
         }
@@ -1119,13 +1141,17 @@ void MoveTargetWidget::Update(double dt)
         return;
     }
 
-    // Target quadrant under the cursor. Resolve WITHOUT the owner restriction so
-    // it shows on enemy/neutral ground too — you push into enemy land, so the
-    // target must be visible there (the move itself isn't territory-locked).
-    DivisionSector targetSector = ResolveDivisionSector(scene->game->GetTileMap(), tile, nullptr);
-    bool valid = targetSector.IsValid();
+    // Target quadrant under the cursor.
     bool intoEnemy = scene->game->GetTileMap().IsInside(tile) &&
                      scene->game->GetTileMap().tilemap[scene->game->GetTileMap().GetIdFromCoords(tile)].owner != localPlayer;
+    // Clip to OWNED tiles when deploying inside our own territory, so a border
+    // quadrant renders only the fragment (strip / L / 1x1) the player may actually
+    // stand on — restoring the territory-limited deploy shape. When pushing INTO
+    // enemy/neutral ground the move isn't territory-locked, so resolve without the
+    // owner restriction to show the full quadrant on that ground too.
+    DivisionSector targetSector = ResolveDivisionSector(scene->game->GetTileMap(), tile,
+                                                        intoEnemy ? nullptr : localPlayer);
+    bool valid = targetSector.IsValid();
 
     // Green over own ground, amber when pushing into enemy/neutral ground.
     Color fill = !valid ? Color{220, 70, 60, 16}

@@ -51,12 +51,16 @@ namespace
                 const bool inOwnTerritory = world.GetTileMap().IsInside(tile) &&
                     world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(tile)].owner == player.get();
 
-                // Organization only rebuilds out of combat (HoI4-style) — regenerating
-                // it every tick even while `engaged` was fighting the Battle-system's
-                // drain in the same tick and made fights take ~3x longer than intended.
+                // Always driven toward the (supply-scaled) effective ceiling: erodes
+                // downward even while `engaged` (lost supply hurts immediately), but
+                // only regenerates upward out of combat — see RegenerateDivisionCohesion.
+                RegenerateDivisionCohesion(div, dt, inOwnTerritory, div.engaged, &player->balanceModifiers);
+                // Manpower replacements only flow OUT of combat — reinforcing an
+                // engaged division would fight the Battle system's strength drain
+                // in the same tick (the same tug-of-war the cohesion regen gate
+                // above fixes; CombatObserver flags it as an anomaly).
                 if (!div.engaged)
-                    RegenerateDivisionCohesion(div, dt, inOwnTerritory, &player->balanceModifiers);
-                ReinforceDivisionStrength(div, *player, dt, &player->balanceModifiers);
+                    ReinforceDivisionStrength(div, *player, dt, &player->balanceModifiers);
             }
         }
 

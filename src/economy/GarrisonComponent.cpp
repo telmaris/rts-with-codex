@@ -217,7 +217,7 @@ void GarrisonComponent::Update(Building& self, double dt)
             ConsumeDivisionSupply(div, dt, /*engaged=*/false, /*deployed=*/false, conservation);
             if (self.owner != nullptr)
             {
-                RegenerateDivisionCohesion(div, dt, /*inOwnTerritory=*/true, &self.owner->balanceModifiers);
+                RegenerateDivisionCohesion(div, dt, /*inOwnTerritory=*/true, /*engaged=*/false, &self.owner->balanceModifiers);
                 ReinforceDivisionStrength(div, *self.owner, dt, &self.owner->balanceModifiers);
             }
         }
@@ -444,7 +444,16 @@ bool GarrisonComponent::MoveDivisionTo(int divisionId, Vec2i targetTile, Buildin
     {
         DivisionSector sector = ResolveDivisionSector(
             tilemap, targetTile, requireOwnedTerritory ? self.owner : nullptr);
-        if (!sector.IsValid())
+        // Bail only when the target is truly off the map (ResolveDivisionSector
+        // leaves cell/anchor at the {-1,-1} default in that case). An in-bounds
+        // sector with an empty mask is NOT a dead end — it just means the 2x2
+        // cell has no occupiable tile of its own, which is the NORMAL case when
+        // targetTile sits on a building's own footprint (every military building
+        // footprint is >= its own 2x2 sector, so retreating "home" — see
+        // DisengageDivision in GameWorld.Battles.cpp — always lands here). The
+        // neighbour-radius search below still works off sector.anchor/cell/
+        // CenterTile(), all of which stay well-defined with mask == 0.
+        if (sector.cell.x < 0)
             return false;
 
         auto addIfInSector = [&](Vec2i pos)

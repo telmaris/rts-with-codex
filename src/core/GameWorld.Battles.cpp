@@ -67,14 +67,74 @@ namespace
         return nullptr;
     }
 
-    // Sends a division back toward the building it calls home (its pre-battle
-    // rear area) and puts it on a temporary Attack-order lockout. Used both for
-    // a defeated attacker (blocked in place / falls back) and a defeated
-    // defender (forced retreat deeper into own territory) — see ETAP 11 plan,
-    // which asks for a "retreat toward the rear" pathing filter that doesn't
-    // exist yet; routing home through the existing garrison mover is the
-    // pragmatic stand-in until PathingService grows one.
-    void DisengageDivision(GameWorld& world, DivisionRef& ref)
+    // A defeated division falls back ONE sector step (2x2 quadrant) from where it
+    // stood, toward its home building, rather than teleporting the full distance
+    // home in one go. Landing directly on `homeTile` never worked anyway: every
+    // military building's footprint is >= a full 2x2 sector, so the sector
+    // ResolveDivisionSector computes AT the building is always fully blocked by
+    // the building itself — see the MoveDivisionTo fix in GarrisonComponent.cpp.
+    // Stepping one quadrant back keeps the retreat local to the fight (the loser
+    // clears the contested ground so the winner can claim it) and reads as "the
+    // front pulls back one province", matching the intended HoI4-style flow.
+    //
+    // CARDINAL-ONLY step (never diagonal): stepping both axes at once would let a
+    // unit slip diagonally past a wall of enemies that only covers the four
+    // cardinal approaches, dodging IsQuadrantEncircled below instead of being
+    // caught by it. Picks whichever axis is currently farther from home.
+    Vec2i RetreatTargetTile(const TileMap& tilemap, Vec2i fromTile, Vec2i homeTile)
+    {
+        Vec2i fromCell = SectorCellOf(fromTile);
+        Vec2i homeCell = SectorCellOf(homeTile);
+        int dx = homeCell.x - fromCell.x;
+        int dy = homeCell.y - fromCell.y;
+        Vec2i step{0, 0};
+        if (std::abs(dx) >= std::abs(dy) && dx != 0)
+            step.x = dx > 0 ? 1 : -1;
+        else if (dy != 0)
+            step.y = dy > 0 ? 1 : -1;
+        Vec2i targetCell{fromCell.x + step.x, fromCell.y + step.y};
+        return Vec2i{std::clamp(targetCell.x * 2, 0, tilemap.params.sizeX - 1),
+                     std::clamp(targetCell.y * 2, 0, tilemap.params.sizeY - 1)};
+    }
+
+    // True when every one of the four CARDINAL-adjacent quadrant cells (N/S/E/W —
+    // diagonals deliberately excluded, matching RetreatTargetTile's cardinal-only
+    // step) around `cell` holds at least one enemy (at-war) division. A division
+    // boxed in on all four cardinal sides has no route home — the HoI4 "kocioł" —
+    // regardless of how much friendly territory a diagonal neighbour might have.
+    bool IsQuadrantEncircled(const std::vector<DivisionRef>& all, Vec2i cell, const Player& owner)
+    {
+        const Vec2i cardinal[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (Vec2i d : cardinal)
+        {
+            Vec2i neighborCell{cell.x + d.x, cell.y + d.y};
+            bool enemyPresent = false;
+            for (const auto& ref : all)
+            {
+                if (ref.owner == &owner || !owner.diplomatic.IsAtWar(ref.owner->id))
+                    continue;
+                if (SectorCellOf(ref.div->occupiedTile) == neighborCell)
+                {
+                    enemyPresent = true;
+                    break;
+                }
+            }
+            if (!enemyPresent)
+                return false;
+        }
+        return true;
+    }
+
+    // Sends a division falling back toward the building it calls home (its
+    // pre-battle rear area) and puts it on a temporary Attack-order lockout.
+    // Used both for a defeated attacker (blocked in place / falls back) and a
+    // defeated defender (forced retreat deeper into own territory). If the
+    // division is fully encircled (IsQuadrantEncircled), there is no retreat to
+    // attempt — it is destroyed outright instead of looping "retreat" onto the
+    // same tile forever (see RetreatTargetTile's earlier failure mode: a cornered
+    // division that can never find a better candidate than the tile it already
+    // stands on, because IsTileFree excludes the mover itself from the check).
+    void DisengageDivision(GameWorld& world, DivisionRef& ref, const std::vector<DivisionRef>& all)
     {
         SoldierDivision& div = *ref.div;
         div.engaged = false;
@@ -82,6 +142,14 @@ namespace
         div.regroupTimer = std::max(div.regroupTimer, kPostBattleLockout);
         div.currentOrder = MilitaryOrderType::None;
         div.orderTargetPositionId = -1;
+
+        if (div.occupiedTile.x >= 0 &&
+            IsQuadrantEncircled(all, SectorCellOf(div.occupiedTile), *ref.owner))
+        {
+            div.strength = 0;
+            SyncDerivedHealth(div);
+            return;
+        }
 
         if (div.garrisonBuildingId < 0)
             return;
@@ -91,8 +159,52 @@ namespace
         auto* garrison = home->GetComponent<GarrisonComponent>();
         if (garrison == nullptr)
             return;
+        if (div.occupiedTile.x < 0)
+            return;
         Vec2i homeTile = world.GetTileMap().GetCoordsFromId(home->positionId);
-        garrison->MoveDivisionTo(div.id, homeTile, *home, /*requireOwnedTerritory=*/true, /*snapToSector=*/true);
+        Vec2i retreatTile = RetreatTargetTile(world.GetTileMap(), div.occupiedTile, homeTile);
+
+        // Fall back one quadrant toward home if that ground is still ours.
+        if (garrison->MoveDivisionTo(div.id, retreatTile, *home,
+                                     /*requireOwnedTerritory=*/true, /*snapToSector=*/true))
+            return;
+        // The one-step-back cell has no reachable owned tile — the front just
+        // collapsed around this division (exactly the "lost the quadrant over the
+        // guard tower" case). Retreat all the way home instead; home territory is
+        // owned by definition, so this path normally exists. Without this fallback
+        // MoveDivisionTo simply returned false and the loser froze in place.
+        if (garrison->MoveDivisionTo(div.id, homeTile, *home,
+                                     /*requireOwnedTerritory=*/true, /*snapToSector=*/true))
+            return;
+        // Cut off from home even through friendly ground: allow the retreat to
+        // cross any walkable tile rather than stand still and get mopped up frozen.
+        garrison->MoveDivisionTo(div.id, homeTile, *home,
+                                 /*requireOwnedTerritory=*/false, /*snapToSector=*/true);
+    }
+
+    // Sends a victorious division to physically occupy the quadrant it just won.
+    // Engagement only requires the attacker be ADJACENT to its target (dx,dy<=1 —
+    // see the engagement pass above), so a division that fought from a
+    // neighbouring quadrant would otherwise just stand down without ever
+    // crossing onto the ground it captured, leaving ClaimTilesUnderDivisions
+    // (GameWorld.Render.cpp) nothing to claim it with. Harmless no-op-ish when
+    // the division was already standing in the contested quadrant.
+    void AdvanceIntoQuadrant(GameWorld& world, DivisionRef& ref, Vec2i quadrantCell)
+    {
+        SoldierDivision& div = *ref.div;
+        if (div.garrisonBuildingId < 0)
+            return;
+        Building* home = world.GetTileMap().GetBuilding(div.garrisonBuildingId);
+        if (home == nullptr || home->owner != ref.owner)
+            return;
+        auto* garrison = home->GetComponent<GarrisonComponent>();
+        if (garrison == nullptr)
+            return;
+        Vec2i targetTile{quadrantCell.x * 2, quadrantCell.y * 2};
+        // requireOwnedTerritory=false: this ground is still enemy/contested until
+        // the move lands and ClaimTilesUnderDivisions picks it up on a later
+        // tick — that IS the point of advancing into it.
+        garrison->MoveDivisionTo(div.id, targetTile, *home, /*requireOwnedTerritory=*/false, /*snapToSector=*/true);
     }
 
     void RemoveBattleFromPlayer(Player& player, int battleId)
@@ -248,14 +360,15 @@ void GameWorld::UpdateBattles(double dt)
         // ── 3) End conditions ────────────────────────────────────────────────
         if (battle.defenderCohesion <= 0)
         {
-            // Attacker wins: defender falls back to rebuild; attacker holds the
-            // quadrant (no further action needed — it already stands there).
-            for (DivisionRef* r : defenders) { DisengageDivision(*this, *r); RemoveBattleFromPlayer(*r->owner, battleId); }
+            // Attacker wins: defender falls back to rebuild; attacker advances
+            // onto the contested quadrant so it actually holds the ground it won.
+            for (DivisionRef* r : defenders) { DisengageDivision(*this, *r, all); RemoveBattleFromPlayer(*r->owner, battleId); }
             for (DivisionRef* r : attackers)
             {
                 r->div->engaged = false;
                 r->div->currentOrder = MilitaryOrderType::None;
                 r->div->orderTargetPositionId = -1;
+                AdvanceIntoQuadrant(*this, *r, battle.quadrant);
                 RemoveBattleFromPlayer(*r->owner, battleId);
             }
             battle.resolved = true;
@@ -265,7 +378,7 @@ void GameWorld::UpdateBattles(double dt)
         {
             // Defender wins: attacker is thrown back and locked out; defender
             // stays put, disengaged.
-            for (DivisionRef* r : attackers) { DisengageDivision(*this, *r); RemoveBattleFromPlayer(*r->owner, battleId); }
+            for (DivisionRef* r : attackers) { DisengageDivision(*this, *r, all); RemoveBattleFromPlayer(*r->owner, battleId); }
             for (DivisionRef* r : defenders)
             {
                 r->div->engaged = false;

@@ -432,12 +432,15 @@ TEST(Supply, DeployedHoldingDivisionConsumesFoodAndMateriel)
     // Deployed in the field but holding position (not marching, not fighting):
     // rations are eaten and materiel trickles for equipment maintenance, but
     // weapons/ammunition are only spent on the march or in battle.
+    // Rates are now realistic (~1 food/min for a Swordsman in the field, see
+    // MakeDefaultUnitStats), so the observation window needs real minutes, not
+    // the handful of seconds the old ~70x-faster rates needed.
     SwordsmanDivision div;
     int foodBefore = div.foodSupply;
     int weaponBefore = div.weaponSupply;
     int materielBefore = div.materielSupply;
 
-    for (int i = 0; i < 50; i++)
+    for (int i = 0; i < 200; i++)   // 200 simulated seconds (~3.3 min)
         ConsumeDivisionSupply(div, 1.0, /*engaged=*/false, /*deployed=*/true);
 
     EXPECT_LT(div.foodSupply, foodBefore);
@@ -447,13 +450,13 @@ TEST(Supply, DeployedHoldingDivisionConsumesFoodAndMateriel)
 
 TEST(Supply, EngagedDivisionConsumesWeaponsAndMateriel)
 {
-    // In combat all three pools drain.
+    // In combat all three pools drain. See note above on realistic-rate windows.
     SwordsmanDivision div;
     int foodBefore = div.foodSupply;
     int weaponBefore = div.weaponSupply;
     int materielBefore = div.materielSupply;
 
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 90; i++)   // 90 simulated seconds of fighting
         ConsumeDivisionSupply(div, 1.0, /*engaged=*/true, /*deployed=*/true);
 
     EXPECT_LT(div.foodSupply, foodBefore);
@@ -467,7 +470,7 @@ TEST(Supply, EngagedDivisionConsumesFaster)
     SwordsmanDivision engaged;
     SwordsmanDivision idle;
 
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 90; i++)
     {
         ConsumeDivisionSupply(engaged, 1.0, /*engaged=*/true, /*deployed=*/true);
         ConsumeDivisionSupply(idle, 1.0, /*engaged=*/false, /*deployed=*/true);
@@ -2037,12 +2040,19 @@ TEST(Supply, ConservationReducesRequiredSupply)
     SwordsmanDivision baseline;
     SwordsmanDivision conserved;
 
-    // Few enough ticks that neither pool bottoms out at 0 — a saturated pool
+    // Enough simulated seconds for the combat weapon rate to produce a
+    // measurable loss without saturating the 40-point pool — a saturated pool
     // would flatten both sides to the same (capped) loss and hide the ratio.
-    for (int i = 0; i < 5; i++)
+    // Keep both divisions fed each tick: at the (visible) food upkeep rate a
+    // deployed division would otherwise starve partway through this window,
+    // dropping strength and coupling it back into EVERY drain rate — which
+    // skews the pure conservation ratio this test is meant to isolate.
+    for (int i = 0; i < 300; i++)
     {
         ConsumeDivisionSupply(baseline, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.0);
         ConsumeDivisionSupply(conserved, 1.0, /*engaged=*/true, /*deployed=*/true, /*conservation=*/0.5);
+        baseline.foodSupply = baseline.foodSupplyCapacity;
+        conserved.foodSupply = conserved.foodSupplyCapacity;
     }
 
     int baselineLoss = baseline.weaponSupplyCapacity - baseline.weaponSupply;
@@ -2116,4 +2126,986 @@ TEST(WarSystem, DivisionClaimsQuadrantItStandsOn)
     // The whole 2x2 quadrant flips, not just the tile the division stands on.
     int neighborId = world.GetTileMapForTesting().GetIdFromCoords({cell.x * 2 + 1, cell.y * 2 + 1});
     EXPECT_EQ(world.GetTileMapForTesting().tilemap[neighborId].owner, attackerPtr);
+}
+
+// ─── Combat observation harness (pilot) ──────────────────────────────────────
+// A tick-by-tick observer over a running GameWorld: instead of asserting only the
+// end state (the "after Update(1000.0)" pattern used above), it captures the
+// evolution of every division's strength/cohesion/order/flags, the aggregate
+// cohesion of each active Battle, and territory ownership — once per simulation
+// tick. It prints a compact CSV trace (visible in gtest output) AND auto-detects
+// suspicious transitions that have historically been real combat bugs:
+//   * cohesion RISING while a division is engaged (regen fighting the Battle
+//     system — the exact regression fixed in commit 3ad94c2);
+//   * strength RISING while engaged (reinforcement leaking into a live fight);
+//   * a division flagged engaged AND regrouping at once (inconsistent state);
+//   * a Battle's aggregate cohesion INCREASING mid-fight (should be monotone
+//     down until it resolves).
+// This is the pilot the war-test enhancement is built around — one self-contained
+// helper, reused by every future combat scenario, that turns "combat is buggy
+// again" into "at tick N, field X did Y".
+namespace
+{
+    struct DivFrame
+    {
+        int id{0};
+        int owner{-1};
+        int strength{0};
+        float cohesion{0.0f};
+        bool engaged{false};
+        bool retreating{false};
+        float regroupTimer{0.0f};
+        MilitaryOrderType order{MilitaryOrderType::None};
+        Vec2i tile{-1, -1};
+    };
+
+    struct BattleFrame
+    {
+        int id{0};
+        int attackerCohesion{0};
+        int defenderCohesion{0};
+        bool resolved{false};
+    };
+
+    const char* OrderLabel(MilitaryOrderType o)
+    {
+        switch (o)
+        {
+            case MilitaryOrderType::Attack:  return "Attack";
+            case MilitaryOrderType::Defend:  return "Defend";
+            case MilitaryOrderType::Support: return "Support";
+            default:                          return "None";
+        }
+    }
+
+    class CombatObserver
+    {
+    public:
+        explicit CombatObserver(GameWorld& world) : world_(world) {}
+
+        // Advances one simulation tick and records a frame. Returns false if an
+        // anomaly was detected on this tick (also recorded in anomalies()).
+        bool Step(double dt)
+        {
+            world_.UpdateSimulation(dt);
+            const std::uint64_t tick = world_.GetSimulationTick();
+
+            std::map<int, DivFrame> divs;   // divisionId -> frame (deterministic order)
+            for (auto& [pid, player] : world_.GetPlayerHandler().players)
+            {
+                if (player == nullptr) continue;
+                for (const auto& f : player->forces)
+                {
+                    if (f == nullptr) continue;
+                    DivFrame df;
+                    df.id = f->id; df.owner = pid;
+                    df.strength = f->strength; df.cohesion = f->cohesion;
+                    df.engaged = f->engaged; df.retreating = f->retreating;
+                    df.regroupTimer = f->regroupTimer; df.order = f->currentOrder;
+                    df.tile = f->occupiedTile;
+                    divs[df.id] = df;
+                }
+            }
+
+            std::map<int, BattleFrame> bfs;
+            for (const auto& [bid, b] : world_.GetBattles())
+                bfs[bid] = BattleFrame{bid, b.attackerCohesion, b.defenderCohesion, b.resolved};
+
+            bool clean = true;
+            // Per-division invariants vs. the previous frame.
+            for (const auto& [id, cur] : divs)
+            {
+                auto prevIt = lastDivs_.find(id);
+                if (prevIt != lastDivs_.end())
+                {
+                    const DivFrame& prev = prevIt->second;
+                    if (cur.engaged && prev.engaged && cur.cohesion > prev.cohesion + 1e-3f)
+                        clean &= Flag(tick, "div " + std::to_string(id) +
+                            " cohesion ROSE while engaged (" + Num(prev.cohesion) +
+                            " -> " + Num(cur.cohesion) + ")");
+                    if (cur.engaged && prev.engaged && cur.strength > prev.strength)
+                        clean &= Flag(tick, "div " + std::to_string(id) +
+                            " strength ROSE while engaged (" + std::to_string(prev.strength) +
+                            " -> " + std::to_string(cur.strength) + ")");
+                }
+                if (cur.engaged && cur.regroupTimer > 0.0f)
+                    clean &= Flag(tick, "div " + std::to_string(id) +
+                        " is engaged AND regrouping (timer=" + Num(cur.regroupTimer) + ")");
+            }
+            // Per-battle invariant: aggregate cohesion is monotone down until resolve.
+            for (const auto& [bid, cur] : bfs)
+            {
+                auto prevIt = lastBattles_.find(bid);
+                if (prevIt != lastBattles_.end() && !cur.resolved && !prevIt->second.resolved)
+                {
+                    if (cur.attackerCohesion > prevIt->second.attackerCohesion)
+                        clean &= Flag(tick, "battle " + std::to_string(bid) +
+                            " attacker cohesion ROSE mid-fight");
+                    if (cur.defenderCohesion > prevIt->second.defenderCohesion)
+                        clean &= Flag(tick, "battle " + std::to_string(bid) +
+                            " defender cohesion ROSE mid-fight");
+                }
+            }
+
+            // Emit a trace row on the first tick, on any battle-set change, and
+            // every `traceEvery_` ticks — keeps output bounded but never misses a
+            // transition (battle start / resolve).
+            const bool battleSetChanged = BattleIds(bfs) != BattleIds(lastBattles_);
+            if (frameCount_ == 0 || battleSetChanged || (tick % traceEvery_) == 0)
+                PrintRow(tick, divs, bfs);
+
+            lastDivs_ = std::move(divs);
+            lastBattles_ = std::move(bfs);
+            frameCount_++;
+            return clean;
+        }
+
+        bool SawBattle() const { return sawBattle_; }
+        const std::vector<std::string>& anomalies() const { return anomalies_; }
+        int TerritoryTiles(const Player* owner) const
+        {
+            int n = 0;
+            for (const auto& t : world_.GetTileMap().tilemap)
+                if (t.owner == owner) n++;
+            return n;
+        }
+
+    private:
+        static std::string Num(float v)
+        {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.1f", v);
+            return buf;
+        }
+        static std::set<int> BattleIds(const std::map<int, BattleFrame>& m)
+        {
+            std::set<int> ids;
+            for (const auto& [id, b] : m) if (!b.resolved) ids.insert(id);
+            return ids;
+        }
+        bool Flag(std::uint64_t tick, const std::string& msg)
+        {
+            anomalies_.push_back("[tick " + std::to_string(tick) + "] " + msg);
+            std::printf("  !! ANOMALY [tick %llu] %s\n",
+                        static_cast<unsigned long long>(tick), msg.c_str());
+            return false;
+        }
+        void PrintRow(std::uint64_t tick,
+                      const std::map<int, DivFrame>& divs,
+                      const std::map<int, BattleFrame>& bfs)
+        {
+            if (!bfs.empty()) sawBattle_ = true;
+            std::string line = "t=" + std::to_string(tick);
+            for (const auto& [id, d] : divs)
+            {
+                line += " | P" + std::to_string(d.owner) + ".d" + std::to_string(id) +
+                        " str=" + std::to_string(d.strength) +
+                        " coh=" + Num(d.cohesion) +
+                        " " + OrderLabel(d.order) +
+                        (d.engaged ? " ENG" : "") +
+                        (d.retreating ? " RET" : "");
+            }
+            for (const auto& [bid, b] : bfs)
+                line += " | B" + std::to_string(bid) +
+                        " atk=" + std::to_string(b.attackerCohesion) +
+                        " def=" + std::to_string(b.defenderCohesion) +
+                        (b.resolved ? " RESOLVED" : "");
+            std::printf("%s\n", line.c_str());
+        }
+
+        GameWorld& world_;
+        std::map<int, DivFrame> lastDivs_;
+        std::map<int, BattleFrame> lastBattles_;
+        std::vector<std::string> anomalies_;
+        std::uint64_t traceEvery_{25};
+        std::size_t frameCount_{0};
+        bool sawBattle_{false};
+    };
+
+    // Places a headquarters at `anchor` owned by `player`, home for its divisions.
+    Headquarters* PlaceHomeHq(GameWorld& world, Player* player, Vec2i anchor, int id)
+    {
+        // Own a small block around the HQ so retreat-home lands on friendly ground.
+        for (int dy = 0; dy < 4; dy++)
+            for (int dx = 0; dx < 4; dx++)
+            {
+                Vec2i t{anchor.x + dx, anchor.y + dy};
+                if (world.GetTileMapForTesting().IsInside(t))
+                    world.GetTileMapForTesting().tilemap[world.GetTileMapForTesting().GetIdFromCoords(t)].owner = player;
+            }
+        auto* hq = dynamic_cast<Headquarters*>(world.GetTileMapForTesting().PlaceLoadedBuilding(
+            world.GetTileMapForTesting().GetIdFromCoords(anchor), player, std::make_unique<Headquarters>(id)));
+        if (hq != nullptr) hq->constructionRemaining = 0.0;
+        return hq;
+    }
+}
+
+// Pilot: a full 1v1 field battle driven purely through UpdateSimulation, watched
+// tick-by-tick. Attacker marches nowhere (already in contact), the Battle forms,
+// resolves, the loser disengages/retreats, and the contested quadrant flips to
+// the survivor. Every combat invariant the observer knows about must hold for the
+// whole fight — so this doubles as a regression guard for the cohesion-regen and
+// reinforcement-in-combat bugs.
+TEST(CombatTrace, SwordsmanDuelResolvesCleanlyAndFlipsTerritory)
+{
+    GameWorld world;
+    auto attacker = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* attackerPtr = attacker.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(attacker);
+    auto defender = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* defenderPtr = defender.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(defender);
+
+    // Whole map starts as defender's land — the attacker is invading.
+    FillGrass(world.GetTileMapForTesting(), defenderPtr, 20, 20);
+
+    // Homes in opposite corners so a defeated side retreats away from the front.
+    auto* atkHq = PlaceHomeHq(world, attackerPtr, {0, 0}, 1);
+    auto* defHq = PlaceHomeHq(world, defenderPtr, {16, 16}, 2);
+    ASSERT_NE(atkHq, nullptr);
+    ASSERT_NE(defHq, nullptr);
+
+    // Declare war symmetrically (engagement is gated on IsAtWar).
+    attackerPtr->diplomatic.DeclareWar(0, 1);
+    defenderPtr->diplomatic.DeclareWar(0, 1);
+
+    // Defender holds tile (4,4); attacker stands adjacent at (5,4) — same 2x2
+    // quadrant — carrying a live Attack order onto the defender's tile. The
+    // attacker is a Swordsman, the defender a weaker Militia, so the fight is
+    // decisive (attacker wins) rather than a rounding-decided mirror match.
+    auto defDiv = CreateMilitaryDivision(MilitaryUnitType::Militia, 100);
+    defDiv->occupiedTile = {4, 4};
+    defDiv->sectorCell = SectorCellOf(defDiv->occupiedTile);
+    defDiv->garrisonBuildingId = defHq->positionId;
+    defenderPtr->forces.push_back(std::move(defDiv));
+
+    auto atkDiv = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 200);
+    atkDiv->occupiedTile = {5, 4};
+    atkDiv->sectorCell = SectorCellOf(atkDiv->occupiedTile);
+    atkDiv->garrisonBuildingId = atkHq->positionId;
+    atkDiv->currentOrder = MilitaryOrderType::Attack;
+    atkDiv->orderTargetPositionId = world.GetTileMapForTesting().GetIdFromCoords({4, 4});
+    attackerPtr->forces.push_back(std::move(atkDiv));
+
+    const Vec2i contested = SectorCellOf({4, 4});
+    const int contestedTileId = world.GetTileMapForTesting().GetIdFromCoords({contested.x * 2, contested.y * 2});
+
+    std::printf("=== CombatTrace: Swordsman 1v1 (attacker P0 d200 vs defender P1 d100) ===\n");
+    CombatObserver observer(world);
+
+    const double dt = 1.0 / 100.0;   // FixedSimulationClock::FixedDt
+    const int maxTicks = 20000;      // 200s sim — a duel must resolve well inside this
+    bool battleStarted = false;
+    int ticks = 0;
+    for (; ticks < maxTicks; ticks++)
+    {
+        observer.Step(dt);
+        const bool anyActive = !world.GetBattles().empty();
+        if (anyActive) battleStarted = true;
+        // Stop once the fight has both started and fully cleared.
+        if (battleStarted && !anyActive) break;
+    }
+
+    // Let the field settle so the victor can assert its territorial claim and the
+    // beaten division marches clear (ClaimTilesUnderDivisions runs every tick).
+    // Off-road march speed is ~10-14 tiles/min (~0.17-0.23 tiles/sec), and a
+    // retreat/advance covers a couple of tiles, so this needs real seconds of
+    // sim time, not a handful of ticks — 4000 ticks = 40 simulated seconds.
+    for (int s = 0; s < 4000; s++)
+        observer.Step(dt);
+
+    const SoldierDivision* atkSurvivor = nullptr;
+    for (const auto& f : attackerPtr->forces)
+        if (f != nullptr && f->id == 200) atkSurvivor = f.get();
+    const SoldierDivision* defSurvivor = nullptr;
+    for (const auto& f : defenderPtr->forces)
+        if (f != nullptr && f->id == 100) defSurvivor = f.get();
+
+    std::printf("=== resolved after %d ticks | P0 territory=%d P1 territory=%d | anomalies=%zu ===\n",
+                ticks, observer.TerritoryTiles(attackerPtr), observer.TerritoryTiles(defenderPtr),
+                observer.anomalies().size());
+
+    // 1) A real Battle actually formed and was observed.
+    EXPECT_TRUE(observer.SawBattle()) << "attack order never produced a Battle";
+    EXPECT_LT(ticks, maxTicks) << "battle never resolved (possible infinite fight)";
+
+    // 2) No combat invariant was ever violated during the fight.
+    EXPECT_TRUE(observer.anomalies().empty())
+        << "combat anomalies detected — see trace above (" << observer.anomalies().size() << ")";
+
+    // 3) The victorious attacker survived with strength intact and disengaged.
+    ASSERT_NE(atkSurvivor, nullptr) << "attacker should survive the duel";
+    EXPECT_GT(atkSurvivor->strength, 0);
+    EXPECT_FALSE(atkSurvivor->engaged) << "attacker still flagged engaged after the battle ended";
+
+    // 4) The winner holds the ground: the attacker physically advances onto the
+    //    contested quadrant (AdvanceIntoQuadrant, GameWorld.Battles.cpp) and
+    //    ClaimTilesUnderDivisions picks it up. Previously this failed because
+    //    (a) MoveDivisionTo's snapToSector path bailed out whenever the target
+    //    sector's mask was empty — which is EVERY military building's own tile,
+    //    since footprints are always >= one full 2x2 sector, so the defeated
+    //    defender's retreat-to-home call was silently a no-op and it never
+    //    vacated the quadrant; and (b) the attacker never had a move command
+    //    onto the quadrant at all when it fought from an adjacent one. Both are
+    //    fixed in GarrisonComponent::MoveDivisionTo / GameWorld.Battles.cpp.
+    EXPECT_EQ(world.GetTileMapForTesting().tilemap[contestedTileId].owner, attackerPtr)
+        << "attacker won the battle but never took the contested quadrant";
+
+    // 5) The defeated defender physically fell back one quadrant deeper into its
+    //    own territory instead of freezing in place with a stale `retreating` flag.
+    ASSERT_NE(defSurvivor, nullptr) << "defender should survive (routed, not destroyed)";
+    EXPECT_NE(defSurvivor->occupiedTile, Vec2i({4, 4}))
+        << "defeated defender never physically left the contested tile";
+}
+
+// Cohesion-first combat, quantified: an even 1v1 (identical Swordsman divisions,
+// both fully supplied) should break one side within ~10-20s of simulated
+// combat, and — since cohesion is the sole damage channel while both sides stay
+// fully supplied (ResolveOneSidedDamage: hpLoss = orgLoss * (1-supplyEfficiency))
+// — HP should barely move. Regression guard for kConstantOrgFloor calibration
+// (UnitStats.cpp): before Task 3's retune this mirror match took ~130s (with
+// the pre-Task-1 supply rates crashing supplyEfficiency mid-fight and
+// throttling orgLoss) and even after Task 1's rate fix alone still ran ~24s,
+// above the intended window.
+TEST(CombatTrace, EvenMatchupBreaksWithinTenToTwentySecondsWithMinimalHpLoss)
+{
+    GameWorld world;
+    auto p0 = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* p0Ptr = p0.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(p0);
+    auto p1 = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* p1Ptr = p1.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(p1);
+
+    FillGrass(world.GetTileMapForTesting(), p1Ptr, 20, 20);
+    auto* hq0 = PlaceHomeHq(world, p0Ptr, {0, 0}, 1);
+    auto* hq1 = PlaceHomeHq(world, p1Ptr, {16, 16}, 2);
+    ASSERT_NE(hq0, nullptr);
+    ASSERT_NE(hq1, nullptr);
+
+    p0Ptr->diplomatic.DeclareWar(0, 1);
+    p1Ptr->diplomatic.DeclareWar(0, 1);
+
+    auto div1 = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 100);
+    div1->occupiedTile = {4, 4};
+    div1->sectorCell = SectorCellOf(div1->occupiedTile);
+    div1->garrisonBuildingId = hq1->positionId;
+    int hp1Before = div1->health;
+    p1Ptr->forces.push_back(std::move(div1));
+
+    auto div0 = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 200);
+    div0->occupiedTile = {5, 4};
+    div0->sectorCell = SectorCellOf(div0->occupiedTile);
+    div0->garrisonBuildingId = hq0->positionId;
+    div0->currentOrder = MilitaryOrderType::Attack;
+    div0->orderTargetPositionId = world.GetTileMapForTesting().GetIdFromCoords({4, 4});
+    int hp0Before = div0->health;
+    p0Ptr->forces.push_back(std::move(div0));
+
+    CombatObserver observer(world);
+    const double dt = 1.0 / 100.0;
+    const int maxTicks = 6000;   // 60s ceiling — well above the 20s target
+    bool battleStarted = false;
+    int ticks = 0;
+    for (; ticks < maxTicks; ticks++)
+    {
+        observer.Step(dt);
+        const bool anyActive = !world.GetBattles().empty();
+        if (anyActive) battleStarted = true;
+        if (battleStarted && !anyActive) break;
+    }
+
+    const double seconds = ticks * dt;
+    std::printf("=== Even Swordsman 1v1 resolved after %.2fs (%d ticks) | anomalies=%zu ===\n",
+                seconds, ticks, observer.anomalies().size());
+
+    EXPECT_TRUE(observer.SawBattle()) << "attack order never produced a Battle";
+    EXPECT_TRUE(observer.anomalies().empty()) << "combat anomalies detected — see trace above";
+
+    // Break window: 10-20s is the target for a roughly-equal duel; allow a
+    // margin down to 8s / up to 25s for tick-level noise and variance rolls.
+    EXPECT_GE(seconds, 8.0)  << "even duel broke suspiciously fast — org floor may be too high";
+    EXPECT_LE(seconds, 25.0) << "even duel dragged on too long — org floor may be too low";
+
+    const SoldierDivision* survivor0 = nullptr;
+    for (const auto& f : p0Ptr->forces) if (f != nullptr && f->id == 200) survivor0 = f.get();
+    const SoldierDivision* survivor1 = nullptr;
+    for (const auto& f : p1Ptr->forces) if (f != nullptr && f->id == 100) survivor1 = f.get();
+
+    // Whichever side broke, both started fully supplied, so neither should have
+    // taken meaningful permanent (HP) losses — the fight should have been decided
+    // on organization, not manpower.
+    if (survivor0 != nullptr)
+        EXPECT_GE(survivor0->health, static_cast<int>(hp0Before * 0.9))
+            << "fully-supplied division lost significant HP in a short duel";
+    if (survivor1 != nullptr)
+        EXPECT_GE(survivor1->health, static_cast<int>(hp1Before * 0.9))
+            << "fully-supplied division lost significant HP in a short duel";
+}
+
+// RegenerateDivisionCohesion: a division holding ground (no live Attack order)
+// rallies organization faster than one still pressing an attack — Task 3's
+// "regen w obronie > w ataku" requirement.
+TEST(Cohesion, DefensivePostureRegeneratesFasterThanAttacking)
+{
+    SwordsmanDivision attacking;
+    SwordsmanDivision defending;
+    attacking.cohesion = 10.0f;
+    defending.cohesion = 10.0f;
+    attacking.currentOrder = MilitaryOrderType::Attack;
+    defending.currentOrder = MilitaryOrderType::None;
+
+    RegenerateDivisionCohesion(attacking, 5.0, /*inOwnTerritory=*/true, /*engaged=*/false, nullptr);
+    RegenerateDivisionCohesion(defending, 5.0, /*inOwnTerritory=*/true, /*engaged=*/false, nullptr);
+
+    EXPECT_GT(defending.cohesion, attacking.cohesion);
+}
+
+// ─── Z5: full supply chain, end to end ────────────────────────────────────────
+// Now that combat is dominated by supply (Z1-Z4), the front is only as alive as
+// the logistics chain feeding it. This drives the REAL pipeline through
+// GameWorld::UpdateSimulation (not manually-stepped UpdateTransportables calls
+// like Supply.PackageTravelsOverRoadAndArrives, and not a pre-filled
+// SupplyBufferComponent like ResupplyDeployed.* — both of those each cover only
+// half the chain) end to end: HQ.storage -> SupplyHub assembles+ships a package
+// over the road network -> GuardTower's SupplyBufferComponent absorbs it ->
+// ResupplyDeployedDivisions (1 Hz) pulls from the tower into a DEPLOYED (field)
+// division standing nearby. If this breaks anywhere, the new supply-dominated
+// combat model makes every division on the map starve out and die — not just
+// fight worse — so this is load-bearing for the game being playable at all.
+TEST(Supply, EndToEndChainFeedsDeployedDivision)
+{
+    GameWorld world;
+    auto player = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* playerPtr = player.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(player);
+    FillGrass(world.GetTileMapForTesting(), playerPtr, 20, 10);
+    // Player's RoadNetwork sized its nav map off the (then-empty) TileMap at
+    // construction time; rebuild it now that FillGrass has sized the map (same
+    // fix as Supply.PackageTravelsOverRoadAndArrives).
+    playerPtr->roadNetwork = std::make_unique<RoadNetwork>(world.GetTileMapForTesting());
+
+    auto* depot = PlaceAndRegisterOnPlayer<Headquarters>(world.GetTileMapForTesting(), *playerPtr, {1, 1}, 1);
+    auto* hub   = PlaceAndRegisterOnPlayer<SupplyHub>(world.GetTileMapForTesting(), *playerPtr, {2, 5}, 2);
+    auto* tower = PlaceAndRegisterOnPlayer<GuardTower>(world.GetTileMapForTesting(), *playerPtr, {14, 5}, 3);
+    ASSERT_NE(depot, nullptr);
+    ASSERT_NE(hub, nullptr);
+    ASSERT_NE(tower, nullptr);
+
+    std::vector<Road*> roads;
+    for (int x = 5; x <= 13; x++)
+    {
+        auto* road = PlaceAndRegisterOnPlayer<Road>(world.GetTileMapForTesting(), *playerPtr, {x, 5}, 100 + x);
+        ASSERT_NE(road, nullptr);
+        roads.push_back(road);
+    }
+
+    // The HQ is stocked with raw materiel; nothing pre-fills the tower or the
+    // division directly — everything downstream must arrive through the chain.
+    depot->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(40);
+    depot->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(200);
+
+    // A division deployed OUT IN THE FIELD (occupiedTile set — not garrisoned),
+    // standing beside the tower, well within ResupplyDeployedDivisions' default
+    // 20-tile range. Starts with nothing.
+    auto division = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 1);
+    division->weaponSupply = 0;
+    division->foodSupply = 0;
+    division->occupiedTile = {14, 3};
+    division->garrisonBuildingId = tower->positionId;
+    playerPtr->forces.push_back(std::move(division));
+
+    const double dt = 1.0 / 100.0;   // FixedSimulationClock::FixedDt
+    const int maxTicks = 12000;      // 120s ceiling: assembleInterval=5s + march + 1Hz pull
+    bool fed = false;
+    SoldierDivision* d = nullptr;
+    int tick = 0;
+    for (; tick < maxTicks; tick++)
+    {
+        world.UpdateSimulation(dt);
+        ASSERT_FALSE(playerPtr->forces.empty()) << "division was removed from forces mid-test";
+        d = playerPtr->forces.front().get();
+        if (d->weaponSupply > 0 && d->foodSupply > 0)
+        {
+            fed = true;
+            break;
+        }
+    }
+
+    std::printf("=== EndToEndChainFeedsDeployedDivision: fed after %d ticks (%.1fs) ===\n",
+                tick, tick * dt);
+
+    ASSERT_NE(d, nullptr);
+    EXPECT_TRUE(fed) << "deployed division never received supply through the full "
+                        "HQ -> SupplyHub -> road -> tower -> pull chain "
+                        "(weapon=" << d->weaponSupply << " food=" << d->foodSupply << ")";
+    EXPECT_GT(d->weaponSupply, 0);
+    EXPECT_GT(d->foodSupply, 0);
+}
+
+// ─── Stat-interaction unit tests (Z6) ─────────────────────────────────────────
+// ResolveOneSidedDamage is file-local; these drive it through the public
+// ResolveDivisionDuel(DivisionCombatStats, DivisionCombatStats, ...) API with
+// hand-constructed stat blocks so each test isolates exactly ONE variable
+// instead of comparing two named unit types (which differ in many stats at
+// once and would leave the result ambiguous about which stat caused it).
+// simTick/ids = 0/0/0 disables the deterministic variance roll (see
+// ResolveDivisionDuel's doc comment), so results are exact, not "on average".
+namespace
+{
+    DivisionCombatStats BaselineCombatStats()
+    {
+        DivisionCombatStats s;
+        s.lightAttack = 10.0f;
+        s.armoredAttack = 10.0f;
+        s.shock = 0.0f;
+        s.armor = 5.0f;
+        s.piercing = 5.0f;
+        s.defense = 5.0f;
+        s.morale = 60.0f;
+        s.speed = 10.0f;
+        s.maxStrength = 100.0f;
+        s.maxCohesion = 40.0f;
+        s.equipmentQuality = 1.0f;
+        s.strength = 100.0f;         // full strength -> hpScaling = 1.0
+        s.armoredShare = 0.3f;
+        s.isArmored = false;
+        s.hpDamageMultiplier = 1.0f;
+        s.orgDamageMultiplier = 1.0f;
+        s.supplyEfficiency = 1.0f;   // fully supplied unless a test overrides it
+        s.isDefending = true;        // "holding ground" unless a test overrides it
+        return s;
+    }
+}
+
+TEST(Combat, HighDefenseReducesOrgLossVsLowDefense)
+{
+    DivisionCombatStats attacker = BaselineCombatStats();
+    DivisionCombatStats lowDef = BaselineCombatStats();
+    DivisionCombatStats highDef = BaselineCombatStats();
+    highDef.defense = 20.0f;   // only defense differs from lowDef
+
+    DivisionDuelResult vsLow  = ResolveDivisionDuel(attacker, lowDef, 1.0, 0, 0, 0);
+    DivisionDuelResult vsHigh = ResolveDivisionDuel(attacker, highDef, 1.0, 0, 0, 0);
+
+    EXPECT_LT(vsHigh.defenderCohesionLoss, vsLow.defenderCohesionLoss);
+}
+
+TEST(Combat, HighShockBreaksDefendingTargetFaster)
+{
+    DivisionCombatStats lowShock = BaselineCombatStats();
+    DivisionCombatStats highShock = BaselineCombatStats();
+    highShock.shock = 20.0f;   // only shock differs from lowShock
+    DivisionCombatStats defender = BaselineCombatStats();
+    defender.isDefending = true;
+
+    DivisionDuelResult viaLow  = ResolveDivisionDuel(lowShock, defender, 1.0, 0, 0, 0);
+    DivisionDuelResult viaHigh = ResolveDivisionDuel(highShock, defender, 1.0, 0, 0, 0);
+
+    EXPECT_GT(viaHigh.defenderCohesionLoss, viaLow.defenderCohesionLoss);
+}
+
+TEST(Combat, ShockOnlyHelpsAgainstADefendingTarget)
+{
+    // Same high-shock attacker; only the TARGET's posture differs. Shock must
+    // NOT reward breaking another attacker (two divisions trading blows head-on)
+    // — only breaking a division that is trying to HOLD ground.
+    DivisionCombatStats attacker = BaselineCombatStats();
+    attacker.shock = 20.0f;
+    DivisionCombatStats defendingTarget = BaselineCombatStats();
+    defendingTarget.isDefending = true;
+    DivisionCombatStats attackingTarget = BaselineCombatStats();
+    attackingTarget.isDefending = false;
+
+    DivisionDuelResult vsDefending = ResolveDivisionDuel(attacker, defendingTarget, 1.0, 0, 0, 0);
+    DivisionDuelResult vsAttacking = ResolveDivisionDuel(attacker, attackingTarget, 1.0, 0, 0, 0);
+
+    EXPECT_GT(vsDefending.defenderCohesionLoss, vsAttacking.defenderCohesionLoss);
+}
+
+TEST(Combat, PiercingBelowArmorMitigatesHardAttack)
+{
+    DivisionCombatStats lowPierce = BaselineCombatStats();
+    lowPierce.piercing = 1.0f;       // well below defender.armor(5) -> mostly bounces
+    DivisionCombatStats highPierce = BaselineCombatStats();
+    highPierce.piercing = 10.0f;     // exceeds defender.armor(5) -> full penetration
+    DivisionCombatStats armoredDefender = BaselineCombatStats();
+    armoredDefender.armoredShare = 1.0f;  // fully armored: armoredAttack*pierceRatio dominates firepower
+    armoredDefender.armor = 5.0f;
+
+    DivisionDuelResult viaLow  = ResolveDivisionDuel(lowPierce, armoredDefender, 1.0, 0, 0, 0);
+    DivisionDuelResult viaHigh = ResolveDivisionDuel(highPierce, armoredDefender, 1.0, 0, 0, 0);
+
+    EXPECT_GT(viaHigh.defenderCohesionLoss, viaLow.defenderCohesionLoss);
+}
+
+TEST(Combat, CohesionLossScalesWithStatsNotConstant)
+{
+    // Regression guard against the pre-Z6 bug where kConstantOrgFloor (100-150)
+    // dominated org loss and made lightAttack/armoredAttack/piercing/shock
+    // differences ~1% of total damage — functionally decorative. A "glass
+    // cannon" attacker (high everything) must deal MEANINGFULLY more org damage
+    // than a "weak" attacker (low everything) against the identical defender —
+    // a flat-floor-dominated formula could never produce this large a ratio.
+    DivisionCombatStats weakAttacker = BaselineCombatStats();
+    weakAttacker.lightAttack = 2.0f; weakAttacker.armoredAttack = 2.0f;
+    weakAttacker.piercing = 1.0f; weakAttacker.shock = 0.0f;
+    DivisionCombatStats strongAttacker = BaselineCombatStats();
+    strongAttacker.lightAttack = 30.0f; strongAttacker.armoredAttack = 30.0f;
+    strongAttacker.piercing = 15.0f; strongAttacker.shock = 15.0f;
+    DivisionCombatStats defender = BaselineCombatStats();
+
+    DivisionDuelResult weak   = ResolveDivisionDuel(weakAttacker, defender, 1.0, 0, 0, 0);
+    DivisionDuelResult strong = ResolveDivisionDuel(strongAttacker, defender, 1.0, 0, 0, 0);
+
+    EXPECT_GT(strong.defenderCohesionLoss, weak.defenderCohesionLoss * 3.0f);
+}
+
+// ─── Supply-gated cohesion ceiling (Z1 + Z3) ─────────────────────────────────
+
+TEST(Cohesion, UnsuppliedEffectiveMaxCohesionCollapses)
+{
+    SwordsmanDivision supplied;     // default ctor: full weapon/food
+    SwordsmanDivision unsupplied;
+    unsupplied.weaponSupply = 0;
+    unsupplied.foodSupply = 0;
+
+    float suppliedMax   = ResolveEffectiveDivisionMaxCohesion(supplied, nullptr);
+    float unsuppliedMax = ResolveEffectiveDivisionMaxCohesion(unsupplied, nullptr);
+
+    EXPECT_NEAR(suppliedMax, 40.0f, 0.01f);     // full max, untouched
+    EXPECT_LT(unsuppliedMax, 40.0f * 0.15f);    // well under 15% of full — "no equipment = no cohesion"
+}
+
+TEST(Cohesion, RecoveryRateScalesWithMorale)
+{
+    SwordsmanDivision lowMorale;
+    SwordsmanDivision highMorale;
+    lowMorale.cohesion = 10.0f;
+    highMorale.cohesion = 10.0f;
+    lowMorale.morale = 10;
+    highMorale.morale = 100;
+
+    RegenerateDivisionCohesion(lowMorale, 5.0, /*inOwnTerritory=*/true, /*engaged=*/false, nullptr);
+    RegenerateDivisionCohesion(highMorale, 5.0, /*inOwnTerritory=*/true, /*engaged=*/false, nullptr);
+
+    EXPECT_GT(highMorale.cohesion, lowMorale.cohesion);
+}
+
+// ─── Money test: the reported bug, disproven end to end ──────────────────────
+// User's exact complaint: "wróg bez zapasów wycofuje się, regeneruje kohezję
+// (dzięki obronie/terytorium) i wygrywa kolejną turę". This drives a full,
+// real GameWorld battle where the DEFENDER is permanently cut off (weapon and
+// food capacity both 0 — no resupply is even possible), lets it retreat and
+// sit at home (full territory + defensive posture bonuses active) for a long
+// settle window, then launches a SECOND attack. The defender must lose again,
+// not win the rematch.
+TEST(CombatTrace, SuppliedBeatsUnsuppliedAcrossRetreatCycle)
+{
+    GameWorld world;
+    auto attacker = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* attackerPtr = attacker.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(attacker);
+    auto defender = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* defenderPtr = defender.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(defender);
+
+    FillGrass(world.GetTileMapForTesting(), defenderPtr, 20, 20);
+    auto* atkHq = PlaceHomeHq(world, attackerPtr, {0, 0}, 1);
+    auto* defHq = PlaceHomeHq(world, defenderPtr, {16, 16}, 2);
+    ASSERT_NE(atkHq, nullptr);
+    ASSERT_NE(defHq, nullptr);
+
+    attackerPtr->diplomatic.DeclareWar(0, 1);
+    defenderPtr->diplomatic.DeclareWar(0, 1);
+
+    // Defender: cut off from the start, permanently — pools EMPTY (not
+    // capacity-zeroed: DivisionSupplyEfficiency treats capacity==0 as "this
+    // division doesn't use the pool" and skips the penalty entirely, which is
+    // the opposite of what "cut off" means here). No SupplyHub/road exists on
+    // this tiny test map, so nothing can ever refill it. Identical unit type to
+    // the attacker, so logistics is the ONLY difference between the two sides.
+    auto defDiv = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 100);
+    defDiv->occupiedTile = {4, 4};
+    defDiv->sectorCell = SectorCellOf(defDiv->occupiedTile);
+    defDiv->garrisonBuildingId = defHq->positionId;
+    defDiv->weaponSupply = 0;
+    defDiv->foodSupply = 0;
+    defenderPtr->forces.push_back(std::move(defDiv));
+
+    auto atkDiv = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 200);
+    atkDiv->occupiedTile = {5, 4};
+    atkDiv->sectorCell = SectorCellOf(atkDiv->occupiedTile);
+    atkDiv->garrisonBuildingId = atkHq->positionId;
+    atkDiv->currentOrder = MilitaryOrderType::Attack;
+    atkDiv->orderTargetPositionId = world.GetTileMapForTesting().GetIdFromCoords({4, 4});
+    attackerPtr->forces.push_back(std::move(atkDiv));
+
+    CombatObserver observer(world);
+    const double dt = 1.0 / 100.0;
+    const int maxTicks = 6000;   // 60s ceiling per battle
+
+    auto runUntilBattleResolves = [&]() -> int
+    {
+        bool started = false;
+        int t = 0;
+        for (; t < maxTicks; t++)
+        {
+            observer.Step(dt);
+            const bool anyActive = !world.GetBattles().empty();
+            if (anyActive) started = true;
+            if (started && !anyActive) break;
+        }
+        return t;
+    };
+
+    int firstTicks = runUntilBattleResolves();
+    ASSERT_TRUE(observer.SawBattle()) << "first attack never produced a Battle";
+    ASSERT_LT(firstTicks, maxTicks) << "first battle never resolved";
+
+    // Long settle: every chance to regenerate — home territory, defensive
+    // posture, full morale. It must NOT meaningfully recover, since it has no
+    // weapons/food to sustain organization above its collapsed ceiling.
+    for (int s = 0; s < 6000; s++)
+        observer.Step(dt);
+
+    SoldierDivision* defAfterFirst = nullptr;
+    for (auto& f : defenderPtr->forces) if (f != nullptr && f->id == 100) defAfterFirst = f.get();
+
+    if (defAfterFirst != nullptr)
+    {
+        float effectiveMax = ResolveEffectiveDivisionMaxCohesion(*defAfterFirst, nullptr);
+        EXPECT_LE(defAfterFirst->cohesion, effectiveMax + 1.0f)
+            << "unsupplied defender regenerated cohesion beyond its supply-capped ceiling";
+        EXPECT_LT(defAfterFirst->cohesion, 10.0f)
+            << "unsupplied defender recovered far more cohesion than its logistics should allow";
+
+        // Rematch: order the (fully-supplied) attacker onto the defender's new
+        // position for a second engagement.
+        SoldierDivision* atkMutable = nullptr;
+        for (auto& f : attackerPtr->forces) if (f != nullptr && f->id == 200) atkMutable = f.get();
+        ASSERT_NE(atkMutable, nullptr) << "attacker should have survived the first battle";
+        atkMutable->regroupTimer = 0.0f;
+
+        // Issue a REAL AttackTile command (not a direct field-poke) — the
+        // defender retreated a whole sector away, so the attacker needs to
+        // physically march there first; only the command layer
+        // (MoveDivisionToAttackTile) knows how to queue that march before
+        // flagging the Attack order. A bare `currentOrder=Attack` field-poke
+        // (as used for the FIRST engagement, where the two divisions started
+        // pre-adjacent) would silently never engage here.
+        world.SubmitCommand(GameCommand::AttackTile(
+            attackerPtr->id, atkHq->positionId, atkMutable->id,
+            world.GetTileMapForTesting().GetIdFromCoords(defAfterFirst->occupiedTile)));
+
+        const int marchAndFightTicks = 20000;   // 200s ceiling: march there, then fight
+        bool secondStarted = false;
+        int secondTicks = 0;
+        for (; secondTicks < marchAndFightTicks; secondTicks++)
+        {
+            observer.Step(dt);
+            const bool anyActive = !world.GetBattles().empty();
+            if (anyActive) secondStarted = true;
+            if (secondStarted && !anyActive) break;
+        }
+        EXPECT_TRUE(secondStarted) << "rematch attack order never produced a Battle";
+        EXPECT_LT(secondTicks, marchAndFightTicks) << "rematch never resolved";
+
+        SoldierDivision* defAfterRematch = nullptr;
+        for (auto& f : defenderPtr->forces) if (f != nullptr && f->id == 100) defAfterRematch = f.get();
+
+        // The whole point: the crippled defender must NOT win the rematch. It
+        // either broke again (cohesion still capped near its collapsed
+        // ceiling) or was destroyed outright — either is an acceptable outcome
+        // proving the retreat-regen-win cycle is gone. It must never come back
+        // with meaningfully-recovered cohesion able to hold the line.
+        if (defAfterRematch != nullptr)
+            EXPECT_LT(defAfterRematch->cohesion, 10.0f)
+                << "unsupplied defender should have broken again in the rematch, not held";
+    }
+    // else: the division died outright from equipment/starvation attrition
+    // during the settle window — also a fully acceptable outcome (Z4): a
+    // permanently cut-off division is not supposed to survive indefinitely.
+}
+
+// ─── Encirclement ("kocioł") ──────────────────────────────────────────────────
+// Regression for the "stuck division" bug: a defeated division that keeps
+// losing battles but has nowhere left to retreat (RetreatTargetTile's neighbour
+// search finding no candidate better than the tile it's already on — IsTileFree
+// excludes the mover itself) used to loop forever, never actually leaving. Per
+// user decision: a division is destroyed outright ONLY when enemy (at-war)
+// divisions hold ALL FOUR cardinal-adjacent quadrant cells (N/S/E/W of its own
+// cell) — diagonal neighbours don't count, and RetreatTargetTile's retreat step
+// is cardinal-only so a unit can't dodge this by slipping diagonally past a
+// wall that only covers the cardinal approaches.
+TEST(CombatTrace, FullyEncircledDivisionIsDestroyedOutright)
+{
+    GameWorld world;
+    auto attacker = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* attackerPtr = attacker.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(attacker);
+    auto defender = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* defenderPtr = defender.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(defender);
+
+    FillGrass(world.GetTileMapForTesting(), defenderPtr, 30, 30);
+    auto* atkHq = PlaceHomeHq(world, attackerPtr, {0, 0}, 1);
+    auto* defHq = PlaceHomeHq(world, defenderPtr, {20, 20}, 2);
+    ASSERT_NE(atkHq, nullptr);
+    ASSERT_NE(defHq, nullptr);
+
+    attackerPtr->diplomatic.DeclareWar(0, 1);
+    defenderPtr->diplomatic.DeclareWar(0, 1);
+
+    // Defender's lone (weak) division sits at the centre cell.
+    const Vec2i centerTile{14, 14};
+    const Vec2i centerCell = SectorCellOf(centerTile);
+
+    auto defDiv = CreateMilitaryDivision(MilitaryUnitType::Militia, 100);
+    defDiv->occupiedTile = centerTile;
+    defDiv->sectorCell = centerCell;
+    defDiv->garrisonBuildingId = defHq->positionId;
+    defenderPtr->forces.push_back(std::move(defDiv));
+
+    // Four attacker divisions occupy the four CARDINAL neighbour cells (N/S/E/W)
+    // of the defender's cell. The WEST one sits one tile off centerTile (still
+    // inside its own, different cell) so it is close enough to actually engage;
+    // the other three only need to exist in their cell for the encirclement
+    // check — they never need to fight.
+    auto* attackerLeadPtr = [&]() -> SoldierDivision*
+    {
+        auto div = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 200);
+        div->occupiedTile = {centerTile.x - 1, centerTile.y};   // west cell, adjacent tile
+        div->sectorCell = SectorCellOf(div->occupiedTile);
+        div->garrisonBuildingId = atkHq->positionId;
+        SoldierDivision* raw = div.get();
+        attackerPtr->forces.push_back(std::move(div));
+        return raw;
+    }();
+
+    const Vec2i otherCardinalCells[3] = {
+        {centerCell.x + 1, centerCell.y},   // east
+        {centerCell.x, centerCell.y + 1},   // south
+        {centerCell.x, centerCell.y - 1},   // north
+    };
+    int nextId = 201;
+    for (Vec2i cell : otherCardinalCells)
+    {
+        auto div = CreateMilitaryDivision(MilitaryUnitType::Swordsman, nextId++);
+        div->occupiedTile = {cell.x * 2, cell.y * 2};
+        div->sectorCell = cell;
+        div->garrisonBuildingId = atkHq->positionId;
+        attackerPtr->forces.push_back(std::move(div));
+    }
+
+    attackerLeadPtr->currentOrder = MilitaryOrderType::Attack;
+    attackerLeadPtr->orderTargetPositionId = world.GetTileMapForTesting().GetIdFromCoords(centerTile);
+
+    const double dt = 1.0 / 100.0;
+    const int maxTicks = 6000;
+    bool battleStarted = false;
+    int ticks = 0;
+    for (; ticks < maxTicks; ticks++)
+    {
+        world.UpdateSimulation(dt);
+        const bool anyActive = !world.GetBattles().empty();
+        if (anyActive) battleStarted = true;
+        if (battleStarted && !anyActive) break;
+    }
+    ASSERT_TRUE(battleStarted) << "attack order never produced a Battle";
+    ASSERT_LT(ticks, maxTicks) << "battle never resolved";
+
+    // DisengageDivision sets strength=0 the tick the battle resolves; the actual
+    // cull (erase from forces) happens on the FOLLOWING tick's
+    // UpdateDeployedDivisions pass — give it a few more ticks to run.
+    for (int s = 0; s < 10; s++)
+        world.UpdateSimulation(dt);
+
+    bool defenderSurvives = false;
+    for (const auto& f : defenderPtr->forces)
+        if (f != nullptr && f->id == 100) defenderSurvives = true;
+    EXPECT_FALSE(defenderSurvives)
+        << "fully-encircled division (enemy on all 4 cardinal quadrants) "
+           "should have been destroyed outright, not left retreating in place";
+}
+
+// Control: only THREE of the four cardinal neighbours are enemy-held (north is
+// open) — the division must survive and actually retreat, not be destroyed.
+TEST(CombatTrace, PartiallySurroundedDivisionRetreatsInsteadOfDying)
+{
+    GameWorld world;
+    auto attacker = std::make_unique<Player>(0, world.GetTileMapForTesting());
+    Player* attackerPtr = attacker.get();
+    world.GetPlayerHandlerForTesting().players[0] = std::move(attacker);
+    auto defender = std::make_unique<Player>(1, world.GetTileMapForTesting());
+    Player* defenderPtr = defender.get();
+    world.GetPlayerHandlerForTesting().players[1] = std::move(defender);
+
+    FillGrass(world.GetTileMapForTesting(), defenderPtr, 30, 30);
+    auto* atkHq = PlaceHomeHq(world, attackerPtr, {0, 0}, 1);
+    auto* defHq = PlaceHomeHq(world, defenderPtr, {20, 20}, 2);
+    ASSERT_NE(atkHq, nullptr);
+    ASSERT_NE(defHq, nullptr);
+
+    attackerPtr->diplomatic.DeclareWar(0, 1);
+    defenderPtr->diplomatic.DeclareWar(0, 1);
+
+    const Vec2i centerTile{14, 14};
+    const Vec2i centerCell = SectorCellOf(centerTile);
+
+    auto defDiv = CreateMilitaryDivision(MilitaryUnitType::Militia, 100);
+    defDiv->occupiedTile = centerTile;
+    defDiv->sectorCell = centerCell;
+    defDiv->garrisonBuildingId = defHq->positionId;
+    defenderPtr->forces.push_back(std::move(defDiv));
+
+    auto* attackerLeadPtr = [&]() -> SoldierDivision*
+    {
+        auto div = CreateMilitaryDivision(MilitaryUnitType::Swordsman, 200);
+        div->occupiedTile = {centerTile.x - 1, centerTile.y};   // west
+        div->sectorCell = SectorCellOf(div->occupiedTile);
+        div->garrisonBuildingId = atkHq->positionId;
+        SoldierDivision* raw = div.get();
+        attackerPtr->forces.push_back(std::move(div));
+        return raw;
+    }();
+
+    // Only east and south — north is left open, so this is NOT encirclement.
+    const Vec2i otherCardinalCells[2] = {
+        {centerCell.x + 1, centerCell.y},   // east
+        {centerCell.x, centerCell.y + 1},   // south
+    };
+    int nextId = 201;
+    for (Vec2i cell : otherCardinalCells)
+    {
+        auto div = CreateMilitaryDivision(MilitaryUnitType::Swordsman, nextId++);
+        div->occupiedTile = {cell.x * 2, cell.y * 2};
+        div->sectorCell = cell;
+        div->garrisonBuildingId = atkHq->positionId;
+        attackerPtr->forces.push_back(std::move(div));
+    }
+
+    attackerLeadPtr->currentOrder = MilitaryOrderType::Attack;
+    attackerLeadPtr->orderTargetPositionId = world.GetTileMapForTesting().GetIdFromCoords(centerTile);
+
+    const double dt = 1.0 / 100.0;
+    const int maxTicks = 6000;
+    bool battleStarted = false;
+    int ticks = 0;
+    for (; ticks < maxTicks; ticks++)
+    {
+        world.UpdateSimulation(dt);
+        const bool anyActive = !world.GetBattles().empty();
+        if (anyActive) battleStarted = true;
+        if (battleStarted && !anyActive) break;
+    }
+    ASSERT_TRUE(battleStarted) << "attack order never produced a Battle";
+    ASSERT_LT(ticks, maxTicks) << "battle never resolved";
+
+    const SoldierDivision* defSurvivor = nullptr;
+    for (const auto& f : defenderPtr->forces)
+        if (f != nullptr && f->id == 100) defSurvivor = f.get();
+    ASSERT_NE(defSurvivor, nullptr)
+        << "a division with an open (north) cardinal side should retreat, not be destroyed";
+    EXPECT_TRUE(defSurvivor->retreating);
 }

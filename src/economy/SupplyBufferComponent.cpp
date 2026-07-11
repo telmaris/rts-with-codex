@@ -5,6 +5,7 @@
 #include "warfare/MovementPlanner.h"
 #include "simulation/SectorGraph.h"
 #include "warfare/Equipment.h"
+#include "warfare/UnitStats.h"
 
 #include <algorithm>
 #include <cmath>
@@ -77,14 +78,22 @@ int SupplyBufferComponent::GetModifiedCapacity(const Building& self) const
 int SupplyBufferComponent::GetSupplyConsumption(const Building& self,
                                                   const GarrisonComponent& g) const
 {
+    // Real food drain estimate (units/minute), not a stand-in: this used to sum
+    // `manpowerScale` (a division's raw HP/manpower pool size, e.g. 200 for a
+    // Swordsman) as if it were a consumption RATE — completely unrelated to
+    // ConsumeDivisionSupply's actual per-tick drain, and the reason the HUD
+    // showed ~400/min for two idle Swordsmen no matter how the real rate was
+    // tuned. EstimateDivisionFoodPerMinute mirrors the real formula instead.
     if (!g.divisions.empty())
     {
-        int manpower = 0;
-        for (const auto& d : g.divisions) manpower += d->manpowerScale;
+        float perMinute = 0.0f;
+        for (const auto& d : g.divisions)
+            perMinute += EstimateDivisionFoodPerMinute(*d, d->occupiedTile.x >= 0);
+        int consumption = static_cast<int>(std::lround(perMinute));
         return self.owner != nullptr
-            ? self.owner->ModifyBalanceIntForBuilding(BalanceStat::SupplyConsumption, manpower,
+            ? self.owner->ModifyBalanceIntForBuilding(BalanceStat::SupplyConsumption, consumption,
                                                        &self, ResourceType::Null, std::nullopt, 0)
-            : manpower;
+            : consumption;
     }
     int troops = g.GetTotalTroops();
     return self.owner != nullptr

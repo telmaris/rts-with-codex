@@ -12,6 +12,21 @@ UnitStats MakeDefaultUnitStats(MilitaryUnitType type)
     UnitStats stats;
     switch (type)
     {
+        // supplyUse is a per-TICK reference: ConsumeDivisionSupply computes
+        //   baseUse = supplyUse * (strength/maxStrength) * conservationMul * dt
+        // and multiplies it by the posture rate. At 100 Hz (dt=0.01) a full-
+        // strength Swordsman (supplyUse=1.2) therefore drains 1.2*0.01*60 = ~72
+        // food/min holding the field (kFoodFieldMul=1.0) and ~144/min fighting
+        // (kFoodCombatMul=2.0). With foodSupplyCapacity ≈ manpowerScale (~200)
+        // that empties in ~1.5–3 min, so logistics visibly bite. (An earlier
+        // rework divided these by 60, dropping the drain to ~1/min — supply then
+        // never visibly moved and cohesion, which is ceilinged by supply, never
+        // dropped either; reverted.)
+        // maxCohesion (organization) is a deliberate role knob, not a flat
+        // scale-up with strength: defensive/line units (Spearman, Militia) hold
+        // formation longest; shock/offensive units (Cavalry) break fastest in
+        // exchange for their high `shock` stat breaking OTHERS faster (see
+        // ResolveOneSidedDamage) — a glass cannon, not a brick with a lance.
         case MilitaryUnitType::Swordsman:
             stats.lightAttack   = 14.0f; stats.armoredAttack = 10.0f; stats.shock = 8.0f;
             stats.armor         = 6.0f;  stats.piercing      = 3.0f;  stats.defense = 12.0f;
@@ -22,28 +37,28 @@ UnitStats MakeDefaultUnitStats(MilitaryUnitType type)
         case MilitaryUnitType::Archer:
             stats.lightAttack   = 16.0f; stats.armoredAttack = 6.0f;  stats.shock = 4.0f;
             stats.armor         = 2.0f;  stats.piercing      = 6.0f;  stats.defense = 7.0f;
-            stats.maxStrength   = 120.0f; stats.maxCohesion  = 30.0f; stats.morale = 64.0f;
+            stats.maxStrength   = 120.0f; stats.maxCohesion  = 26.0f; stats.morale = 64.0f;
             stats.speed         = 12.0f; stats.supplyUse     = 1.0f;  stats.fatigueRate = 1.1f;
             stats.armoredShare  = 0.10f;
             break;
         case MilitaryUnitType::Spearman:
             stats.lightAttack   = 10.0f; stats.armoredAttack = 12.0f; stats.shock = 6.0f;
             stats.armor         = 5.0f;  stats.piercing      = 8.0f;  stats.defense = 14.0f;
-            stats.maxStrength   = 180.0f; stats.maxCohesion  = 38.0f; stats.morale = 66.0f;
+            stats.maxStrength   = 180.0f; stats.maxCohesion  = 50.0f; stats.morale = 66.0f;
             stats.speed         = 11.0f; stats.supplyUse     = 1.1f;  stats.fatigueRate = 1.0f;
             stats.armoredShare  = 0.25f;
             break;
         case MilitaryUnitType::Cavalry:
             stats.lightAttack   = 18.0f; stats.armoredAttack = 12.0f; stats.shock = 20.0f;
             stats.armor         = 5.0f;  stats.piercing      = 4.0f;  stats.defense = 9.0f;
-            stats.maxStrength   = 80.0f; stats.maxCohesion  = 45.0f; stats.morale = 70.0f;
+            stats.maxStrength   = 80.0f; stats.maxCohesion  = 22.0f; stats.morale = 70.0f;
             stats.speed         = 18.0f; stats.supplyUse     = 1.6f;  stats.fatigueRate = 1.4f;
             stats.armoredShare  = 0.30f;
             break;
         default: // Militia
             stats.lightAttack   = 8.0f;  stats.armoredAttack = 4.0f;  stats.shock = 5.0f;
             stats.armor         = 2.0f;  stats.piercing      = 1.0f;  stats.defense = 8.0f;
-            stats.maxStrength   = 100.0f; stats.maxCohesion  = 25.0f; stats.morale = 55.0f;
+            stats.maxStrength   = 100.0f; stats.maxCohesion  = 30.0f; stats.morale = 55.0f;
             stats.speed         = 14.0f; stats.supplyUse     = 0.8f;  stats.fatigueRate = 1.3f;
             stats.armoredShare  = 0.05f;
             break;
@@ -67,6 +82,11 @@ float ResolveUnitStat(const Stat<float>& stat, MilitaryUnitType unitType,
 float ResolveDivisionMaxCohesion(const SoldierDivision& division, const BalanceModifierSet* mods)
 {
     return ResolveUnitStat(division.stats.maxCohesion, division.type, mods);
+}
+
+float ResolveEffectiveDivisionMaxCohesion(const SoldierDivision& division, const BalanceModifierSet* mods)
+{
+    return ResolveDivisionMaxCohesion(division, mods) * DivisionSupplyEfficiency(division);
 }
 
 float ResolveDivisionMaxStrength(const SoldierDivision& division, const BalanceModifierSet* mods)
@@ -101,18 +121,23 @@ float DivisionEquipmentQuality(const DivisionEquipment& equipment)
 
 float DivisionSupplyEfficiency(const SoldierDivision& division)
 {
-    // Weapon supply: at 0% ammo/serviceable gear a division still fights at 20%
-    // (fists + improvised), scaling linearly to 100% when fully armed.
+    // Weapon supply: at 0% ammo/serviceable gear a division fights at only 10%
+    // (fists + improvised), scaling linearly to 100% when fully armed. This is
+    // the dominant term — "no equipment = no cohesion" — so it also gates
+    // ResolveEffectiveMaxCohesion and RegenerateDivisionCohesion, not just duel
+    // damage output.
     const float weaponRatio = division.weaponSupplyCapacity > 0
         ? std::clamp(static_cast<float>(division.weaponSupply) /
                      static_cast<float>(division.weaponSupplyCapacity), 0.0f, 1.0f)
         : 1.0f;
-    const float weaponFactor = 0.2f + 0.8f * weaponRatio;
+    const float weaponFactor = 0.10f + 0.90f * weaponRatio;
 
-    // Food: a starving division (no rations at all) fights at 40%.
-    const float foodFactor = division.foodSupply > 0 ? 1.0f : 0.4f;
+    // Food: a starving division (no rations at all) fights at 35%.
+    const float foodFactor = division.foodSupply > 0 ? 1.0f : 0.35f;
 
-    return std::clamp(weaponFactor * foodFactor, 0.1f, 1.0f);
+    // Floor lowered from 0.1 to 0.05: a division with neither weapons nor food
+    // is nearly combat-ineffective, not just "weakened".
+    return std::clamp(weaponFactor * foodFactor, 0.05f, 1.0f);
 }
 
 DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
@@ -146,6 +171,7 @@ DivisionCombatStats ComputeDivisionCombatStats(const SoldierDivision& division,
     out.isArmored          = out.armoredShare > 0.3f || division.IsMounted();
     out.hpDamageMultiplier  = ResolveUnitStat(s.hpDamageMultiplier, type, mods);
     out.orgDamageMultiplier = ResolveUnitStat(s.orgDamageMultiplier, type, mods);
+    out.isDefending         = division.currentOrder != MilitaryOrderType::Attack;
 
     // ── Supply efficiency ────────────────────────────────────────────────────
     // The dominant part of a duel is the constant damage floor; if it ignored
@@ -167,15 +193,33 @@ namespace
     // men; an under-supplied one bleeds strength on top. See the design note on
     // ResolveOneSidedDamage below and docs/war_system_phase2_design.md Phase C
     // for the historical (now superseded) two-track derivation.
-    constexpr float kOrgDamageBase        = 0.6f;
+    // kOrgDamageBase scales the STATISTICAL term (firepower/armor/piercing/shock
+    // interaction below) so it — not the constant floor — dominates org loss.
+    // Calibrated on the harness (CombatTrace.*) so an even Swordsman-vs-Swordsman
+    // duel breaks in ~15-20s; see docs note at ResolveOneSidedDamage for why the
+    // stat term must dominate.
+    constexpr float kOrgDamageBase        = 6.0f;
     constexpr float kMinDamageFraction    = 0.15f;  // floor so 0 defense stats can't fully no-sell
     constexpr float kCombatSecondsPerHour = 60.0f;  // 1 "combat hour" = 60s of sim time (tunable)
+    // How much of `piercing / armor` translates into full hard-attack effectiveness.
+    // Never lets armor fully no-sell a hard hit (kPierceFloor), and never lets
+    // piercing over-penetrate beyond 100% (clamped to 1).
+    constexpr float kPierceFloor = 0.2f;
+    // Shock is a flat bonus added to firepower BEFORE defense mitigation, applied
+    // only when the receiving division is defending (DivisionCombatStats::
+    // isDefending) — a shock unit (cavalry) excels at breaking a line that is
+    // trying to hold, not at trading blows with another attacker. See
+    // ResolveOneSidedDamage.
+    constexpr float kShockCoeff = 1.5f;
 
-    // Constant per-combat-hour organization floor (BUG 4 fix), so even a
-    // near-dead division still grinds the fight toward a conclusion. Calibrated
-    // so two equal swordsman divisions (maxCohesion≈40) break in roughly
-    // 20–30 s of simulation time — see ResolveOneSidedDamage.
-    constexpr float kConstantOrgFloor = 100.0f;
+    // Small constant per-combat-hour organization floor (BUG 4 fix), so even a
+    // division with 0 statistical damage output (fully mitigated) still grinds
+    // the fight toward a conclusion instead of stalemating forever. Deliberately
+    // small — the stat term (kOrgDamageBase above) must be the dominant driver of
+    // org loss so lightAttack/armoredAttack/armor/piercing/defense/shock actually
+    // matter, instead of being drowned out by a flat constant (the old value of
+    // 100-150 made the stat term ~1% of total damage — effectively decorative).
+    constexpr float kConstantOrgFloor = 10.0f;
 
     // Small deterministic variance fraction (±7.5 %) that simulates the
     // random-but-averaged-out dice rolls HoI4 uses. Seeded from the simulation tick
@@ -219,13 +263,25 @@ namespace
     // One-directional expected damage: `attacker` hitting `defender` over `h`
     // combat-hours, with a variance multiplier applied for non-zero randomness.
     //
-    // Cohesion is the single damage channel: raw damage is the attacker's attack
-    // (light or armored, whichever applies to the defender) plus piercing,
-    // knocked down by the defender's defense (never below a small floor
-    // fraction, so 0 defense can't fully no-sell a hit). That total — plus the
-    // constant floor that guarantees a finite fight — is scaled by the
-    // ATTACKER's supply efficiency (an unsupplied attacker hits far softer) and
-    // lands entirely on the defender's organization.
+    // Cohesion is the single damage channel, built from the FULL stat block
+    // instead of a near-flat constant:
+    //   1. firepower splits the defender's manpower into a soft/hard-cover mix
+    //      (armoredShare): the attacker's lightAttack lands on the soft share,
+    //      armoredAttack on the hard share — but armoredAttack is itself scaled
+    //      by pierceRatio (attacker.piercing / defender.armor, clamped), so a
+    //      unit whose piercing can't match the target's armor mostly bounces off
+    //      the armored portion instead of ignoring armor entirely.
+    //   2. shock is a flat bonus added to firepower BEFORE mitigation, but ONLY
+    //      when the defender is itself defending (not pressing its own Attack
+    //      order) — shock represents breaking a line trying to hold, not winning
+    //      a mutual slugging match between two attackers.
+    //   3. defense mitigates the combined total (never fully no-selling it, via
+    //      kMinDamageFraction).
+    //   4. the mitigated total (times kOrgDamageBase, so the stat term DOMINATES
+    //      org loss) plus a small constant floor (guarantees a finite fight even
+    //      at 0 stat damage) is scaled by the ATTACKER's supply efficiency (an
+    //      unsupplied attacker hits far softer) and lands entirely on the
+    //      defender's organization.
     //
     // Strength (manpower) loss is NOT a second damage roll — it is the fraction
     // of that cohesion hit the DEFENDER couldn't absorb without real casualties,
@@ -236,9 +292,17 @@ namespace
     void ResolveOneSidedDamage(const DivisionCombatStats& attacker, const DivisionCombatStats& defender,
                                float h, float varianceMul, float& hpLoss, float& orgLoss)
     {
-        const float rawAttack = (defender.isArmored ? attacker.armoredAttack : attacker.lightAttack)
-                                 + attacker.piercing;
-        const float mitigated = std::max(rawAttack * kMinDamageFraction, rawAttack - defender.defense);
+        const float softShare = std::clamp(1.0f - defender.armoredShare, 0.0f, 1.0f);
+        const float hardShare = std::clamp(defender.armoredShare, 0.0f, 1.0f);
+        const float pierceRatio = std::clamp(attacker.piercing / std::max(defender.armor, 1.0f),
+                                             kPierceFloor, 1.0f);
+        const float firepower = attacker.lightAttack * softShare
+                               + attacker.armoredAttack * hardShare * pierceRatio;
+
+        const float shockTerm = defender.isDefending ? attacker.shock * kShockCoeff : 0.0f;
+
+        const float mitigated = std::max((firepower + shockTerm) * kMinDamageFraction,
+                                         (firepower + shockTerm) - defender.defense);
 
         const float hpScaling = HpScaling(attacker.strength, attacker.maxStrength);
 
@@ -276,29 +340,50 @@ namespace
     //   baseUse = supplyUse * (strength/maxStrength) * conservationMul * dt
     // Each pool multiplies baseUse by the rate for the division's current posture.
     // Rates are tuned so an unsupplied full-strength division is under visible
-    // logistics pressure within a couple of minutes (food first). Combat rates are
-    // kept for when the combat system returns (ConsumeDivisionSupply(engaged=true)),
-    // but nothing sets `engaged` while field combat is removed.
+    // logistics pressure within a couple of minutes (food first). `engaged` is
+    // set by GameWorld::UpdateBattles (ETAP 11.2) and switches the pools onto
+    // the combat rates below.
     //
     // Food (rations) — EVERY division eats, every tick, wherever it is. A garrison
     // sitting on its supply source eats least; a column on the march eats most.
+    // Combat multiplier is 2x field (not 3x) — combined with the rescaled
+    // supplyUse bases in MakeDefaultUnitStats, this lands a full-strength
+    // Swordsman at ~1 food/min in the field and ~2/min while fighting, instead
+    // of the old ~200/min combat drain that made supply irrelevant noise.
     constexpr float kFoodGarrisonMul = 0.7f;   // in-building, near the depot
     constexpr float kFoodFieldMul    = 1.0f;   // deployed, holding position
     constexpr float kFoodMarchMul    = 1.5f;   // deployed and marching (fatigue)
-    constexpr float kFoodCombatMul   = 3.0f;   // fighting (legacy combat reference)
+    constexpr float kFoodCombatMul   = 2.0f;   // fighting
     // Materiel (equipment maintenance/repairs) — trickles in the field, negligible
-    // in garrison, heavy in combat.
+    // in garrison, heavy in combat. March wear cut to near-zero: a division should
+    // arrive at the front with its gear, not have marched it away (see weapon
+    // march rate below for the same reasoning).
     constexpr float kMaterielGarrisonMul = 0.1f;
     constexpr float kMaterielFieldMul    = 0.5f;
-    constexpr float kMaterielMarchMul    = 0.8f;
-    constexpr float kMaterielCombatMul   = 3.0f;
-    // Weapons/ammunition — spent in battle; light wear while marching in the field
-    // (a campaigning army needs re-arming even without fighting). Static otherwise.
-    constexpr float kWeaponMarchMul  = 0.3f;
-    constexpr float kWeaponCombatMul = 3.0f;
+    constexpr float kMaterielMarchMul    = 0.1f;
+    constexpr float kMaterielCombatMul   = 2.0f;
+    // Weapons/ammunition — spent ONLY in actual battle. A column marching to the
+    // front (not yet engaged) must arrive fully armed; march wear is 0 so armies
+    // reach the front at full ammo. Engagement gating: weaponRate only applies
+    // once `engaged` is true (see GameWorld.Battles.cpp).
+    // The combat rate is deliberately LOW relative to the (restored, visible) food
+    // rate: the weapon pool is small (~40 = establishment), so at full base
+    // supplyUse a single duel would otherwise exhaust ammo in ~15-20 s, collapse
+    // supply efficiency mid-fight, and turn a clean cohesion duel into a bloody
+    // slog. 0.1 keeps a division armed through several engagements (a few
+    // weapons/min of fighting) so ammo is a campaign-scale concern, not a
+    // per-duel cliff — food is the fast, visible upkeep drain instead.
+    constexpr float kWeaponMarchMul  = 0.0f;
+    constexpr float kWeaponCombatMul = 0.1f;
 
     // Fraction of current strength lost per second while completely out of food.
     constexpr float kStarvationRate = 0.02f;
+    // Fraction of current strength lost per second while completely out of
+    // weapons/ammo — desertion and disorganized attrition, distinct from and
+    // additive with starvation. A division with neither food nor weapons dies
+    // fastest (both rates combine); one that's merely unarmed but fed still
+    // eventually bleeds out and disappears, not just fights weaker forever.
+    constexpr float kEquipmentAttritionRate = 0.015f;
 
     // Drains `use` from one pool, accumulating sub-1 amounts in `buffer` so slow
     // consumption is not lost to integer rounding (same pattern as strengthBuffer).
@@ -353,10 +438,16 @@ void ConsumeDivisionSupply(SoldierDivision& division, double dt, bool engaged, b
     if (weaponRate > 0.0f)
         DrainPool(division.weaponSupply, division.weaponSupplyConsumeBuffer, baseUse * weaponRate);
 
-    // Starvation: no food at all slowly kills the division (manpower attrition).
-    if (division.foodSupply <= 0 && division.strength > 0)
+    // Attrition: no food (starvation) and/or no weapons (desertion/disorganized
+    // losses) each independently bleed strength — a division cut off from BOTH
+    // dies fastest, but "well-fed and unarmed" or "armed and starving" both
+    // eventually kill the division too, not just weaken it in combat.
+    float attritionRate = 0.0f;
+    if (division.foodSupply <= 0)   attritionRate += kStarvationRate;
+    if (division.weaponSupply <= 0) attritionRate += kEquipmentAttritionRate;
+    if (attritionRate > 0.0f && division.strength > 0)
     {
-        division.strengthAttritionBuffer += kStarvationRate * static_cast<float>(division.strength) * static_cast<float>(dt);
+        division.strengthAttritionBuffer += attritionRate * static_cast<float>(division.strength) * static_cast<float>(dt);
         int whole = static_cast<int>(division.strengthAttritionBuffer);
         if (whole > 0)
         {
@@ -367,6 +458,14 @@ void ConsumeDivisionSupply(SoldierDivision& division, double dt, bool engaged, b
     }
 }
 
+float EstimateDivisionFoodPerMinute(const SoldierDivision& division, bool deployed)
+{
+    const float maxStrength = std::max(1.0f, division.stats.maxStrength.GetBase());
+    const float strengthRatio = std::clamp(static_cast<float>(division.strength) / maxStrength, 0.0f, 1.0f);
+    const float baseUsePerMinute = division.stats.supplyUse.GetBase() * strengthRatio * 60.0f;
+    return baseUsePerMinute * (deployed ? kFoodFieldMul : kFoodGarrisonMul);
+}
+
 double PlayerSupplyConservation(const Player& player)
 {
     const double raw = player.ModifyBalance(BalanceStat::SupplyConservation, 0.0);
@@ -374,25 +473,52 @@ double PlayerSupplyConservation(const Player& player)
 }
 
 void RegenerateDivisionCohesion(SoldierDivision& division, double dt, bool inOwnTerritory,
-                                const BalanceModifierSet* mods)
+                                bool engaged, const BalanceModifierSet* mods)
 {
     if (dt <= 0.0)
         return;
 
-    const float maxCohesion = ResolveDivisionMaxCohesion(division, mods);
-    if (division.cohesion >= maxCohesion)
+    // The ceiling itself is supply-scaled ("no equipment = no cohesion") — an
+    // unarmed, starving division cannot sustain anywhere near its full
+    // organization regardless of morale/territory/posture.
+    const float effectiveMax = ResolveEffectiveDivisionMaxCohesion(division, mods);
+
+    if (division.cohesion > effectiveMax)
     {
-        division.cohesion = maxCohesion;
+        // Erosion: supply collapsed faster than cohesion could react (or combat
+        // is grinding weapon supply down mid-fight) — organization crumbles
+        // toward the new, lower ceiling. Deliberately fast and NOT gated on
+        // `engaged`: losing your ammo mid-battle should hurt immediately, not
+        // wait for the fight to end.
+        constexpr float kCohesionErosionPerSecond = 6.0f;
+        division.cohesion = std::max(effectiveMax,
+            division.cohesion - kCohesionErosionPerSecond * static_cast<float>(dt));
         return;
     }
+    if (division.cohesion >= effectiveMax)
+        return;
+
+    // Regeneration only happens out of combat (HoI4-style, ETAP 11.2 / commit
+    // 3ad94c2) — regenerating while `engaged` fought the Battle system's drain
+    // in the same tick and made fights take ~3x longer than intended.
+    if (engaged)
+        return;
 
     constexpr float kBaseRegenSeconds = 30.0f;  // full bar in ~30s under ideal conditions
+    // Materiel fuels REPAIRS specifically (distinct from the weapon/food curve
+    // that already sets the ceiling above) — low materiel slows the CLIMB, not
+    // just the destination.
     const float materielMul = division.materielSupply > 0 ? 1.0f : 0.35f;
     const float moraleMul   = 0.5f + 0.5f * std::clamp(static_cast<float>(division.morale) / 100.0f, 0.0f, 1.0f);
     const float territoryMul = inOwnTerritory ? 1.0f : 0.4f;
+    // A division holding ground (not currently pressing an Attack order)
+    // rallies its organization somewhat faster than one still on the offensive
+    // — defense regenerates cohesion a bit quicker than attack.
+    constexpr float kDefensivePostureBonus = 1.15f;
+    const float postureMul = (division.currentOrder == MilitaryOrderType::Attack) ? 1.0f : kDefensivePostureBonus;
 
-    const float rate = (maxCohesion / kBaseRegenSeconds) * materielMul * moraleMul * territoryMul;
-    division.cohesion = std::min(maxCohesion, division.cohesion + rate * static_cast<float>(dt));
+    const float rate = (effectiveMax / kBaseRegenSeconds) * materielMul * moraleMul * territoryMul * postureMul;
+    division.cohesion = std::min(effectiveMax, division.cohesion + rate * static_cast<float>(dt));
 }
 
 int ReinforceDivisionStrength(SoldierDivision& division, Player& owner, double dt,
