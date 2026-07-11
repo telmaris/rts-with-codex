@@ -193,6 +193,106 @@ void HostSession::SendCorrectionSnapshot()
     Log::Msg("[Session]", "Correction snapshot queued: bytes=", payload.size());
 }
 
+void HostSession::RunSimulationTick()
+{
+    std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    if (world == nullptr)
+        return;
+
+    // Handle transport commands
+    if (transport != nullptr)
+    {
+        hadConnection = hadConnection || transport->IsConnected();
+        if (requireRemoteSync && !initialSnapshotSent && transport->IsConnected())
+            SendInitialSnapshot();
+
+        for (const auto& payload : transport->ReceiveHostCommands())
+        {
+            if (payload == "RESYNC_REQUEST")
+            {
+                if (correctionSnapshotCooldown <= 0.0)
+                {
+                    SendCorrectionSnapshot();
+                    correctionSnapshotCooldown = 5.0;
+                }
+                else
+                {
+                    Log::Msg("[Session]", "Ignoring resync request during cooldown");
+                }
+                continue;
+            }
+
+            if (payload == "SYNC_READY")
+            {
+                remoteInitialSnapshotReady = true;
+                lastSentSnapshot = GameSnapshot{};
+                hasLastSentSnapshot = false;
+                Log::Msg("[Session]", "Remote client confirmed initial map sync");
+                continue;
+            }
+
+            GameCommand command;
+            if (GameCommand::TryDeserialize(payload, command))
+            {
+                if (command.playerId != remotePlayerId)
+                {
+                    GameCommandResult rejected{
+                        command.commandId,
+                        world->GetSimulationTick(),
+                        command.targetTick,
+                        command.playerId,
+                        command.type,
+                        false,
+                        "rejected: wrong player slot",
+                        command.Serialize()};
+                    commandResults.push_back(rejected);
+                    transport->SendHostResult(rejected.Serialize());
+                    continue;
+                }
+                world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
+            }
+        }
+
+        if (requireRemoteSync && !remoteInitialSnapshotReady)
+            return;
+    }
+
+    // Update simulation
+    int ticks = clock.AddFrameTime(FixedSimulationClock::FixedDt);
+    for (int i = 0; i < ticks; i++)
+    {
+        world->UpdateSimulation(FixedSimulationClock::FixedDt);
+        auto results = world->ConsumeCommandResults();
+
+        GameServerFrame frame;
+        frame.tick = world->GetSimulationTick();
+        checksumTimer += FixedSimulationClock::FixedDt;
+        if (checksumTimer >= 1.0)
+        {
+            checksumTimer = 0.0;
+            frame.hasChecksum = true;
+            frame.checksum = world->BuildChecksum();
+        }
+
+        for (const auto& result : results)
+        {
+            commandResults.push_back(result);
+            frame.results.push_back(result);
+        }
+
+        if (transport != nullptr)
+            transport->SendHostFrame(frame.Serialize());
+
+        // Snapshot capture for threaded access
+        if (frame.hasChecksum)
+        {
+            std::lock_guard<std::mutex> snapshotLock(snapshotMutex);
+            latestSnapshot = world->BuildSnapshot();
+            hasSnapshot = latestSnapshot.IsValid();
+        }
+    }
+}
+
 void HostSession::RunSimulation()
 {
     auto nextTick = std::chrono::steady_clock::now();
@@ -201,108 +301,8 @@ void HostSession::RunSimulation()
         nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
             std::chrono::duration<double>(FixedSimulationClock::FixedDt));
 
-        {
-            std::lock_guard<std::recursive_mutex> lock(worldMutex);
-            if (world == nullptr)
-                goto sleep_and_wait;
+        RunSimulationTick();
 
-            // Handle transport commands
-            if (transport != nullptr)
-            {
-                hadConnection = hadConnection || transport->IsConnected();
-                if (requireRemoteSync && !initialSnapshotSent && transport->IsConnected())
-                    SendInitialSnapshot();
-
-                for (const auto& payload : transport->ReceiveHostCommands())
-                {
-                    if (payload == "RESYNC_REQUEST")
-                    {
-                        if (correctionSnapshotCooldown <= 0.0)
-                        {
-                            SendCorrectionSnapshot();
-                            correctionSnapshotCooldown = 5.0;
-                        }
-                        else
-                        {
-                            Log::Msg("[Session]", "Ignoring resync request during cooldown");
-                        }
-                        continue;
-                    }
-
-                    if (payload == "SYNC_READY")
-                    {
-                        remoteInitialSnapshotReady = true;
-                        lastSentSnapshot = GameSnapshot{};
-                        hasLastSentSnapshot = false;
-                        Log::Msg("[Session]", "Remote client confirmed initial map sync");
-                        continue;
-                    }
-
-                    GameCommand command;
-                    if (GameCommand::TryDeserialize(payload, command))
-                    {
-                        if (command.playerId != remotePlayerId)
-                        {
-                            GameCommandResult rejected{
-                                command.commandId,
-                                world->GetSimulationTick(),
-                                command.targetTick,
-                                command.playerId,
-                                command.type,
-                                false,
-                                "rejected: wrong player slot",
-                                command.Serialize()};
-                            commandResults.push_back(rejected);
-                            transport->SendHostResult(rejected.Serialize());
-                            continue;
-                        }
-                        world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
-                    }
-                }
-
-                if (requireRemoteSync && !remoteInitialSnapshotReady)
-                    goto sleep_and_wait;
-            }
-
-            // Update simulation
-            {
-                int ticks = clock.AddFrameTime(FixedSimulationClock::FixedDt);
-                for (int i = 0; i < ticks; i++)
-                {
-                    world->UpdateSimulation(FixedSimulationClock::FixedDt);
-                    auto results = world->ConsumeCommandResults();
-
-                    GameServerFrame frame;
-                    frame.tick = world->GetSimulationTick();
-                    checksumTimer += FixedSimulationClock::FixedDt;
-                    if (checksumTimer >= 1.0)
-                    {
-                        checksumTimer = 0.0;
-                        frame.hasChecksum = true;
-                        frame.checksum = world->BuildChecksum();
-                    }
-
-                    for (const auto& result : results)
-                    {
-                        commandResults.push_back(result);
-                        frame.results.push_back(result);
-                    }
-
-                    if (transport != nullptr)
-                        transport->SendHostFrame(frame.Serialize());
-
-                    // Snapshot capture for threaded access
-                    if (frame.hasChecksum)
-                    {
-                        std::lock_guard<std::mutex> snapshotLock(snapshotMutex);
-                        latestSnapshot = world->BuildSnapshot();
-                        hasSnapshot = latestSnapshot.IsValid();
-                    }
-                }
-            }
-        }
-
-sleep_and_wait:
         std::unique_lock<std::mutex> sleepLock(sleepMutex);
         cv.wait_until(sleepLock, nextTick, [&]() { return !running.load(); });
         if (std::chrono::steady_clock::now() > nextTick + std::chrono::milliseconds(250))

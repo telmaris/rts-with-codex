@@ -126,6 +126,10 @@ private:
     void SendCorrectionSnapshot();
     void Stop();
     void RunSimulation();
+    // One locked iteration of the simulation loop: transport commands, remote-sync
+    // gate, fixed-tick update. Returns early (no goto) once nothing more to do this
+    // iteration; RunSimulation always follows it with the shared sleep/wait section.
+    void RunSimulationTick();
 
     // Simulation state
     GameWorld* world{nullptr};
