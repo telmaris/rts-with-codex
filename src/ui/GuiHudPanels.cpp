@@ -203,9 +203,10 @@ void StrategicResourceHudWidget::Update(double dt)
     Rectangle destroyButton = DestroyHudButtonRect(*this);
     Rectangle roadButton = RoadHudButtonRect(*this);
     Rectangle buildButton = BuildHudButtonRect(*this);
+    Rectangle rosterButton = RosterHudButtonRect(*this);
 
     float resourceX = buildersIcon.x + 130.0f;
-    float resourceRightLimit = buildButton.x - 12.0f;
+    float resourceRightLimit = rosterButton.x - 12.0f;
     bool showWood = resourceX + 116.0f <= resourceRightLimit;
     bool showStone = resourceX + 242.0f <= resourceRightLimit;
     bool showPlanks = resourceX + 368.0f <= resourceRightLimit;
@@ -227,6 +228,23 @@ void StrategicResourceHudWidget::Update(double dt)
     float focusProgress = static_cast<float>(player->focuses.GetActiveFocusProgress());
     float pulse = focusAvailable ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.0f)) : 0.0f;
 
+    // TD(etap-8.5): roster summary + "HQ under attack" warning. Derived
+    // live from simulation state rather than a stored flag — no besieging
+    // AttackingHq unit targeting this player means no warning, so it clears
+    // itself the instant the siege actually ends.
+    bool rosterHovered = CheckCollisionPointRec(GetMousePosition(), rosterButton);
+    int rosterCount = static_cast<int>(player->roster.units.size());
+    bool hqUnderAttack = false;
+    for (const auto& [unitId, unit] : scene->game->GetDeployedUnits())
+    {
+        if (unit.state == BattleUnitState::AttackingHq && unit.routeToPlayerId == player->id)
+        {
+            hqUnderAttack = true;
+            break;
+        }
+    }
+    float warningPulse = hqUnderAttack ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 6.0f)) : 0.0f;
+
     auto drawHudButton = [&](Rectangle rect, const std::string& label, bool hovered, Color base, Color line)
     {
         DrawRectangleRounded(rect, 0.14f, 8, hovered ? Color{
@@ -245,6 +263,18 @@ void StrategicResourceHudWidget::Update(double dt)
     drawHudButton(buildButton, "Build", buildHovered, Color{43, 60, 52, 238}, Color{92, 151, 118, 230});
     drawHudButton(roadButton, "Road", roadHovered, Color{44, 55, 68, 238}, Color{94, 134, 174, 230});
     drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
+
+    // Roster button — pulses red border when this player's HQ is under siege.
+    Color rosterBase = hqUnderAttack
+        ? Color{static_cast<unsigned char>(90 + warningPulse * 60.0f), 45, 48, 238}
+        : Color{47, 51, 64, 238};
+    Color rosterLine = hqUnderAttack ? Color{244, 132, 142, 255} : Color{104, 116, 138, 230};
+    drawHudButton(rosterButton, "Roster (" + std::to_string(rosterCount) + ")", rosterHovered, rosterBase, rosterLine);
+    if (hqUnderAttack)
+    {
+        UiText::DrawFit("HQ UNDER ATTACK", Rectangle{rosterButton.x, rosterButton.y - 18.0f, rosterButton.width, 15.0f},
+                        13, Color{255, 140, 140, 255});
+    }
 
     Color focusFill = focusAvailable
         ? Color{static_cast<unsigned char>(88 + pulse * 34.0f), static_cast<unsigned char>(68 + pulse * 36.0f), static_cast<unsigned char>(134 + pulse * 52.0f), 246}
@@ -338,6 +368,14 @@ void StrategicResourceHudWidget::Update(double dt)
             Tooltip::Draw("Technology", {"[T] Open technology research tree"}, 270.0f);
         else
             Tooltip::Draw("Technology", {"Requires a completed University"}, 270.0f);
+    }
+    else if (rosterHovered)
+    {
+        Tooltip::Draw("Roster", {
+            "[U] Open roster and deploy",
+            "Ready to deploy: " + std::to_string(rosterCount),
+            hqUnderAttack ? "Your HQ is under attack!" : "No units are currently besieging your HQ"
+        }, 260.0f);
     }
 }
 
@@ -762,6 +800,12 @@ void StatsGuiSystem::TechPressed()
 {
     cameraMovement.isMoving = false;
     owner->ChangeSystem("tech");
+}
+
+void StatsGuiSystem::RosterPressed()
+{
+    cameraMovement.isMoving = false;
+    owner->ChangeSystem("roster");
 }
 
 // Handles clicks on the statistics overlay.

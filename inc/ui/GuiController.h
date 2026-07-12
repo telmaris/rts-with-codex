@@ -232,6 +232,31 @@ public:
     Vec2i dragOffset{0, 0};
 };
 
+// Roster/deploy panel (TD etap-8.1): composes an ordered attack group
+// (spearhead first) from the local player's recruited-but-undeployed roster
+// and submits GameCommand::DeployUnits. Interaction is entirely via
+// temporary, per-frame UiButtons created inside Update() (same approach as
+// GuiPanel's recruitment branch) rather than a separate HandleClick — no
+// per-row state needs to persist between frames.
+class RosterPanelWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+    // Ordered attack group (index 0 = spearhead) — instance ids currently
+    // staged from the local roster. Cleared after a successful Deploy, and
+    // pruned of any id that stopped being a valid InRoster unit (e.g. it was
+    // deployed through some other path) every frame.
+    std::vector<int> selectedGroup;
+    // -1 = no target chosen yet; auto-filled when exactly one reachable
+    // enemy exists (the plan's "w 1vs1 auto" rule generalized to "only one
+    // choice").
+    int selectedTargetPlayerId{-1};
+    float scrollOffset{0.0f};
+    float maxScrollOffset{0.0f};
+};
+
 // ─── Interaction systems ─────────────────────────────────────────────────────
 
 // Default map interaction mode for selection, camera and logistics assignment.
@@ -255,6 +280,7 @@ public:
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
+    void RosterPressed();
     void CenterOnHeadquartersPressed();
     void OpenHeadquartersPanel();
 
@@ -324,6 +350,7 @@ public:
     virtual void StatsPressed();
     virtual void FocusPressed();
     virtual void TechPressed();
+    virtual void RosterPressed();
     // Selects build option or places selected building.
     virtual void LmbPressed();
     // Stops left-button action.
@@ -403,6 +430,7 @@ public:
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
+    void RosterPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -438,6 +466,7 @@ public:
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
+    void RosterPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -468,6 +497,7 @@ public:
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
+    void RosterPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -498,6 +528,7 @@ public:
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
+    void RosterPressed();
     void LmbPressed();
     void LmbReleased();
     void RmbPressed();
@@ -508,6 +539,40 @@ private:
     GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     ResearchTreePanelWidget techPanel{ResearchTreeKind::Technology};
+    StrategicResourceHudWidget strategicHudWidget;
+};
+
+// Roster/deploy full-screen mode (TD etap-8.1) — opened via the strategic
+// HUD's Roster button or the U key, following the same recipe as
+// FocusGuiSystem/TechGuiSystem.
+class RosterGuiSystem : public GuiSystem
+{
+public:
+    explicit RosterGuiSystem(GuiController* con);
+    RosterGuiSystem() = delete;
+
+    void UpdateUiWidgets(Vec2i) override;
+    void Update(double dt) override;
+
+    void EscPressed();
+    void BuildPressed();
+    void RoadBuildPressed();
+    void DestroyPressed();
+    void HeadquartersPressed();
+    void StatsPressed();
+    void FocusPressed();
+    void TechPressed();
+    void RosterPressed();
+    void LmbPressed();
+    void LmbReleased();
+    void RmbPressed();
+    void RmbReleased();
+    void Scroll();
+
+private:
+    GameScene* scene{nullptr};
+    CameraMovement cameraMovement;
+    RosterPanelWidget rosterPanel;
     StrategicResourceHudWidget strategicHudWidget;
 };
 

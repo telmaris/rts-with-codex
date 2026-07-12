@@ -19,6 +19,7 @@
 #endif
 
 class Building;
+class GameScene;
 
 // Base rectangle widget with anchor-based layout support.
 class UiWidget
@@ -507,6 +508,11 @@ class GuiPanel : public UiWidget
     public:
         std::string text{"Gui Panel"};
         Building* building{nullptr};
+        // TD(etap-8): set by the owning GuiSystem (mirrors selectedBuildingWidget.scene
+        // etc. — see BasicMapViewSystem's constructor) so panel content that submits a
+        // command (recruitment) can call scene->SubmitLocalCommand without ever
+        // mutating simulation state directly.
+        GameScene* scene{nullptr};
         ProgressBar progressBar;
         UiButton lockButton;
         UiButton destroyButton;

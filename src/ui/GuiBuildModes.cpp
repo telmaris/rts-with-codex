@@ -86,6 +86,8 @@ namespace
                 return "FOOD";
             case BuildingType::Barracks:
                 return "MILITARY";
+            case BuildingType::DefenseTower:
+                return "DEFENSE";
             case BuildingType::StorageBuilding:
             case BuildingType::Village:
                 return "LOGISTICS";
@@ -101,7 +103,7 @@ namespace
     // Returns category display order for build panel grouping.
     int BuildCategoryOrder(const std::string& category)
     {
-        static const std::vector<std::string> order{"WOOD", "METALS", "FOOD", "LOGISTICS", "MILITARY", "SCIENCE", "ROADS", "OTHER"};
+        static const std::vector<std::string> order{"WOOD", "METALS", "FOOD", "LOGISTICS", "MILITARY", "DEFENSE", "SCIENCE", "ROADS", "OTHER"};
         auto it = std::find(order.begin(), order.end(), category);
         return it != order.end() ? static_cast<int>(std::distance(order.begin(), it)) : static_cast<int>(order.size());
     }
@@ -239,6 +241,7 @@ namespace
             case BuildingType::StorageBuilding: return MakeBuildOption<StorageBuilding>(scene, definition);
             case BuildingType::Village: return MakeBuildOption<Village>(scene, definition);
             case BuildingType::Barracks: return MakeBuildOption<Barracks>(scene, definition);
+            case BuildingType::DefenseTower: return MakeBuildOption<DefenseTower>(scene, definition);
             case BuildingType::Road: return MakeBuildOption<Road>(scene, definition);
             default: return {};
         }
@@ -636,6 +639,12 @@ void BuildGuiSystem::TechPressed()
     owner->ChangeSystem("tech");
 }
 
+void BuildGuiSystem::RosterPressed()
+{
+    cameraMovement.isMoving = false;
+    owner->ChangeSystem("roster");
+}
+
 // Selects a build option or places the selected building.
 void BuildGuiSystem::LmbPressed()
 {
@@ -965,6 +974,13 @@ void DestroyGuiSystem::TechPressed()
     cameraMovement.isMoving = false;
     ClearHoverTarget();
     owner->ChangeSystem("tech");
+}
+
+void DestroyGuiSystem::RosterPressed()
+{
+    cameraMovement.isMoving = false;
+    ClearHoverTarget();
+    owner->ChangeSystem("roster");
 }
 
 // Destroys the hovered building when allowed.

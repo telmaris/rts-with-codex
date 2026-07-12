@@ -61,6 +61,8 @@ Rectangle TechHudButtonRect(const StrategicResourceHudWidget& hud);
 Rectangle DestroyHudButtonRect(const StrategicResourceHudWidget& hud);
 Rectangle RoadHudButtonRect(const StrategicResourceHudWidget& hud);
 Rectangle BuildHudButtonRect(const StrategicResourceHudWidget& hud);
+// TD(etap-8): roster/deploy panel button, left of Build.
+Rectangle RosterHudButtonRect(const StrategicResourceHudWidget& hud);
 
 bool IsStatsHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsFocusHudButtonHovered(const StrategicResourceHudWidget& hud);
@@ -69,13 +71,14 @@ bool IsTechHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsDestroyHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsRoadHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsBuildHudButtonHovered(const StrategicResourceHudWidget& hud);
+bool IsRosterHudButtonHovered(const StrategicResourceHudWidget& hud);
 
 // True when the cursor is over any strategic HUD mode button.
 bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud);
 
 // Routes an LMB press on a strategic HUD mode button to the system's matching
-// keyboard action ("q"/"r"/"d"/"s"/"f"/"t"). Returns true when the click was
-// consumed by a HUD button.
+// keyboard action ("q"/"r"/"d"/"s"/"f"/"t"/"u"). Returns true when the click
+// was consumed by a HUD button.
 bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget& hud);
 
 // ─── System construction helpers ─────────────────────────────────────────────
@@ -99,6 +102,7 @@ void WireCommonSystemActions(SystemT& system, CameraMovement& cameraMovement)
     system.actionMap["s"]    = [&system] { system.StatsPressed(); };
     system.actionMap["f"]    = [&system] { system.FocusPressed(); };
     system.actionMap["t"]    = [&system] { system.TechPressed(); };
+    system.actionMap["u"]    = [&system] { system.RosterPressed(); };
     system.actionMap["lmbp"] = [&system] { system.LmbPressed(); };
     system.actionMap["lmbr"] = [&system] { system.LmbReleased(); };
     system.actionMap["rmbp"] = [&system] { system.RmbPressed(); };

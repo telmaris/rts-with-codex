@@ -166,6 +166,12 @@ Rectangle BuildHudButtonRect(const StrategicResourceHudWidget& hud)
     return Rectangle{road.x - 92.0f - 10.0f, road.y, 92.0f, road.height};
 }
 
+Rectangle RosterHudButtonRect(const StrategicResourceHudWidget& hud)
+{
+    Rectangle build = BuildHudButtonRect(hud);
+    return Rectangle{build.x - 108.0f - 10.0f, build.y, 108.0f, build.height};
+}
+
 bool IsStatsHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
     return CheckCollisionPointRec(GetMousePosition(), StatsHudButtonRect(hud));
@@ -196,11 +202,17 @@ bool IsBuildHudButtonHovered(const StrategicResourceHudWidget& hud)
     return CheckCollisionPointRec(GetMousePosition(), BuildHudButtonRect(hud));
 }
 
+bool IsRosterHudButtonHovered(const StrategicResourceHudWidget& hud)
+{
+    return CheckCollisionPointRec(GetMousePosition(), RosterHudButtonRect(hud));
+}
+
 bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
     return IsBuildHudButtonHovered(hud) || IsRoadHudButtonHovered(hud) ||
            IsDestroyHudButtonHovered(hud) || IsStatsHudButtonHovered(hud) ||
-           IsFocusHudButtonHovered(hud) || IsTechHudButtonHovered(hud);
+           IsFocusHudButtonHovered(hud) || IsTechHudButtonHovered(hud) ||
+           IsRosterHudButtonHovered(hud);
 }
 
 bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget& hud)
@@ -218,6 +230,8 @@ bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget&
         action = "f";
     else if (IsTechHudButtonHovered(hud))
         action = "t";
+    else if (IsRosterHudButtonHovered(hud))
+        action = "u";
 
     if (action == nullptr)
         return false;

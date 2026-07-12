@@ -883,6 +883,12 @@ void FocusGuiSystem::TechPressed()
     owner->ChangeSystem("tech");
 }
 
+void FocusGuiSystem::RosterPressed()
+{
+    cameraMovement.isMoving = false;
+    owner->ChangeSystem("roster");
+}
+
 void FocusGuiSystem::LmbPressed()
 {
     if (DispatchHudButtonClick(*this, strategicHudWidget))
@@ -1016,6 +1022,12 @@ void TechGuiSystem::FocusPressed()
 void TechGuiSystem::TechPressed()
 {
     EscPressed();
+}
+
+void TechGuiSystem::RosterPressed()
+{
+    cameraMovement.isMoving = false;
+    owner->ChangeSystem("roster");
 }
 
 void TechGuiSystem::LmbPressed()

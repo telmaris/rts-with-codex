@@ -3,6 +3,9 @@
 #include "economy/Player.h"
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
+#include "warfare/UnitDefinition.h"
+#include "core/GameCommand.h"
+#include "scenes/Scenes.h"
 
 #include <algorithm>
 #include <array>
@@ -843,6 +846,16 @@ namespace
         return stream.str();
     }
 
+    // Formats a decimal value with one fractional digit (e.g. tower attack
+    // speed, "1.2") — plain std::to_string on a double affected by
+    // BalanceModifiers would otherwise show a misleadingly truncated integer.
+    std::string FormatDecimal(double value, int precision = 1)
+    {
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(precision) << value;
+        return stream.str();
+    }
+
     // Draws all categorized university research trees.
     void DrawResearchTree(Player* player,
                           Building* university,
@@ -1661,6 +1674,168 @@ void GuiPanel::Update(double dt)
             destroyButton.ChangeText("Remove from queue");
             destroyButton.Update(dt);
         }
+        return;
+    }
+
+    // TD(etap-8.3): Headquarters — checked before IsStorageLike() (HqComponent
+    // buildings also have StorageComponent) so it gets its own HP/defense
+    // content instead of falling into the generic storage-grid branch below.
+    // Shown for any player's HQ (own or enemy) per the plan's "HP HQ własnego
+    // (i wroga przy kliknięciu)".
+    if (auto* hq = building->GetComponent<HqComponent>())
+    {
+        UiText::Draw("Headquarters", contentX, y, 22, Color{190, 198, 208, 255});
+        y += 30;
+
+        double maxHp = hq->GetModifiedMaxHp(*building);
+        double hpRatio = maxHp > 0.0 ? std::clamp(hq->currentHp / maxHp, 0.0, 1.0) : 0.0;
+        progressBar.pos = Vec2i{contentX, y};
+        progressBar.size = Vec2i{contentW, 30};
+        progressBar.ChangeText("HP " + std::to_string(static_cast<int>(std::round(std::max(0.0, hq->currentHp)))) +
+                                " / " + std::to_string(static_cast<int>(std::round(maxHp))));
+        progressBar.SetValue(static_cast<float>(hpRatio));
+        progressBar.Update(dt);
+        y += 46;
+
+        std::vector<std::string> stats{
+            "Hard defense: " + std::to_string(static_cast<int>(std::round(hq->GetModifiedHardDefense(*building)))),
+            "Thorns damage: " + std::to_string(static_cast<int>(std::round(hq->GetModifiedThornsDamage(*building)))),
+            "Thorns interval: " + FormatDecimal(hq->thornsInterval) + "s"};
+        for (const auto& stat : stats)
+        {
+            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, RAYWHITE);
+            y += 24;
+        }
+        y += margin / 2;
+
+        UiText::Draw("Storage", contentX, y, 20, Color{190, 198, 208, 255});
+        y += 26;
+        Rectangle grid{
+            static_cast<float>(contentX),
+            static_cast<float>(y),
+            static_cast<float>(contentW),
+            static_cast<float>(bottom - y - destroyButton.size.y - margin)};
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset);
+        contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
+        if (maxContentScrollOffset > 0.0f)
+        {
+            Rectangle track{grid.x + grid.width - 5.0f, grid.y, 4.0f, grid.height};
+            DrawRectangleRounded(track, 0.5f, 4, Color{18, 22, 28, 190});
+            float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxContentScrollOffset)));
+            float thumbY = track.y + (track.height - thumbH) * (contentScrollOffset / maxContentScrollOffset);
+            DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{116, 132, 154, 230});
+        }
+        drawDestroyButton(); // no-op: Headquarters::CanBeManuallyDestroyed() == false
+        DrawPendingTooltip();
+        return;
+    }
+
+    // TD(etap-8.2): Defense tower — same reordering reason as HQ above
+    // (TowerCombatComponent buildings also have StorageComponent, used here
+    // purely as the ammo buffer).
+    if (auto* tower = building->GetComponent<TowerCombatComponent>())
+    {
+        UiText::Draw("Defense Tower", contentX, y, 22, Color{190, 198, 208, 255});
+        y += 30;
+
+        std::vector<std::string> stats{
+            "Damage: " + std::to_string(static_cast<int>(std::round(tower->GetModifiedDamage(*building)))),
+            "Range: " + std::to_string(static_cast<int>(std::round(tower->GetModifiedRange(*building)))) + " tiles",
+            "Attack speed: " + FormatDecimal(tower->GetModifiedAttackSpeed(*building)) + "/s",
+            "Crew: " + std::to_string(building->GetAssignedWorkers()) + "/" + std::to_string(building->GetWorkerCapacity())};
+        for (const auto& stat : stats)
+        {
+            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, RAYWHITE);
+            y += 24;
+        }
+        y += margin / 2;
+
+        UiText::Draw("Ammunition", contentX, y, 20, Color{190, 198, 208, 255});
+        y += 26;
+        Rectangle grid{
+            static_cast<float>(contentX),
+            static_cast<float>(y),
+            static_cast<float>(contentW),
+            static_cast<float>(bottom - y - destroyButton.size.y - margin)};
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4);
+        drawDestroyButton();
+        DrawPendingTooltip();
+        return;
+    }
+
+    // TD(etap-8.4): recruitment building (Barracks) — same reordering reason.
+    // Deliberately does not also show the generic storage grid (delivered
+    // unit-cost resources): the recruit buttons below already surface each
+    // unit's cost, and panel space is tight with both the queue and the
+    // catalog list present.
+    if (auto* recruitment = building->GetComponent<RecruitmentComponent>())
+    {
+        UiText::Draw("Recruitment", contentX, y, 22, Color{190, 198, 208, 255});
+        y += 30;
+
+        if (!recruitment->queue.empty())
+        {
+            UiText::Draw("Queue", contentX, y, 18, Color{190, 215, 255, 255});
+            y += 24;
+            for (const auto& entry : recruitment->queue)
+            {
+                if (y + 34 > bottom - destroyButton.size.y - margin)
+                    break;
+
+                const UnitDefinition* def = FindUnitDefinition(entry.unitDefId);
+                std::string label = (def != nullptr ? def->displayName : entry.unitDefId) +
+                    " - " + FormatSeconds(entry.remaining) + " / " + FormatSeconds(entry.total);
+                DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 14, RAYWHITE);
+                y += 20;
+
+                float progress = entry.total > 0.0
+                    ? std::clamp(static_cast<float>(1.0 - entry.remaining / entry.total), 0.0f, 1.0f)
+                    : 0.0f;
+                Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 8.0f};
+                DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
+                Rectangle fill = bar;
+                fill.width *= progress;
+                DrawRectangleRounded(fill, 0.2f, 4, Color{79, 181, 128, 255});
+                y += 14;
+            }
+            y += margin / 2;
+        }
+
+        UiText::Draw("Available units", contentX, y, 18, Color{190, 215, 255, 255});
+        y += 24;
+
+        int rowH = 44;
+        Building* self = building;
+        GameScene* panelScene = scene;
+        for (const auto& [id, def] : GetUnitCatalog())
+        {
+            if (def.recruitBuilding != building->buildingType)
+                continue;
+            if (y + rowH > bottom - destroyButton.size.y - margin)
+                break;
+
+            std::string costText = "Manpower " + std::to_string(static_cast<int>(def.manpowerCost));
+            for (const auto& cost : def.cost)
+                costText += ", " + rt2s(cost.type) + " " + std::to_string(cost.amount);
+
+            UiButton recruitButton;
+            recruitButton.pos = Vec2i{contentX, y};
+            recruitButton.size = Vec2i{contentW, rowH - 6};
+            recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(def.recruitTime) + ") - " + costText);
+            std::string unitDefId = id;
+            recruitButton.func = [self, panelScene, unitDefId]()
+            {
+                if (self == nullptr || panelScene == nullptr || panelScene->game == nullptr)
+                    return;
+                panelScene->SubmitLocalCommand(GameCommand::RecruitUnit(
+                    panelScene->game->GetLocalPlayerId(), self->positionId, unitDefId));
+            };
+            recruitButton.Update(dt);
+            y += rowH;
+        }
+
+        drawDestroyButton();
+        DrawPendingTooltip();
         return;
     }
 

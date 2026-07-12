@@ -67,6 +67,7 @@ target_sources(game
                ui/GuiHudPanels.cpp
                ui/GuiResearchTree.cpp
                ui/GuiBuildModes.cpp
+               ui/GuiRoster.cpp
                ai/DiplomaticState.cpp
                ui/AudioSystem.cpp
                WinmmStubs.cpp)
@@ -99,4 +100,4 @@ source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUt
              scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/GameMenuScene.cpp)
 source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
-             ui/GuiBuildModes.cpp ui/AudioSystem.cpp)
+             ui/GuiBuildModes.cpp ui/GuiRoster.cpp ui/AudioSystem.cpp)

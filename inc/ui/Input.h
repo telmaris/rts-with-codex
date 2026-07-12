@@ -18,6 +18,7 @@ enum InputMap
     OPEN_STATS_GUI,
     OPEN_FOCUS_GUI,
     OPEN_TECH_GUI,
+    OPEN_ROSTER_GUI,
     CENTER_CAMERA_ON_HEADQUARTERS,
     DEBUG_GRANT_RESOURCES,
 
@@ -72,6 +73,7 @@ inline void InputProcessor::Init(GuiController* gui)
     actionInputs[OPEN_STATS_GUI].key = KEY_S;
     actionInputs[OPEN_FOCUS_GUI].key = KEY_F;
     actionInputs[OPEN_TECH_GUI].key = KEY_T;
+    actionInputs[OPEN_ROSTER_GUI].key = KEY_U;
     actionInputs[CENTER_CAMERA_ON_HEADQUARTERS].key = KEY_SPACE;
     actionInputs[DEBUG_GRANT_RESOURCES].key = KEY_F10;
     

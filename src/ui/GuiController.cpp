@@ -81,6 +81,8 @@ void InputProcessor::HandleInputs()
         controller->MakeAction("f");
     if (IsActionPressed(OPEN_TECH_GUI))
         controller->MakeAction("t");
+    if (IsActionPressed(OPEN_ROSTER_GUI))
+        controller->MakeAction("u");
     if (IsActionPressed(CENTER_CAMERA_ON_HEADQUARTERS))
         controller->MakeAction("space");
     if (IsActionPressed(DEBUG_GRANT_RESOURCES))
@@ -167,6 +169,8 @@ BasicMapViewSystem::BasicMapViewSystem(GuiController* con)
 
     buildingInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
     buildingInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
+    buildingInfoPanel.scene = scene;
+    researchPanel.scene = scene;
     selectedBuildingWidget.scene = scene;
     productionWarningWidget.scene = scene;
     SetupStrategicHud(strategicHudWidget, scene);
@@ -343,6 +347,14 @@ void BasicMapViewSystem::TechPressed()
     selectedBuildingWidget.building = nullptr;
     owner->ChangeSystem("tech");
     Log::Msg("[Input]", "T pressed - technology panel opened");
+}
+
+void BasicMapViewSystem::RosterPressed()
+{
+    ClearBuildingSelection();
+    selectedBuildingWidget.building = nullptr;
+    owner->ChangeSystem("roster");
+    Log::Msg("[Input]", "U pressed - roster panel opened");
 }
 
 // Opens the local headquarters panel without toggling it closed.

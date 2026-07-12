@@ -72,6 +72,7 @@ GameScene::GameScene()
     controller->AddSystem<StatsGuiSystem>("stats");
     controller->AddSystem<FocusGuiSystem>("focus");
     controller->AddSystem<TechGuiSystem>("tech");
+    controller->AddSystem<RosterGuiSystem>("roster");
     controller->ChangeSystem("default");
 
     inputs.Init(controller.get());
