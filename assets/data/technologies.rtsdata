@@ -29,7 +29,7 @@ technology trigonometry
     cost PLANKS 200
     modifier BuildCost multiplier 0.90
     modifier BuildTime multiplier 0.95
-    # modifier AttackRange multiplier 1.1
+    modifier TowerRange multiplier 1.10
 end
 
 technology analytical_geometry
@@ -57,7 +57,7 @@ technology differential_equations
     requires analytical_geometry
     cost PAPER 300
     modifier ProductionCycleTime multiplier 0.9
-    modifier MilitaryStrength multiplier 1.1
+    modifier UnitAttackSpeed multiplier 1.1
 end
 
 technology number_theory
@@ -71,6 +71,6 @@ technology number_theory
     requires differential_equations
     cost PAPER 500
     modifier ProductionCycleTime multiplier 0.9
-    modifier MilitaryStrength multiplier 1.1
-    modifier SuppplyConsumption multiplier 0.8
+    modifier UnitSiegeAttack multiplier 1.1
+    modifier UnitRecruitTime multiplier 0.9
 end

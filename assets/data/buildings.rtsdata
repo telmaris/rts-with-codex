@@ -549,6 +549,16 @@ building Smith
         input_buffer PAPER 10
         output_buffer CARTRIDGE 20
     end
+    recipe "Arrows"
+        workers 6
+        cycle_time 6.0
+        input WOOD 1
+        input IRON 1
+        output ARROWS 4
+        input_buffer WOOD 10
+        input_buffer IRON 10
+        output_buffer ARROWS 20
+    end
 end
 
 building Mint

@@ -28,6 +28,13 @@ enum class BalanceStat
     UnitArmor,
     UnitMoveSpeed,
     UnitAttackSpeed,
+    // TD(etap-9): kept as real, tunable stats (not stripped like the rest of
+    // the old RecruitmentTime/Cost concepts) — recruiting a frontline unit
+    // needs a non-zero time cost so deploying an attack is a planning
+    // decision, not an instant reaction. Floored at RecruitmentComponent's
+    // call site so a multiplier can never make recruitment instant.
+    UnitRecruitTime,
+    UnitRecruitManpowerCost,
 
     // Reserved now per the rework plan so ETAP 6/7 don't need another stat-enum
     // migration; unused until then.

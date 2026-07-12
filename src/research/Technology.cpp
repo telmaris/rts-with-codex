@@ -35,6 +35,22 @@ namespace
         if (value == "ManpowerRate") return BalanceStat::ManpowerRate;
         if (value == "PopulationCap") return BalanceStat::PopulationCap;
         if (value == "BuilderAmount") return BalanceStat::BuilderAmount;
+        // TD(etap-9): tower-defense combat stats — see BalanceStats.h.
+        if (value == "UnitHp") return BalanceStat::UnitHp;
+        if (value == "UnitRoadAttack") return BalanceStat::UnitRoadAttack;
+        if (value == "UnitSiegeAttack") return BalanceStat::UnitSiegeAttack;
+        if (value == "UnitArmor") return BalanceStat::UnitArmor;
+        if (value == "UnitMoveSpeed") return BalanceStat::UnitMoveSpeed;
+        if (value == "UnitAttackSpeed") return BalanceStat::UnitAttackSpeed;
+        if (value == "UnitRecruitTime") return BalanceStat::UnitRecruitTime;
+        if (value == "UnitRecruitManpowerCost") return BalanceStat::UnitRecruitManpowerCost;
+        if (value == "HqMaxHp") return BalanceStat::HqMaxHp;
+        if (value == "HqDefense") return BalanceStat::HqDefense;
+        if (value == "HqThorns") return BalanceStat::HqThorns;
+        if (value == "TowerDamage") return BalanceStat::TowerDamage;
+        if (value == "TowerRange") return BalanceStat::TowerRange;
+        if (value == "TowerAttackSpeed") return BalanceStat::TowerAttackSpeed;
+        if (value == "TowerAmmoEfficiency") return BalanceStat::TowerAmmoEfficiency;
         return BalanceStat::BuildTime;
     }
 
@@ -435,6 +451,8 @@ namespace
                 modifier.resourceType = ParseResourceType(value);
             else if (key == "category")
                 modifier.resourceCategory = ParseResourceCategory(value);
+            else if (key == "unit")
+                modifier.unitDefId = value;
         }
 
         if (modifier.stat == BalanceStat::ManpowerRate)

@@ -232,13 +232,49 @@ w fundamentach.
   wymagać, by maszerująca kolumna mogła zniszczyć wieżę po drodze, to osobny, nie-trywialny
   dodatek (wieża potrzebowałaby własnego HP/hardDefense jak HQ, i mechanizmu ataku jednostek NA
   budynki poza HQ) — poza zakresem etap-7.
-- [ ] **`ARROWS` nie ma dziś żadnego producenta.** Zasób istnieje (magazyny HQ/StorageBuilding/
-  DefenseTower go przechowują), ale żaden budynek produkcyjny go nie wytwarza — Smith (który po
-  staremu systemie robił BOW/ARROWS) dziś produkuje tylko miecze/narzędzia. Testy integracyjne
-  wież (`tests/TowerAttackSystemTests.cpp`) obchodzą to, zasilając magazyn ręcznie
-  (`SetStoredAmount`) zamiast przez prawdziwy łańcuch produkcji. Do uzupełnienia w ETAP 9
-  (dane/balans) — dodać recipe produkujące ARROWS (Smith? nowy Fletcher?) żeby wieże miały
-  realną ścieżkę zaopatrzenia w rozgrywce.
+- [x] **`ARROWS` nie ma dziś żadnego producenta.** Naprawione w ETAP 9: dodano recipe "Arrows"
+  do Smith (`assets/data/buildings.rtsdata`, WOOD+IRON→ARROWS), więc wieże mają teraz realną
+  ścieżkę zaopatrzenia przez prawdziwy łańcuch produkcji/logistyki, nie tylko `SetStoredAmount`
+  w testach.
+
+- [x] **TD(etap-9) — ~90 technologii w `focuses.rtsdata` (cała gałąź MILITARY + część POLITICS,
+  247 linii `modifier`) odwoływało się do statów ze STAREGO systemu wojny, które nie istnieją
+  od ETAP 1** (`MilitaryStrength`, `RecruitmentTime`, `RecruitmentManpowerCost`,
+  `GarrisonCapacity`, `TerritoryRadius`, `HitPoints` na `building GuardTower/Fortress/Castle`).
+  To NIE był tylko martwy kod — `Technology.cpp`'s `ParseBalanceStat` cicho domyślał
+  nierozpoznaną nazwę statu na `BalanceStat::BuildTime`, więc te ~90 technologii faktycznie
+  (błędnie) mnożyło `BuildTime` za każdym razem gdy ktoś by je odblokował. Podobnie
+  `ParseBuildingType` cicho domyślał nierozpoznany typ budynku (`GuardTower`/`Fortress`/`Castle`)
+  na `BuildingType::Building` — filtr, którego żaden realny kontekst zapytania nigdy nie
+  spełnia, więc te konkretne linie były martwym kodem (ale wciąż nieprawidłowym).
+  Naprawione decyzją użytkownika (2026-07-12): cały plik `focuses.rtsdata` wymieniony na płaską
+  "ściągawkę" — jedna placeholder-technologia per `BalanceStat` (stare i nowe), tytuł = nazwa
+  statu, do wykorzystania przy projektowaniu prawdziwego drzewa focusów od nowa. Przy okazji
+  dodano parsowanie nowych statów bojowych (`UnitHp`/`UnitRoadAttack`/`UnitSiegeAttack`/
+  `UnitArmor`/`UnitMoveSpeed`/`UnitAttackSpeed`/`UnitRecruitTime`/`UnitRecruitManpowerCost`/
+  `HqMaxHp`/`HqDefense`/`HqThorns`/`TowerDamage`/`TowerRange`/`TowerAttackSpeed`/
+  `TowerAmmoEfficiency`) i klucz `unit <unitDefId>` do `ParseModifier` (analogiczny do
+  `building`/`resource`/`category`) — zobacz `docs/tower_defense_design.md`.
+  `UnitRecruitTime`/`UnitRecruitManpowerCost` to jedyne dwa staty ze starego "Recruitment*"
+  zestawu, które user poprosił zachować jako REALNE (nie placeholder) — rekrutacja jednostki
+  na front musi kosztować czas > 0, żeby planowanie ataku było decyzją strategiczną. Wpięte w
+  `RecruitmentComponent::QueueRecruitment` (`src/economy/RecruitmentComponent.cpp`) przez
+  `Player::ModifyBalanceForUnit`, z podłogą `std::max(1.0, ...)` na czasie (nigdy nie może
+  zejść do zera/ujemnej wartości niezależnie od multiplikatora) i GUI panelu rekrutacji
+  (`src/ui/Gui.cpp`) zaktualizowane, by pokazywać efektywne (zmodyfikowane), nie surowe wartości.
+
+- [ ] **`assets/data/technologies.rtsdata` (drzewo SCIENCE) nie zgadza się z 8 testami, które
+  oczekują technologii "forestry"/"Mathematics".** Odkryte przy okazji naprawy powyższego —
+  NIE jest to związane z tym pivotem (drzewo SCIENCE to czysto ekonomiczna/naukowa gałąź, bez
+  śladu starego systemu wojny). `TechnologyTests.cpp`/`PlayerEconomyTests.cpp`/
+  `ResearchCatalogTests.cpp` (8 testów, znany od dawna baseline "142 passed / 8 failed") są
+  napisane pod `MakeDefaultTechnologies()` (wbudowany fallback w `Technology.cpp`, pierwszy
+  wpis "forestry"/"Mathematics"), ale prawdziwy plik danych ma zupełnie inne, niepowiązane
+  drzewo (algebra→trygonometria→geometria analityczna→równania różniczkowe→teoria liczb).
+  Ktoś przeprojektował SCIENCE trunk w danych bez aktualizacji testów (albo odwrotnie).
+  Do naprawy: albo zaktualizować te 8 testów pod aktualne id/nazwy z `technologies.rtsdata`,
+  albo dodać do danych placeholder "forestry" jeśli testy mają rację że to powinien być root.
+  Nie ruszone w ETAP 9 (poza zakresem tower-defense pivotu).
 
 ---
 

@@ -1,5 +1,8 @@
-# Unit definitions (TD etap-3 pilot set). Balancing is ETAP 9's job — these
-# exist now to exercise the recruitment pipeline end-to-end.
+# Unit definitions. Pilot balance values (ETAP 9) covering the plan's
+# suggested archetypes: militia (cheap/weak), swordsman (melee core),
+# knight (slow/armored), ram (siege specialist — high siege_attack, weak
+# road_attack, so it needs an escort to survive the march). Not tuned by
+# playtesting yet.
 unit militia
     name "Militia"
     texture_id 0
@@ -29,4 +32,37 @@ unit swordsman
     manpower_cost 8
     cost IRON_SWORD 1
     cost FOOD_PROVISIONS 3
+end
+
+unit knight
+    name "Knight"
+    texture_id 0
+    max_hp 60
+    road_attack 8
+    siege_attack 3
+    armor 5
+    move_speed 0.7
+    attack_speed 0.9
+    recruit_building Barracks
+    recruit_time 22
+    manpower_cost 12
+    cost STEEL_SWORD 1
+    cost FOOD_PROVISIONS 5
+end
+
+unit ram
+    name "Battering Ram"
+    texture_id 0
+    max_hp 45
+    road_attack 2
+    siege_attack 12
+    armor 3
+    move_speed 0.6
+    attack_speed 0.5
+    recruit_building Barracks
+    recruit_time 26
+    manpower_cost 10
+    cost PLANKS 20
+    cost IRON 10
+    cost FOOD_PROVISIONS 4
 end

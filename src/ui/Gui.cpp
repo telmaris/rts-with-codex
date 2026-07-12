@@ -1814,14 +1814,24 @@ void GuiPanel::Update(double dt)
             if (y + rowH > bottom - destroyButton.size.y - margin)
                 break;
 
-            std::string costText = "Manpower " + std::to_string(static_cast<int>(def.manpowerCost));
+            // TD(etap-9): show the tech-modified time/manpower cost, not the
+            // raw catalog values — UnitRecruitTime/UnitRecruitManpowerCost are
+            // real, tunable stats (see RecruitmentComponent::QueueRecruitment).
+            double effectiveManpowerCost = building->owner != nullptr
+                ? std::max(0.0, building->owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitManpowerCost, def.manpowerCost, id))
+                : def.manpowerCost;
+            double effectiveRecruitTime = building->owner != nullptr
+                ? std::max(1.0, building->owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitTime, def.recruitTime, id))
+                : def.recruitTime;
+
+            std::string costText = "Manpower " + std::to_string(static_cast<int>(effectiveManpowerCost));
             for (const auto& cost : def.cost)
                 costText += ", " + rt2s(cost.type) + " " + std::to_string(cost.amount);
 
             UiButton recruitButton;
             recruitButton.pos = Vec2i{contentX, y};
             recruitButton.size = Vec2i{contentW, rowH - 6};
-            recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(def.recruitTime) + ") - " + costText);
+            recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText);
             std::string unitDefId = id;
             recruitButton.func = [self, panelScene, unitDefId]()
             {

@@ -3,6 +3,8 @@
 #include "warfare/BattleUnit.h"
 #include "warfare/UnitDefinition.h"
 
+#include <algorithm>
+
 bool RecruitmentComponent::QueueRecruitment(Building& self, const std::string& unitDefId)
 {
     if (self.owner == nullptr)
@@ -23,16 +25,25 @@ bool RecruitmentComponent::QueueRecruitment(Building& self, const std::string& u
             return false;
     }
 
-    if (self.owner->strategicResources.Get(StrategicResourceType::Manpower) < def->manpowerCost)
+    // TD(etap-9): recruit time/manpower cost stay tunable via tech/focus so
+    // planning an attack (queue now, unit arrives later) remains a real
+    // strategic decision — floored so a multiplier can never make recruitment
+    // instant or free.
+    double manpowerCost = std::max(0.0,
+        self.owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitManpowerCost, def->manpowerCost, unitDefId));
+    double recruitTime = std::max(1.0,
+        self.owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitTime, def->recruitTime, unitDefId));
+
+    if (self.owner->strategicResources.Get(StrategicResourceType::Manpower) < manpowerCost)
         return false;
 
     // All checks passed — deduct everything up front, then queue the timed build.
     for (const auto& cost : def->cost)
         for (int i = 0; i < cost.amount; i++)
             storage->buffers[cost.type].FreeResource();
-    self.owner->strategicResources.Consume(StrategicResourceType::Manpower, def->manpowerCost);
+    self.owner->strategicResources.Consume(StrategicResourceType::Manpower, manpowerCost);
 
-    queue.push_back(RecruitmentQueueEntry{unitDefId, def->recruitTime, def->recruitTime});
+    queue.push_back(RecruitmentQueueEntry{unitDefId, recruitTime, recruitTime});
     return true;
 }
 

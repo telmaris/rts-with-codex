@@ -107,6 +107,36 @@ TEST(BattleUnitTests, RecruitmentEndToEndConsumesResourcesAndManpowerThenAddsToR
     EXPECT_DOUBLE_EQ(unit.currentHp, 20.0);
 }
 
+TEST(BattleUnitTests, RecruitTimeAndManpowerCostAreModifiableButFloored)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+    Barracks* barracks = PlaceReadyBarracks(map, player);
+    ASSERT_NE(barracks, nullptr);
+
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::UnitRecruitTime, 0.0, 0.5, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:fast_recruit"});
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::UnitRecruitManpowerCost, 0.0, 0.5, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:cheap_recruit"});
+
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    // militia: recruit_time 8 -> 4.0, manpower_cost 5 -> 2.5.
+    ASSERT_FALSE(barracks->recruitment.queue.empty());
+    EXPECT_DOUBLE_EQ(barracks->recruitment.queue.front().total, 4.0);
+    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 97.5);
+
+    barracks->recruitment.queue.clear();
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::UnitRecruitTime, 0.0, 0.0, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:zero_recruit_time"});
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    EXPECT_GE(barracks->recruitment.queue.front().total, 1.0)
+        << "recruitTime must be floored so a strong multiplier can't make recruitment instant";
+}
+
 TEST(BattleUnitTests, RecruitmentFailsWithoutEnoughResourcesOrManpower)
 {
     TileMap map;
