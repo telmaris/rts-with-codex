@@ -64,6 +64,22 @@ struct HqDefinition
     double conquestRampDuration{60.0};
 };
 
+// TD(etap-7): DefenseTower combat/ammo/crew parameters. One class handles
+// every tower tier (data-driven, like BattleUnit/UnitDefinition) — a second
+// tier just needs its own BuildingType + BuildingDefinition entry, not a new
+// C++ class. Ammo buffer CAPACITY is data-driven via the existing generic
+// `storageBuffers` mechanism (a normal "storage <ammoResource> <cap> <init>"
+// line, applied by the existing ApplyStorageDefinition) — not duplicated here.
+struct TowerDefinition
+{
+    double damage{5.0};
+    double range{6.0};
+    double attackSpeed{1.0};
+    ResourceType ammoResource{ResourceType::ARROWS};
+    int ammoPerShot{1};
+    int workerCapacity{2};
+};
+
 struct BuildingDefinition
 {
     BuildingType type{BuildingType::Building};
@@ -85,6 +101,7 @@ struct BuildingDefinition
     std::vector<std::string> requiredFocuses;
     std::vector<ProductionRecipeDefinition> recipes;
     HqDefinition hq;
+    TowerDefinition tower;
 };
 
 // Returns all configured building definitions.
@@ -117,5 +134,9 @@ void ApplyStorageDefinition(Building& building, const BuildingDefinition& defini
 
 // Applies HQ HP/defense/conquest data to a building's HqComponent.
 void ApplyHqDefinition(Building& building, const BuildingDefinition& definition);
+
+// Applies tower combat/ammo/crew data to a building's TowerCombatComponent
+// (+ ammo buffer on its StorageComponent, + crew capacity on its WorkerComponent).
+void ApplyTowerDefinition(Building& building, const BuildingDefinition& definition);
 
 #endif

@@ -281,6 +281,21 @@ void GameWorld::DrawMap()
         DrawRectangleRec(box, color);
         DrawRectangleLinesEx(box, 1.0f, BLACK);
     }
+
+    // TD(etap-7.2): in-flight tower projectiles. Same always-redrawn layer as
+    // units (they move every tick too) — placeholder small circle pending
+    // real projectile art (plan 7.2's "krótkie linie/prostokąty/okręgi").
+    for (const auto& [id, projectile] : projectiles)
+    {
+        auto ownerIt = playerHandler.players.find(projectile.sourcePlayerId);
+        Color color = ownerIt != playerHandler.players.end() && ownerIt->second != nullptr
+            ? ownerIt->second->color
+            : WHITE;
+
+        int screenX = static_cast<int>(projectile.position.x);
+        int screenY = static_cast<int>(RENDER_HEIGHT) - static_cast<int>(projectile.position.y);
+        DrawCircle(screenX, screenY, TILE_SIZE * 0.12f, color);
+    }
     render->EndLayer();
 
     cachedCameraTarget = {render->camera.target.x, render->camera.target.y};

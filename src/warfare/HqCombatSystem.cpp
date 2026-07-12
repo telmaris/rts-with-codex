@@ -21,14 +21,6 @@ namespace
         return static_cast<float>(std::max(footprint.x, footprint.y)) * TILE_SIZE / 2.0f + TILE_SIZE;
     }
 
-    Vec2f BuildingCenter(const TileMap& tilemap, const Building& building)
-    {
-        Vec2i anchor = tilemap.GetCoordsFromId(building.positionId);
-        Vec2i footprint = building.GetFootprint();
-        return {static_cast<float>(anchor.x * TILE_SIZE) + static_cast<float>(footprint.x * TILE_SIZE) / 2.0f,
-                static_cast<float>(anchor.y * TILE_SIZE) + static_cast<float>(footprint.y * TILE_SIZE) / 2.0f};
-    }
-
     // Finds a player's Headquarters (there is always exactly one, never
     // rebuilt), or {nullptr, nullptr} if somehow absent (defensive only).
     std::pair<Building*, HqComponent*> FindHq(Player& player)
@@ -122,7 +114,7 @@ void HqCombatSystem::Update(GameWorld& world, double dt)
                 if (thornsDamage > 0.0)
                 {
                     CircleShape thornsShape(ThornsRadius(hqBuilding->GetFootprint()));
-                    Vec2f hqCenter = BuildingCenter(tilemap, *hqBuilding);
+                    Vec2f hqCenter = ComputeBuildingCenter(tilemap, *hqBuilding);
 
                     // Re-fetch besieger ids: the siege pass above may have
                     // just killed the HQ (handled below) or none at all —

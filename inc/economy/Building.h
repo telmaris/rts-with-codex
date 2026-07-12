@@ -41,7 +41,12 @@ enum class BuildingType : int
     WheatFarm = 34,
     Mint = 35,
     Glassworks = 36,
-    Powderworks = 37
+    Powderworks = 37,
+
+    // TD(etap-7): one class handles every tower tier (data-driven, like
+    // BattleUnit) rather than a Woodcutter/Mine-style class per tier — so
+    // this is the only tower BuildingType value needed for now.
+    DefenseTower = 40
 };
 
 // What deposit (if any) sits on a tile — read by Mine/Woodcutter terrain_production.
@@ -321,6 +326,25 @@ public:
     // --- Component members ---
     StorageComponent storage;
     RecruitmentComponent recruitment;
+};
+
+// Defensive tower (TD etap-7). One class handles every tower tier — combat
+// stats are data-driven (TowerCombatComponent), same as Barracks handles
+// every recruitable unit type via UnitDefinition rather than a class per
+// unit. Ammo is an ordinary StorageComponent buffer fed by the existing road
+// network (LogisticsComponent); crew is an ordinary WorkerComponent, so
+// manpower auto-returns on destruction for free via the existing generic path.
+class DefenseTower : public Building
+{
+public:
+    DefenseTower() = default;
+    DefenseTower(int);
+
+    // --- Component members ---
+    StorageComponent storage;
+    LogisticsComponent logistics;
+    WorkerComponent workers;
+    TowerCombatComponent combat;
 };
 
 #endif

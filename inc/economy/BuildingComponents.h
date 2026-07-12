@@ -43,6 +43,7 @@ enum class BuildingCapability : std::size_t
     Road,
     Recruitment,
     Hq,
+    TowerCombat,
     Count
 };
 
@@ -284,6 +285,38 @@ struct HqComponent : IBuildingComponent
     double GetModifiedThornsDamage(const Building& self) const;
 };
 
+// --- TowerCombatComponent ---
+// Combat stats + attack cooldown for a DefenseTower (TD etap-7). Ammo itself
+// lives in the building's own StorageComponent buffer (one entry, keyed by
+// `ammoResource`) — reusing the same road-network delivery path as any
+// production building's inputs, not a separate ammo-tracking mechanism.
+// Target selection is never stored here (mirrors UnitCombatSystem/
+// HqCombatSystem's "always re-resolve" philosophy — TowerAttackSystem picks
+// a fresh target every time the cooldown expires, so a dead/out-of-range
+// target is never an issue).
+struct TowerCombatComponent : IBuildingComponent
+{
+    Stat<double> damage{BalanceStat::TowerDamage, 5.0};
+    Stat<double> range{BalanceStat::TowerRange, 6.0};
+    Stat<double> attackSpeed{BalanceStat::TowerAttackSpeed, 1.0};
+    double attackTimer{0.0};
+    ResourceType ammoResource{ResourceType::ARROWS};
+    // Ammo consumed per shot, reduced (floored at 0 — a strong enough bonus
+    // makes shots free) by BalanceStat::TowerAmmoEfficiency.
+    Stat<int> ammoPerShot{BalanceStat::TowerAmmoEfficiency, 1};
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::TowerCombat; }
+    // Tops up the ammo buffer via the road network every tick (the
+    // MaintainInputRequests pattern production buildings use, minus the
+    // ProductionComponent coupling that pattern normally requires — a tower
+    // has no recipe, just one buffer to keep full).
+    void Update(Building& self, double dt) override;
+    double GetModifiedDamage(const Building& self) const;
+    double GetModifiedRange(const Building& self) const;
+    double GetModifiedAttackSpeed(const Building& self) const;
+    int GetModifiedAmmoPerShot(const Building& self) const;
+};
+
 template<typename T>
 constexpr BuildingCapability GetBuildingComponentCapability()
 {
@@ -300,5 +333,6 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<Populatio
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadComponent>() { return BuildingCapability::Road; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<HqComponent>() { return BuildingCapability::Hq; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<TowerCombatComponent>() { return BuildingCapability::TowerCombat; }
 
 #endif

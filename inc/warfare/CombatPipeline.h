@@ -8,6 +8,8 @@
 #include <map>
 #include <memory>
 
+class TileMap;
+
 // TD(etap-5) — the shared attack pipeline decision: EVERY attack in the game
 // (unit-vs-unit, unit-vs-HQ [ETAP 6], tower-vs-unit and HQ-thorns-vs-unit
 // [ETAP 7]) goes through this same shape+emission+resolver pipeline. Adding
@@ -59,11 +61,15 @@ enum class AttackTargetFilter
 };
 
 // A short-lived simulation object emitted by an attacker: a shape positioned
-// in the world plus a damage payload. Melee = a contact-collider living
-// exactly one tick at the target's position (resolved the same tick it's
-// created); a tower's projectile (ETAP 7) is the same struct moving over
-// many ticks by decrementing ticksRemaining each tick instead of expiring
-// immediately.
+// in the world plus a damage payload. Melee/thorns (etap-5/6) resolve inline
+// without ever instantiating one of these (contact is already guaranteed by
+// the state machine, so there's nothing to track between ticks). A tower's
+// projectile (etap-7) is the first real instantiation: it moves over many
+// ticks by decrementing ticksRemaining each tick instead of expiring
+// immediately, homing toward targetUnitInstanceId's current position each
+// tick at `speed` tile-units/sec — a deliberate simplification over true
+// ballistic lead-shooting (see docs/tech_debt.md), which still deterministically
+// catches a moving target since motion is fully deterministic.
 struct AttackEmission
 {
     int sourcePlayerId{-1};
@@ -74,7 +80,15 @@ struct AttackEmission
     AttackTargetFilter filter{AttackTargetFilter::EnemiesOnly};
     std::shared_ptr<ICollisionShape> shape;
     int ticksRemaining{1};
+    // Projectile-only fields (etap-7); unused (default) for inline melee/thorns.
+    int targetUnitInstanceId{-1};
+    double speed{0.0};
 };
+
+// Shared building-geometry helper (etap-6 HqCombatSystem's thorns AoE center
+// and etap-7 TowerAttackSystem's range/targeting both need a building's
+// world-space center point, not just its anchor tile).
+Vec2f ComputeBuildingCenter(const TileMap& tilemap, const Building& building);
 
 // The one place damage is computed. v1 formula: max(1, attack - target's
 // armor), reduced by the target's resistance for the incoming damage type

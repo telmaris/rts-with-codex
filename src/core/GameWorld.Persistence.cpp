@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 24\n";
+    out << "RTS_SAVE 25\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -198,6 +198,16 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << hq->captureStockFraction << ' ' << hq->conquestRampDuration << '\n';
         }
 
+        if (const auto* tower = building->GetComponent<TowerCombatComponent>())
+        {
+            // Ammo itself is already covered by the generic STOR block above
+            // (an ordinary StorageComponent buffer) — only the attack
+            // cooldown needs its own field here.
+            out << "TOWER " << tower->damage.GetBase() << ' ' << tower->range.GetBase() << ' '
+                << tower->attackSpeed.GetBase() << ' ' << tower->attackTimer << ' '
+                << static_cast<int>(tower->ammoResource) << ' ' << tower->ammoPerShot.GetBase() << '\n';
+        }
+
         if (const auto* pop = building->GetComponent<PopulationComponent>())
         {
             out << "VIL " << pop->manpowerRate.GetBase() << ' ' << pop->upkeepTimer << ' '
@@ -255,7 +265,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 24)
+    if (tag != "RTS_SAVE" || version != 25)
         return false;
 
     render = renderer;
@@ -762,6 +772,15 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 in >> hq->maxHp >> hq->currentHp >> hq->hardDefense >> hq->thornsDamage >>
                       hq->thornsInterval >> hq->thornsTimer >> hq->captureStockFraction >>
                       hq->conquestRampDuration;
+            }
+            else if (tag == "TOWER")
+            {
+                auto* tower = placed->GetComponent<TowerCombatComponent>();
+                if (tower == nullptr) return false;
+                int ammoResource = 0;
+                in >> tower->damage >> tower->range >> tower->attackSpeed >> tower->attackTimer >>
+                      ammoResource >> tower->ammoPerShot;
+                tower->ammoResource = static_cast<ResourceType>(ammoResource);
             }
             else
             {

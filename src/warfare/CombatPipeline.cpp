@@ -1,4 +1,7 @@
 #include "warfare/CombatPipeline.h"
+#include "economy/Building.h"
+#include "simulation/MapGenerator.h"
+#include "core/Utils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +20,14 @@ bool RectShape::Overlaps(Vec2f shapePos, Vec2f targetPos, float targetRadius) co
     float dx = std::abs(targetPos.x - shapePos.x);
     float dy = std::abs(targetPos.y - shapePos.y);
     return dx <= halfWidth + targetRadius && dy <= halfHeight + targetRadius;
+}
+
+Vec2f ComputeBuildingCenter(const TileMap& tilemap, const Building& building)
+{
+    Vec2i anchor = tilemap.GetCoordsFromId(building.positionId);
+    Vec2i footprint = building.GetFootprint();
+    return {static_cast<float>(anchor.x * TILE_SIZE) + static_cast<float>(footprint.x * TILE_SIZE) / 2.0f,
+            static_cast<float>(anchor.y * TILE_SIZE) + static_cast<float>(footprint.y * TILE_SIZE) / 2.0f};
 }
 
 namespace CombatResolver

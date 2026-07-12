@@ -202,6 +202,44 @@ w fundamentach.
 - [ ] **Brak buildu Linux/macOS** mimo ścieżek UNIX w CMake.
 - [ ] **Zduplikowane skrypty** (`*.bat` + `*.ps1`) — `.bat` delegują do `.ps1`, akceptowalne.
 
+- [ ] **TD(etap-7) — pociski wież są "homing", nie ballistyczne z wyprzedzeniem.** Plan
+  (`docs/tower_defense_rework_plan.md` 7.2) opisuje pocisk jako "pozycja, prędkość, kierunek" —
+  sugerując pojedynczy strzał po ustalonym torze, wymagający obliczenia punktu przechwycenia
+  poruszającego się celu. Zaimplementowano zamiast tego (`src/warfare/TowerAttackSystem.cpp`)
+  pocisk "homing": co tick koryguje kierunek w stronę AKTUALNEJ pozycji celu — deterministyczne
+  (skoro ruch celu jest deterministyczny) i znacznie prostsze niż prawdziwa balistyka z
+  wyprzedzeniem, kosztem realizmu wizualnego (strzała "skręca" w locie zamiast lecieć po prostej).
+  Świadome uproszczenie odpowiednie dla placeholderowej grafiki; do rewizji, gdy pojawią się
+  prawdziwe animacje pocisków.
+- [ ] **TD(etap-7) — kolizja pocisku to `CircleShape`, nie `RectShape`/segment jak sugerował plan.**
+  Ten sam plik. Plan proponował kształt prostokąt/segment dla strzały; że pocisk jest "homing"
+  (zawsze leci wprost na cel), okrąg daje identyczny efekt funkcjonalny bez potrzeby dodawania
+  orientacji/rotacji do `ICollisionShape` (którego dziś brak). Do rewizji tylko jeśli pojawi się
+  realny powód dla kształtu zależnego od kierunku (np. przyszła zdolność "przebicia" - pierce).
+- [ ] **`DefenseTower` to jeden `BuildingType` z jedną wbudowaną `TowerDefinition`, nie osobny
+  string-keyed katalog jak `UnitDefinition`.** Plan 7.1 sugerował "typy wież w buildings.rtsdata"
+  (wieloliczbowo), co przy jednej klasie C++ implikowałoby raczej mechanizm podobny do
+  `unitDefId`/`UnitCatalog`. Zaimplementowano prościej: `TowerDefinition` wbudowana w
+  `BuildingDefinition` (wzorem `HqDefinition`/`VillageDefinition`) — wystarczające dla JEDNEGO
+  typu wieży (etap-7 nie wymaga więcej, kryteria testowe też nie). Dodanie DRUGIEGO tworu wieży
+  później wymaga własnego `BuildingType` + wpisu w `buildings.rtsdata` (analogicznie do
+  Woodcutter/Mine) — akceptowalne przy 2-3 typach, ale przy prawdziwym drzewku wież (jak
+  jednostek) warto wtedy przejść na string-keyed katalog zamiast mnożyć enum values.
+- [ ] **Wieże nie mają HP i nie są niszczalne przez wroga.** Plan 7.1 sam zostawił to pytajnikiem
+  ("koszt, HP?, ammoResource..."), a kryteria wyjścia etap-7 nie testują zniszczenia wieży w
+  walce — więc zaimplementowano wieże jako statyczne, niezniszczalne przez combat (można je
+  usunąć tylko ręczną komendą `DestroyBuilding`, jak każdy inny budynek). Jeśli gameplay ma
+  wymagać, by maszerująca kolumna mogła zniszczyć wieżę po drodze, to osobny, nie-trywialny
+  dodatek (wieża potrzebowałaby własnego HP/hardDefense jak HQ, i mechanizmu ataku jednostek NA
+  budynki poza HQ) — poza zakresem etap-7.
+- [ ] **`ARROWS` nie ma dziś żadnego producenta.** Zasób istnieje (magazyny HQ/StorageBuilding/
+  DefenseTower go przechowują), ale żaden budynek produkcyjny go nie wytwarza — Smith (który po
+  staremu systemie robił BOW/ARROWS) dziś produkuje tylko miecze/narzędzia. Testy integracyjne
+  wież (`tests/TowerAttackSystemTests.cpp`) obchodzą to, zasilając magazyn ręcznie
+  (`SetStoredAmount`) zamiast przez prawdziwy łańcuch produkcji. Do uzupełnienia w ETAP 9
+  (dane/balans) — dodać recipe produkujące ARROWS (Smith? nowy Fletcher?) żeby wieże miały
+  realną ścieżkę zaopatrzenia w rozgrywce.
+
 ---
 
 ## Rekomendowana kolejność spłaty

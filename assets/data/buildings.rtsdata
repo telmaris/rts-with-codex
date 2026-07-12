@@ -683,3 +683,17 @@ building Road
     transport_time 1.0
     road upgrade_level 1 max_capacity 5 speed_modifier 1.0
 end
+
+building DefenseTower
+    name "Defense Tower"
+    tag "[DefenseTower]"
+    texture "assets/textures/building/guard_tower.png"
+    build_cost WOOD 60
+    build_cost STONE 80
+    build_cost PLANKS 20
+    build_time 24.0
+    footprint 2 2
+    texture_id 6
+    storage ARROWS 20 0
+    tower damage 5.0 range 6.0 attack_speed 1.0 ammo_resource ARROWS ammo_per_shot 1 worker_capacity 2
+end

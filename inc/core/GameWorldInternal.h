@@ -33,6 +33,7 @@ namespace GameWorldInternal
             case BuildingType::University: return std::make_unique<University>(id);
             case BuildingType::Barracks: return std::make_unique<Barracks>(id);
             case BuildingType::Road: return std::make_unique<Road>(id);
+            case BuildingType::DefenseTower: return std::make_unique<DefenseTower>(id);
             default: return nullptr;
         }
     }

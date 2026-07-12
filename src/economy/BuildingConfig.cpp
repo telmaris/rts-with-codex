@@ -226,7 +226,24 @@ namespace
                 {},
                 {},
                 {},
-                {1, 5, 1.0}}
+                {1, 5, 1.0}},
+            BuildingDefinition{
+                BuildingType::DefenseTower,
+                "Defense Tower",
+                "[DefenseTower]",
+                "assets/textures/building/guard_tower.png",
+                "Cost TBD",
+                {{ResourceType::WOOD, 60}, {ResourceType::STONE, 80}, {ResourceType::PLANKS, 20}},
+                {2, 2},
+                6,
+                24.0,
+                0.0,
+                {},
+                {},
+                {{ResourceType::ARROWS, 20, 0}},
+                {}, {}, {}, {}, {},
+                {},
+                TowerDefinition{5.0, 6.0, 1.0, ResourceType::ARROWS, 1, 2}}
         };
     }
 
@@ -264,6 +281,7 @@ namespace
         if (value == "University") return BuildingType::University;
         if (value == "Barracks") return BuildingType::Barracks;
         if (value == "Road") return BuildingType::Road;
+        if (value == "DefenseTower") return BuildingType::DefenseTower;
         return BuildingType::Building;
     }
 
@@ -522,6 +540,18 @@ namespace
                     else if (key == "conquest_ramp_duration") definition.hq.conquestRampDuration = std::stod(value);
                 });
             }
+            else if (command == "tower")
+            {
+                ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
+                {
+                    if (key == "damage") definition.tower.damage = std::stod(value);
+                    else if (key == "range") definition.tower.range = std::stod(value);
+                    else if (key == "attack_speed") definition.tower.attackSpeed = std::stod(value);
+                    else if (key == "ammo_resource") definition.tower.ammoResource = ParseResourceType(value);
+                    else if (key == "ammo_per_shot") definition.tower.ammoPerShot = std::stoi(value);
+                    else if (key == "worker_capacity") definition.tower.workerCapacity = std::stoi(value);
+                });
+            }
         }
 
         return definition;
@@ -604,7 +634,8 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::University,
         BuildingType::StorageBuilding,
         BuildingType::Village,
-        BuildingType::Barracks};
+        BuildingType::Barracks,
+        BuildingType::DefenseTower};
     return types;
 }
 
@@ -731,5 +762,21 @@ void ApplyHqDefinition(Building& building, const BuildingDefinition& definition)
     hq->thornsTimer = definition.hq.thornsInterval;
     hq->captureStockFraction = definition.hq.captureStockFraction;
     hq->conquestRampDuration = definition.hq.conquestRampDuration;
+}
+
+// Applies parsed configuration to runtime state.
+void ApplyTowerDefinition(Building& building, const BuildingDefinition& definition)
+{
+    auto* tower = building.GetComponent<TowerCombatComponent>();
+    auto* workers = building.GetComponent<WorkerComponent>();
+    if (tower == nullptr || workers == nullptr)
+        return;
+
+    tower->damage = definition.tower.damage;
+    tower->range = definition.tower.range;
+    tower->attackSpeed = definition.tower.attackSpeed;
+    tower->ammoResource = definition.tower.ammoResource;
+    tower->ammoPerShot = definition.tower.ammoPerShot;
+    workers->capacity = definition.tower.workerCapacity;
 }
 

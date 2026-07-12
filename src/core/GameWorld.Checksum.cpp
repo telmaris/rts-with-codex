@@ -96,6 +96,20 @@ std::uint64_t GameWorld::BuildChecksum() const
                 HashInt(hash, static_cast<int>(hq->currentHp * 1000.0));
                 HashInt(hash, static_cast<int>(hq->thornsTimer * 1000.0));
             }
+
+            // TD(etap-7): tower attack cooldown + ammo on hand — both mutated
+            // every tick a tower is active.
+            if (const auto* tower = building->GetComponent<TowerCombatComponent>(); tower != nullptr)
+            {
+                HashInt(hash, static_cast<int>(tower->attackTimer * 1000.0));
+                if (const auto* storage = building->GetComponent<StorageComponent>(); storage != nullptr)
+                {
+                    auto ammoIt = storage->buffers.find(tower->ammoResource);
+                    HashInt(hash, ammoIt != storage->buffers.end()
+                                      ? static_cast<int>(ammoIt->second.buffer.size())
+                                      : 0);
+                }
+            }
         }
 
         // TD(etap-6.3): productivity ramps on buildings captured from an
@@ -165,6 +179,21 @@ std::uint64_t GameWorld::BuildChecksum() const
         HashValue(hash, static_cast<std::uint64_t>(queue.size()));
         for (int unitInstanceId : queue)
             HashInt(hash, unitInstanceId);
+    }
+
+    // TD(etap-7.2): in-flight tower projectiles. Never saved (short-lived),
+    // but included here so host/client never silently disagree about their
+    // existence/position mid-flight. std::map<int, ...> keyed by an
+    // allocation-order id is already deterministically ordered.
+    HashValue(hash, static_cast<std::uint64_t>(projectiles.size()));
+    for (const auto& [id, projectile] : projectiles)
+    {
+        HashInt(hash, id);
+        HashInt(hash, projectile.sourcePlayerId);
+        HashInt(hash, projectile.targetUnitInstanceId);
+        HashInt(hash, static_cast<int>(projectile.position.x * 1000.0f));
+        HashInt(hash, static_cast<int>(projectile.position.y * 1000.0f));
+        HashInt(hash, projectile.ticksRemaining);
     }
 
     return hash;

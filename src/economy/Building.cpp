@@ -532,6 +532,21 @@ Barracks::Barracks(int actualId)
     ApplyStorageDefinition(*this, def);
 }
 
+// ─── DefenseTower ────────────────────────────────────────────────────────────
+
+DefenseTower::DefenseTower(int actualId)
+{
+    id = actualId;
+    RegisterComponent(&storage);
+    RegisterComponent(&logistics);
+    RegisterComponent(&workers);
+    RegisterComponent(&combat);
+    const auto& def = GetBuildingDefinition(BuildingType::DefenseTower);
+    ApplyBuildingDefinition(*this, def);
+    ApplyStorageDefinition(*this, def);
+    ApplyTowerDefinition(*this, def);
+}
+
 // ─── Concrete ProductionBuilding subclasses ───────────────────────────────────
 
 Woodcutter::Woodcutter(int i)

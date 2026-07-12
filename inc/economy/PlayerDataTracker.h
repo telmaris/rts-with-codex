@@ -32,6 +32,7 @@ struct PlayerDataTracker
         IndexComponent<PopulationComponent>(building);
         IndexComponent<RecruitmentComponent>(building);
         IndexComponent<HqComponent>(building);
+        IndexComponent<TowerCombatComponent>(building);
     }
 
     // Removes a building from all player-local indexes.
@@ -58,6 +59,7 @@ struct PlayerDataTracker
         UnindexComponent<PopulationComponent>(building);
         UnindexComponent<RecruitmentComponent>(building);
         UnindexComponent<HqComponent>(building);
+        UnindexComponent<TowerCombatComponent>(building);
     }
 
     // Records a command accepted by the simulation for later player analytics.

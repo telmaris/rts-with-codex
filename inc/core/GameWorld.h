@@ -11,6 +11,7 @@
 #include "economy/Player.h"
 #include "ui/Renderer.h"
 #include "warfare/BattleUnit.h"
+#include "warfare/CombatPipeline.h"
 
 class AudioSystem;
 
@@ -106,6 +107,13 @@ class GameWorld
         // free up, keyed by (fromPlayerId, toPlayerId) marching direction.
         std::map<std::pair<int, int>, std::deque<int>>& GetSpawnQueues() { return spawnQueues; }
         const std::map<std::pair<int, int>, std::deque<int>>& GetSpawnQueues() const { return spawnQueues; }
+        // TD(etap-7.2): in-flight tower projectiles (homing AttackEmissions),
+        // keyed by an id from AllocateProjectileId(). Never saved (short-lived
+        // — gone if a save happens mid-flight) but included in checksum so
+        // host/client never disagree about their existence.
+        std::map<int, AttackEmission>& GetProjectiles() { return projectiles; }
+        const std::map<int, AttackEmission>& GetProjectiles() const { return projectiles; }
+        int AllocateProjectileId() { return nextProjectileId++; }
         // Mutable escape hatch for tests that construct simulation objects
         // directly (e.g. a standalone Player) — same object as GetTileMap(),
         // named separately so call sites make the intent explicit.
@@ -141,6 +149,8 @@ class GameWorld
         MilitaryRoadNetwork militaryRoads;
         std::map<int, BattleUnit> deployedUnits;
         std::map<std::pair<int, int>, std::deque<int>> spawnQueues;
+        std::map<int, AttackEmission> projectiles;
+        int nextProjectileId{1};
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;
