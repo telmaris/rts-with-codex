@@ -18,6 +18,7 @@ add_executable(rts_tests
     BuildingConfigTests.cpp
     BuildingDomainTests.cpp
     BuildingPlacementTests.cpp
+    CombatPipelineTests.cpp
     GameCommandTests.cpp
     MilitaryRoadNetworkTests.cpp
     PathingServiceTests.cpp
@@ -28,6 +29,7 @@ add_executable(rts_tests
     RoadNetworkTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
+    UnitCombatSystemTests.cpp
     UnitMarchSystemTests.cpp
 )
 

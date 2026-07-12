@@ -58,10 +58,11 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
         for (int id : ids)
         {
             BattleUnit& unit = deployedUnits.at(id);
-            if (unit.state == BattleUnitState::AttackingHq || unit.state == BattleUnitState::Dying)
+            if (unit.state == BattleUnitState::AttackingHq || unit.state == BattleUnitState::Dying ||
+                unit.state == BattleUnitState::FightingUnit)
             {
                 precedingTileIndex = unit.tileIndex;
-                continue; // arrived or dead; not this system's concern anymore
+                continue; // arrived, dead, or locked in melee — UnitCombatSystem's concern
             }
 
             auto playerIt = playerHandler.players.find(unit.ownerPlayerId);
@@ -133,4 +134,27 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
             it->second.state = BattleUnitState::AttackingHq;
         }
     }
+}
+
+Vec2f UnitMarchSystem::ComputeWorldPosition(const GameWorld& world, const BattleUnit& unit)
+{
+    const TileMap& tilemap = world.GetTileMap();
+    std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(unit.routeFromPlayerId, unit.routeToPlayerId);
+    if (route.empty())
+        return {0.0f, 0.0f};
+
+    // Still waiting in the spawn queue — show it sitting at its own gate.
+    int tileIndex = std::clamp(unit.tileIndex, 0, static_cast<int>(route.size()) - 1);
+
+    Vec2i currentTile = tilemap.GetCoordsFromId(route[tileIndex]);
+    Vec2f from{static_cast<float>(currentTile.x * TILE_SIZE + TILE_SIZE / 2),
+               static_cast<float>(currentTile.y * TILE_SIZE + TILE_SIZE / 2)};
+    if (unit.tileIndex < 0 || tileIndex + 1 >= static_cast<int>(route.size()))
+        return from;
+
+    Vec2i nextTile = tilemap.GetCoordsFromId(route[tileIndex + 1]);
+    Vec2f to{static_cast<float>(nextTile.x * TILE_SIZE + TILE_SIZE / 2),
+             static_cast<float>(nextTile.y * TILE_SIZE + TILE_SIZE / 2)};
+    float t = static_cast<float>(std::clamp(unit.tileProgress, 0.0, 1.0));
+    return {from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t};
 }

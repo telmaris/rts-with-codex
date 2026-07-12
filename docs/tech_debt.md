@@ -94,6 +94,16 @@ w fundamentach.
   kolejności zależnej od układu sterty procesu — dawało to fałszywe alarmy desyncu między
   niezależnie zaalokowanymi światami host/client nawet przy identycznym stanie gry. Naprawione
   2026-07-12: sortowanie po `building->id` przed hashowaniem (`src/core/GameWorld.Checksum.cpp`).
+  **Odkryte 2026-07-12 (weryfikacja TD etap-5):** ta sama luka teraz obejmuje też walkę drogową —
+  `CombatResolver::ResolveDamage` (`src/warfare/CombatPipeline.cpp`) seeduje RNG z
+  `(worldSeed, simulationTick, sourceUnitInstanceId)`, więc odtwarza się identycznie TYLKO jeśli
+  host i klient mają dokładnie ten sam `simulationTick` w momencie rozwiązania ataku — co lockstep
+  faktycznie gwarantuje (zweryfikowano ręcznym testem: 45 s realnej walki przez prawdziwy
+  `LocalhostGameTransport`, checksumy identyczne). Ale gdyby kiedyś DOSZŁO do prawdziwego desyncu
+  w trakcie walki, ten sam brakujący `LoadFromSnapshot` oznacza, że klient nie ma jak się realnie
+  zresynchronizować mid-fight — rozjedzie się na stałe, tak samo jak dla stanu ekonomicznego.
+  Nie blokuje etap-5 (determinizm w normalnych warunkach potwierdzony), ale podnosi priorytet
+  naprawy `LoadFromSnapshot`, gdy walka drogowa stanie się głównym trybem rozgrywki MP.
 
 ### 🟡 Średnie
 
@@ -148,6 +158,16 @@ w fundamentach.
 
 - [x] **`.gitignore` nie pokrywał `build-tests/`, `build-tests-coverage/`** (wygenerowany HTML
   pokrycia leżał w drzewie). Naprawione 2026-06-27.
+
+- [ ] **`BattleUnitState::Dying` nigdy nie jest realnie obserwowany** (`src/warfare/UnitCombatSystem.cpp`,
+  Pass 2). Plan (`docs/tower_defense_rework_plan.md` 5.2) zakładał stan `Dying` z fade'em po stronie
+  renderu; TD etap-5 v1 zamiast tego usuwa martwą jednostkę z `deployedUnits` natychmiast w tym samym
+  ticku, w którym HP spada ≤0 — świadome uproszczenie, udokumentowane komentarzem w kodzie, bo bez
+  prawdziwego sprite'a (placeholder-prostokąt, decyzja użytkownika z etap-4/5) fade nie miał czego
+  animować. Kiedy pojawią się realne tekstury jednostek (plan 4.3 / ETAP 9), rozważyć przywrócenie
+  krótkiego okna `Dying` (np. 0.3–0.5 s zanikania alfa) zamiast natychmiastowego usunięcia — obecnie
+  brak takiego okna nie psuje żadnej mechaniki (wygrywająca jednostka i tak przechodzi do
+  `Marching` dopiero po usunięciu przeciwnika w Pass 2).
 - [ ] **CI uruchamia tylko `--gtest_filter=GameCommandTests.*`** — reszta testów (BuildingDomain,
   RoadNetwork, TileMap...) kompiluje się, ale nie jest uruchamiana.
 - [ ] **Brak cache vcpkg w CI** → raylib reinstalowany co przebieg.

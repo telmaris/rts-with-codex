@@ -133,6 +133,8 @@ std::uint64_t GameWorld::BuildChecksum() const
         HashInt(hash, unit.routeToPlayerId);
         HashInt(hash, unit.tileIndex);
         HashInt(hash, static_cast<int>(unit.tileProgress * 1000.0));
+        // TD(etap-5): mutated every tick while FightingUnit.
+        HashInt(hash, static_cast<int>(unit.attackTimer * 1000.0));
     }
 
     HashValue(hash, static_cast<std::uint64_t>(spawnQueues.size()));
