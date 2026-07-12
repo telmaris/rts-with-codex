@@ -54,7 +54,10 @@ void GameWorld::UpdateSimulation(double dt)
 
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
+        {
             player->UpdateEconomyTelemetry(dt);
+            player->UpdateConqueredEconomy(dt);
+        }
 
     UpdateUnits(dt);
 }

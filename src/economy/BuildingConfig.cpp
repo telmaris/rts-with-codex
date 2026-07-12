@@ -68,7 +68,9 @@ namespace
                     {ResourceType::BOW, 60, 0},
                     {ResourceType::ARROWS, 120, 0},
                     {ResourceType::HORSE, 60, 0}
-                }},
+                },
+                {}, {}, {}, {}, {},
+                HqDefinition{500.0, 10.0, 3.0, 3.0, 0.2, 60.0}},
             BuildingDefinition{
                 BuildingType::Village,
                 "Village",
@@ -508,6 +510,18 @@ namespace
                     else if (key == "food_package_upkeep") definition.village.foodPackageUpkeep = std::stod(value);
                 });
             }
+            else if (command == "hq")
+            {
+                ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
+                {
+                    if (key == "max_hp") definition.hq.maxHp = std::stod(value);
+                    else if (key == "hard_defense") definition.hq.hardDefense = std::stod(value);
+                    else if (key == "thorns_damage") definition.hq.thornsDamage = std::stod(value);
+                    else if (key == "thorns_interval") definition.hq.thornsInterval = std::stod(value);
+                    else if (key == "capture_stock_fraction") definition.hq.captureStockFraction = std::stod(value);
+                    else if (key == "conquest_ramp_duration") definition.hq.conquestRampDuration = std::stod(value);
+                });
+            }
         }
 
         return definition;
@@ -700,5 +714,22 @@ void ApplyStorageDefinition(Building& building, const BuildingDefinition& defini
         resourceBuffer.SetStoredAmount(buffer.initialAmount);
         storage->buffers[buffer.type] = std::move(resourceBuffer);
     }
+}
+
+// Applies parsed configuration to runtime state.
+void ApplyHqDefinition(Building& building, const BuildingDefinition& definition)
+{
+    auto* hq = building.GetComponent<HqComponent>();
+    if (hq == nullptr)
+        return;
+
+    hq->maxHp = definition.hq.maxHp;
+    hq->currentHp = definition.hq.maxHp;
+    hq->hardDefense = definition.hq.hardDefense;
+    hq->thornsDamage = definition.hq.thornsDamage;
+    hq->thornsInterval = definition.hq.thornsInterval;
+    hq->thornsTimer = definition.hq.thornsInterval;
+    hq->captureStockFraction = definition.hq.captureStockFraction;
+    hq->conquestRampDuration = definition.hq.conquestRampDuration;
 }
 

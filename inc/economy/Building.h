@@ -276,9 +276,9 @@ public:
     StorageComponent storage;
 };
 
-// Player's starting building: a storage hub. HP/defense/siege mechanics are
-// reintroduced by a dedicated HqComponent in the Tower Defense rework (ETAP 6);
-// until then the HQ is a plain storage building that cannot be destroyed.
+// Player's starting building: a storage hub with HP/defense (HqComponent,
+// TD etap-6). Never manually destroyed by its own owner — falls only to
+// siege damage (UnitCombatSystem/HqCombatSystem), which triggers elimination.
 class Headquarters : public Building
 {
 public:
@@ -289,6 +289,7 @@ public:
 
     // --- Component members ---
     StorageComponent storage;
+    HqComponent hq;
 };
 
 // Settlement that generates manpower and consumes food upkeep over time.

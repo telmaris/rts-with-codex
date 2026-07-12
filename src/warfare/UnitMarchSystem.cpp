@@ -1,6 +1,7 @@
 #include "warfare/UnitMarchSystem.h"
 #include "core/GameWorld.h"
 #include "simulation/MilitaryRoadNetwork.h"
+#include "simulation/PathingService.h"
 
 #include <algorithm>
 #include <map>
@@ -13,10 +14,25 @@ namespace
 
     // Units march single-file: a unit cannot advance onto (or past) whatever
     // tile the unit directly ahead of it in the same column currently
-    // occupies. This includes the final tile at the target's gate for now —
-    // ETAP 6 relaxes that specific rule to let multiple units group up and
-    // attack the HQ together.
+    // occupies. The final tile (the target's gate) is the one exception
+    // (TD etap-6.2): any number of units may stack there and independently
+    // besiege the HQ in parallel — see the `nextTileIndex != lastTileIndex`
+    // carve-out below.
     constexpr double kBlockedProgress = 0.999;
+
+    // TD(etap-6.3): resolves the directed route between two players, falling
+    // back to a path through any conquered (eliminated) intermediate players'
+    // HQs when there's no direct ring edge — see PathingService::FindMilitaryPath.
+    std::vector<int> ResolveRouteTiles(const MilitaryRoadNetwork& militaryRoads, const PlayerHandler& playerHandler,
+                                       int fromPlayerId, int toPlayerId)
+    {
+        auto isEliminated = [&](int playerId)
+        {
+            auto it = playerHandler.players.find(playerId);
+            return it != playerHandler.players.end() && it->second != nullptr && it->second->defeated;
+        };
+        return PathingService::FindMilitaryPath(militaryRoads, fromPlayerId, toPlayerId, isEliminated).tiles;
+    }
 }
 
 void UnitMarchSystem::Update(GameWorld& world, double dt)
@@ -38,7 +54,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
 
     for (auto& [routeKey, ids] : columns)
     {
-        std::vector<int> route = militaryRoads.GetDirectedTiles(routeKey.first, routeKey.second);
+        std::vector<int> route = ResolveRouteTiles(militaryRoads, playerHandler, routeKey.first, routeKey.second);
         if (route.empty())
             continue;
         int lastTileIndex = static_cast<int>(route.size()) - 1;
@@ -74,7 +90,9 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
             while (unit.tileProgress >= 1.0 && unit.tileIndex < lastTileIndex)
             {
                 int nextTileIndex = unit.tileIndex + 1;
-                if (precedingTileIndex >= 0 && nextTileIndex >= precedingTileIndex)
+                bool blocked = precedingTileIndex >= 0 && nextTileIndex >= precedingTileIndex &&
+                               nextTileIndex != lastTileIndex;
+                if (blocked)
                 {
                     unit.tileProgress = kBlockedProgress;
                     break;
@@ -88,6 +106,13 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
                 unit.tileIndex = lastTileIndex;
                 unit.tileProgress = 0.0;
                 unit.state = BattleUnitState::AttackingHq;
+                // Full attack cooldown on arrival (TD etap-6.2) — no free
+                // first hit against the HQ, mirroring road combat's
+                // LockIntoMelee (UnitCombatSystem.cpp).
+                double attackSpeed = playerIt != playerHandler.players.end() && playerIt->second != nullptr
+                    ? unit.GetEffectiveAttackSpeed(*playerIt->second)
+                    : 1.0;
+                unit.attackTimer = attackSpeed > 0.0 ? 1.0 / attackSpeed : 1.0;
             }
 
             precedingTileIndex = unit.tileIndex;
@@ -113,7 +138,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
         if (gateOccupied)
             continue;
 
-        std::vector<int> route = militaryRoads.GetDirectedTiles(routeKey.first, routeKey.second);
+        std::vector<int> route = ResolveRouteTiles(militaryRoads, playerHandler, routeKey.first, routeKey.second);
         if (route.empty())
             continue;
 
@@ -139,7 +164,8 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
 Vec2f UnitMarchSystem::ComputeWorldPosition(const GameWorld& world, const BattleUnit& unit)
 {
     const TileMap& tilemap = world.GetTileMap();
-    std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(unit.routeFromPlayerId, unit.routeToPlayerId);
+    std::vector<int> route = ResolveRouteTiles(world.GetMilitaryRoads(), world.GetPlayerHandler(),
+                                                unit.routeFromPlayerId, unit.routeToPlayerId);
     if (route.empty())
         return {0.0f, 0.0f};
 

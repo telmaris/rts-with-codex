@@ -13,6 +13,7 @@
 #include "economy/PlayerDataTracker.h"
 #include "economy/PlayerEconomy.h"
 #include "economy/ConstructionQueue.h"
+#include "economy/ConqueredEconomy.h"
 #include "ai/DiplomaticState.h"
 #include "warfare/BattleUnit.h"
 #include "raylib.h"
@@ -46,6 +47,9 @@ public:
     void UpdateResearch(double dt);
 
     void UpdateEconomyTelemetry(double dt) { economyTelemetry.Update(*this, dt); }
+    // TD(etap-6.3): advances productivity ramps on buildings captured from an
+    // eliminated player (no-op once nothing is ramping).
+    void UpdateConqueredEconomy(double dt) { conqueredEconomy.Tick(*this, dt); }
 
     bool IsTechnologyInProgress(const std::string& id) const;
 
@@ -338,6 +342,9 @@ public:
     ConstructionQueue construction;
     PlayerEconomyTelemetry economyTelemetry;
     DiplomaticState diplomatic;
+    // TD(etap-6.3): productivity ramps on buildings captured from eliminated
+    // players. Empty for a player who has never conquered anything.
+    ConqueredEconomy conqueredEconomy;
 
     // TD(etap-3): recruited-but-not-yet-deployed BattleUnit pool (replaces the
     // old war system's ArmyRegistry).

@@ -107,6 +107,12 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
     Player* player = playerIt->second.get();
     if (player == nullptr)
         return false;
+    // TD(etap-6.3): an eliminated player's roster/units already vanished and
+    // their AI/input is expected to stop — reject any stray command from a
+    // stale client/controller rather than letting it silently re-mutate a
+    // defeated player's (mostly inert) remaining state.
+    if (player->defeated)
+        return false;
     auto acceptCommand = [&]()
     {
         player->TrackAcceptedCommand(command.type);
@@ -270,9 +276,18 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         int targetPlayerId = command.targetTileId;
         if (command.unitInstanceIds.empty() || targetPlayerId == player->id)
             return false;
-        if (playerHandler.players.find(targetPlayerId) == playerHandler.players.end())
+        auto targetPlayerIt = playerHandler.players.find(targetPlayerId);
+        if (targetPlayerIt == playerHandler.players.end())
             return false;
-        if (!militaryRoads.AreConnected(player->id, targetPlayerId))
+        // TD(etap-6.3): a target need not be a direct ring neighbor as long as
+        // every player in between has been eliminated — the route then runs
+        // through their conquered HQ.
+        auto isEliminated = [&](int playerId)
+        {
+            auto it = playerHandler.players.find(playerId);
+            return it != playerHandler.players.end() && it->second != nullptr && it->second->defeated;
+        };
+        if (!PathingService::AreHqsConnected(militaryRoads, player->id, targetPlayerId, isEliminated))
             return false;
 
         // All-or-nothing: every listed unit must be a valid, currently-rostered

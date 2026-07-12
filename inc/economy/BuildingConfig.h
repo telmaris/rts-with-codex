@@ -53,6 +53,17 @@ struct VillageDefinition
     double foodPackageUpkeep{1.0};
 };
 
+// TD(etap-6): Headquarters HP/defense + conquest-spoils parameters.
+struct HqDefinition
+{
+    double maxHp{500.0};
+    double hardDefense{0.0};
+    double thornsDamage{0.0};
+    double thornsInterval{3.0};
+    double captureStockFraction{0.2};
+    double conquestRampDuration{60.0};
+};
+
 struct BuildingDefinition
 {
     BuildingType type{BuildingType::Building};
@@ -73,6 +84,7 @@ struct BuildingDefinition
     std::vector<std::string> requiredTechnologies;
     std::vector<std::string> requiredFocuses;
     std::vector<ProductionRecipeDefinition> recipes;
+    HqDefinition hq;
 };
 
 // Returns all configured building definitions.
@@ -102,5 +114,8 @@ void ApplyProductionRecipes(Building& building, const BuildingDefinition& defini
 
 // Applies storage buffer data to a building's storage component.
 void ApplyStorageDefinition(Building& building, const BuildingDefinition& definition);
+
+// Applies HQ HP/defense/conquest data to a building's HqComponent.
+void ApplyHqDefinition(Building& building, const BuildingDefinition& definition);
 
 #endif

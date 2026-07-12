@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 23\n";
+    out << "RTS_SAVE 24\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -36,7 +36,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
         out << "PLAYER " << id << ' ' << player->strategicResources.values.size() << ' '
             << player->technologies.GetUnlocked().size() << ' '
             << player->focuses.GetUnlocked().size() << ' '
-            << diploCount << ' ' << warCount << '\n';
+            << diploCount << ' ' << warCount << ' ' << (player->defeated ? 1 : 0) << '\n';
         for (const auto& [type, value] : player->strategicResources.values)
             out << "STRAT " << static_cast<int>(type) << ' ' << value << '\n';
         for (const auto& techId : player->technologies.GetUnlocked())
@@ -64,6 +64,13 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << unit.tileIndex << ' ' << unit.tileProgress << ' ' << unit.attackTimer << ' '
                 << unit.equipment.size() << '\n';
         }
+
+        // TD(etap-6.3): productivity ramps on buildings captured from an
+        // eliminated player.
+        out << "CONQUERED " << player->conqueredEconomy.GetRamps().size() << '\n';
+        for (const auto& ramp : player->conqueredEconomy.GetRamps())
+            out << "RAMP " << ramp.buildingId << ' ' << ramp.elapsed << ' ' << ramp.rampDuration << '\n';
+
         out << "ENDPLAYER\n";
     }
 
@@ -183,6 +190,14 @@ bool GameWorld::SaveToFile(const std::string& path) const
             out << "ENDSTOR\n";
         }
 
+        if (const auto* hq = building->GetComponent<HqComponent>())
+        {
+            out << "HQ " << hq->maxHp.GetBase() << ' ' << hq->currentHp << ' '
+                << hq->hardDefense.GetBase() << ' ' << hq->thornsDamage.GetBase() << ' '
+                << hq->thornsInterval << ' ' << hq->thornsTimer << ' '
+                << hq->captureStockFraction << ' ' << hq->conquestRampDuration << '\n';
+        }
+
         if (const auto* pop = building->GetComponent<PopulationComponent>())
         {
             out << "VIL " << pop->manpowerRate.GetBase() << ' ' << pop->upkeepTimer << ' '
@@ -240,7 +255,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 23)
+    if (tag != "RTS_SAVE" || version != 24)
         return false;
 
     render = renderer;
@@ -294,6 +309,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         int focusCount = 0;
         int diploCount = 0;
         int warCount = 0;
+        int defeatedFlag = 0;
         in >> tag >> playerId >> strategicCount;
         if (tag != "PLAYER")
             return false;
@@ -305,8 +321,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             in >> diploCount;
         if (version >= 15)
             in >> warCount;
+        in >> defeatedFlag;
 
         auto player = std::make_unique<Player>(playerId, tilemap);
+        player->defeated = defeatedFlag != 0;
         player->name = playerId == localPlayerId ? "Player" : "AI Opponent";
         player->controllerType = playerId == localPlayerId ? PlayerControllerType::LocalHuman : PlayerControllerType::AI;
         player->color = playerId == localPlayerId ? Color{66, 154, 255, 255} : Color{220, 72, 72, 255};
@@ -391,6 +409,29 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             // is read but not yet parsed into instances.
             player->roster.AddUnit(std::move(unit));
         }
+
+        // TD(etap-6.3): productivity ramps on buildings captured from an
+        // eliminated player.
+        int conqueredCount = 0;
+        in >> tag >> conqueredCount;
+        if (tag != "CONQUERED")
+            return false;
+        std::vector<ConqueredBuildingRamp> ramps;
+        ramps.reserve(conqueredCount);
+        for (int r = 0; r < conqueredCount; r++)
+        {
+            ConqueredBuildingRamp ramp;
+            in >> tag >> ramp.buildingId >> ramp.elapsed >> ramp.rampDuration;
+            if (tag != "RAMP")
+                return false;
+            ramps.push_back(ramp);
+        }
+        player->conqueredEconomy.SetRamps(std::move(ramps));
+        // Re-derive each ramp's BalanceModifier from the restored elapsed
+        // time immediately (zero-dt tick), mirroring RefreshTechnologyModifiers()
+        // above rather than leaving the captured buildings' cycle time
+        // unmodified until the next real simulation tick.
+        player->conqueredEconomy.Tick(*player, 0.0);
 
         in >> tag;
         if (tag != "ENDPLAYER")
@@ -713,6 +754,14 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                     if (tag != "RQ") return false;
                     recruitment->queue.push_back(RecruitmentQueueEntry{unitDefId, total, remaining});
                 }
+            }
+            else if (tag == "HQ")
+            {
+                auto* hq = placed->GetComponent<HqComponent>();
+                if (hq == nullptr) return false;
+                in >> hq->maxHp >> hq->currentHp >> hq->hardDefense >> hq->thornsDamage >>
+                      hq->thornsInterval >> hq->thornsTimer >> hq->captureStockFraction >>
+                      hq->conquestRampDuration;
             }
             else
             {

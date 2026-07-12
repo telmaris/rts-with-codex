@@ -42,6 +42,7 @@ enum class BuildingCapability : std::size_t
     Population,
     Road,
     Recruitment,
+    Hq,
     Count
 };
 
@@ -258,6 +259,31 @@ struct RecruitmentComponent : IBuildingComponent
     bool QueueRecruitment(Building& self, const std::string& unitDefId);
 };
 
+// --- HqComponent ---
+// HP/defense state for a player's Headquarters (TD etap-6). Losing all HP
+// eliminates the owner (see GameWorld::EliminatePlayer) — a real war-system
+// requirement, unlike the pre-rework Headquarters which was indestructible.
+struct HqComponent : IBuildingComponent
+{
+    Stat<double> maxHp{BalanceStat::HqMaxHp, 500.0};
+    double currentHp{500.0};
+    Stat<double> hardDefense{BalanceStat::HqDefense, 0.0};
+    Stat<double> thornsDamage{BalanceStat::HqThorns, 0.0};
+    // Not BalanceStat-wrapped (like UnitDefinition::attackRange) — a fixed
+    // data-driven cadence, not something tech/focus buffs are expected to
+    // touch in v1.
+    double thornsInterval{3.0};
+    double thornsTimer{0.0};
+    // Conquest spoils (TD etap-6.3), read once at elimination time.
+    double captureStockFraction{0.2};
+    double conquestRampDuration{60.0};
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::Hq; }
+    double GetModifiedMaxHp(const Building& self) const;
+    double GetModifiedHardDefense(const Building& self) const;
+    double GetModifiedThornsDamage(const Building& self) const;
+};
+
 template<typename T>
 constexpr BuildingCapability GetBuildingComponentCapability()
 {
@@ -273,5 +299,6 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<StorageCo
 template<> constexpr BuildingCapability GetBuildingComponentCapability<PopulationComponent>() { return BuildingCapability::Population; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadComponent>() { return BuildingCapability::Road; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<HqComponent>() { return BuildingCapability::Hq; }
 
 #endif

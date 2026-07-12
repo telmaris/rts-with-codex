@@ -13,6 +13,7 @@ target_sources(game
                core/GameWorld.Checksum.cpp
                core/GameWorld.Render.cpp
                core/GameWorld.Units.cpp
+               core/GameWorld.Elimination.cpp
                ai/Controller.cpp
                research/Technology.cpp
                economy/Building.cpp
@@ -25,6 +26,8 @@ target_sources(game
                economy/BuildingConfig.cpp
                economy/ConstructionQueue.cpp
                economy/RecruitmentComponent.cpp
+               economy/HqComponent.cpp
+               economy/ConqueredEconomy.cpp
                economy/Player.cpp
                scenes/Game.cpp
                data/Resource.cpp
@@ -39,6 +42,7 @@ target_sources(game
                warfare/UnitMarchSystem.cpp
                warfare/CombatPipeline.cpp
                warfare/UnitCombatSystem.cpp
+               warfare/HqCombatSystem.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
                scenes/SceneUtils.cpp
@@ -69,7 +73,8 @@ target_sources(game
 source_group("core" FILES
              core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
              core/GameWorld.Persistence.cpp core/GameWorld.Commands.cpp
-             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Units.cpp)
+             core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Units.cpp
+             core/GameWorld.Elimination.cpp)
 
 source_group("ai" FILES ai/Controller.cpp ai/DiplomaticState.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
@@ -77,12 +82,12 @@ source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInte
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
              economy/StorageComponent.cpp economy/PopulationComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/RecruitmentComponent.cpp
-             economy/Player.cpp)
+             economy/HqComponent.cpp economy/ConqueredEconomy.cpp economy/Player.cpp)
 source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp
              simulation/MilitaryRoadNetwork.cpp)
 source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/RtsDataFile.cpp)
 source_group("warfare" FILES warfare/UnitDefinition.cpp warfare/BattleUnit.cpp warfare/UnitMarchSystem.cpp
-             warfare/CombatPipeline.cpp warfare/UnitCombatSystem.cpp)
+             warfare/CombatPipeline.cpp warfare/UnitCombatSystem.cpp warfare/HqCombatSystem.cpp)
 source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp

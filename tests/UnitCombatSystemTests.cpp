@@ -132,17 +132,27 @@ TEST(UnitCombatSystemTests, ColumnFightThreeVsTwoResolvesToOneSurvivingSide)
     world.SubmitCommand(GameCommand::DeployUnits(1, 0, sideB));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
 
-    for (int i = 0; i < 15000; i++)
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
-
+    // Poll and stop the instant one side is wiped out on the road, rather
+    // than running a fixed extra duration — TD(etap-6) means a surviving
+    // column that reaches the enemy HQ starts taking siege/thorns damage
+    // too, which would (correctly) eventually kill them off as well and
+    // falsely look like "neither side survived" for THIS road-combat test.
     int survivorsA = 0;
     int survivorsB = 0;
-    for (const auto& [id, unit] : world.GetDeployedUnits())
+    for (int i = 0; i < 15000; i++)
     {
-        if (unit.ownerPlayerId == 0)
-            survivorsA++;
-        else if (unit.ownerPlayerId == 1)
-            survivorsB++;
+        world.UpdateSimulation(FixedSimulationClock::FixedDt);
+        survivorsA = 0;
+        survivorsB = 0;
+        for (const auto& [id, unit] : world.GetDeployedUnits())
+        {
+            if (unit.ownerPlayerId == 0)
+                survivorsA++;
+            else if (unit.ownerPlayerId == 1)
+                survivorsB++;
+        }
+        if (survivorsA == 0 || survivorsB == 0)
+            break;
     }
 
     EXPECT_TRUE((survivorsA == 0 && survivorsB >= 1 && survivorsB <= 2) ||

@@ -105,6 +105,34 @@ w fundamentach.
   Nie blokuje etap-5 (determinizm w normalnych warunkach potwierdzony), ale podnosi priorytet
   naprawy `LoadFromSnapshot`, gdy walka drogowa stanie się głównym trybem rozgrywki MP.
 
+- [ ] **Przejęte budynki (TD etap-6.3) nie są rejestrowane w sieci dróg zwycięzcy**
+  (`src/core/GameWorld.Elimination.cpp`, sekcja "Production buildings change hands"). `EliminatePlayer`
+  przepina `building->owner` i wywołuje `RegisterBuilding`/`UnregisterBuilding` (dataTracker + rejestry
+  strategiczne), ale NIE dotyka `Player::roadNetwork`/`NavigationMap` — ani usunięcia budynku z
+  `roadNetwork` pokonanego, ani dodania do `roadNetwork` zwycięzcy. Skutek: budynek dalej działa
+  (własna produkcja, istniejące połączenia supplier/receiver to surowe wskaźniki, obojętne na
+  ownera) i istniejące połączenia z INNYMI przejętymi budynkami też działają — ale zwycięzca NIE
+  MOŻE poprowadzić NOWEJ drogi surowcowej do/z przejętego budynku dopóki nie zostanie ręcznie
+  zarejestrowany. Świadomie odłożone (poza zakresem etap-6, wymaga `NavigationMap` removal API,
+  którego dziś nie ma — tylko `UpdateNavMap` do dodawania/aktualizacji). Naprawić przy okazji
+  ETAP 7/8 jeśli gracze faktycznie zaczną łączyć przejęte budynki nowymi drogami.
+
+- [ ] **"Ostatnia jednostka oblegająca" (TD etap-6.2, propozycja planu) uproszczona do "najniższe
+  instanceId"** (`src/warfare/UnitCombatSystem.cpp`, `FindBesiegerOpponent`). Plan proponuje, żeby
+  świeży obrońca walczył z OSTATNIĄ (najnowszą) jednostką oblegającą HQ; zaimplementowano zamiast
+  tego deterministyczny, ale PROSTSZY wybór: najniższe `instanceId` wśród oblegających (ten sam
+  tie-break co reszta `UnitCombatSystem`). Świadoma decyzja — dokładna tożsamość "które oblężenie"
+  nie ma dziś żadnego znaczenia dla gracza (brak GUI pokazującego pojedynki), a próba odtworzenia
+  DOKŁADNIE "ostatniej" wymagałaby osobnego tie-breaka bez oczywistej korzyści. Do rewizji, jeśli
+  ETAP 8 (GUI) kiedykolwiek zacznie wizualizować konkretne pojedynki 1v1 przy bramie.
+
+- [ ] **Wielu oblegających renderuje się dokładnie w tym samym pikselu.** `UnitMarchSystem::
+  ComputeWorldPosition` zwraca identyczną pozycję dla KAŻDEJ jednostki na ostatnim kaflu (świadomie
+  poluzowany single-file z etap-6.2, żeby dało się grupować atak na HQ) — placeholder-prostokąty
+  wszystkich oblegających nakładają się wizualnie. Nieistotne dopóki grafika to płaski prostokąt
+  (obecny placeholder), ale do rozwiązania przy prawdziwych sprite'ach (ETAP 9): rozrzucić pozycje
+  w małym okręgu/gridzie wokół bramy zamiast dokładnie nakładać.
+
 ### 🟡 Średnie
 
 - [ ] **`GameWorld` rozpierdol — audyt i segregacja odpowiedzialności**. Obecnie rozbity na:

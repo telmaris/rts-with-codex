@@ -4,6 +4,7 @@
 #include "economy/Building.h"
 #include "core/Utils.h"
 #include <cmath>
+#include <map>
 #include <queue>
 #include <vector>
 #include <algorithm>
@@ -254,15 +255,79 @@ bool PathingService::IsBetter(int candidateTile, int currentBestTile) const
     return candidateTile < currentBestTile;
 }
 
-MilitaryPath PathingService::FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId) const
+MilitaryPath PathingService::FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId,
+                                               const std::function<bool(int)>& isEliminated)
 {
     MilitaryPath path;
     path.tiles = militaryRoads.GetDirectedTiles(fromPlayerId, toPlayerId);
+    if (!path.tiles.empty())
+    {
+        path.found = true;
+        return path;
+    }
+
+    if (!isEliminated)
+        return path; // no direct edge and no elimination info to route through
+
+    // BFS over the ring graph; may only transit through eliminated
+    // intermediate players (TD etap-6.3: route through a conquered HQ).
+    std::map<int, int> parent;
+    std::queue<int> frontier;
+    parent[fromPlayerId] = fromPlayerId;
+    frontier.push(fromPlayerId);
+    bool foundTarget = false;
+
+    while (!frontier.empty() && !foundTarget)
+    {
+        int current = frontier.front();
+        frontier.pop();
+        for (int neighbor : militaryRoads.GetNeighbors(current))
+        {
+            if (parent.count(neighbor) != 0)
+                continue;
+            parent[neighbor] = current;
+            if (neighbor == toPlayerId)
+            {
+                foundTarget = true;
+                break;
+            }
+            if (isEliminated(neighbor))
+                frontier.push(neighbor);
+        }
+    }
+
+    if (!foundTarget)
+        return path;
+
+    std::vector<int> chain;
+    for (int at = toPlayerId;; at = parent.at(at))
+    {
+        chain.push_back(at);
+        if (at == fromPlayerId)
+            break;
+    }
+    std::reverse(chain.begin(), chain.end());
+
+    std::vector<int> tiles;
+    for (std::size_t i = 0; i + 1 < chain.size(); i++)
+    {
+        std::vector<int> hop = militaryRoads.GetDirectedTiles(chain[i], chain[i + 1]);
+        if (hop.empty())
+            return MilitaryPath(); // topology invariant violated; fail closed
+
+        std::size_t startIndex = tiles.empty() ? 0 : 1; // drop duplicate join tile
+        tiles.insert(tiles.end(), hop.begin() + static_cast<std::ptrdiff_t>(startIndex), hop.end());
+    }
+
+    path.tiles = std::move(tiles);
     path.found = !path.tiles.empty();
     return path;
 }
 
-bool PathingService::AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB) const
+bool PathingService::AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB,
+                                     const std::function<bool(int)>& isEliminated)
 {
-    return militaryRoads.AreConnected(playerA, playerB);
+    if (militaryRoads.AreConnected(playerA, playerB))
+        return true;
+    return FindMilitaryPath(militaryRoads, playerA, playerB, isEliminated).IsValid();
 }

@@ -58,6 +58,11 @@ std::uint64_t GameWorld::BuildChecksum() const
             continue;
         }
 
+        // TD(etap-6): elimination flag — written only inside the sim tick,
+        // must diverge into a checksum mismatch immediately if host/client
+        // ever disagree on who's defeated.
+        HashInt(hash, player->defeated ? 1 : 0);
+
         HashInt(hash, player->dataTracker.CountBuildings(BuildingType::Headquarters));
         HashValue(hash, static_cast<std::uint64_t>(player->dataTracker.buildings.size()));
 
@@ -84,6 +89,21 @@ std::uint64_t GameWorld::BuildChecksum() const
             HashInt(hash, static_cast<int>(building->constructionRemaining * 1000.0));
             HashInt(hash, building->GetTotalProduced());
             HashInt(hash, building->IsProductionBlocked() ? 1 : 0);
+
+            // TD(etap-6): HQ HP/thorns cadence — mutated every tick under siege.
+            if (const auto* hq = building->GetComponent<HqComponent>(); hq != nullptr)
+            {
+                HashInt(hash, static_cast<int>(hq->currentHp * 1000.0));
+                HashInt(hash, static_cast<int>(hq->thornsTimer * 1000.0));
+            }
+        }
+
+        // TD(etap-6.3): productivity ramps on buildings captured from an
+        // eliminated player.
+        for (const auto& ramp : player->conqueredEconomy.GetRamps())
+        {
+            HashInt(hash, ramp.buildingId);
+            HashInt(hash, static_cast<int>(ramp.elapsed * 1000.0));
         }
 
         for (const auto& [commandType, count] : player->dataTracker.processedCommands)

@@ -67,6 +67,15 @@ class GameWorld
         // Id of the sole surviving player once every other has been eliminated
         // (a decided game); -1 while two or more players remain. Deterministic.
         int GetVictorPlayerId() const;
+        // TD(etap-6.3): eliminates a player whose HQ has fallen — flags them
+        // defeated, clears their deployed units/roster/spawn queues,
+        // transfers their production buildings to the conqueror with a
+        // productivity ramp (ConqueredEconomy), and drains their storage
+        // (conqueror keeps HqComponent::captureStockFraction of each
+        // resource, the rest is lost). Called from HqCombatSystem the tick
+        // an HQ's currentHp reaches 0. A no-op if defeatedPlayerId is already
+        // defeated (idempotent against being invoked more than once).
+        void EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId);
         // Returns the authoritative simulation tick counter.
         std::uint64_t GetSimulationTick() const { return simulationTick; }
         // Returns the global pathfinding service (ETAP 3.4 integration point)

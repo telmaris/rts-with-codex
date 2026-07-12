@@ -56,6 +56,30 @@ namespace
         return std::sqrt(dx * dx + dy * dy);
     }
 
+    // TD(etap-6.2) mode-conflict fallback: besiegers parked in AttackingHq
+    // are deliberately excluded from FindFrontMostUnit's normal front-vs-front
+    // road-combat pool (a fresh column must never be able to yank one of them
+    // back into FightingUnit and interrupt its siege via Pass 3). But a
+    // defender that Pass 4 already locked onto one still needs to find it
+    // again each tick via this dedicated lookup — same direction-scoping as
+    // FindFrontMostUnit, tie-broken by lowest instanceId (a simpler,
+    // equally-deterministic stand-in for the plan's "last besieging unit"
+    // proposal; the exact identity has no user-facing meaning yet).
+    int FindBesiegerOpponent(const std::map<int, BattleUnit>& deployedUnits, int fromPlayerId, int toPlayerId)
+    {
+        int bestId = -1;
+        for (const auto& [id, unit] : deployedUnits)
+        {
+            if (unit.routeFromPlayerId != fromPlayerId || unit.routeToPlayerId != toPlayerId)
+                continue;
+            if (unit.state != BattleUnitState::AttackingHq || unit.currentHp <= 0.0)
+                continue;
+            if (bestId == -1 || id < bestId)
+                bestId = id;
+        }
+        return bestId;
+    }
+
     void LockIntoMelee(BattleUnit& unit, Player* owner)
     {
         unit.state = BattleUnitState::FightingUnit;
@@ -95,6 +119,8 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
             continue;
 
         int opponentId = FindFrontMostUnit(deployedUnits, self.routeToPlayerId, self.routeFromPlayerId);
+        if (opponentId == -1)
+            opponentId = FindBesiegerOpponent(deployedUnits, self.routeToPlayerId, self.routeFromPlayerId);
         if (opponentId == -1)
         {
             self.state = BattleUnitState::Marching; // opponent gone; re-approach/re-engage later
@@ -178,5 +204,43 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
         auto ownerBA = playerHandler.players.find(unitBA.ownerPlayerId);
         LockIntoMelee(unitAB, ownerAB != playerHandler.players.end() ? ownerAB->second.get() : nullptr);
         LockIntoMelee(unitBA, ownerBA != playerHandler.players.end() ? ownerBA->second.get() : nullptr);
+    }
+
+    // Pass 4 (TD etap-6.2, mode-conflict proposal): a fresh defender reaching
+    // its own gate may find enemy besiegers already parked there. Besiegers
+    // never interrupt their siege on the HQ (their own state and attack
+    // timer are untouched here — HqCombatSystem keeps ticking them down
+    // independently); only the defender locks into FightingUnit and starts
+    // trading ordinary road-combat blows with one of them (resolved by Pass 1
+    // next tick via FindBesiegerOpponent above).
+    for (const auto& route : world.GetMilitaryRoads().GetRoutes())
+    {
+        for (auto [besiegedId, besiegerHomeId] : {std::pair{route.playerA, route.playerB},
+                                                   std::pair{route.playerB, route.playerA}})
+        {
+            int besiegerId = FindBesiegerOpponent(deployedUnits, besiegerHomeId, besiegedId);
+            if (besiegerId == -1)
+                continue;
+
+            int defenderId = -1;
+            Vec2f besiegerPos = UnitMarchSystem::ComputeWorldPosition(world, deployedUnits.at(besiegerId));
+            for (const auto& [id, unit] : deployedUnits)
+            {
+                if (unit.routeFromPlayerId != besiegedId || unit.routeToPlayerId != besiegerHomeId)
+                    continue;
+                if (unit.state != BattleUnitState::Marching || unit.tileIndex < 0)
+                    continue;
+                if (DistanceBetween(UnitMarchSystem::ComputeWorldPosition(world, unit), besiegerPos) > kMeleeContactRange)
+                    continue;
+                if (defenderId == -1 || id < defenderId)
+                    defenderId = id;
+            }
+            if (defenderId == -1)
+                continue;
+
+            auto defenderOwner = playerHandler.players.find(deployedUnits.at(defenderId).ownerPlayerId);
+            LockIntoMelee(deployedUnits.at(defenderId),
+                          defenderOwner != playerHandler.players.end() ? defenderOwner->second.get() : nullptr);
+        }
     }
 }

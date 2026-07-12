@@ -121,7 +121,7 @@ TEST(UnitMarchSystemTests, MarchIsDeterministicForSameSeed)
     EXPECT_EQ(unitA.state, unitB.state);
 }
 
-TEST(UnitMarchSystemTests, FollowerQueuesBehindArrivedLeaderAtFinalTile)
+TEST(UnitMarchSystemTests, FollowerGroupsUpWithArrivedLeaderAtFinalTile)
 {
     GameWorld world;
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(7));
@@ -144,11 +144,13 @@ TEST(UnitMarchSystemTests, FollowerQueuesBehindArrivedLeaderAtFinalTile)
     for (int i = 0; i < 2000; i++)
         UnitMarchSystem::Update(world, 0.05);
 
+    // TD(etap-6.2): the final tile is the one exception to single-file
+    // spacing — any number of units may stack there and besiege the HQ in
+    // parallel, so the follower joins the leader instead of queuing behind it.
     const BattleUnit& follower = world.GetDeployedUnits().at(followerId);
-    EXPECT_NE(follower.state, BattleUnitState::AttackingHq)
-        << "follower must queue behind the leader, not share the final tile";
-    EXPECT_LT(follower.tileIndex, lastTileIndex);
-    EXPECT_GE(follower.tileProgress, 0.9);
+    EXPECT_EQ(follower.state, BattleUnitState::AttackingHq)
+        << "the final tile allows grouping — the follower should join the leader, not queue behind it";
+    EXPECT_EQ(follower.tileIndex, lastTileIndex);
 }
 
 TEST(UnitMarchSystemTests, SaveAndLoadPreservesMarchingStateAndSpawnQueue)

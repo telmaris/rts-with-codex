@@ -498,9 +498,11 @@ Headquarters::Headquarters(int actualId)
 {
     id = actualId;
     RegisterComponent(&storage);
+    RegisterComponent(&hq);
     const auto& def = GetBuildingDefinition(BuildingType::Headquarters);
     ApplyBuildingDefinition(*this, def);
     ApplyStorageDefinition(*this, def);
+    ApplyHqDefinition(*this, def);
 }
 
 // ─── Village ─────────────────────────────────────────────────────────────────

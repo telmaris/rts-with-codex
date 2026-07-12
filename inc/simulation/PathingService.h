@@ -71,13 +71,22 @@ public:
     // Find nearest building of type matching predicate
     Building* FindNearestBuilding(Vec2i from, const std::function<bool(const Building*)>& predicate, const Domain& domain = Domain::Global());
 
-    // Looks up the ring route connecting two players' HQs (TD etap-2). This is
-    // a read-only lookup into a route generated once at world init
-    // (MilitaryRoadNetwork::Generate) — not a new pathfind. Concatenating
-    // segments through captured HQs (ETAP 6) extends this later.
-    MilitaryPath FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId) const;
-    // Returns true when two players are directly connected by a ring route.
-    bool AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB) const;
+    // Looks up the ring route connecting two players' HQs (TD etap-2). A
+    // direct ring edge is returned as-is. If none exists, and `isEliminated`
+    // is provided, falls back to a BFS over the ring graph (TD etap-6.3) that
+    // may only transit through ELIMINATED intermediate players — concatenating
+    // each hop's directed tiles (dropping the duplicate join tile at each
+    // conquered HQ) into one path. Deterministic: BFS explores neighbors in
+    // MilitaryRoadNetwork's stable insertion order, so ties (equidistant
+    // clockwise/counterclockwise ring paths) always resolve the same way for
+    // the same topology. Static — neither this lookup nor AreHqsConnected
+    // ever needed the instance's tilemap/roadNetwork.
+    static MilitaryPath FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId,
+                                         const std::function<bool(int)>& isEliminated = {});
+    // Returns true when two players are connected by a ring route, direct or
+    // (with `isEliminated` provided) through a chain of conquered HQs.
+    static bool AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB,
+                               const std::function<bool(int)>& isEliminated = {});
 
 private:
     TileMap& tilemap;

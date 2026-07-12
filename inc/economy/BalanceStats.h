@@ -31,6 +31,7 @@ enum class BalanceStat
 
     // Reserved now per the rework plan so ETAP 6/7 don't need another stat-enum
     // migration; unused until then.
+    HqMaxHp,
     HqDefense,
     HqThorns,
     TowerDamage,

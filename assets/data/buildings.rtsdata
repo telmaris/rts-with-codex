@@ -37,6 +37,7 @@ building Headquarters
     storage BOW 60 0
     storage ARROWS 120 0
     storage HORSE 60 0
+    hq max_hp 500 hard_defense 10 thorns_damage 3 thorns_interval 3.0 capture_stock_fraction 0.2 conquest_ramp_duration 60.0
 end
 
 building Village
