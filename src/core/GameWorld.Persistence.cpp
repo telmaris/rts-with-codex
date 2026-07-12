@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 20\n";
+    out << "RTS_SAVE 21\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -59,6 +59,19 @@ bool GameWorld::SaveToFile(const std::string& path) const
         out << "T " << tile.id << ' ' << static_cast<int>(tile.tileType) << ' '
             << tile.terrainTextureId << ' ' << ownerId << ' ' << tile.resourceRichness << ' '
             << static_cast<int>(tile.biome) << '\n';
+    }
+
+    // Military road ring (TD etap-2): written explicitly rather than
+    // regenerated from seed, so generator changes never invalidate an
+    // existing save's ring layout.
+    const auto& militaryRoutes = militaryRoads.GetRoutes();
+    out << "MILROADS " << militaryRoutes.size() << '\n';
+    for (const auto& route : militaryRoutes)
+    {
+        out << "MROUTE " << route.playerA << ' ' << route.playerB << ' ' << route.tiles.size();
+        for (int tileId : route.tiles)
+            out << ' ' << tileId;
+        out << '\n';
     }
 
     int buildingCount = 0;
@@ -177,7 +190,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 20)
+    if (tag != "RTS_SAVE" || version != 21)
         return false;
 
     render = renderer;
@@ -334,6 +347,36 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         tile.owner = ownerIt != playerHandler.players.end() ? ownerIt->second.get() : nullptr;
         tilemap.tilemap[id] = std::move(tile);
     }
+
+    // Military road ring (TD etap-2): restored verbatim, not regenerated —
+    // reapply Tile::isMilitaryRoad from the saved tile lists.
+    int militaryRouteCount = 0;
+    in >> tag >> militaryRouteCount;
+    if (tag != "MILROADS")
+        return false;
+
+    std::vector<MilitaryRoute> loadedRoutes;
+    loadedRoutes.reserve(militaryRouteCount);
+    for (int i = 0; i < militaryRouteCount; i++)
+    {
+        MilitaryRoute route;
+        size_t tileCountInRoute = 0;
+        in >> tag >> route.playerA >> route.playerB >> tileCountInRoute;
+        if (tag != "MROUTE")
+            return false;
+
+        route.tiles.reserve(tileCountInRoute);
+        for (size_t t = 0; t < tileCountInRoute; t++)
+        {
+            int tileId = 0;
+            in >> tileId;
+            if (tileId >= 0 && tileId < static_cast<int>(tilemap.tilemap.size()))
+                tilemap.tilemap[tileId].isMilitaryRoad = true;
+            route.tiles.push_back(tileId);
+        }
+        loadedRoutes.push_back(std::move(route));
+    }
+    militaryRoads.RestoreRoutes(std::move(loadedRoutes));
 
     std::vector<PendingConnection> pendingConnections;
     int buildingCount = 0;

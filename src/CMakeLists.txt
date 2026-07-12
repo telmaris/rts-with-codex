@@ -30,6 +30,7 @@ target_sources(game
                simulation/RoadNetwork.cpp
                simulation/PathingService.cpp
                simulation/MapGenerator.cpp
+               simulation/MilitaryRoadNetwork.cpp
                data/RtsDataFile.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
@@ -69,7 +70,8 @@ source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInte
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
              economy/StorageComponent.cpp economy/PopulationComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/Player.cpp)
-source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp)
+source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp
+             simulation/MilitaryRoadNetwork.cpp)
 source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/RtsDataFile.cpp)
 source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp

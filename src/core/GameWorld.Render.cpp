@@ -110,6 +110,7 @@ GameSnapshot GameWorld::BuildSnapshot() const
             view.buildingType = tile.building->buildingType;
             view.buildingFootprint = tile.building->GetFootprint();
         }
+        view.isMilitaryRoad = tile.isMilitaryRoad;
         snapshot.tiles.push_back(view);
     }
 
@@ -155,6 +156,17 @@ void GameWorld::DrawMap()
 
                 Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
                 render->DrawAtlasTile(0, tile.terrainTextureId, pos);
+                // TD(etap-2): military road placeholder — a flat tint until a
+                // dedicated texture exists; kept as its own visual type so
+                // swapping in real art later doesn't touch this call site.
+                if (tile.isMilitaryRoad)
+                {
+                    DrawRectangle(static_cast<int>(pos.x),
+                                  static_cast<int>(RENDER_HEIGHT - TILE_SIZE - pos.y),
+                                  TILE_SIZE,
+                                  TILE_SIZE,
+                                  Color{139, 90, 43, 150});
+                }
             }
         }
         render->EndLayer();

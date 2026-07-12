@@ -276,6 +276,10 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) c
             const Tile& tile = tilemap[GetIdFromCoords({anchor.x + x, anchor.y + y})];
             if (tile.HasBuilding())
                 return false;
+            // TD(etap-2): the immutable military road track is disjoint from
+            // buildings/resource roads — nothing may ever be placed on it.
+            if (tile.isMilitaryRoad)
+                return false;
         }
     }
 

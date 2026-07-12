@@ -20,6 +20,7 @@ struct GameSnapshotTile
     bool hasBuilding{false};
     BuildingType buildingType{BuildingType::Building};
     Vec2i buildingFootprint{1, 1};
+    bool isMilitaryRoad{false};
 };
 
 inline bool operator==(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
@@ -33,7 +34,8 @@ inline bool operator==(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
            lhs.hasBuilding == rhs.hasBuilding &&
            lhs.buildingType == rhs.buildingType &&
            lhs.buildingFootprint.x == rhs.buildingFootprint.x &&
-           lhs.buildingFootprint.y == rhs.buildingFootprint.y;
+           lhs.buildingFootprint.y == rhs.buildingFootprint.y &&
+           lhs.isMilitaryRoad == rhs.isMilitaryRoad;
 }
 
 inline bool operator!=(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
@@ -52,7 +54,8 @@ inline void SerializeSnapshotTile(std::ostringstream& out, const GameSnapshotTil
         << (tile.hasBuilding ? 1 : 0) << ' '
         << static_cast<int>(tile.buildingType) << ' '
         << tile.buildingFootprint.x << ' '
-        << tile.buildingFootprint.y << ' ';
+        << tile.buildingFootprint.y << ' '
+        << (tile.isMilitaryRoad ? 1 : 0) << ' ';
 }
 
 inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile& tile)
@@ -64,7 +67,8 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
     int b = 0;
     int a = 0;
     int buildingType = 0;
-    if (!(in >> tile.terrainTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y))
+    int isMilitaryRoad = 0;
+    if (!(in >> tile.terrainTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y >> isMilitaryRoad))
         return false;
     tile.hasOwner = hasOwner != 0;
     tile.ownerColor = Color{
@@ -74,6 +78,7 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
         static_cast<unsigned char>(std::clamp(a, 0, 255))};
     tile.hasBuilding = hasBuilding != 0;
     tile.buildingType = static_cast<BuildingType>(buildingType);
+    tile.isMilitaryRoad = isMilitaryRoad != 0;
     return true;
 }
 

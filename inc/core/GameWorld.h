@@ -6,6 +6,7 @@
 #include "core/GameCommand.h"
 #include "core/GameSnapshot.h"
 #include "simulation/MapGenerator.h"
+#include "simulation/MilitaryRoadNetwork.h"
 #include "simulation/PathingService.h"
 #include "economy/Player.h"
 #include "ui/Renderer.h"
@@ -81,6 +82,9 @@ class GameWorld
         const TileMap& GetTileMap() const { return tilemap; }
         PlayerHandler& GetPlayerHandler() { return playerHandler; }
         const PlayerHandler& GetPlayerHandler() const { return playerHandler; }
+        // Immutable HQ-ring military road network (TD etap-2).
+        MilitaryRoadNetwork& GetMilitaryRoads() { return militaryRoads; }
+        const MilitaryRoadNetwork& GetMilitaryRoads() const { return militaryRoads; }
         // Mutable escape hatch for tests that construct simulation objects
         // directly (e.g. a standalone Player) — same object as GetTileMap(),
         // named separately so call sites make the intent explicit.
@@ -110,6 +114,7 @@ class GameWorld
     private:
         TileMap tilemap;
         PlayerHandler playerHandler;
+        MilitaryRoadNetwork militaryRoads;
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;

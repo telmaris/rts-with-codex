@@ -328,6 +328,14 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
             const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
             Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
             DrawAtlasTile(0, tile.terrainTextureId, pos);
+            if (tile.isMilitaryRoad)
+            {
+                DrawRectangle(static_cast<int>(pos.x),
+                              static_cast<int>(RENDER_HEIGHT - TILE_SIZE - pos.y),
+                              TILE_SIZE,
+                              TILE_SIZE,
+                              Color{139, 90, 43, 150});
+            }
         }
     }
     EndLayer();

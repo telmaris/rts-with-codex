@@ -165,6 +165,7 @@ void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapPara
 
     Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
     std::vector<Vec2i> occupiedAnchors{hqAnchor};
+    std::map<int, Vec2i> hqAnchorsByPlayer{{0, hqAnchor}};
     int opponentCount = std::clamp(params.aiOpponentCount, 0, 5);
     for (int i = 0; i < opponentCount; i++)
     {
@@ -172,10 +173,13 @@ void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapPara
         auto* enemy = CreatePlayer(playerId, PlayerControllerType::AI, "AI Opponent " + std::to_string(playerId), PlayerSlotColor(playerId));
         Vec2i enemyAnchor = PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xD1B54A32u + static_cast<unsigned int>(i * 7919)));
         occupiedAnchors.push_back(enemyAnchor);
+        hqAnchorsByPlayer[playerId] = enemyAnchor;
         CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
         if (params.debugMode)
             enemy->debugMode = true;
     }
+
+    militaryRoads.Generate(tilemap, hqAnchorsByPlayer, hqFootprint, MapGenerator::HeadquartersTerritorySize(), params.seed);
 
     if (render != nullptr)
     {
@@ -203,6 +207,7 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem*
 
     Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
     std::vector<Vec2i> occupiedAnchors;
+    std::map<int, Vec2i> hqAnchorsByPlayer;
     Vec2i cameraAnchor = MapGenerator::PickHeadquartersAnchor(params);
 
     for (int playerId = 0; playerId < MultiplayerHumanSlots; playerId++)
@@ -217,6 +222,7 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem*
             ? MapGenerator::PickHeadquartersAnchor(params)
             : PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xA511E9B3u + static_cast<unsigned int>(playerId * 4099)));
         occupiedAnchors.push_back(anchor);
+        hqAnchorsByPlayer[playerId] = anchor;
         CreateStartingBase(player, anchor, params.seed ^ (0x9E3779B9u + static_cast<unsigned int>(playerId * 104729)));
         if (playerId == localPlayerId)
             cameraAnchor = anchor;
@@ -230,8 +236,11 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem*
         auto* enemy = CreatePlayer(playerId, controllerType, "AI Opponent " + std::to_string(i + 1), PlayerSlotColor(playerId));
         Vec2i enemyAnchor = PickEnemyHeadquartersAnchor(occupiedAnchors, hqFootprint, params, params.seed ^ (0xD1B54A32u + static_cast<unsigned int>(i * 7919)));
         occupiedAnchors.push_back(enemyAnchor);
+        hqAnchorsByPlayer[playerId] = enemyAnchor;
         CreateStartingBase(enemy, enemyAnchor, params.seed ^ (0x85EBCA6Bu + static_cast<unsigned int>(i * 104729)));
     }
+
+    militaryRoads.Generate(tilemap, hqAnchorsByPlayer, hqFootprint, MapGenerator::HeadquartersTerritorySize(), params.seed);
 
     if (params.debugMode)
     {

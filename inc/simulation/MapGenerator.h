@@ -134,6 +134,10 @@ class Tile
         BiomeType biome{BiomeType::PLAINS};
         int terrainTextureId{0};
         int resourceRichness{0};
+        // Immutable military road track (TD etap-2), generated once at world init.
+        // Disjoint from resource roads/buildings: nothing may be built here, and
+        // this flag is never set on a tile already carrying a building.
+        bool isMilitaryRoad{false};
 };
 
 // Weighted renderer texture candidate for a terrain type.

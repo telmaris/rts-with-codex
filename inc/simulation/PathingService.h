@@ -2,6 +2,7 @@
 #define PATHING_SERVICE_H
 
 #include "core/Utils.h"
+#include "simulation/MilitaryRoadNetwork.h"
 #include <vector>
 #include <functional>
 
@@ -9,6 +10,15 @@
 class TileMap;
 class RoadNetwork;
 class Building;
+
+// Result of a military-ring route lookup (TD etap-2).
+struct MilitaryPath
+{
+    std::vector<int> tiles;
+    bool found{false};
+
+    bool IsValid() const { return found && !tiles.empty(); }
+};
 
 struct RoadPath
 {
@@ -60,6 +70,14 @@ public:
 
     // Find nearest building of type matching predicate
     Building* FindNearestBuilding(Vec2i from, const std::function<bool(const Building*)>& predicate, const Domain& domain = Domain::Global());
+
+    // Looks up the ring route connecting two players' HQs (TD etap-2). This is
+    // a read-only lookup into a route generated once at world init
+    // (MilitaryRoadNetwork::Generate) — not a new pathfind. Concatenating
+    // segments through captured HQs (ETAP 6) extends this later.
+    MilitaryPath FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId) const;
+    // Returns true when two players are directly connected by a ring route.
+    bool AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB) const;
 
 private:
     TileMap& tilemap;

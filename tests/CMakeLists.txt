@@ -18,6 +18,7 @@ add_executable(rts_tests
     BuildingDomainTests.cpp
     BuildingPlacementTests.cpp
     GameCommandTests.cpp
+    MilitaryRoadNetworkTests.cpp
     PathingServiceTests.cpp
     PlayerEconomyTests.cpp
     RendererAnimationTests.cpp

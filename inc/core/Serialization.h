@@ -17,7 +17,7 @@ struct SerializationVersion
     static constexpr int GameCommandVersion = 9;  // WireVersion from GameCommand::WireVersion
     static constexpr int GameCommandResultVersion = 3;  // WireVersion from GameCommandResult::WireVersion
     static constexpr int GameServerFrameVersion = 1;  // WireVersion from GameServerFrame::WireVersion
-    static constexpr int GameSnapshotVersion = 5;  // Assigned during Archive design (no prior WireVersion)
+    static constexpr int GameSnapshotVersion = 6;  // Assigned during Archive design (no prior WireVersion)
     static constexpr int GameWorldSaveVersion = 19;  // SaveVersion from GameWorld (file format "RTS_SAVE 19")
 };
 

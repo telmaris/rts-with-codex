@@ -25,6 +25,20 @@ std::uint64_t GameWorld::BuildChecksum() const
     HashInt(hash, tilemap.params.sizeY);
     HashValue(hash, tilemap.params.seed);
 
+    // Military road ring (TD etap-2): immutable after generation, but included
+    // so any host/client generation divergence surfaces as a checksum
+    // mismatch immediately rather than only once units start marching.
+    const auto& militaryRoutes = militaryRoads.GetRoutes();
+    HashValue(hash, static_cast<std::uint64_t>(militaryRoutes.size()));
+    for (const auto& route : militaryRoutes)
+    {
+        HashInt(hash, route.playerA);
+        HashInt(hash, route.playerB);
+        HashValue(hash, static_cast<std::uint64_t>(route.tiles.size()));
+        for (int tileId : route.tiles)
+            HashInt(hash, tileId);
+    }
+
     for (const auto& [playerId, player] : playerHandler.players)
     {
         HashInt(hash, playerId);

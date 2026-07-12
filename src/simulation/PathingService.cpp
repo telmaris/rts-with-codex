@@ -253,3 +253,22 @@ bool PathingService::IsBetter(int candidateTile, int currentBestTile) const
     // Tie-breaking: prefer lower tile ID for determinism (lockstep)
     return candidateTile < currentBestTile;
 }
+
+MilitaryPath PathingService::FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId) const
+{
+    const MilitaryRoute* route = militaryRoads.FindRoute(fromPlayerId, toPlayerId);
+    if (route == nullptr)
+        return MilitaryPath{};
+
+    MilitaryPath path;
+    path.tiles = route->tiles;
+    if (route->playerA != fromPlayerId)
+        std::reverse(path.tiles.begin(), path.tiles.end());
+    path.found = true;
+    return path;
+}
+
+bool PathingService::AreHqsConnected(const MilitaryRoadNetwork& militaryRoads, int playerA, int playerB) const
+{
+    return militaryRoads.AreConnected(playerA, playerB);
+}
