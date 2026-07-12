@@ -92,6 +92,25 @@ w fundamentach.
 
 - [ ] **`Player` staje się god-objectem** — 769 linii nagłówka, ~150 składowych, 13 includów
   (`inc/Player.h`). Akumuluje ekonomię, armię, technologie, focusy, telemetrię, rejestr budynków.
+- [x] **`ResourcePool::GetResource` mógł crashować przy wyczerpaniu puli** (`src/data/Resource.cpp`).
+  Odkryte 2026-07-12 (audyt TD etap-3): `static ResourcePool resourcePool;` to jeden globalny
+  singleton na CAŁY proces (nie per-`GameWorld`), z `std::array<Resource, N>` o stałym rozmiarze
+  per `ResourceType`. `GetResource` wołało `.front()`/`.pop_front()` na wewnętrznym
+  `std::deque<Resource*>` bez sprawdzenia `empty()` — przy wyczerpaniu puli dla danego typu
+  crash (`Assertion failed: front() called on empty deque`). W normalnej rozgrywce (jedna
+  `GameWorld` na proces) rozmiar 10000/typ praktycznie nigdy się nie wyczerpywał, ale
+  **cały test suite dzieli jeden proces** — ~100 testów tworzących świeże `GameWorld` (każdy
+  z w pełni zaopatrzonym HQ) nigdy nie zwraca wygenerowanych zasobów do puli przy zniszczeniu
+  obiektów testowych, więc pula stopniowo się wyczerpuje w trakcie całego przebiegu i **którykolwiek**
+  test pod koniec przebiegu może trafić na pusty deque — nie tylko testy używające nowych
+  budynków/jednostek. Naprawione: `GetResource` zwraca teraz `nullptr` przy wyczerpaniu (spójne
+  z konwencją sentinela `ResourceType::Null` już używaną w kodzie), `ResourceBuffer::GenerateResource`
+  po prostu nic nie robi gdy `nullptr`. Rozmiar puli podniesiony 10000→50000/typ jako zapas na
+  rosnący test suite (`inc/data/Resource.h`) — to łata objaw, nie źródło: pula wciąż jest jednym
+  globalnym singletonem bez resetu między testami, więc przy dalszym wzroście liczby testów
+  wyczerpanie może wrócić. Docelowa naprawa (nie zrobiona, poza zakresem etap-3): albo
+  `ResourcePool::Reset()` wołany w test fixture między testami, albo pula per-`GameWorld`
+  zamiast globalnego singletona.
 - [ ] **Brak enkapsulacji stanu symulacji.** `GameWorld` wystawia `tilemap`/`playerHandler` jako
   `public`; `Building` ma wszystkie pola publiczne. Ryzyko: UI może mutować stan poza ścieżką
   komend, łamiąc determinizm.

@@ -1,0 +1,32 @@
+# Unit definitions (TD etap-3 pilot set). Balancing is ETAP 9's job — these
+# exist now to exercise the recruitment pipeline end-to-end.
+unit militia
+    name "Militia"
+    texture_id 0
+    max_hp 20
+    road_attack 3
+    siege_attack 1
+    armor 0
+    move_speed 1.0
+    attack_speed 1.0
+    recruit_building Barracks
+    recruit_time 8
+    manpower_cost 5
+    cost FOOD_PROVISIONS 5
+end
+
+unit swordsman
+    name "Swordsman"
+    texture_id 0
+    max_hp 35
+    road_attack 6
+    siege_attack 2
+    armor 2
+    move_speed 0.9
+    attack_speed 1.0
+    recruit_building Barracks
+    recruit_time 14
+    manpower_cost 8
+    cost IRON_SWORD 1
+    cost FOOD_PROVISIONS 3
+end

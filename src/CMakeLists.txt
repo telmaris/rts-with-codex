@@ -23,6 +23,7 @@ target_sources(game
                economy/PopulationComponent.cpp
                economy/BuildingConfig.cpp
                economy/ConstructionQueue.cpp
+               economy/RecruitmentComponent.cpp
                economy/Player.cpp
                scenes/Game.cpp
                data/Resource.cpp
@@ -32,6 +33,8 @@ target_sources(game
                simulation/MapGenerator.cpp
                simulation/MilitaryRoadNetwork.cpp
                data/RtsDataFile.cpp
+               warfare/UnitDefinition.cpp
+               warfare/BattleUnit.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
                scenes/SceneUtils.cpp
@@ -69,10 +72,12 @@ source_group("research" FILES research/Technology.cpp research/ResearchCatalog.c
 source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInternal.cpp
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
              economy/StorageComponent.cpp economy/PopulationComponent.cpp
-             economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/Player.cpp)
+             economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/RecruitmentComponent.cpp
+             economy/Player.cpp)
 source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp
              simulation/MilitaryRoadNetwork.cpp)
 source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/RtsDataFile.cpp)
+source_group("warfare" FILES warfare/UnitDefinition.cpp warfare/BattleUnit.cpp)
 source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp

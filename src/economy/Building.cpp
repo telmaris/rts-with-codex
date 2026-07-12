@@ -523,8 +523,11 @@ Village::Village(int actualId)
 Barracks::Barracks(int actualId)
 {
     id = actualId;
+    RegisterComponent(&storage);
+    RegisterComponent(&recruitment);
     const auto& def = GetBuildingDefinition(BuildingType::Barracks);
     ApplyBuildingDefinition(*this, def);
+    ApplyStorageDefinition(*this, def);
 }
 
 // ─── Concrete ProductionBuilding subclasses ───────────────────────────────────

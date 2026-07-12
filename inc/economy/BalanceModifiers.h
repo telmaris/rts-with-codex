@@ -73,6 +73,9 @@ struct BalanceModifierContext
     std::optional<int> buildingId;
     std::optional<int> positionId;
     bool ownedTerritory{false};
+    // TD(etap-3): unit-definition id (e.g. "swordsman") for BattleUnit stat
+    // queries. Empty for every non-unit context.
+    std::string unitDefId;
 };
 
 struct BalanceModifier
@@ -89,6 +92,10 @@ struct BalanceModifier
     // category of context.resourceType via ResourceCategoryOf(). Placed last so
     // existing positional BalanceModifier{...} aggregate initializers still work.
     std::optional<ResourceCategory> resourceCategory;
+    // TD(etap-3): restricts a Unit* stat modifier to one unit definition (e.g. a
+    // tech that only speeds up archers), mirroring how `buildingType` restricts
+    // a modifier to one building type. Unset = applies to every unit.
+    std::optional<std::string> unitDefId;
 
     bool AppliesTo(const BalanceModifierContext& context) const
     {
@@ -101,6 +108,8 @@ struct BalanceModifier
         if (resourceCategory.has_value() &&
             (context.resourceType == ResourceType::Null ||
              ResourceCategoryOf(context.resourceType) != resourceCategory.value()))
+            return false;
+        if (unitDefId.has_value() && unitDefId.value() != context.unitDefId)
             return false;
         return AppliesToScope(context);
     }

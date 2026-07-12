@@ -41,6 +41,7 @@ enum class BuildingCapability : std::size_t
     Storage,
     Population,
     Road,
+    Recruitment,
     Count
 };
 
@@ -226,6 +227,37 @@ struct PopulationComponent : IBuildingComponent
     int GetFoodDemand() const;
 };
 
+// --- RecruitmentComponent ---
+// One in-progress recruit order: which unit definition, and how much of its
+// recruitTime remains. Resources + manpower are deducted up front when the
+// order is queued (QueueRecruitment), not when it completes.
+struct RecruitmentQueueEntry
+{
+    std::string unitDefId;
+    double total{0.0};
+    double remaining{0.0};
+};
+
+// Recruitment queue for a unit-producing building (Barracks; future
+// Stables/MageTower/Workshop are only new UnitDefinition::recruitBuilding
+// values, no new component). Consumes resources from the building's own
+// StorageComponent buffer (delivered by the existing road network, exactly
+// like a production building's inputs) and manpower from the owning
+// player's global pool at the moment an order is queued. On completion the
+// finished unit is added to the owning player's UnitRoster in state InRoster.
+struct RecruitmentComponent : IBuildingComponent
+{
+    std::deque<RecruitmentQueueEntry> queue;
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::Recruitment; }
+    void Update(Building& self, double dt) override;
+    // Attempts to start recruiting one unit now: validates the unit exists,
+    // the building's storage buffer holds every required resource, and the
+    // owner has enough manpower — then deducts both immediately and queues
+    // the timed build. Returns false (no state changed) if any check fails.
+    bool QueueRecruitment(Building& self, const std::string& unitDefId);
+};
+
 template<typename T>
 constexpr BuildingCapability GetBuildingComponentCapability()
 {
@@ -240,5 +272,6 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<ResearchC
 template<> constexpr BuildingCapability GetBuildingComponentCapability<StorageComponent>() { return BuildingCapability::Storage; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<PopulationComponent>() { return BuildingCapability::Population; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadComponent>() { return BuildingCapability::Road; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }
 
 #endif

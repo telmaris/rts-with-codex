@@ -667,6 +667,8 @@ building Barracks
     build_time 42.0
     footprint 4 4
     texture_id 18
+    storage FOOD_PROVISIONS 40 0
+    storage IRON_SWORD 40 0
 end
 
 building Road

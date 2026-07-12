@@ -14,6 +14,7 @@
 #include "economy/PlayerEconomy.h"
 #include "economy/ConstructionQueue.h"
 #include "ai/DiplomaticState.h"
+#include "warfare/BattleUnit.h"
 #include "raylib.h"
 
 #include <optional>
@@ -285,6 +286,16 @@ public:
         return context;
     }
 
+    // TD(etap-3): unit-stat modifier lookup, mirroring the building-scoped
+    // overloads above — filters BalanceModifier::unitDefId (see
+    // BalanceModifiers.h) so a tech/focus can target one unit type.
+    double ModifyBalanceForUnit(BalanceStat stat, double base, const std::string& unitDefId) const
+    {
+        BalanceModifierContext context{stat};
+        context.unitDefId = unitDefId;
+        return balanceModifiers.ModifyDouble(base, context);
+    }
+
     double AddManpower(double amount);
     int AutoAssignWorkers(Building* building);
     bool TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs);
@@ -327,6 +338,14 @@ public:
     ConstructionQueue construction;
     PlayerEconomyTelemetry economyTelemetry;
     DiplomaticState diplomatic;
+
+    // TD(etap-3): recruited-but-not-yet-deployed BattleUnit pool (replaces the
+    // old war system's ArmyRegistry).
+    UnitRoster roster;
+    // Per-player instance-id counter, prefixed with this player's id (same
+    // pattern as build.buildingId) so ids stay unique across the whole world
+    // without needing a GameWorld back-reference from deep inside a component.
+    int nextUnitInstanceId{1};
 };
 
 // Local human-controlled player type.

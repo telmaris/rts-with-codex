@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 21\n";
+    out << "RTS_SAVE 22\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -49,6 +49,21 @@ bool GameWorld::SaveToFile(const std::string& path) const
         for (const auto& w : player->diplomatic.wars)
             out << "WAR " << w.id << ' ' << w.attackerId << ' ' << w.defenderId << ' '
                 << w.startTime << ' ' << static_cast<int>(w.active) << '\n';
+
+        // TD(etap-3): recruited-but-not-deployed BattleUnit roster. Equipment
+        // is always an empty list in v1 (ETAP 3.4 seam) but its count is
+        // written from day one so a future DLC equipment system doesn't need
+        // another breaking save-format change.
+        out << "ROSTER " << player->nextUnitInstanceId << ' ' << player->roster.units.size() << '\n';
+        for (const auto& [instanceId, unit] : player->roster.units)
+        {
+            out << "UNIT " << unit.instanceId << ' ' << unit.ownerPlayerId << ' '
+                << std::quoted(unit.unitDefId) << ' ' << unit.currentHp << ' '
+                << static_cast<int>(unit.state) << ' '
+                << unit.routeFromPlayerId << ' ' << unit.routeToPlayerId << ' '
+                << unit.tileIndex << ' ' << unit.tileProgress << ' ' << unit.attackTimer << ' '
+                << unit.equipment.size() << '\n';
+        }
         out << "ENDPLAYER\n";
     }
 
@@ -171,6 +186,13 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << pop->foodBuffer.buffer.size() << '\n';
         }
 
+        if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
+        {
+            out << "RECRUIT " << recruitment->queue.size() << '\n';
+            for (const auto& entry : recruitment->queue)
+                out << "RQ " << std::quoted(entry.unitDefId) << ' ' << entry.total << ' ' << entry.remaining << '\n';
+        }
+
         out << "ENDB\n";
     }
 
@@ -190,7 +212,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 21)
+    if (tag != "RTS_SAVE" || version != 22)
         return false;
 
     render = renderer;
@@ -305,6 +327,42 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             player->diplomatic.wars.push_back({wid, atk, def, startTime, active != 0});
         }
         player->RefreshTechnologyModifiers();
+
+        int rosterCount = 0;
+        in >> tag >> player->nextUnitInstanceId >> rosterCount;
+        if (tag != "ROSTER")
+            return false;
+        for (int u = 0; u < rosterCount; u++)
+        {
+            int instanceId = 0;
+            int ownerPlayerId = 0;
+            std::string unitDefId;
+            double currentHp = 0.0;
+            int state = 0;
+            int routeFromPlayerId = -1;
+            int routeToPlayerId = -1;
+            int tileIndex = 0;
+            double tileProgress = 0.0;
+            double attackTimer = 0.0;
+            size_t equipmentCount = 0;
+            in >> tag >> instanceId >> ownerPlayerId >> std::quoted(unitDefId) >> currentHp
+               >> state >> routeFromPlayerId >> routeToPlayerId >> tileIndex >> tileProgress
+               >> attackTimer >> equipmentCount;
+            if (tag != "UNIT")
+                return false;
+
+            BattleUnit unit(instanceId, ownerPlayerId, unitDefId);
+            unit.currentHp = currentHp;
+            unit.state = static_cast<BattleUnitState>(state);
+            unit.routeFromPlayerId = routeFromPlayerId;
+            unit.routeToPlayerId = routeToPlayerId;
+            unit.tileIndex = tileIndex;
+            unit.tileProgress = tileProgress;
+            unit.attackTimer = attackTimer;
+            // Equipment is always empty in v1 (ETAP 3.4 seam) — equipmentCount
+            // is read but not yet parsed into instances.
+            player->roster.AddUnit(std::move(unit));
+        }
 
         in >> tag;
         if (tag != "ENDPLAYER")
@@ -593,6 +651,23 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                     pop.foodBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, pop.foodBuffer.bufferSize};
                     pop.foodBuffer.SetStoredAmount(foodSupplyAmount);
                     pop.hasFood = pop.foodSupplyLevel > 0.0;
+                }
+            }
+            else if (tag == "RECRUIT")
+            {
+                auto* recruitment = placed->GetComponent<RecruitmentComponent>();
+                if (recruitment == nullptr) return false;
+
+                int count = 0;
+                in >> count;
+                recruitment->queue.clear();
+                for (int n = 0; n < count; n++)
+                {
+                    std::string unitDefId;
+                    double total = 0.0, remaining = 0.0;
+                    in >> tag >> std::quoted(unitDefId) >> total >> remaining;
+                    if (tag != "RQ") return false;
+                    recruitment->queue.push_back(RecruitmentQueueEntry{unitDefId, total, remaining});
                 }
             }
             else

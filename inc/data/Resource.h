@@ -340,7 +340,7 @@ public:
     // Returns a resource instance to its type-specific free-list.
     void FreeResource(Resource*);
 
-    std::map<ResourceType, std::array<Resource, 10000>> pool;
+    std::map<ResourceType, std::array<Resource, 50000>> pool;
     std::map<ResourceType, AddressPool> addressPool;
 };
 

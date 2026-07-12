@@ -18,7 +18,25 @@ enum class BalanceStat
     RoadSpeed,
     ManpowerRate,
     PopulationCap,
-    BuilderAmount      // number of concurrent construction builders a player commands
+    BuilderAmount,     // number of concurrent construction builders a player commands
+
+    // TD(etap-3): BattleUnit stats. Filterable per unit definition via
+    // BalanceModifier::unitDefId (see BalanceModifiers.h).
+    UnitHp,
+    UnitRoadAttack,     // unit-vs-unit combat damage (ETAP 5)
+    UnitSiegeAttack,    // damage dealt to an enemy HQ (ETAP 6)
+    UnitArmor,
+    UnitMoveSpeed,
+    UnitAttackSpeed,
+
+    // Reserved now per the rework plan so ETAP 6/7 don't need another stat-enum
+    // migration; unused until then.
+    HqDefense,
+    HqThorns,
+    TowerDamage,
+    TowerRange,
+    TowerAttackSpeed,
+    TowerAmmoEfficiency
 };
 
 #endif

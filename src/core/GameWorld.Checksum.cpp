@@ -15,6 +15,16 @@ namespace
     {
         HashValue(hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(value)));
     }
+
+    // Character-by-character rather than std::hash<std::string>, which is not
+    // guaranteed stable across STL versions/architectures — this checksum is
+    // compared between host and client processes.
+    void HashString(std::uint64_t& hash, const std::string& value)
+    {
+        HashValue(hash, static_cast<std::uint64_t>(value.size()));
+        for (char c : value)
+            HashInt(hash, static_cast<int>(static_cast<unsigned char>(c)));
+    }
 }
 
 std::uint64_t GameWorld::BuildChecksum() const
@@ -93,6 +103,18 @@ std::uint64_t GameWorld::BuildChecksum() const
         {
             HashInt(hash, otherId);
             HashInt(hash, static_cast<int>(rel));
+        }
+
+        // TD(etap-3): recruited-but-not-deployed roster. std::map<int, BattleUnit>
+        // keyed by instanceId is already deterministically ordered.
+        HashValue(hash, static_cast<std::uint64_t>(player->roster.units.size()));
+        for (const auto& [instanceId, unit] : player->roster.units)
+        {
+            HashInt(hash, unit.instanceId);
+            HashInt(hash, unit.ownerPlayerId);
+            HashString(hash, unit.unitDefId);
+            HashInt(hash, static_cast<int>(unit.currentHp * 1000.0));
+            HashInt(hash, static_cast<int>(unit.state));
         }
     }
 

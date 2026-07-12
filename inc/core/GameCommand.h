@@ -17,7 +17,8 @@ enum class GameCommandType
     DestroyBuilding,
     SetReceiver,
     StartFocus,
-    StartTechnologyResearch
+    StartTechnologyResearch,
+    RecruitUnit
 };
 
 struct GameCommand
@@ -26,7 +27,10 @@ struct GameCommand
     // MoveDivision, FormArmy, AttackTile, AssignToArmy, RecruitUnit) and their wire
     // fields (militaryOrderType, militaryUnitType, divisionId) — replacements land
     // data-driven in the Tower Defense rework (ETAP 3+).
-    static constexpr int WireVersion = 10;
+    // TD(etap-3): RecruitUnit is back, rebuilt on the BattleUnit/UnitRoster
+    // architecture — reuses sourceTileId (recruiting building) and researchId
+    // (unit definition id) rather than adding new wire fields.
+    static constexpr int WireVersion = 11;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -75,6 +79,16 @@ struct GameCommand
         command.type = GameCommandType::StartTechnologyResearch;
         command.researchId = std::move(technologyId);
         command.sourceTileId = universityTileId;
+        return command;
+    }
+
+    static GameCommand RecruitUnit(int playerId, int buildingTileId, std::string unitDefId)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::RecruitUnit;
+        command.sourceTileId = buildingTileId;
+        command.researchId = std::move(unitDefId);
         return command;
     }
 
@@ -167,6 +181,7 @@ struct GameCommand
             case GameCommandType::SetReceiver:
             case GameCommandType::StartFocus:
             case GameCommandType::StartTechnologyResearch:
+            case GameCommandType::RecruitUnit:
                 return true;
         }
         return false;

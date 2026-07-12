@@ -307,13 +307,19 @@ public:
     PopulationComponent population;
 };
 
-// Recruitment factory. Reworked on top of the new BattleUnit/UnitRoster
-// architecture in ETAP 3 — a bare shell (buildable, no behaviour) until then.
+// Recruitment factory. Holds a StorageComponent buffer for delivered unit
+// costs (fed by the existing road network, same as a production building's
+// inputs) and a RecruitmentComponent queue that spends those resources plus
+// player manpower to produce BattleUnit instances into the owner's roster.
 class Barracks : public Building
 {
 public:
     Barracks() = default;
     Barracks(int);
+
+    // --- Component members ---
+    StorageComponent storage;
+    RecruitmentComponent recruitment;
 };
 
 #endif

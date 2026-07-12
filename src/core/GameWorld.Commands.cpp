@@ -248,5 +248,22 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::RecruitUnit)
+    {
+        Building* source = tilemap.GetBuilding(command.sourceTileId);
+        if (source == nullptr || source->owner != player || source->IsUnderConstruction())
+            return false;
+
+        auto* recruitment = source->GetComponent<RecruitmentComponent>();
+        if (recruitment == nullptr || command.researchId.empty())
+            return false;
+
+        if (!recruitment->QueueRecruitment(*source, command.researchId))
+            return false;
+
+        playFx("build");
+        return acceptCommand();
+    }
+
     return false;
 }

@@ -185,7 +185,8 @@ std::pair<bool, Resource*> ResourceBuffer::GetResource()
 void ResourceBuffer::GenerateResource(ResourceType type)
 {
     auto res = resourcePool.GetResource(type);
-    AddResource(res);
+    if (res != nullptr)
+        AddResource(res);
 }
 
 // Returns this resource to its pool or buffer.
@@ -211,11 +212,21 @@ void ResourceBuffer::SetStoredAmount(int amount)
         GenerateResource(type);
 }
 
-// Returns one pooled resource instance of the requested type.
+// Returns one pooled resource instance of the requested type, or nullptr if
+// this type's fixed-size pool (see `pool` — std::array<Resource, 10000> per
+// type) is currently fully checked out. Exhaustion is expected, not
+// exceptional (e.g. many short-lived test worlds sharing this process-wide
+// pool without ever returning every instance) — callers already treat "no
+// resource available" as routine, matching the ResourceType::Null sentinel
+// convention used throughout this codebase.
 Resource* ResourcePool::GetResource(ResourceType type)
 {
-    auto res = addressPool[type].addresses.front();
-    addressPool[type].addresses.pop_front();
+    auto& addresses = addressPool[type].addresses;
+    if (addresses.empty())
+        return nullptr;
+
+    auto res = addresses.front();
+    addresses.pop_front();
     return res;
 }
 

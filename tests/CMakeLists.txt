@@ -14,6 +14,7 @@ endif()
 
 add_executable(rts_tests
     BalanceModifierTests.cpp
+    BattleUnitTests.cpp
     BuildingConfigTests.cpp
     BuildingDomainTests.cpp
     BuildingPlacementTests.cpp
