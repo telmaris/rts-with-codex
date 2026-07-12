@@ -247,3 +247,16 @@ std::vector<int> MilitaryRoadNetwork::GetNeighbors(int playerId) const
     std::sort(neighbors.begin(), neighbors.end());
     return neighbors;
 }
+
+std::vector<int> MilitaryRoadNetwork::GetDirectedTiles(int fromPlayerId, int toPlayerId) const
+{
+    const MilitaryRoute* route = FindRoute(fromPlayerId, toPlayerId);
+    if (route == nullptr)
+        return {};
+
+    if (route->playerA == fromPlayerId)
+        return route->tiles;
+
+    std::vector<int> reversed(route->tiles.rbegin(), route->tiles.rend());
+    return reversed;
+}

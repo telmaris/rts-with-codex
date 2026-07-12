@@ -55,6 +55,12 @@ public:
     const MilitaryRoute* FindRoute(int playerA, int playerB) const;
     // Returns true when two players are directly connected by a ring route.
     bool AreConnected(int playerA, int playerB) const;
+    // Returns this route's tiles ordered from fromPlayerId's gate to
+    // toPlayerId's gate (reversing the stored order when needed), or an empty
+    // vector if the two players aren't direct ring neighbors. TD(etap-4): the
+    // single place that turns the undirected stored route into a marching
+    // direction — used by UnitMarchSystem and PathingService::FindMilitaryPath.
+    std::vector<int> GetDirectedTiles(int fromPlayerId, int toPlayerId) const;
     // Returns every player id directly reachable by one ring route from `playerId`.
     std::vector<int> GetNeighbors(int playerId) const;
 

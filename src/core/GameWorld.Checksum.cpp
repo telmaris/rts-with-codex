@@ -118,5 +118,32 @@ std::uint64_t GameWorld::BuildChecksum() const
         }
     }
 
+    // TD(etap-4): deployed (marching/fighting/arrived) units and their spawn
+    // queues. std::map ordering (instanceId; (fromPlayerId,toPlayerId) pair)
+    // is already deterministic; std::deque preserves FIFO order.
+    HashValue(hash, static_cast<std::uint64_t>(deployedUnits.size()));
+    for (const auto& [instanceId, unit] : deployedUnits)
+    {
+        HashInt(hash, unit.instanceId);
+        HashInt(hash, unit.ownerPlayerId);
+        HashString(hash, unit.unitDefId);
+        HashInt(hash, static_cast<int>(unit.currentHp * 1000.0));
+        HashInt(hash, static_cast<int>(unit.state));
+        HashInt(hash, unit.routeFromPlayerId);
+        HashInt(hash, unit.routeToPlayerId);
+        HashInt(hash, unit.tileIndex);
+        HashInt(hash, static_cast<int>(unit.tileProgress * 1000.0));
+    }
+
+    HashValue(hash, static_cast<std::uint64_t>(spawnQueues.size()));
+    for (const auto& [routeKey, queue] : spawnQueues)
+    {
+        HashInt(hash, routeKey.first);
+        HashInt(hash, routeKey.second);
+        HashValue(hash, static_cast<std::uint64_t>(queue.size()));
+        for (int unitInstanceId : queue)
+            HashInt(hash, unitInstanceId);
+    }
+
     return hash;
 }

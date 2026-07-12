@@ -28,6 +28,7 @@ add_executable(rts_tests
     RoadNetworkTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
+    UnitMarchSystemTests.cpp
 )
 
 target_link_libraries(rts_tests

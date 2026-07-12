@@ -18,7 +18,8 @@ enum class GameCommandType
     SetReceiver,
     StartFocus,
     StartTechnologyResearch,
-    RecruitUnit
+    RecruitUnit,
+    DeployUnits
 };
 
 struct GameCommand
@@ -30,7 +31,11 @@ struct GameCommand
     // TD(etap-3): RecruitUnit is back, rebuilt on the BattleUnit/UnitRoster
     // architecture — reuses sourceTileId (recruiting building) and researchId
     // (unit definition id) rather than adding new wire fields.
-    static constexpr int WireVersion = 11;
+    // TD(etap-4): DeployUnits reuses targetTileId as the target player id
+    // (deploy has no tile target of its own) and adds the one genuinely new
+    // field this command needs — a variable-length unit instance id list,
+    // which nothing existing could be repurposed for.
+    static constexpr int WireVersion = 12;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -92,6 +97,21 @@ struct GameCommand
         return command;
     }
 
+    // orderedUnitInstanceIds: column order, spearhead first (see the plan's
+    // deploy decision — GUI composes the attack group, this command carries
+    // the resulting order verbatim). targetPlayerId must always be explicit
+    // even when a GUI auto-fills it in 1v1, so replay/determinism never
+    // depends on client-side inference.
+    static GameCommand DeployUnits(int playerId, int targetPlayerId, std::vector<int> orderedUnitInstanceIds)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::DeployUnits;
+        command.targetTileId = targetPlayerId;
+        command.unitInstanceIds = std::move(orderedUnitInstanceIds);
+        return command;
+    }
+
     std::string Serialize() const
     {
         Archive ar(WireVersion);
@@ -106,7 +126,10 @@ struct GameCommand
            << targetTileId
            << (chargeCost ? 1 : 0)
            << (alternativeReceiver ? 1 : 0)
-           << researchId;
+           << researchId
+           << static_cast<int>(unitInstanceIds.size());
+        for (int id : unitInstanceIds)
+            ar << id;
         return ar.GetString();
     }
 
@@ -127,6 +150,7 @@ struct GameCommand
         int chargeCost = 0;
         int alternativeReceiver = 0;
         std::string researchId;
+        int unitInstanceIdCount = 0;
 
         ar >> commandId
            >> targetTick
@@ -139,10 +163,22 @@ struct GameCommand
            >> targetTileId
            >> chargeCost
            >> alternativeReceiver
-           >> researchId;
+           >> researchId
+           >> unitInstanceIdCount;
 
-        if (!ar.IsValid() || !IsValidType(type))
+        if (!ar.IsValid() || !IsValidType(type) || unitInstanceIdCount < 0)
             return false;
+
+        std::vector<int> unitInstanceIds;
+        unitInstanceIds.reserve(static_cast<size_t>(unitInstanceIdCount));
+        for (int i = 0; i < unitInstanceIdCount; i++)
+        {
+            int id = 0;
+            ar >> id;
+            if (!ar.IsValid())
+                return false;
+            unitInstanceIds.push_back(id);
+        }
 
         GameCommand parsed;
         parsed.commandId = commandId;
@@ -156,6 +192,7 @@ struct GameCommand
         parsed.chargeCost = chargeCost != 0;
         parsed.alternativeReceiver = alternativeReceiver != 0;
         parsed.researchId = std::move(researchId);
+        parsed.unitInstanceIds = std::move(unitInstanceIds);
         command = std::move(parsed);
         return true;
     }
@@ -171,6 +208,7 @@ struct GameCommand
     bool chargeCost{true};
     bool alternativeReceiver{false};
     std::string researchId;
+    std::vector<int> unitInstanceIds;
 
     static bool IsValidType(int type)
     {
@@ -182,6 +220,7 @@ struct GameCommand
             case GameCommandType::StartFocus:
             case GameCommandType::StartTechnologyResearch:
             case GameCommandType::RecruitUnit:
+            case GameCommandType::DeployUnits:
                 return true;
         }
         return false;

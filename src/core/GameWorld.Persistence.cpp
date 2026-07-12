@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 22\n";
+    out << "RTS_SAVE 23\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -116,9 +116,15 @@ bool GameWorld::SaveToFile(const std::string& path) const
         {
             const auto* workers = building->GetComponent<WorkerComponent>();
             const auto* recipes = building->GetComponent<RecipeComponent>();
+            // Only University actually has a ResearchComponent alongside
+            // ProductionComponent — every other production building legitimately
+            // has none. Write an empty placeholder rather than requiring one
+            // (a pre-existing bug: this whole PROD block used to bail out with
+            // `return false` for every non-University production building,
+            // silently breaking SaveToFile for any game with e.g. a Woodcutter).
             const auto* research = building->GetComponent<ResearchComponent>();
             const auto* logistics = building->GetComponent<LogisticsComponent>();
-            if (workers == nullptr || recipes == nullptr || research == nullptr || logistics == nullptr)
+            if (workers == nullptr || recipes == nullptr || logistics == nullptr)
                 return false;
 
             out << "PROD " << static_cast<int>(prod->terrainType) << ' '
@@ -126,9 +132,9 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << prod->started << '\n';
             out << "WORKERS " << workers->capacity.GetBase() << ' ' << workers->assigned << '\n';
             out << "RECIPE " << recipes->activeRecipeIndex << '\n';
-            out << "RESEARCH " << std::quoted(research->technologyId) << ' '
-                << research->remaining << ' '
-                << research->total << '\n';
+            out << "RESEARCH " << std::quoted(research != nullptr ? research->technologyId : std::string{}) << ' '
+                << (research != nullptr ? research->remaining : 0.0) << ' '
+                << (research != nullptr ? research->total : 0.0) << '\n';
 
             out << "INGREDIENTS " << prod->ingredients.size() << '\n';
             for (const auto& [type, amount] : prod->ingredients)
@@ -196,6 +202,28 @@ bool GameWorld::SaveToFile(const std::string& path) const
         out << "ENDB\n";
     }
 
+    // TD(etap-4): deployed (marching/fighting/arrived) units, world-scoped
+    // since a column can include units from either side of a route.
+    out << "DEPLOYEDUNITS " << deployedUnits.size() << '\n';
+    for (const auto& [instanceId, unit] : deployedUnits)
+    {
+        out << "DUNIT " << unit.instanceId << ' ' << unit.ownerPlayerId << ' '
+            << std::quoted(unit.unitDefId) << ' ' << unit.currentHp << ' '
+            << static_cast<int>(unit.state) << ' '
+            << unit.routeFromPlayerId << ' ' << unit.routeToPlayerId << ' '
+            << unit.tileIndex << ' ' << unit.tileProgress << ' ' << unit.attackTimer << ' '
+            << unit.equipment.size() << '\n';
+    }
+
+    out << "SPAWNQUEUES " << spawnQueues.size() << '\n';
+    for (const auto& [routeKey, queue] : spawnQueues)
+    {
+        out << "SQ " << routeKey.first << ' ' << routeKey.second << ' ' << queue.size();
+        for (int unitInstanceId : queue)
+            out << ' ' << unitInstanceId;
+        out << '\n';
+    }
+
     return true;
 }
 
@@ -212,7 +240,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 22)
+    if (tag != "RTS_SAVE" || version != 23)
         return false;
 
     render = renderer;
@@ -497,10 +525,11 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 auto* prod = placed->GetComponent<ProductionComponent>();
                 auto* workers = placed->GetComponent<WorkerComponent>();
                 auto* recipes = placed->GetComponent<RecipeComponent>();
+                // May be null — only University has one (see the matching
+                // comment in SaveToFile).
                 auto* research = placed->GetComponent<ResearchComponent>();
                 auto* logistics = placed->GetComponent<LogisticsComponent>();
-                if (prod == nullptr || workers == nullptr || recipes == nullptr ||
-                    research == nullptr || logistics == nullptr)
+                if (prod == nullptr || workers == nullptr || recipes == nullptr || logistics == nullptr)
                     return false;
 
                 int tileType = 0;
@@ -511,7 +540,15 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 in >> tag >> count;
                 if (version >= 5 && tag == "WORKERS")
                 {
-                    in >> workers->capacity >> workers->assigned;
+                    // The generic prefetch above already consumed the first of
+                    // WORKERS' two payload values (capacity) into `count` — a
+                    // pre-existing bug used to re-read it as a *second* value,
+                    // shifting every field after it by one token (silently
+                    // corrupting RECIPE/RESEARCH/INGREDIENTS parsing for any
+                    // production building, never caught before because no test
+                    // exercised a full save/load round trip with one).
+                    workers->capacity = count;
+                    in >> workers->assigned;
                     in >> tag >> count;
                 }
                 if (version >= 12 && tag == "RECIPE")
@@ -521,9 +558,16 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 }
                 if (version >= 12 && tag == "RESEARCH")
                 {
-                    in >> std::quoted(research->technologyId)
-                       >> research->remaining
-                       >> research->total;
+                    std::string technologyId;
+                    double remaining = 0.0;
+                    double total = 0.0;
+                    in >> std::quoted(technologyId) >> remaining >> total;
+                    if (research != nullptr)
+                    {
+                        research->technologyId = technologyId;
+                        research->remaining = remaining;
+                        research->total = total;
+                    }
                     in >> tag >> count;
                 }
                 if (tag != "INGREDIENTS")
@@ -710,6 +754,67 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             source->SetReceiver(pending.resource, target);
         else
             source->SetSupplier(pending.resource, target);
+    }
+
+    // TD(etap-4): deployed units, world-scoped.
+    int deployedCount = 0;
+    in >> tag >> deployedCount;
+    if (tag != "DEPLOYEDUNITS")
+        return false;
+
+    deployedUnits.clear();
+    for (int i = 0; i < deployedCount; i++)
+    {
+        int instanceId = 0;
+        int ownerPlayerId = 0;
+        std::string unitDefId;
+        double currentHp = 0.0;
+        int state = 0;
+        int routeFromPlayerId = -1;
+        int routeToPlayerId = -1;
+        int tileIndex = 0;
+        double tileProgress = 0.0;
+        double attackTimer = 0.0;
+        size_t equipmentCount = 0;
+        in >> tag >> instanceId >> ownerPlayerId >> std::quoted(unitDefId) >> currentHp
+           >> state >> routeFromPlayerId >> routeToPlayerId >> tileIndex >> tileProgress
+           >> attackTimer >> equipmentCount;
+        if (tag != "DUNIT")
+            return false;
+
+        BattleUnit unit(instanceId, ownerPlayerId, unitDefId);
+        unit.currentHp = currentHp;
+        unit.state = static_cast<BattleUnitState>(state);
+        unit.routeFromPlayerId = routeFromPlayerId;
+        unit.routeToPlayerId = routeToPlayerId;
+        unit.tileIndex = tileIndex;
+        unit.tileProgress = tileProgress;
+        unit.attackTimer = attackTimer;
+        deployedUnits[instanceId] = std::move(unit);
+    }
+
+    int spawnQueueCount = 0;
+    in >> tag >> spawnQueueCount;
+    if (tag != "SPAWNQUEUES")
+        return false;
+
+    spawnQueues.clear();
+    for (int i = 0; i < spawnQueueCount; i++)
+    {
+        int fromPlayerId = 0, toPlayerId = 0;
+        size_t queueLength = 0;
+        in >> tag >> fromPlayerId >> toPlayerId >> queueLength;
+        if (tag != "SQ")
+            return false;
+
+        std::deque<int> queue;
+        for (size_t q = 0; q < queueLength; q++)
+        {
+            int unitInstanceId = 0;
+            in >> unitInstanceId;
+            queue.push_back(unitInstanceId);
+        }
+        spawnQueues[{fromPlayerId, toPlayerId}] = std::move(queue);
     }
 
     return true;

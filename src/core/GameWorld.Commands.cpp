@@ -265,5 +265,46 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::DeployUnits)
+    {
+        int targetPlayerId = command.targetTileId;
+        if (command.unitInstanceIds.empty() || targetPlayerId == player->id)
+            return false;
+        if (playerHandler.players.find(targetPlayerId) == playerHandler.players.end())
+            return false;
+        if (!militaryRoads.AreConnected(player->id, targetPlayerId))
+            return false;
+
+        // All-or-nothing: every listed unit must be a valid, currently-rostered
+        // instance before any of them are moved, so a malformed/stale command
+        // never partially deploys a column.
+        for (int unitInstanceId : command.unitInstanceIds)
+        {
+            const BattleUnit* unit = player->roster.FindUnit(unitInstanceId);
+            if (unit == nullptr || unit->state != BattleUnitState::InRoster)
+                return false;
+        }
+
+        auto routeKey = std::make_pair(player->id, targetPlayerId);
+        for (int unitInstanceId : command.unitInstanceIds)
+        {
+            auto removed = player->roster.RemoveUnit(unitInstanceId);
+            if (!removed.has_value())
+                continue;
+
+            BattleUnit unit = std::move(removed.value());
+            unit.state = BattleUnitState::Marching;
+            unit.routeFromPlayerId = player->id;
+            unit.routeToPlayerId = targetPlayerId;
+            unit.tileIndex = -1;
+            unit.tileProgress = 0.0;
+            deployedUnits[unitInstanceId] = std::move(unit);
+            spawnQueues[routeKey].push_back(unitInstanceId);
+        }
+
+        playFx("build");
+        return acceptCommand();
+    }
+
     return false;
 }

@@ -37,6 +37,28 @@ w fundamentach.
 
 ### 🔴 Wysokie
 
+- [x] **`GameWorld::SaveToFile`/`LoadFromFile` było de facto złamane dla KAŻDEGO budynku
+  produkcyjnego** (`src/core/GameWorld.Persistence.cpp`). Odkryte 2026-07-12 (audyt TD etap-4,
+  pierwszy w historii projektu test faktycznie robiący pełny round-trip save→load na świecie
+  z aktywnym budynkiem produkcyjnym — dlatego nikt tego wcześniej nie złapał). Dwa niezależne bugi
+  w tym samym bloku "PROD":
+  1. Blok wymagał `ResearchComponent != nullptr` dla KAŻDEGO budynku z `ProductionComponent`,
+     a ResearchComponent ma tylko `University`. `SaveToFile` zwracał `false` (ciche niepowodzenie
+     zapisu) dla dowolnej gry z Woodcutterem/LumberMillem/itd. Naprawione: `research` jest teraz
+     opcjonalny, przy `nullptr` zapisywane/wczytywane są wartości domyślne (kształt wire'a bez zmian).
+  2. Po naprawie #1 wyszedł drugi, głębszy bug: sekcja `WORKERS` przy odczycie robiła
+     `in >> tag >> count;` (generyczny "peek" łapiący PIERWSZĄ wartość payloadu WORKERS do `count`),
+     a potem WEWNĄTRZ brancha `if (tag == "WORKERS")` robiła `in >> workers->capacity >> workers->assigned;`
+     — czyli czytała DWIE NOWE wartości zamiast użyć już wczytanego `count` jako capacity i doczytać
+     tylko `assigned`. To przesuwało cały strumień o jeden token dla KAŻDEGO budynku produkcyjnego,
+     psując parsowanie RECIPE/RESEARCH/INGREDIENTS w kaskadzie. Naprawione: `workers->capacity = count;`
+     + `in >> workers->assigned;`.
+  **Wniosek:** save/load nigdy nie miało realnego pokrycia testowego dla świata z produkcją —
+  wszystkie dotychczasowe testy save/load (ETAP 2/3/4) budowały światy bez żadnego budynku
+  produkcyjnego (tylko HQ/Village/Road/Barracks). Warto rozważyć jeden stały test integracyjny
+  save/load na "pełnej" ekonomii (co najmniej jeden Woodcutter) jako regresję na przyszłość —
+  niezrobione teraz, poza zakresem etap-4.
+
 - [ ] **`Building` to "fat interface" — 40+ metod wirtualnych w bazie** (`inc/Building.h:168-240`).
   `Road`/`Village` nadpisują połowę metod pustymi ciałami. Produkcja, logistyka, militaria,
   konstrukcja i metadane renderowania w jednej hierarchii. Dziedziczenie nie skaluje się przy

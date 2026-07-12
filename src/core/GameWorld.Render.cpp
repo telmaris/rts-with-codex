@@ -54,6 +54,8 @@ void GameWorld::UpdateSimulation(double dt)
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr)
             player->UpdateEconomyTelemetry(dt);
+
+    UpdateUnits(dt);
 }
 
 // Advances this object's state for one frame.
@@ -242,6 +244,51 @@ void GameWorld::DrawMap()
         render->EndLayer();
         tilemap.buildingsDirty = false;
     }
+
+    // TD(etap-4): deployed units. Always redrawn (layer 3, never cached) since
+    // marching units move every tick, unlike the mostly-static layers above.
+    // Placeholder shape (owner-colored circle) pending real sprites/animation
+    // (plan 4.3) — deliberately simple so swapping in art later only touches
+    // this block.
+    render->ClearLayer(3);
+    render->BeginLayer(3);
+    for (const auto& [instanceId, unit] : deployedUnits)
+    {
+        if (unit.tileIndex < 0)
+            continue; // still waiting in the spawn queue, not on the map yet
+
+        std::vector<int> route = militaryRoads.GetDirectedTiles(unit.routeFromPlayerId, unit.routeToPlayerId);
+        if (unit.tileIndex >= static_cast<int>(route.size()))
+            continue;
+
+        Vec2i currentTile = tilemap.GetCoordsFromId(route[unit.tileIndex]);
+        Vec2f from{static_cast<float>(currentTile.x * TILE_SIZE + TILE_SIZE / 2),
+                   static_cast<float>(currentTile.y * TILE_SIZE + TILE_SIZE / 2)};
+        Vec2f worldPos = from;
+        if (unit.tileIndex + 1 < static_cast<int>(route.size()))
+        {
+            Vec2i nextTile = tilemap.GetCoordsFromId(route[unit.tileIndex + 1]);
+            Vec2f to{static_cast<float>(nextTile.x * TILE_SIZE + TILE_SIZE / 2),
+                     static_cast<float>(nextTile.y * TILE_SIZE + TILE_SIZE / 2)};
+            float t = static_cast<float>(std::clamp(unit.tileProgress, 0.0, 1.0));
+            worldPos = {from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t};
+        }
+
+        auto ownerIt = playerHandler.players.find(unit.ownerPlayerId);
+        Color color = ownerIt != playerHandler.players.end() && ownerIt->second != nullptr
+            ? ownerIt->second->color
+            : WHITE;
+        if (unit.state == BattleUnitState::AttackingHq)
+            color.a = 255;
+        else if (unit.state == BattleUnitState::Dying)
+            color.a = 90;
+
+        int screenX = static_cast<int>(worldPos.x);
+        int screenY = static_cast<int>(RENDER_HEIGHT) - static_cast<int>(worldPos.y);
+        DrawCircle(screenX, screenY, TILE_SIZE * 0.3f, color);
+        DrawCircleLines(screenX, screenY, TILE_SIZE * 0.3f, BLACK);
+    }
+    render->EndLayer();
 
     cachedCameraTarget = {render->camera.target.x, render->camera.target.y};
     cachedCameraZoom = render->camera.zoom;

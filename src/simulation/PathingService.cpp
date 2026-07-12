@@ -256,15 +256,9 @@ bool PathingService::IsBetter(int candidateTile, int currentBestTile) const
 
 MilitaryPath PathingService::FindMilitaryPath(const MilitaryRoadNetwork& militaryRoads, int fromPlayerId, int toPlayerId) const
 {
-    const MilitaryRoute* route = militaryRoads.FindRoute(fromPlayerId, toPlayerId);
-    if (route == nullptr)
-        return MilitaryPath{};
-
     MilitaryPath path;
-    path.tiles = route->tiles;
-    if (route->playerA != fromPlayerId)
-        std::reverse(path.tiles.begin(), path.tiles.end());
-    path.found = true;
+    path.tiles = militaryRoads.GetDirectedTiles(fromPlayerId, toPlayerId);
+    path.found = !path.tiles.empty();
     return path;
 }
 

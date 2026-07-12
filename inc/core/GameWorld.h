@@ -10,11 +10,13 @@
 #include "simulation/PathingService.h"
 #include "economy/Player.h"
 #include "ui/Renderer.h"
+#include "warfare/BattleUnit.h"
 
 class AudioSystem;
 
 #include <cstdint>
 #include <deque>
+#include <utility>
 #include <vector>
 
 class PlayerHandler
@@ -85,6 +87,16 @@ class GameWorld
         // Immutable HQ-ring military road network (TD etap-2).
         MilitaryRoadNetwork& GetMilitaryRoads() { return militaryRoads; }
         const MilitaryRoadNetwork& GetMilitaryRoads() const { return militaryRoads; }
+        // TD(etap-4): deployed (marching/fighting/arrived) BattleUnit instances,
+        // keyed by instanceId across every player (ids are already globally
+        // unique — see Player::nextUnitInstanceId). Advanced by
+        // UnitMarchSystem::Update, called from UpdateSimulation.
+        std::map<int, BattleUnit>& GetDeployedUnits() { return deployedUnits; }
+        const std::map<int, BattleUnit>& GetDeployedUnits() const { return deployedUnits; }
+        // FIFO of unit instance ids waiting for their column's gate tile to
+        // free up, keyed by (fromPlayerId, toPlayerId) marching direction.
+        std::map<std::pair<int, int>, std::deque<int>>& GetSpawnQueues() { return spawnQueues; }
+        const std::map<std::pair<int, int>, std::deque<int>>& GetSpawnQueues() const { return spawnQueues; }
         // Mutable escape hatch for tests that construct simulation objects
         // directly (e.g. a standalone Player) — same object as GetTileMap(),
         // named separately so call sites make the intent explicit.
@@ -104,6 +116,9 @@ class GameWorld
         void ProcessCommands();
         // Validates and applies one command to the simulation.
         bool ExecuteCommand(const GameCommand& command);
+        // Advances deployed BattleUnit marching/spawning (TD etap-4). Thin
+        // delegator (GameWorld.Units.cpp) to UnitMarchSystem::Update.
+        void UpdateUnits(double dt);
     
     public:
         Renderer*     render{nullptr};
@@ -115,6 +130,8 @@ class GameWorld
         TileMap tilemap;
         PlayerHandler playerHandler;
         MilitaryRoadNetwork militaryRoads;
+        std::map<int, BattleUnit> deployedUnits;
+        std::map<std::pair<int, int>, std::deque<int>> spawnQueues;
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;
         std::vector<std::unique_ptr<IController>> controllers;
