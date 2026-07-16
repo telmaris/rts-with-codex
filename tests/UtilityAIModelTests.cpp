@@ -1,4 +1,5 @@
 #include "core/GameWorld.h"
+#include "core/GameSession.h"
 #include "ai/AIActions.h"
 #include "ai/AIModel.h"
 #include "economy/Player.h"
@@ -250,4 +251,63 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
     EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
         << "the AI should have recruited at least one real unit itself";
+}
+
+// Etap 4: the difficulty noise must be seeded, never wall-clock or unseeded —
+// two independently constructed same-seed worlds with noise ACTIVE (Easy)
+// must draw the identical decision sequence and stay checksum-identical.
+TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
+{
+    MapParameters params;
+    params.aiOpponentCount = 1;
+    params.seed = 31337;
+    params.aiDifficulty = 1;  // Easy — noise amplitude and cycle-skips active
+
+    GameWorld worldA;
+    GameWorld worldB;
+    worldA.InitWorld("noisy-determinism", nullptr, nullptr, params);
+    worldB.InitWorld("noisy-determinism", nullptr, nullptr, params);
+
+    // 30 sim-seconds, checksum compared every sim-second.
+    for (int tick = 0; tick < 3000; tick++)
+    {
+        worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
+        worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
+        if (tick % 100 == 99)
+            ASSERT_EQ(worldA.BuildChecksum(), worldB.BuildChecksum()) << "tick=" << tick;
+    }
+}
+
+// Etap 4: higher difficulty = a bigger head start (resources + manpower into
+// the AI's HQ at init), never a different algorithm.
+TEST(UtilityAIModelTests, HigherDifficultyGrantsStartingAdvantage)
+{
+    MapParameters params;
+    params.aiOpponentCount = 1;
+    params.seed = 5150;
+
+    params.aiDifficulty = 0;  // Primitive — no head start
+    GameWorld primitiveWorld;
+    primitiveWorld.InitWorld("difficulty-baseline", nullptr, nullptr, params);
+
+    params.aiDifficulty = 3;  // Hard — biggest head start
+    GameWorld hardWorld;
+    hardWorld.InitWorld("difficulty-hard", nullptr, nullptr, params);
+
+    Player* aiPrimitive = primitiveWorld.GetPlayerHandler().players.at(1).get();
+    Player* aiHard = hardWorld.GetPlayerHandler().players.at(1).get();
+    Player* humanHard = hardWorld.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(aiPrimitive, nullptr);
+    ASSERT_NE(aiHard, nullptr);
+    ASSERT_NE(humanHard, nullptr);
+
+    EXPECT_GT(AIActions::CountStoredResource(aiHard, ResourceType::WOOD),
+              AIActions::CountStoredResource(aiPrimitive, ResourceType::WOOD))
+        << "Hard AI should start with more resources than a Primitive AI";
+    EXPECT_GT(AIActions::CountStoredResource(aiHard, ResourceType::WOOD),
+              AIActions::CountStoredResource(humanHard, ResourceType::WOOD))
+        << "the head start is the AI's advantage over the human";
+    EXPECT_GT(aiHard->strategicResources.Get(StrategicResourceType::Manpower),
+              humanHard->strategicResources.Get(StrategicResourceType::Manpower))
+        << "Hard AI also starts with a manpower cushion";
 }

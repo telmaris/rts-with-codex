@@ -118,6 +118,17 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
     if (player == nullptr || player->defeated)
         return;
 
+    // Difficulty comes straight from map params (UI -> MapParameters ->
+    // save); noise is seeded once from (map seed, player id) — identical
+    // across same-seed worlds, so lockstep holds with noise ACTIVE.
+    difficulty = std::clamp(world.GetTileMap().params.aiDifficulty, 0, 3);
+    if (!noiseSeeded)
+    {
+        noiseRng.seed(static_cast<unsigned int>(world.GetTileMap().params.seed) ^
+                      (0x9E3779B9u * static_cast<unsigned int>(playerId + 1)));
+        noiseSeeded = true;
+    }
+
     senseTimer -= dt;
     decisionTimer -= dt;
     roadTimer -= dt;
@@ -141,6 +152,17 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
         return;
     decisionTimer = DecisionInterval;
 
+    // Difficulty noise (etap 4): a worse player sometimes just doesn't act
+    // this cycle, and mis-weighs what matters. Hard plays the pure model.
+    static constexpr std::array<double, 4> NoiseAmplitude{0.30, 0.20, 0.10, 0.0};
+    static constexpr std::array<double, 4> SkipChance{0.15, 0.10, 0.05, 0.0};
+    if (SkipChance[difficulty] > 0.0)
+    {
+        std::uniform_real_distribution<double> unit(0.0, 1.0);
+        if (unit(noiseRng) < SkipChance[difficulty])
+            return;
+    }
+
     // Score every need, then try them in (score desc, enum asc) order until
     // one produces a real command — mirrors the old unified pool's "best
     // executable candidate wins" without the scoring soup.
@@ -150,6 +172,12 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
     {
         order[i] = i;
         scores[i] = ScoreNeed(static_cast<AINeed>(i), situation);
+    }
+    if (NoiseAmplitude[difficulty] > 0.0)
+    {
+        std::uniform_real_distribution<double> swing(-1.0, 1.0);
+        for (double& score : scores)
+            score *= 1.0 + NoiseAmplitude[difficulty] * swing(noiseRng);
     }
     std::stable_sort(order.begin(), order.end(),
                      [&](int a, int b) { return scores[a] > scores[b]; });

@@ -112,6 +112,56 @@ namespace
         }
     }
 
+    // AI rework etap 4 (TODO #2): difficulty is a head start, not different
+    // logic — one deterministic model for every level, higher levels start
+    // with more resources and manpower (and lower levels additionally take
+    // noisier decisions, see UtilityAIModel). Indexed by
+    // MapParameters::aiDifficulty (0 Primitive .. 3 Hard). Deliberately
+    // grants ECONOMIC basics only — no swords/ammo, the AI raises its
+    // military chains like everyone else. Init-only and purely
+    // params-driven, so it is identical on host and client mirrors
+    // (lockstep-safe) and needs no save-format change. Extra starting
+    // BUILDINGS (TODO mentions them) are deferred: placement helpers are
+    // entangled with patch generation, and the resource+manpower head start
+    // buys the same economic lead without new placement code.
+    void GrantDifficultyStartingBonus(Player* aiPlayer, int aiDifficulty)
+    {
+        if (aiPlayer == nullptr)
+            return;
+
+        static constexpr std::array<int, 4> resourceGrant{0, 15, 40, 80};
+        static constexpr std::array<double, 4> manpowerCapFraction{0.0, 0.10, 0.25, 0.50};
+        int level = std::clamp(aiDifficulty, 0, 3);
+
+        int amount = resourceGrant[level];
+        if (amount > 0)
+        {
+            for (auto* building : aiPlayer->GetTrackedBuildingsWithComponent<StorageComponent>())
+            {
+                auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+                if (storage == nullptr || building->buildingType != BuildingType::Headquarters)
+                    continue;
+
+                for (ResourceType type : {ResourceType::WOOD, ResourceType::STONE,
+                                          ResourceType::PLANKS, ResourceType::IRON,
+                                          ResourceType::TOOLS, ResourceType::FOOD_PROVISIONS})
+                {
+                    auto& buffer = storage->buffers[type];
+                    if (buffer.type == ResourceType::Null)
+                        buffer = ResourceBuffer{type, amount};
+                    buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
+                    for (int i = 0; i < amount; i++)
+                        buffer.GenerateResource(type);
+                }
+                break;  // a player owns at most one HQ
+            }
+        }
+
+        double manpowerGift = aiPlayer->GetPopulationCap() * manpowerCapFraction[level];
+        if (manpowerGift > 0.0)
+            aiPlayer->AddManpower(manpowerGift);
+    }
+
 }
 
 // B5 (docs/work_plan_2026-07-13.md): see the declaration comment in
@@ -321,6 +371,11 @@ void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapPara
                 GrantDebugManpower(p);
             }
         }
+        // Keyed on the slot id, NOT controllerType — playerId 0 is always
+        // the human here, and slot identity is what stays identical between
+        // a host world and a client mirror.
+        if (playerId != 0)
+            GrantDifficultyStartingBonus(p, params.aiDifficulty);
     }
 
     if (render != nullptr)
@@ -398,6 +453,12 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem*
     // road baked in above.
     for (const auto& [playerId, anchor] : hqAnchorsByPlayer)
         CreateStartingVillageAndResources(playersById.at(playerId), anchor, baseSeedByPlayer.at(playerId));
+
+    // Keyed on the slot id, NOT controllerType — AI slots are Remote on a
+    // client mirror, and both sides must build the identical starting state.
+    for (const auto& [playerId, anchor] : hqAnchorsByPlayer)
+        if (playerId >= MultiplayerHumanSlots)
+            GrantDifficultyStartingBonus(playersById.at(playerId), params.aiDifficulty);
 
     if (params.debugMode)
     {

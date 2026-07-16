@@ -3,6 +3,8 @@
 
 #include "ai/AIActions.h"
 
+#include <random>
+
 class GameWorld;
 struct UnitDefinition;
 
@@ -131,6 +133,14 @@ private:
     // from the C1-era model, where calling it per tick cost ~32 ms/tick).
     double attackTargetCacheTimer{0.0};
     int cachedAttackTargetPlayer{-1};
+    // Difficulty noise (etap 4): lower levels imitate a worse player by
+    // randomly swinging need utilities and occasionally skipping a whole
+    // decision cycle. Seeded once from (map seed, player id) — two
+    // same-seed worlds draw the identical sequence, so lockstep holds.
+    // Deliberately NOT serialized (same as every other AI-internal state).
+    std::mt19937 noiseRng;
+    bool noiseSeeded{false};
+    int difficulty{0};
 };
 
 #endif
