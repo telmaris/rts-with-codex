@@ -6,6 +6,7 @@
 #include "economy/BuildingComponents.h"
 #include "economy/ProductionBuildings.h"
 #include "simulation/MapGenerator.h"
+#include "simulation/MilitaryRoadNetwork.h"
 #include "warfare/BattleUnit.h"
 #include "warfare/UnitDefinition.h"
 
@@ -252,6 +253,111 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
     EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
         << "the AI should have recruited at least one real unit itself";
+}
+
+// Playtest regression (2026-07-16): the AI wedged at the military track edge
+// forever — SubmitRoadPath always submitted plain Road, which placement
+// validation refuses on track tiles (only Bridge is legal there), and its BFS
+// treated existing bridges as obstacles. Crossing the track must produce a
+// real Bridge order and a working road connection.
+TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
+{
+    MapParameters params;
+    params.sizeX = 81;
+    params.sizeY = 81;
+    params.aiOpponentCount = 1;
+    params.seed = 6;  // known-good small ring (same as BridgeTests)
+
+    GameWorld world;
+    world.InitWorld("ai-bridge-crossing", nullptr, nullptr, params);
+
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(human, nullptr);
+    const MilitaryRoute* route = world.GetMilitaryRoads().FindRoute(0, 1);
+    ASSERT_NE(route, nullptr);
+    ASSERT_GE(route->tiles.size(), 9u);
+
+    TileMap& map = world.GetTileMap();
+
+    // Stock the human so the submitted Road/Bridge commands can pay their
+    // build costs (Bridge: PLANKS 6 + STONE 6 per tile).
+    Building* hq = AIActions::FindOwnedHeadquarters(human);
+    ASSERT_NE(hq, nullptr);
+    auto* hqStorage = hq->GetComponent<StorageComponent>();
+    ASSERT_NE(hqStorage, nullptr);
+    for (ResourceType type : {ResourceType::PLANKS, ResourceType::STONE})
+    {
+        auto it = hqStorage->buffers.find(type);
+        if (it == hqStorage->buffers.end())
+        {
+            hqStorage->buffers[type] = ResourceBuffer{type, 200};
+            it = hqStorage->buffers.find(type);
+        }
+        it->second.SetStoredAmount(100);
+    }
+
+    // Find a straight track segment away from both HQs and drop a 1x1 road
+    // fixture two tiles off the track on each side — the shortest crossing is
+    // then road, BRIDGE (on the track), road.
+    Building* sideA = nullptr;
+    Building* sideB = nullptr;
+    for (size_t i = 2; i + 2 < route->tiles.size() && sideB == nullptr; i++)
+    {
+        Vec2i a = map.GetCoordsFromId(route->tiles[i - 1]);
+        Vec2i b = map.GetCoordsFromId(route->tiles[i]);
+        Vec2i c = map.GetCoordsFromId(route->tiles[i + 1]);
+        bool straight = (a.x == b.x && b.x == c.x) || (a.y == b.y && b.y == c.y);
+        if (!straight)
+            continue;
+        Vec2i dir{c.x - a.x == 0 ? 0 : (c.x - a.x > 0 ? 1 : -1),
+                  c.y - a.y == 0 ? 0 : (c.y - a.y > 0 ? 1 : -1)};
+        Vec2i perp{-dir.y, dir.x};
+        Vec2i posA{b.x + perp.x * 2, b.y + perp.y * 2};
+        Vec2i posB{b.x - perp.x * 2, b.y - perp.y * 2};
+        if (!map.IsInside(posA) || !map.IsInside(posB))
+            continue;
+
+        sideA = human->Build<Road>(posA, false);
+        if (sideA == nullptr)
+            continue;
+        sideB = human->Build<Road>(posB, false);
+        if (sideB == nullptr)
+            sideA = nullptr;  // leftover fixture road is harmless — keep scanning
+    }
+    ASSERT_NE(sideA, nullptr) << "no usable straight track segment found for the fixture";
+    ASSERT_NE(sideB, nullptr);
+
+    AIActions::AIActionState state;
+    ASSERT_TRUE(AIActions::SubmitRoadPath(world, human, sideA, sideB, state))
+        << "the crossing (road, bridge, road) should be planned and submitted";
+
+    // Commands place the crossing immediately, but roads/bridges only join
+    // the navigation map once CONSTRUCTION completes (GameWorld.Commands.cpp
+    // skips navmap registration for under-construction placements; the
+    // completion path in GameWorld.TileMap.cpp registers them) — so give the
+    // builder queue real sim time.
+    bool connected = false;
+    for (int tick = 0; tick < 6000 && !connected; tick++)
+    {
+        world.UpdateSimulation(0.01);
+        if (tick % 25 == 24)
+            connected = !human->roadNetwork->CalculatePath(sideA, sideB).empty();
+    }
+
+    bool bridgeOnTrack = false;
+    for (const auto& tile : map.tilemap)
+    {
+        const Building* building = tile.building.get();
+        if (building != nullptr && building->owner == human &&
+            building->buildingType == BuildingType::Bridge && tile.isMilitaryRoad)
+        {
+            bridgeOnTrack = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(bridgeOnTrack) << "crossing the track must be done with a Bridge, not a refused Road";
+    EXPECT_TRUE(connected)
+        << "the two sides of the track should end up road-connected through the bridge";
 }
 
 // Etap 5: a standing idle University (or an unstarted focus) gets used — the

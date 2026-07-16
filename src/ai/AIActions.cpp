@@ -14,6 +14,18 @@
 
 namespace
 {
+    // Bridges ARE resource roads for every AI purpose (adjacency, BFS
+    // passability, connected-road targets) — they only differ in what tile
+    // they may stand on (the military track, where plain Road is refused).
+    // Delegates to the game-wide IsRoadLike(BuildingType) single source of
+    // truth (economy/Building.h, B6). Playtest 2026-07-16: the AI treating
+    // only BuildingType::Road as road-like wedged it at the track edge
+    // forever.
+    bool IsRoadLikeBuilding(const Building* building)
+    {
+        return building != nullptr && IsRoadLike(building->buildingType);
+    }
+
     int TileDistance(TileMap& tilemap, const Building* a, const Building* b)
     {
         if (a == nullptr || b == nullptr)
@@ -191,7 +203,7 @@ bool HasAdjacentRoad(GameWorld& world, const Building* building)
     for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
     {
         Building* neighbour = world.GetTileMap().GetBuilding(tileId);
-        if (neighbour != nullptr && neighbour->buildingType == BuildingType::Road)
+        if (IsRoadLikeBuilding(neighbour))
             return true;
     }
     return false;
@@ -294,7 +306,7 @@ Building* FindNearestStorageConnectedRoad(GameWorld& world, Player* player, cons
     for (auto& tile : world.GetTileMap().tilemap)
     {
         Building* road = tile.building.get();
-        if (road == nullptr || road->owner != player || road->IsUnderConstruction() || road->buildingType != BuildingType::Road)
+        if (road == nullptr || road->owner != player || road->IsUnderConstruction() || !IsRoadLikeBuilding(road))
             continue;
 
         bool connectedToStorage = false;
@@ -629,7 +641,7 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
         Tile& tile = world.GetTileMap()[tileId];
         Building* building = tile.GetBuilding();
-        return building == nullptr || building->buildingType == BuildingType::Road;
+        return building == nullptr || IsRoadLikeBuilding(building);
     };
 
     std::queue<int> frontier;
@@ -687,18 +699,53 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
     int newRoadTiles = 0;
     int existingRoadTiles = 0;
+    bool needsBridge = false;
     for (int tileId : path)
     {
         Building* building = world.GetTileMap().GetBuilding(tileId);
-        if (building != nullptr && building->buildingType == BuildingType::Road)
+        if (IsRoadLikeBuilding(building))
             existingRoadTiles++;
         else if (building == nullptr)
+        {
             newRoadTiles++;
+            if (world.GetTileMap()[tileId].isMilitaryRoad)
+                needsBridge = true;
+        }
     }
     if (newRoadTiles <= 0)
         return false;
     if (newRoadTiles > 8)
         return false;
+
+    // Crossing the military track means Bridge tiles (PLANKS+STONE, see
+    // buildings.rtsdata) — if a bridge isn't affordable right now, wait and
+    // retry instead of spamming commands the simulation will reject. No
+    // reservations either: the same crossing stays first choice once the
+    // planks arrive.
+    if (needsBridge && !player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Bridge)))
+        return false;
+
+    // Pre-validate every new tile BEFORE submitting anything: on the track
+    // only Bridge is legal (and e.g. two bridges may not sit orthogonally
+    // adjacent — TileMap::CanBuildFootprint). An invalid tile poisons the
+    // whole path; reserving it steers the next BFS (which skips reserved
+    // tiles) toward a different crossing instead of retrying this one
+    // forever. Playtest 2026-07-16: submitting plain Road onto track tiles
+    // wedged the AI at the track edge indefinitely.
+    for (int tileId : path)
+    {
+        Building* building = world.GetTileMap().GetBuilding(tileId);
+        if (building != nullptr || state.reservedRoadTiles.contains(tileId))
+            continue;
+        Tile& tile = world.GetTileMap()[tileId];
+        BuildingType type = tile.isMilitaryRoad ? BuildingType::Bridge : BuildingType::Road;
+        Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
+        if (!world.GetTileMap().CanPlaceBuilding(type, pos, GetBuildingDefinition(type).footprint, player))
+        {
+            state.reservedRoadTiles[tileId] = 6.0;
+            return false;
+        }
+    }
 
     bool submitted = false;
     int submittedCount = 0;
@@ -711,7 +758,9 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         if (state.reservedRoadTiles.contains(tileId))
             continue;
 
-        world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, world.GetTileMap().GetCoordsFromId(tileId)));
+        Tile& tile = world.GetTileMap()[tileId];
+        BuildingType type = tile.isMilitaryRoad ? BuildingType::Bridge : BuildingType::Road;
+        world.SubmitCommand(GameCommand::BuildBuilding(player->id, type, world.GetTileMap().GetCoordsFromId(tileId)));
         state.reservedRoadTiles[tileId] = 6.0;
         submitted = true;
         submittedCount++;

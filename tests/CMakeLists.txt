@@ -13,6 +13,7 @@ if (NOT GTest_FOUND)
 endif()
 
 add_executable(rts_tests
+    AIBehaviorHarnessTests.cpp
     BalanceModifierTests.cpp
     BattleUnitTests.cpp
     BridgeTests.cpp
