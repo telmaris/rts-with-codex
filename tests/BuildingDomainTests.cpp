@@ -794,13 +794,28 @@ TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpo
     ASSERT_FALSE(barracks.recruitment.queue.empty());
     EXPECT_FALSE(barracks.recruitment.queue.back().resourcesReady);
 
-    // Stock it directly: Diagnose returns empty, and a FRESH order now
-    // consumes immediately and starts counting down right away. Swordsman
-    // costs IRON_SWORD 1 + FOOD_PROVISIONS 3 (assets/data/units.rtsdata).
+    // Stock it directly: Diagnose returns empty. The order queued above is
+    // still waiting, and strict FIFO (TODO #1, 2026-07-16) means a fresh
+    // order must NOT grab the buffer past it — Update()'s readiness pass
+    // serves the oldest waiting entry first. Swordsman costs IRON_SWORD 1 +
+    // FOOD_PROVISIONS 3 (assets/data/units.rtsdata).
     barracks.storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
     for (int i = 0; i < 3; i++)
         barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
     EXPECT_TRUE(barracks.recruitment.DiagnoseRecruitmentBlock(barracks, "swordsman").empty());
+    ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
+    EXPECT_FALSE(barracks.recruitment.queue.back().resourcesReady)
+        << "strict FIFO: a fresh order waits behind the earlier waiting entry";
+    barracks.recruitment.Update(barracks, 0.01);
+    EXPECT_TRUE(barracks.recruitment.queue.front().resourcesReady)
+        << "the stocked cost must go to the FIRST waiting order";
+
+    // With no earlier waiting entries, a fresh order whose cost is already
+    // buffered consumes immediately and starts counting down right away.
+    barracks.recruitment.queue.clear();
+    barracks.storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
+    for (int i = 0; i < 3; i++)
+        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
     ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
     EXPECT_TRUE(barracks.recruitment.queue.back().resourcesReady);
 }

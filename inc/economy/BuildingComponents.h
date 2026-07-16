@@ -251,14 +251,17 @@ struct RecruitmentQueueEntry
 // Recruitment queue for a unit-producing building (Barracks; future
 // Stables/MageTower/Workshop are only new UnitDefinition::recruitBuilding
 // values, no new component). User request (docs/work_plan_2026-07-13.md,
-// 2026-07-15): an order joins the queue immediately on click (as long as
-// manpower allows), tagged "waiting for resources" if its cost isn't already
-// sitting in this building's own StorageComponent buffer — QueueRecruitment
-// requests the shortfall via the normal road network, and
-// RecruitmentComponent::Update only starts the timed build once the front
-// entry's cost has fully arrived and been consumed. On completion the
-// finished unit is added to the owning player's UnitRoster in state
-// InRoster.
+// 2026-07-15 + TODO #1 2026-07-16): an order joins the queue immediately on
+// click (as long as manpower allows), tagged "waiting for resources" if its
+// cost isn't already sitting in this building's own StorageComponent buffer.
+// Update() then works the queue in strict FIFO order: entries flip
+// resourcesReady (consuming their cost) as deliveries land — even behind a
+// training front entry — while only the FIRST waiting entry requests its
+// shortfall from the road network, net of what's already in flight, so the
+// building orders exactly one unit's cost at a time and never stockpiles.
+// The timed build runs only for the front entry once it's resourcesReady.
+// On completion the finished unit is added to the owning player's
+// UnitRoster in state InRoster.
 struct RecruitmentComponent : IBuildingComponent
 {
     std::deque<RecruitmentQueueEntry> queue;
@@ -267,12 +270,13 @@ struct RecruitmentComponent : IBuildingComponent
     void Update(Building& self, double dt) override;
     // Queues one unit order now: validates the unit exists and the owner has
     // enough manpower (deducted immediately — the only hard gate), then
-    // pushes a queue entry. If this building's own buffer already covers the
-    // resource cost, it's consumed now and the entry starts counting down
-    // right away; otherwise the shortfall is requested from the wired
-    // supplier and the entry waits (see RecruitmentQueueEntry::resourcesReady)
-    // until Update() sees it arrive. Returns false only when manpower alone
-    // is insufficient — resource unavailability never blocks queueing.
+    // pushes a queue entry. If no earlier entry is still waiting and this
+    // building's own buffer already covers the resource cost, it's consumed
+    // now and the entry starts counting down right away; otherwise the entry
+    // waits (see RecruitmentQueueEntry::resourcesReady) and Update() requests
+    // the shortfall in-flight-aware, one unit at a time, strict FIFO.
+    // Returns false only when manpower alone is insufficient — resource
+    // unavailability never blocks queueing.
     bool QueueRecruitment(Building& self, const std::string& unitDefId);
     // Non-mutating read, for GUI/AI feasibility — returns an empty string
     // when the unit's resource cost exists SOMEWHERE in the player's global

@@ -2,38 +2,47 @@
 #include "economy/Player.h"
 #include "warfare/BattleUnit.h"
 #include "warfare/UnitDefinition.h"
+#include "BuildingComponentsInternal.h"
 
 #include <algorithm>
 
 namespace
 {
     // Checks this building's own buffer for every cost in `def`; if it's all
-    // there, consumes it and returns true. If anything is short, requests the
-    // shortfall from the wired supplier (same RequestResource a
-    // ProductionComponent uses for its inputs) and returns false without
-    // consuming anything — safe to call repeatedly each tick while an order
-    // waits, since RequestResource itself is a no-op once nothing is missing.
-    bool TryConsumeUnitCost(Building& self, StorageComponent& storage, LogisticsComponent& logistics,
-                            const UnitDefinition& def)
+    // there, consumes it and returns true. Pure check-and-consume — never
+    // requests anything, so callers stay free of transport side effects.
+    bool TryConsumeCostFromBuffer(StorageComponent& storage, const UnitDefinition& def)
     {
-        bool allAvailable = true;
         for (const auto& cost : def.cost)
         {
             auto it = storage.buffers.find(cost.type);
             int have = (it != storage.buffers.end()) ? static_cast<int>(it->second.buffer.size()) : 0;
             if (have < cost.amount)
-            {
-                allAvailable = false;
-                logistics.RequestResource(cost.type, cost.amount - have, self);
-            }
+                return false;
         }
-        if (!allAvailable)
-            return false;
 
         for (const auto& cost : def.cost)
             for (int i = 0; i < cost.amount; i++)
                 storage.buffers[cost.type].FreeResource();
         return true;
+    }
+
+    // Requests exactly what's still missing for one unit's cost — buffered and
+    // in-flight deliveries both count as covered, so calling this every tick
+    // never re-orders what's already on the road (the over-request bug this
+    // replaced: RequestResource dispatches physical transport immediately and
+    // does NOT net out incoming, unlike MaintainRequests).
+    void RequestMissingCost(Building& self, StorageComponent& storage, LogisticsComponent& logistics,
+                            const UnitDefinition& def)
+    {
+        for (const auto& cost : def.cost)
+        {
+            auto it = storage.buffers.find(cost.type);
+            int have = (it != storage.buffers.end()) ? static_cast<int>(it->second.buffer.size()) : 0;
+            int missing = cost.amount - have - CountIncomingResources(&self, cost.type);
+            if (missing > 0)
+                logistics.RequestResource(cost.type, missing, self);
+        }
     }
 }
 
@@ -69,11 +78,14 @@ bool RecruitmentComponent::QueueRecruitment(Building& self, const std::string& u
 
     // User request (docs/work_plan_2026-07-13.md, 2026-07-15): clicking
     // recruit queues the order right away, tagged "waiting for resources" if
-    // its cost isn't already sitting in this Barracks' own buffer — the
-    // build timer only starts once RecruitmentComponent::Update sees the
-    // front entry's cost fully arrive (TryConsumeUnitCost, requesting the
-    // shortfall from the wired supplier each tick until then).
-    bool resourcesReady = TryConsumeUnitCost(self, *storage, *logistics, *def);
+    // its cost isn't already sitting in this Barracks' own buffer. Strict
+    // FIFO: a new entry may only consume from the buffer when no earlier
+    // entry is still waiting — otherwise it would steal resources an older
+    // order is queued for. Requesting the shortfall is Update's job (next
+    // tick, in-flight-aware), not done here.
+    bool eligible = std::none_of(queue.begin(), queue.end(),
+        [](const RecruitmentQueueEntry& e) { return !e.resourcesReady; });
+    bool resourcesReady = eligible && TryConsumeCostFromBuffer(*storage, *def);
     queue.push_back(RecruitmentQueueEntry{unitDefId, recruitTime, recruitTime, resourcesReady});
     return true;
 }
@@ -132,22 +144,36 @@ void RecruitmentComponent::Update(Building& self, double dt)
     if (queue.empty() || self.owner == nullptr)
         return;
 
-    RecruitmentQueueEntry& front = queue.front();
-
-    if (!front.resourcesReady)
+    // Readiness pass — strict FIFO: entries flip resourcesReady (consuming
+    // their cost from the buffer) in queue order as deliveries land, so the
+    // GUI's "Waiting for resources" label clears the moment an entry's cost
+    // is physically here, even while an earlier entry still trains. Only the
+    // FIRST waiting entry places a request, and only for what's neither
+    // buffered nor already on the road — one unit's cost at a time.
+    auto* storage = self.GetComponent<StorageComponent>();
+    auto* logistics = self.GetComponent<LogisticsComponent>();
+    if (storage != nullptr && logistics != nullptr)
     {
-        // Still waiting on the delivery QueueRecruitment kicked off (or a
-        // fresh request each tick if it never fully landed) — the build
-        // timer stays frozen until this resolves.
-        const UnitDefinition* def = FindUnitDefinition(front.unitDefId);
-        auto* storage = self.GetComponent<StorageComponent>();
-        auto* logistics = self.GetComponent<LogisticsComponent>();
-        if (def == nullptr || storage == nullptr || logistics == nullptr)
-            return;
-        if (!TryConsumeUnitCost(self, *storage, *logistics, *def))
-            return;
-        front.resourcesReady = true;
+        for (auto& entry : queue)
+        {
+            if (entry.resourcesReady)
+                continue;
+            const UnitDefinition* def = FindUnitDefinition(entry.unitDefId);
+            if (def == nullptr)
+                break;
+            if (TryConsumeCostFromBuffer(*storage, *def))
+            {
+                entry.resourcesReady = true;
+                continue;
+            }
+            RequestMissingCost(self, *storage, *logistics, *def);
+            break;
+        }
     }
+
+    RecruitmentQueueEntry& front = queue.front();
+    if (!front.resourcesReady)
+        return;
 
     front.remaining -= dt;
     if (front.remaining > 0.0)

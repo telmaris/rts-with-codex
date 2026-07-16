@@ -222,6 +222,127 @@ TEST(BattleUnitTests, InstanceIdsAreDeterministicAndUniquePerPlayer)
     EXPECT_EQ(idB, 1 * 100000 + 1);
 }
 
+// TODO #1 (2026-07-16) regression: while an order waited, the old code
+// re-requested its FULL remaining cost every tick without netting out
+// deliveries already on the road (RequestResource dispatches transport
+// immediately, unlike MaintainRequests), so a Barracks kept ordering "na
+// zapas" — far more than the queue needed. After the fix a Barracks must
+// pull exactly one queued unit's cost at a time and end with an empty buffer.
+TEST(BattleUnitTests, RecruitmentRequestsExactCostWithoutOverRequesting)
+{
+    TileMap map;
+    // Map must be sized BEFORE the Player exists — Player's constructor
+    // builds its RoadNetwork against the map as it is right then (same
+    // ordering RoadNetworkTests relies on).
+    FillOwnedGrass(map, nullptr, 10, 6);
+    Player player{0, map};
+
+    // Same proven delivery layout as RoadNetworkTests'
+    // StorageComponentPushDeliversResourceOverRealPlacementPath.
+    auto* warehouse = dynamic_cast<StorageBuilding*>(player.Build<StorageBuilding>(Vec2i{0, 1}, false));
+    auto* barracks = dynamic_cast<Barracks*>(player.Build<Barracks>(Vec2i{5, 1}, false));
+    auto* roadA = player.Build<Road>(Vec2i{3, 2}, false);
+    auto* roadB = player.Build<Road>(Vec2i{4, 2}, false);
+    ASSERT_NE(warehouse, nullptr);
+    ASSERT_NE(barracks, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(50);
+    barracks->SetSupplier(ResourceType::FOOD_PROVISIONS, warehouse);
+    player.strategicResources.Set(StrategicResourceType::Manpower, 100);
+
+    // 3 militia x 5 FOOD_PROVISIONS, nothing buffered locally yet.
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+
+    for (int tick = 0; tick < 400 && player.roster.units.size() < 3u; tick++)
+    {
+        warehouse->Update(0.25);
+        roadA->Update(0.25);
+        roadB->Update(0.25);
+        barracks->Update(0.25);
+    }
+
+    ASSERT_EQ(player.roster.units.size(), 3u) << "all three queued militia should finish";
+    EXPECT_EQ(warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 35u)
+        << "exactly 3 x 5 FOOD_PROVISIONS may leave the warehouse — anything more is over-requesting";
+    EXPECT_TRUE(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.empty())
+        << "the barracks must not stockpile beyond what the queue consumed";
+}
+
+// TODO #1 (2026-07-16): entries behind the front must flip resourcesReady
+// (clearing the GUI's "Waiting for resources" label) the moment their cost is
+// physically in the buffer — not only once they reach the front of the queue.
+TEST(BattleUnitTests, QueuedEntriesFlipResourcesReadyAsDeliveriesArrive)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+    Barracks* barracks = PlaceReadyBarracks(map, player);
+    ASSERT_NE(barracks, nullptr);
+
+    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].Clear();
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_EQ(barracks->recruitment.queue.size(), 2u);
+    EXPECT_FALSE(barracks->recruitment.queue[0].resourcesReady);
+    EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady);
+
+    // First delivery (5 FOOD) lands: only the front entry's cost is covered.
+    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(5);
+    barracks->recruitment.Update(*barracks, 0.01);
+    EXPECT_TRUE(barracks->recruitment.queue[0].resourcesReady);
+    EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady);
+
+    // Second delivery lands while the front entry is still training — the
+    // second entry must flip immediately instead of waiting for the front.
+    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(5);
+    barracks->recruitment.Update(*barracks, 0.01);
+    EXPECT_TRUE(barracks->recruitment.queue[1].resourcesReady);
+    EXPECT_GT(barracks->recruitment.queue[0].remaining, 0.0)
+        << "front entry should still be training when the second one flips";
+    EXPECT_TRUE(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.empty())
+        << "each flip consumes exactly that entry's cost";
+}
+
+// TODO #1 (2026-07-16): strict FIFO — a later entry must not grab buffered
+// resources while an earlier entry still waits for its own cost, even when
+// the later entry's cost is fully available.
+TEST(BattleUnitTests, WaitingEntriesConsumeInFifoOrder)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+    Barracks* barracks = PlaceReadyBarracks(map, player);
+    ASSERT_NE(barracks, nullptr);
+
+    // Swordsman (1 IRON_SWORD + 3 FOOD) queued first with no sword available;
+    // militia (5 FOOD) queued second with its FOOD fully in the buffer.
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "swordsman"));
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_EQ(barracks->recruitment.queue.size(), 2u);
+    EXPECT_FALSE(barracks->recruitment.queue[0].resourcesReady);
+    EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady)
+        << "militia must wait behind the blocked swordsman instead of consuming FOOD out of order";
+
+    barracks->recruitment.Update(*barracks, 0.01);
+    EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady);
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 40u)
+        << "nothing may be consumed while the front entry is blocked";
+
+    // The missing sword arrives: the whole queue unblocks in FIFO order in
+    // one readiness pass (swordsman consumes 1 sword + 3 FOOD, militia 5 FOOD).
+    barracks->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 4};
+    barracks->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(1);
+    barracks->recruitment.Update(*barracks, 0.01);
+    EXPECT_TRUE(barracks->recruitment.queue[0].resourcesReady);
+    EXPECT_TRUE(barracks->recruitment.queue[1].resourcesReady);
+    EXPECT_TRUE(barracks->storage.buffers[ResourceType::IRON_SWORD].buffer.empty());
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 32u);
+}
+
 TEST(BattleUnitTests, SaveAndLoadPreservesRosterAndInstanceCounter)
 {
     GameWorld world;
