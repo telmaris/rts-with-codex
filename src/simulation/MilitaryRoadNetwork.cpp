@@ -173,15 +173,47 @@ namespace
         }
     }
 
+    // One endpoint of a route for the near-gate straightening below: where
+    // the gate sits and along which axis its corridor leaves the HQ
+    // (East/West faces exit along X, North/South along Y).
+    struct GateExit
+    {
+        Vec2i gate{};
+        bool exitAlongX{true};
+    };
+
+    // User report (2026-07-16, with screenshot): the serpentine wiggle used
+    // to apply right up to the HQ gates, producing messy jogs around the
+    // base. The track should leave each HQ STRAIGHT and only undulate
+    // mid-route. Two mechanisms:
+    //  1. A GUARANTEED straight stub of kGateStub tiles carved outward from
+    //     each gate before pathfinding even runs (soft costs alone lose to
+    //     hard detours — base rects, corridor separation — on crowded rings).
+    //  2. Within kStraightZone of either gate the wiggle is off and off-axis
+    //     tiles pay a penalty (keeps the corridor straightish beyond the
+    //     stub), then the wiggle fades back in over kWiggleRamp tiles.
+    constexpr int kGateStub = 6;
+    constexpr int kStraightZone = 14;
+    constexpr double kWiggleRamp = 8.0;
+    constexpr double kOffAxisPenalty = 2.5;
+
+    int ChebyshevDistance(Vec2i a, Vec2i b)
+    {
+        return std::max(std::abs(a.x - b.x), std::abs(a.y - b.y));
+    }
+
     // Deterministic 4-directional Dijkstra over the tilemap. Resource-rich
     // tiles are heavily (but not infinitely) penalized; tiles inside a
     // blocked base rectangle are impassable unless explicitly exempted (a
     // route's own two gate tiles). A smooth positional noise bias
-    // (SerpentineBias) nudges the shortest path away from a straight line.
-    // Ties broken by tile id for lockstep-safe reproducibility.
+    // (SerpentineBias) nudges the shortest path away from a straight line —
+    // but only mid-route: near either gate the corridor is straightened
+    // instead (see GateExit above). Ties broken by tile id for
+    // lockstep-safe reproducibility.
     std::vector<int> FindRouteTiles(const TileMap& tilemap, int fromTile, int toTile,
                                      const std::vector<BaseRect>& blockedRects,
                                      const std::vector<int>& exemptTiles, unsigned int seed,
+                                     const GateExit& exitA, const GateExit& exitB,
                                      const std::set<int>* usedRouteTiles = nullptr,
                                      bool blockResourceTiles = false,
                                      const std::vector<int>* corridorDistance = nullptr)
@@ -265,12 +297,32 @@ namespace
                 double cost = 1.0;
                 if (tile.resourceRichness > 0)
                     cost += 200.0;
+
                 // Constant chosen so the wiggle meaningfully competes with
                 // the base 1.0/tile cost over long routes (creating real
                 // S-curves) while staying well under the 200 resource
                 // penalty above.
                 constexpr double kSerpentineStrength = 3.0;
-                cost += (SerpentineBias(vCol, vRow, seed) + 2.0) * kSerpentineStrength;
+                Vec2i vPos{vCol, vRow};
+                int nearestGate = std::min(ChebyshevDistance(vPos, exitA.gate),
+                                           ChebyshevDistance(vPos, exitB.gate));
+                // 0 inside the straight zone, fading to full wiggle over the
+                // ramp — the sinus lives mid-route only.
+                double wiggleScale = std::clamp((nearestGate - kStraightZone) / kWiggleRamp, 0.0, 1.0);
+                cost += (SerpentineBias(vCol, vRow, seed) + 2.0) * kSerpentineStrength * wiggleScale;
+
+                // Inside a gate's straight zone, drifting off the gate's exit
+                // axis costs per tile — the corridor leaves the HQ as a
+                // straight line and only starts bending once clear of the
+                // base.
+                for (const GateExit& exit : {exitA, exitB})
+                {
+                    if (ChebyshevDistance(vPos, exit.gate) > kStraightZone)
+                        continue;
+                    int offAxis = exit.exitAlongX ? std::abs(vRow - exit.gate.y)
+                                                  : std::abs(vCol - exit.gate.x);
+                    cost += offAxis * kOffAxisPenalty;
+                }
 
                 // B7 (docs/work_plan_2026-07-13.md): nudge away from tiles
                 // near an already-carved corridor (the corridor's own tiles
@@ -406,9 +458,69 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         if (!tilemap.IsInside(gateA) || !tilemap.IsInside(gateB))
             continue;
 
-        int fromTile = tilemap.GetIdFromCoords(gateA);
-        int toTile = tilemap.GetIdFromCoords(gateB);
+        // Near-gate straightening (user report 2026-07-16): each corridor
+        // must leave its HQ along the gate face's axis — East/West gates
+        // exit along X, North/South along Y.
+        auto exitAxisAlongX = [&](Vec2i anchor, Vec2i gate)
+        {
+            GateSide side = SideOfGate(anchor, hqFootprint, gate);
+            return side == GateSide::East || side == GateSide::West;
+        };
+        GateExit exitA{gateA, exitAxisAlongX(anchorA, gateA)};
+        GateExit exitB{gateB, exitAxisAlongX(anchorB, gateB)};
+
+        // Guaranteed straight stubs: carve kGateStub tiles straight outward
+        // (away from the HQ center) from each gate; Dijkstra then only
+        // connects the two stub ENDS. The gate tile itself (i == 0) is always
+        // kept even when an earlier edge shares it; deeper stub tiles stop at
+        // anything an earlier edge already claimed or the map edge — a
+        // truncated stub degrades gracefully toward the old behavior.
+        auto outwardDir = [&](Vec2i anchor, Vec2i gate) -> Vec2i
+        {
+            switch (SideOfGate(anchor, hqFootprint, gate))
+            {
+                case GateSide::East:  return {1, 0};
+                case GateSide::West:  return {-1, 0};
+                case GateSide::South: return {0, 1};
+                case GateSide::North: return {0, -1};
+            }
+            return {1, 0};
+        };
+        auto buildStub = [&](Vec2i gate, Vec2i dir)
+        {
+            std::vector<int> stub;
+            for (int i = 0; i < kGateStub; i++)
+            {
+                Vec2i pos{gate.x + dir.x * i, gate.y + dir.y * i};
+                if (!tilemap.IsInside(pos))
+                    break;
+                int tileId = tilemap.GetIdFromCoords(pos);
+                if (i > 0 && usedRouteTiles.count(tileId) > 0)
+                    break;
+                stub.push_back(tileId);
+            }
+            return stub;
+        };
+        std::vector<int> stubA = buildStub(gateA, outwardDir(anchorA, gateA));
+        std::vector<int> stubB = buildStub(gateB, outwardDir(anchorB, gateB));
+        if (stubA.empty() || stubB.empty())
+            continue;
+
+        // The search only connects the two stub ENDS; stub interiors (and
+        // the gates) are hard-blocked so the mid-route can never double back
+        // over its own straight exits. Strict tiers additionally avoid
+        // earlier edges' corridors as before; the last-resort relaxed tiers
+        // still drop that constraint (connectivity first) but keep the stub
+        // blocking.
+        int fromTile = stubA.back();
+        int toTile = stubB.back();
         std::vector<int> exempt{fromTile, toTile};
+        std::set<int> stubTiles(stubA.begin(), stubA.end());
+        stubTiles.insert(stubB.begin(), stubB.end());
+        stubTiles.erase(fromTile);
+        stubTiles.erase(toTile);
+        std::set<int> usedPlusStubs = usedRouteTiles;
+        usedPlusStubs.insert(stubTiles.begin(), stubTiles.end());
 
         // seed mixed with the edge's own endpoints so each ring edge gets a
         // distinct (but still fully deterministic) wiggle phase, instead of
@@ -434,19 +546,27 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         // strict tiers only — relaxed tiers below already accept running
         // through/along an existing corridor as the price of connectivity,
         // so fighting that with a soft penalty there would be counterproductive.
-        std::vector<int> path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed, &usedRouteTiles, true, &corridorDistance);
+        std::vector<int> path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed, exitA, exitB, &usedPlusStubs, true, &corridorDistance);
         if (path.empty())
-            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed, &usedRouteTiles, true, &corridorDistance);
+            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed, exitA, exitB, &usedPlusStubs, true, &corridorDistance);
         if (path.empty())
-            path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed, &usedRouteTiles, false, &corridorDistance);
+            path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed, exitA, exitB, &usedPlusStubs, false, &corridorDistance);
         if (path.empty())
-            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed, &usedRouteTiles, false, &corridorDistance);
+            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed, exitA, exitB, &usedPlusStubs, false, &corridorDistance);
         if (path.empty())
-            path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed);
+            path = FindRouteTiles(tilemap, fromTile, toTile, allBaseRects, exempt, edgeSeed, exitA, exitB, &stubTiles);
         if (path.empty())
-            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed);
+            path = FindRouteTiles(tilemap, fromTile, toTile, allFootprintRects, exempt, edgeSeed, exitA, exitB, &stubTiles);
         if (path.empty())
             continue;
+
+        // Splice the guaranteed-straight exits back in:
+        // gate A → stub A → mid-route → stub B reversed → gate B.
+        std::vector<int> fullPath(stubA.begin(), stubA.end() - 1);
+        fullPath.insert(fullPath.end(), path.begin(), path.end());
+        for (auto it = stubB.rbegin() + 1; it != stubB.rend(); ++it)
+            fullPath.push_back(*it);
+        path = std::move(fullPath);
 
         for (int tileId : path)
         {

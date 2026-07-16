@@ -162,6 +162,53 @@ TEST(MilitaryRoadNetworkTests, PlayerGatesAreSpreadAcrossDifferentSidesOfHq)
 // through a deposit, the carve resets the terrain; (2) the starting resource
 // patches placed AFTER the road (PlaceStartingResourcePatch) never paint
 // over an isMilitaryRoad tile.
+// User request (2026-07-16): the track must leave each HQ as a straight
+// line — the serpentine wiggle belongs mid-route only (near-gate
+// straightening in MilitaryRoadNetwork's FindRouteTiles). Checks the first
+// and last few steps of every route stay colinear.
+TEST(MilitaryRoadNetworkTests, RoutesLeaveEveryGateStraight)
+{
+    constexpr int StraightSteps = 5;  // conservative slice of the 14-tile straight zone
+    for (unsigned int seed : {111u, 555u, 777u})
+    {
+        for (int aiOpponentCount : {1, 3})
+        {
+            GameWorld world;
+            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
+            TileMap& map = world.GetTileMap();
+
+            for (const auto& route : world.GetMilitaryRoads().GetRoutes())
+            {
+                ASSERT_GE(route.tiles.size(), static_cast<size_t>(StraightSteps));
+                auto expectColinear = [&](std::vector<Vec2i> segment, const char* which)
+                {
+                    bool sameX = true;
+                    bool sameY = true;
+                    for (const Vec2i& pos : segment)
+                    {
+                        sameX = sameX && pos.x == segment.front().x;
+                        sameY = sameY && pos.y == segment.front().y;
+                    }
+                    EXPECT_TRUE(sameX || sameY)
+                        << which << " end of route " << route.playerA << "-" << route.playerB
+                        << " bends within its straight zone (seed " << seed
+                        << ", players " << aiOpponentCount + 1 << ")";
+                };
+
+                std::vector<Vec2i> head;
+                std::vector<Vec2i> tail;
+                for (int i = 0; i < StraightSteps; i++)
+                {
+                    head.push_back(map.GetCoordsFromId(route.tiles[i]));
+                    tail.push_back(map.GetCoordsFromId(route.tiles[route.tiles.size() - 1 - i]));
+                }
+                expectColinear(head, "gate-A");
+                expectColinear(tail, "gate-B");
+            }
+        }
+    }
+}
+
 TEST(MilitaryRoadNetworkTests, RouteTilesAreNeverResourceTiles)
 {
     for (unsigned int seed : {111u, 222u, 555u, 888u})
