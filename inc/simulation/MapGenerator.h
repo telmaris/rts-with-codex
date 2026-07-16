@@ -23,8 +23,6 @@ struct ResourcePatchParameters
     int patchCount{10};
     int minRadius{3};
     int maxRadius{8};
-    float fillChance{0.46f};
-    int smoothingPasses{4};
     std::vector<BiomeType> allowedBiomes{};
     float richnessScale{1.0f};   // multiplies base resourceRichness for this deposit
 };
@@ -58,19 +56,19 @@ struct MapParameters
     // with rarity — rare strategic resources get few patches.
     std::vector<ResourcePatchParameters> resourcePatches{
         // Common — widely available.
-        {TileType::WOOD,       18, 4, 10, 0.50f, 4, {BiomeType::FOREST},                       1.0f},
-        {TileType::STONE,       9, 3,  8, 0.47f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
-        {TileType::COAL,        8, 3,  7, 0.46f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
-        {TileType::IRON_ORE,    8, 3,  7, 0.46f, 4, {BiomeType::MOUNTAINS, BiomeType::HILLS},   1.0f},
+        {TileType::WOOD,       18, 4, 10, {BiomeType::FOREST},                       1.0f},
+        {TileType::STONE,       9, 3,  8, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::COAL,        8, 3,  7, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::IRON_ORE,    8, 3,  7, {BiomeType::MOUNTAINS, BiomeType::HILLS},   1.0f},
         // Uncommon.
-        {TileType::COPPER_ORE,  5, 2,  6, 0.45f, 4, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::COPPER_ORE,  5, 2,  6, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
         // Rare — strategic, drives trade. Few, concentrated patches.
-        {TileType::TIN_ORE,     3, 2,  5, 0.44f, 4, {BiomeType::MOUNTAINS},                     0.8f},
-        {TileType::SILVER_ORE,  3, 2,  4, 0.43f, 4, {BiomeType::MOUNTAINS},                     0.7f},
-        {TileType::GOLD_ORE,    2, 2,  4, 0.42f, 4, {BiomeType::MOUNTAINS},                     0.6f},
-        {TileType::SAND,        4, 3,  8, 0.50f, 4, {BiomeType::DESERT},                        1.0f},
-        {TileType::SULFUR,      3, 2,  5, 0.44f, 4, {BiomeType::DESERT, BiomeType::MOUNTAINS},  0.8f},
-        {TileType::SALTPETER,   3, 2,  5, 0.44f, 4, {BiomeType::WETLAND},                       0.8f}
+        {TileType::TIN_ORE,     3, 2,  5, {BiomeType::MOUNTAINS},                     0.8f},
+        {TileType::SILVER_ORE,  3, 2,  4, {BiomeType::MOUNTAINS},                     0.7f},
+        {TileType::GOLD_ORE,    2, 2,  4, {BiomeType::MOUNTAINS},                     0.6f},
+        {TileType::SAND,        4, 3,  8, {BiomeType::DESERT},                        1.0f},
+        {TileType::SULFUR,      3, 2,  5, {BiomeType::DESERT, BiomeType::MOUNTAINS},  0.8f},
+        {TileType::SALTPETER,   3, 2,  5, {BiomeType::WETLAND},                       0.8f}
     };
 };
 
@@ -84,8 +82,13 @@ class MapGenerator
         void GenerateTileMap(TileMap&,MapParameters&);
         // Converts a size preset to square map side length.
         static int SizeFromPreset(MapSizePreset preset);
-        // Chooses the headquarters anchor tile for a generated map.
-        static Vec2i PickHeadquartersAnchor(const MapParameters& params);
+        // Deterministically places `playerCount` starting HQ anchors around
+        // the map on a (possibly irregular/concave) n-gon, spaced far enough
+        // apart and never collinear, so the military road ring connects
+        // angular neighbors unambiguously — see docs/work_plan_2026-07-13.md
+        // B1. No player is special-cased to the map center; anchors[i] is
+        // simply the i-th vertex in angular order.
+        static std::vector<Vec2i> PickHeadquartersAnchors(const MapParameters& params, int playerCount);
         // Returns the fixed headquarters footprint.
         static Vec2i HeadquartersFootprint() { return {3, 3}; }
         // Returns the starting territory side length around headquarters.
@@ -113,10 +116,6 @@ class Tile
         void CreateBuilding(std::unique_ptr<Building>&& building);
         // Removes the anchored building from this tile.
         void DestroyBuilding();
-        // Assigns territory ownership.
-        void SetOwner(Player* player);
-        // Returns true when the player may build on this tile.
-        bool CanBuild(Player* player);
         // Returns true when this tile is occupied by a building anchor or footprint reference.
         bool HasBuilding() const { return building != nullptr || buildingRef != nullptr; }
         // Returns the building occupying this tile.
@@ -177,7 +176,14 @@ class TileMap
         // free of buildings and outside the enemy-proximity radius (see
         // IsWithinEnemyProximity). Territory ownership no longer gates placement
         // (TD(etap-1) — replaced by the proximity rule).
-        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const;
+        // `type` defaults to the generic rule (every tile must NOT be an
+        // isMilitaryRoad tile). Bridge (B6, docs/work_plan_2026-07-13.md) is the
+        // one type that INVERTS this — its footprint must sit entirely ON
+        // isMilitaryRoad ground instead. Callers that already know the concrete
+        // type being placed (CanPlaceBuilding, Player::Build<T>) pass it through;
+        // callers placing generic terrain features (village, start roads) can
+        // omit it and get today's behavior unchanged.
+        bool CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, BuildingType type = BuildingType::Building) const;
         // Returns true when terrain requirements for a building type are satisfied.
         bool HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, int minimumTiles = 2) const;
         // Returns true when all gameplay placement rules are satisfied.
@@ -193,6 +199,10 @@ class TileMap
         std::vector<int> GetBuildingTileIds(const Building* building) const;
         // Returns all tile ids adjacent to a building footprint.
         std::vector<int> GetAdjacentTileIds(const Building* building) const;
+        // Same as above, for a footprint that hasn't been placed yet (B6 follow-up:
+        // used by CanBuildFootprint to reject two adjacent Bridges before either
+        // exists as a Building).
+        std::vector<int> GetAdjacentTileIds(Vec2i anchor, Vec2i footprint) const;
         // Returns the selected terrain texture for a terrain type.
         int GetTerrainTextureId(TileType type) const;
         // Picks a weighted terrain texture variant for generation.
@@ -239,7 +249,6 @@ class TileMap
         std::vector<Tile> tilemap;
         bool terrainDirty{true};
         bool buildingsDirty{true};
-        bool territoryDirty{true};
 };
 
 

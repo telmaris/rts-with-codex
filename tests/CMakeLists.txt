@@ -13,8 +13,10 @@ if (NOT GTest_FOUND)
 endif()
 
 add_executable(rts_tests
+    AIMilitaryPipelineTests.cpp
     BalanceModifierTests.cpp
     BattleUnitTests.cpp
+    BridgeTests.cpp
     BuildingConfigTests.cpp
     BuildingDomainTests.cpp
     BuildingPlacementTests.cpp
@@ -22,16 +24,17 @@ add_executable(rts_tests
     EliminationTests.cpp
     GameCommandTests.cpp
     HqCombatSystemTests.cpp
+    MapGeneratorTests.cpp
     MilitaryRoadNetworkTests.cpp
     PathingServiceTests.cpp
     PlayerEconomyTests.cpp
     RendererAnimationTests.cpp
     ResourceBufferTests.cpp
-    ResearchCatalogTests.cpp
     RoadNetworkTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
     TowerAttackSystemTests.cpp
+    SimulationPerfTests.cpp
     UnitCombatSystemTests.cpp
     UnitMarchSystemTests.cpp
 )

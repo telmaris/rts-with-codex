@@ -44,8 +44,13 @@ struct ActionInput
 // Polls Raylib input and exposes action-oriented queries.
 struct InputProcessor
 {
-    // Assigns default bindings and target controller.
+    // Assigns default bindings and target controller (full gameplay key set).
     inline void Init(GuiController*);
+    // Assigns a minimal binding set for single-screen menu scenes: ESC + LMB
+    // only (scroll needs no binding — HandleInputs polls the wheel directly).
+    // None of the gameplay hotkeys (Q/R/D/E/S/F/T/U/F10/space) apply outside
+    // GameScene (A4 pilot, docs/work_plan_2026-07-13.md).
+    inline void InitMenu(GuiController*);
     // Dispatches currently active input actions to the controller.
     void HandleInputs();
     // Returns true on the frame an action becomes active.
@@ -83,6 +88,16 @@ inline void InputProcessor::Init(GuiController* gui)
     actionInputs[RIGHT_BUTTON_UP].button = MOUSE_BUTTON_RIGHT;
     actionInputs[MIDDLE_BUTTON_DOWN].button = MOUSE_BUTTON_MIDDLE;
     actionInputs[MIDDLE_BUTTON_UP].button = MOUSE_BUTTON_MIDDLE;
+}
+
+inline void InputProcessor::InitMenu(GuiController* gui)
+{
+    controller = gui;
+
+    actionInputs[CLOSE_TOP_GUI].key = KEY_ESCAPE;
+
+    actionInputs[LEFT_BUTTON_DOWN].button = MOUSE_BUTTON_LEFT;
+    actionInputs[LEFT_BUTTON_UP].button = MOUSE_BUTTON_LEFT;
 }
 
 

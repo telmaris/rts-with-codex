@@ -19,6 +19,7 @@ LoadGameScene::LoadGameScene()
 // Advances this object's state for one frame.
 void LoadGameScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     render.Draw({&backButton, &saveButtons}, dt);
 }
 

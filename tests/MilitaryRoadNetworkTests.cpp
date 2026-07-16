@@ -1,5 +1,6 @@
 #include "core/GameWorld.h"
 #include "simulation/MilitaryRoadNetwork.h"
+#include "simulation/MapGenerator.h"
 
 #include <gtest/gtest.h>
 
@@ -74,6 +75,116 @@ TEST(MilitaryRoadNetworkTests, ThreeFourAndFivePlayersFormASingleRing)
         EXPECT_EQ(roads.GetRoutes().size(), static_cast<size_t>(playerCount))
             << "playerCount=" << playerCount;
         ExpectSingleConnectedRing(roads, playerCount);
+    }
+}
+
+// B2 (docs/work_plan_2026-07-13.md): ring edges are carved sequentially and
+// avoid tiles already claimed by an earlier edge, so no two routes should
+// ever run alongside or cross each other. The two gate tiles at each route's
+// ends are allowed to coincide with a neighboring edge's gate at a shared HQ
+// (that's the same physical doorway both routes pass through) — only each
+// route's INTERIOR tiles (everything but its first/last tile) are checked
+// for global uniqueness across the whole ring.
+TEST(MilitaryRoadNetworkTests, RingRoutesDoNotOverlapExceptAtSharedGates)
+{
+    for (int aiOpponentCount : {2, 3, 4})
+    {
+        GameWorld world;
+        world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, 555));
+
+        const auto& routes = world.GetMilitaryRoads().GetRoutes();
+        std::map<int, int> interiorTileUseCount;
+        for (const auto& route : routes)
+        {
+            ASSERT_GE(route.tiles.size(), 2u);
+            for (size_t i = 1; i + 1 < route.tiles.size(); i++)
+                interiorTileUseCount[route.tiles[i]]++;
+        }
+        for (const auto& [tileId, count] : interiorTileUseCount)
+            EXPECT_EQ(count, 1) << "tile " << tileId << " shared by " << count
+                                 << " routes' interiors (aiOpponentCount=" << aiOpponentCount << ")";
+    }
+}
+
+// B7 (docs/work_plan_2026-07-13.md, user report with screenshot 2026-07-14):
+// a ring vertex's two ring edges used to both aim PickGateTile at their own
+// neighbor's HQ center, which frequently resolved to the SAME face of the
+// footprint — collapsing both corridors onto the same exit tile right
+// outside the base. The fix forces the second edge's gate onto the OPPOSITE
+// face whenever the natural pick would collide with the first. Any two
+// DIFFERENT faces of a square footprint are at least (footprint-1) tiles
+// apart (Chebyshev) by construction — opposite faces are (footprint+1) apart
+// — so asserting that floor catches a same-face collapse (which would be 0)
+// without depending on which specific pair of faces was chosen.
+TEST(MilitaryRoadNetworkTests, PlayerGatesAreSpreadAcrossDifferentSidesOfHq)
+{
+    const int minSeparation = MapGenerator::HeadquartersFootprint().x - 1;
+
+    for (unsigned int seed : {111u, 222u, 333u, 555u})
+    {
+        for (int aiOpponentCount : {2, 3})
+        {
+            GameWorld world;
+            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
+
+            int playerCount = aiOpponentCount + 1;
+            const auto& routes = world.GetMilitaryRoads().GetRoutes();
+            const TileMap& map = world.GetTileMap();
+
+            for (int playerId = 0; playerId < playerCount; playerId++)
+            {
+                std::vector<Vec2i> gates;
+                for (const auto& route : routes)
+                {
+                    if (route.playerA == playerId)
+                        gates.push_back(map.GetCoordsFromId(route.tiles.front()));
+                    else if (route.playerB == playerId)
+                        gates.push_back(map.GetCoordsFromId(route.tiles.back()));
+                }
+
+                if (gates.size() < 2)
+                    continue; // n=2 ring: exactly one gate per player, nothing to separate
+
+                ASSERT_EQ(gates.size(), 2u) << "player " << playerId << " seed=" << seed;
+                int chebyshev = std::max(std::abs(gates[0].x - gates[1].x), std::abs(gates[0].y - gates[1].y));
+                EXPECT_GE(chebyshev, minSeparation)
+                    << "player " << playerId << " gates too close: (" << gates[0].x << "," << gates[0].y
+                    << ") vs (" << gates[1].x << "," << gates[1].y << ") seed=" << seed
+                    << " aiOpponentCount=" << aiOpponentCount;
+            }
+        }
+    }
+}
+
+// User report 2026-07-14: the unit track was still landing on wood/stone
+// fields. Two enforced invariants: (1) a carved route tile is always plain
+// GRASS with zero richness — even when a relaxed fallback tier had to route
+// through a deposit, the carve resets the terrain; (2) the starting resource
+// patches placed AFTER the road (PlaceStartingResourcePatch) never paint
+// over an isMilitaryRoad tile.
+TEST(MilitaryRoadNetworkTests, RouteTilesAreNeverResourceTiles)
+{
+    for (unsigned int seed : {111u, 222u, 555u, 888u})
+    {
+        for (int aiOpponentCount : {1, 3})
+        {
+            GameWorld world;
+            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
+
+            const TileMap& map = world.GetTileMap();
+            for (const Tile& tile : map.tilemap)
+            {
+                if (!tile.isMilitaryRoad)
+                    continue;
+                EXPECT_EQ(tile.tileType, TileType::GRASS)
+                    << "military road tile " << tile.id << " sits on terrain type "
+                    << static_cast<int>(tile.tileType) << " (seed=" << seed
+                    << " ai=" << aiOpponentCount << ")";
+                EXPECT_EQ(tile.resourceRichness, 0)
+                    << "military road tile " << tile.id << " still has resource richness (seed="
+                    << seed << " ai=" << aiOpponentCount << ")";
+            }
+        }
     }
 }
 

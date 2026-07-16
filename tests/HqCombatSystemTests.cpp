@@ -246,8 +246,13 @@ TEST(HqCombatSystemTests, SiegeToEliminationIsDeterministicForSameSeed)
     worldA.SubmitCommand(GameCommand::DeployUnits(0, 1, idsA));
     worldB.SubmitCommand(GameCommand::DeployUnits(0, 1, idsB));
 
+    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
+    // separation on this tiny 81x81 test map (deterministic n-gon placement
+    // instead of a random maximin search), so marching to contact can take
+    // longer than it used to for this specific seed — budget bumped with
+    // generous headroom rather than tuned to a specific distance.
     bool eliminatedA = false;
-    for (int i = 0; i < 6000 && !eliminatedA; i++)
+    for (int i = 0; i < 15000 && !eliminatedA; i++)
     {
         worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
         worldB.UpdateSimulation(FixedSimulationClock::FixedDt);

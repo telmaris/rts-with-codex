@@ -1,5 +1,26 @@
 #include "scenes/Scenes.h"
 
+// ─── MenuNavSystem ───────────────────────────────────────────────────────────
+
+MenuNavSystem::MenuNavSystem(GuiController* con)
+    : GuiSystem(con)
+{
+    menuScene = dynamic_cast<GameMenuScene*>(owner->scene);
+    actionMap["esc"] = [this] { menuScene->OnBackPressed(); };
+}
+
+void MenuNavSystem::Update(double dt)
+{
+    owner->AddUiWidget(&menuScene->vbox);
+}
+
+void MenuNavSystem::UpdateUiWidgets(Vec2i size)
+{
+    menuScene->vbox.UpdateSize(size);
+}
+
+// ─── GameMenuScene ───────────────────────────────────────────────────────────
+
 // Initializes GameMenuScene::GameMenuScene.
 GameMenuScene::GameMenuScene()
 {
@@ -37,6 +58,13 @@ GameMenuScene::GameMenuScene()
     vbox.AddChild(returnButton);
 
     vbox.UpdateSize({GetScreenWidth(), GetScreenHeight()});
+
+    controller = std::make_unique<GuiController>();
+    controller->Init(this);
+    controller->AddSystem<MenuNavSystem>("default");
+    controller->ChangeSystem("default");
+
+    inputs.InitMenu(controller.get());
 }
 
 // Handles the UI action represented by OnBackPressed.
@@ -100,19 +128,15 @@ void GameMenuScene::OnQuitPressed()
 // Advances this object's state for one frame.
 void GameMenuScene::Update(double dt)
 {
-    // ESC returns to the game — but only once the key that opened the menu has
-    // been released, so a single press can't open and immediately close it.
-    if (!escArmed)
-    {
-        if (!InputManager::IsKeyDown(KEY_ESCAPE))
-            escArmed = true;
-    }
-    else if (InputManager::IsKeyPressed(KEY_ESCAPE))
-    {
-        OnBackPressed();
-        return;
-    }
-    render.Draw({&vbox}, dt);
+    // Input first (gated by IGuiHandler — see GuiHandler.h), then ALWAYS
+    // draw, even on the frame a transition fired. The old code returned early
+    // after OnBackPressed(), skipping render.Draw and therefore EndDrawing's
+    // PollInputEvents — which left raylib's IsKeyPressed(ESC) edge un-consumed
+    // for the next scene's first frame. GameScene then re-read the SAME press
+    // and bounced straight back to this menu (the reported ESC ping-pong).
+    ProcessGuiInput(dt);
+    controller->Update(dt);
+    render.Draw(controller->GetUiWidgets(), dt);
 }
 
 // Handles the requested event or transfer.
@@ -121,6 +145,7 @@ void GameMenuScene::HandleEvent(std::shared_ptr<Event> e)
     auto ptr = std::dynamic_pointer_cast<WindowSizeChangedEvent>(e);
     if (ptr != nullptr)
     {
-        vbox.UpdateSize(ptr->windowSize);
+        for (auto& [name, system] : controller->systems)
+            system->UpdateUiWidgets(ptr->windowSize);
     }
 }

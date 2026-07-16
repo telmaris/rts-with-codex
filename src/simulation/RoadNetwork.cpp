@@ -1,10 +1,34 @@
 #include "simulation/RoadNetwork.h"
 #include "simulation/MapGenerator.h"
+#include "economy/Player.h"
+
+namespace
+{
+    // A path tile is still traversable for `owner` when it is the origin
+    // building (step 0 of any path), the final destination building, or a
+    // road owned by `owner` (every intermediate step, per
+    // RoadNetwork::CalculatePath's BFS). Checked against the actual building
+    // occupying the tile (source of truth), not Tile::owner — the old
+    // territory system that populated Tile::owner was removed in the Tower
+    // Defense pivot (ETAP 1) and nothing sets it anymore.
+    bool IsTileTraversableForOwner(TileMap* map, int tileId, Player* owner, Building* origin, Building* destination)
+    {
+        if (map == nullptr || tileId < 0 || tileId >= static_cast<int>(map->tilemap.size()))
+            return false;
+
+        Building* building = map->GetBuilding(tileId);
+        if (building == origin || building == destination)
+            return true;
+
+        // B6: Bridge is road-like for transport purposes (IsRoadLike, economy/Building.h).
+        return building != nullptr && building->owner == owner &&
+               IsRoadLike(building->buildingType);
+    }
+}
 
 // Advances this object's state for one frame.
 bool Transportable::Update(double dt)
 {
-    auto* owner = sourceBuilding != nullptr ? sourceBuilding->owner : nullptr;
     auto cancelTransport = [&]()
     {
         auto* resource = dynamic_cast<Resource*>(this);
@@ -17,15 +41,14 @@ bool Transportable::Update(double dt)
         }
     };
 
-    if (owner == nullptr || map == nullptr || currentPathStep < 0 || currentPathStep >= static_cast<int>(transportPath.size()))
+    if (originatingOwner == nullptr || map == nullptr || currentPathStep < 0 || currentPathStep >= static_cast<int>(transportPath.size()))
     {
         cancelTransport();
         return true;
     }
 
     int currentTileId = transportPath[currentPathStep];
-    auto* currentOwner = (currentTileId >= 0 && currentTileId < map->tilemap.size()) ? map->GetTile(currentTileId).owner : nullptr;
-    if (currentOwner != owner)
+    if (!IsTileTraversableForOwner(map, currentTileId, originatingOwner, sourceBuilding, targetBuilding))
     {
         cancelTransport();
         return true;
@@ -45,8 +68,7 @@ bool Transportable::Update(double dt)
         }
 
         int nextTileId = transportPath[currentPathStep + 1];
-        auto* nextOwner = (nextTileId >= 0 && nextTileId < map->tilemap.size()) ? map->GetTile(nextTileId).owner : nullptr;
-        if (nextOwner != owner)
+        if (!IsTileTraversableForOwner(map, nextTileId, originatingOwner, sourceBuilding, targetBuilding))
         {
             cancelTransport();
             return true;
@@ -111,6 +133,7 @@ void Transportable::BeginTransport(Building* src,Building* target, TileMap* tmap
 {
     sourceBuilding = src;
     targetBuilding = target;
+    originatingOwner = src != nullptr ? src->owner : nullptr;
     map = tmap;
     transportPath = path;
     transportTime = 0.0;
@@ -163,6 +186,10 @@ void RoadNetwork::UpdateNavMap(int id, Building *bld)
     if (id < 0 || id >= navMap->map.size())
         return;
 
+    // Any topology change can change which paths are valid — drop every cached
+    // CalculatePath result rather than risk serving a stale route.
+    pathCache.clear();
+
     if (bld == nullptr)
     {
         navMap->map[id].node = nullptr;
@@ -178,6 +205,11 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
 {
     if (src == nullptr || dest == nullptr || src->owner == nullptr)
         return {};
+
+    std::pair<int, int> cacheKey{src->id, dest->id};
+    auto cached = pathCache.find(cacheKey);
+    if (cached != pathCache.end())
+        return cached->second;
 
     int maxColumns = tilemap->params.sizeX;
     int maxRows = tilemap->params.sizeY;
@@ -208,9 +240,10 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
     std::queue<int> q;
     for (int start : startTiles)
     {
+        // Start tiles are src's own footprint — no ownership check needed here
+        // (unlike the old territory system, a building's own tiles are always
+        // "its" tiles regardless of any separate Tile::owner bookkeeping).
         if (start < 0 || start >= maxIndex)
-            continue;
-        if (tilemap->GetTile(start).owner != src->owner)
             continue;
 
         q.push(start);
@@ -249,10 +282,13 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
             if (visited[next])
                 continue;
 
-            if (tilemap->GetTile(next).owner != src->owner)
-                continue;
-
-            if (!(navMap->map[next].IsRoad() || navMap->map[next].node == dest))
+            // Traversable when it's the destination itself, or a road owned by
+            // src's owner — resolved from the nav map's building, not
+            // Tile::owner (removed with the territory system, ETAP 1).
+            bool isDestinationTile = navMap->map[next].node == dest;
+            bool isOwnedRoad = navMap->map[next].IsRoad() &&
+                               navMap->map[next].node->owner == src->owner;
+            if (!isDestinationTile && !isOwnedRoad)
                 continue;
 
             visited[next] = true;
@@ -262,13 +298,18 @@ std::vector<int> RoadNetwork::CalculatePath(Building *src, Building *dest)
     }
 
     if (reachedEnd < 0)
+    {
+        pathCache[cacheKey] = {};
         return {};
+    }
 
     std::vector<int> path;
     for (int at = reachedEnd; at != -1; at = parent[at])
         path.push_back(at);
 
     std::reverse(path.begin(), path.end());
+
+    pathCache[cacheKey] = path;
     return path;
 }
 
@@ -302,51 +343,28 @@ bool RoadNetwork::CanReserveTransportPath(Building* dest, Transportable* res, co
     return true;
 }
 
-// Initializes RoadNetwork::CountReservedRoadCapacity.
-int RoadNetwork::CountReservedRoadCapacity(int roadTileId) const
-{
-    if (tilemap == nullptr)
-        return 0;
-
-    int reserved = 0;
-    for (const auto& tile : tilemap->tilemap)
-    {
-        Building* building = tile.building.get();
-        if (building == nullptr)
-            continue;
-
-        for (auto* transportable : building->transportables)
-        {
-            if (transportable == nullptr)
-                continue;
-
-            auto it = std::find(transportable->transportPath.begin(), transportable->transportPath.end(), roadTileId);
-            if (it == transportable->transportPath.end())
-                continue;
-
-            int roadPathIndex = static_cast<int>(std::distance(transportable->transportPath.begin(), it));
-            if (roadPathIndex == transportable->currentPathStep || roadPathIndex == transportable->currentPathStep + 1)
-                reserved++;
-        }
-    }
-
-    return reserved;
-}
-
 // Initializes RoadNetwork::CountIncomingToDestination.
 int RoadNetwork::CountIncomingToDestination(Building* dest, ResourceType type) const
 {
-    if (tilemap == nullptr || dest == nullptr)
+    if (dest == nullptr || dest->owner == nullptr)
         return 0;
 
+    // Perf fix (2026-07-12): this ran a FULL tilemap scan (sizeX*sizeY tiles,
+    // ~90k on the default map) on every call — and it's called from
+    // CanReserveTransportPath once per BeginTransport, i.e. once per resource
+    // unit shipped. Latent before the T1 tile.owner fix (CalculatePath failed
+    // first, so this was never reached); with transport actually working it
+    // froze the whole sim thread during dispatch bursts. In-flight
+    // transportables are always held by a building (source or road), and every
+    // building is in the owner's tracked-buildings registry — same query
+    // shape as CountIncomingResources in src/economy/Building.cpp.
     int incoming = 0;
-    for (const auto& tile : tilemap->tilemap)
+    for (Building* carrier : dest->owner->GetTrackedBuildings())
     {
-        Building* building = tile.building.get();
-        if (building == nullptr)
+        if (carrier == nullptr || carrier->transportables.empty())
             continue;
 
-        for (auto* transportable : building->transportables)
+        for (auto* transportable : carrier->transportables)
         {
             auto* resource = dynamic_cast<Resource*>(transportable);
             if (resource != nullptr && resource->targetBuilding == dest && resource->type == type)
@@ -355,12 +373,4 @@ int RoadNetwork::CountIncomingToDestination(Building* dest, ResourceType type) c
     }
 
     return incoming;
-}
-
-// Returns whether this condition is currently true.
-bool RoadNetwork::CheckIfPathWasTaken(int id, std::vector<int> &path)
-{
-    auto it = std::find(path.begin(), path.end(), id);
-
-    return it == path.end() ? true : false;
 }

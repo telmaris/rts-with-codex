@@ -142,6 +142,28 @@ double Player::GetFoodProductivity() const
     return villageCount > 0 ? productivity / villageCount : 1.0;
 }
 
+// T6 (docs/post_pivot_audit_2026-07-12.md): raw food supply ratio (0-100%,
+// no productivity floor) averaged across every village — distinct from
+// GetFoodProductivity()'s worker-productivity average (0.3 + 0.7*ratio),
+// which is what actually scales production and shouldn't be shown as if it
+// were the literal supply number.
+double Player::GetFoodSupplyRatio() const
+{
+    int villageCount = 0;
+    double ratio = 0.0;
+    for (const auto* building : GetTrackedBuildingsWithComponent<PopulationComponent>())
+    {
+        const auto* population = building != nullptr ? building->GetComponent<PopulationComponent>() : nullptr;
+        if (population == nullptr || building->owner != this || building->IsUnderConstruction())
+            continue;
+
+        villageCount++;
+        ratio += population->GetFoodSupplyRatio();
+    }
+
+    return villageCount > 0 ? ratio / villageCount : 1.0;
+}
+
 bool Player::CanResearchTechnology(const std::string& id) const
 {
     const auto* definition = FindTechnologyDefinition(id);
@@ -283,10 +305,19 @@ bool Player::TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs)
     if (!HasBuildResources(costs))
         return false;
 
+    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): with 2+
+    // storage-like buildings holding the same resource, which one gets
+    // drained first (and therefore which building's buffer ends up empty vs.
+    // full) must not depend on Building* heap addresses — same bug class as
+    // the main per-tick building loop.
+    std::vector<Building*> sortedStorage(GetTrackedBuildingsWithComponent<StorageComponent>().begin(),
+                                          GetTrackedBuildingsWithComponent<StorageComponent>().end());
+    std::sort(sortedStorage.begin(), sortedStorage.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
     for (const auto& cost : costs)
     {
         int remaining = cost.amount;
-        for (auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+        for (auto* building : sortedStorage)
         {
             auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
             if (storage == nullptr || building->owner != this)
@@ -313,6 +344,13 @@ bool Player::TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs)
 
 void Player::RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs)
 {
+    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): same
+    // reasoning as TryPayBuildCost above — which building's buffer receives
+    // the refund must not depend on Building* heap addresses.
+    std::vector<Building*> sortedStorage(GetTrackedBuildingsWithComponent<StorageComponent>().begin(),
+                                          GetTrackedBuildingsWithComponent<StorageComponent>().end());
+    std::sort(sortedStorage.begin(), sortedStorage.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
     for (const auto& cost : costs)
     {
         int remaining = cost.amount;
@@ -322,7 +360,7 @@ void Player::RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs)
         // Pour the resources back into the same kind of storage they were paid
         // from. Buffers that already hold this type have the capacity we freed at
         // build time; anything that no longer fits (production refilled it) spills.
-        for (auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
+        for (auto* building : sortedStorage)
         {
             if (remaining <= 0)
                 break;

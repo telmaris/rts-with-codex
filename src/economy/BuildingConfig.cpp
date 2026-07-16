@@ -282,6 +282,7 @@ namespace
         if (value == "Barracks") return BuildingType::Barracks;
         if (value == "Road") return BuildingType::Road;
         if (value == "DefenseTower") return BuildingType::DefenseTower;
+        if (value == "Bridge") return BuildingType::Bridge;
         return BuildingType::Building;
     }
 
@@ -642,8 +643,13 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
 // Returns road types available in road-build mode.
 const std::vector<BuildingType>& GetBuildableRoadTypes()
 {
+    // B6 (docs/work_plan_2026-07-13.md): Bridge shares the road build panel —
+    // it's a selectable option there, placeable only on isMilitaryRoad tiles
+    // (TileMap::CanBuildFootprint), same as any other build option's
+    // placement rule is enforced through the existing generic machinery.
     static const std::vector<BuildingType> types{
-        BuildingType::Road};
+        BuildingType::Road,
+        BuildingType::Bridge};
     return types;
 }
 

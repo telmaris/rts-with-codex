@@ -105,17 +105,15 @@ w fundamentach.
   Nie blokuje etap-5 (determinizm w normalnych warunkach potwierdzony), ale podnosi priorytet
   naprawy `LoadFromSnapshot`, gdy walka drogowa stanie się głównym trybem rozgrywki MP.
 
-- [ ] **Przejęte budynki (TD etap-6.3) nie są rejestrowane w sieci dróg zwycięzcy**
-  (`src/core/GameWorld.Elimination.cpp`, sekcja "Production buildings change hands"). `EliminatePlayer`
-  przepina `building->owner` i wywołuje `RegisterBuilding`/`UnregisterBuilding` (dataTracker + rejestry
-  strategiczne), ale NIE dotyka `Player::roadNetwork`/`NavigationMap` — ani usunięcia budynku z
-  `roadNetwork` pokonanego, ani dodania do `roadNetwork` zwycięzcy. Skutek: budynek dalej działa
-  (własna produkcja, istniejące połączenia supplier/receiver to surowe wskaźniki, obojętne na
-  ownera) i istniejące połączenia z INNYMI przejętymi budynkami też działają — ale zwycięzca NIE
-  MOŻE poprowadzić NOWEJ drogi surowcowej do/z przejętego budynku dopóki nie zostanie ręcznie
-  zarejestrowany. Świadomie odłożone (poza zakresem etap-6, wymaga `NavigationMap` removal API,
-  którego dziś nie ma — tylko `UpdateNavMap` do dodawania/aktualizacji). Naprawić przy okazji
-  ETAP 7/8 jeśli gracze faktycznie zaczną łączyć przejęte budynki nowymi drogami.
+- [x] **Przejęte budynki (TD etap-6.3) nie były rejestrowane w sieci dróg zwycięzcy**
+  (`src/core/GameWorld.Elimination.cpp`, sekcja "Production buildings change hands"). Naprawione
+  2026-07-13 (T12, `docs/post_pivot_audit_2026-07-12.md`): `UpdateNavMap(id, nullptr)` API na
+  usunięcie węzła JUŻ ISTNIEJE (wpis poniżej twierdzący inaczej był nieaktualny) — `EliminatePlayer`
+  teraz dla każdego kafla footprintu przejętego budynku woła
+  `defeated->roadNetwork->UpdateNavMap(id, nullptr)` + `conqueror->roadNetwork->UpdateNavMap(id, building)`.
+  Drogi (`Road`) świadomie NIE przechodzą razem z budynkami (brak `ProductionComponent`) — zwycięzca
+  musi zbudować własne połączenie, dokładnie jak przy dowolnym innym nowym budynku. Test regresyjny:
+  `EliminationTests.CapturedBuildingRejoinsConquerorsRoadNetworkAfterElimination`.
 
 - [ ] **"Ostatnia jednostka oblegająca" (TD etap-6.2, propozycja planu) uproszczona do "najniższe
   instanceId"** (`src/warfare/UnitCombatSystem.cpp`, `FindBesiegerOpponent`). Plan proponuje, żeby
@@ -132,6 +130,40 @@ w fundamentach.
   wszystkich oblegających nakładają się wizualnie. Nieistotne dopóki grafika to płaski prostokąt
   (obecny placeholder), ale do rozwiązania przy prawdziwych sprite'ach (ETAP 9): rozrzucić pozycje
   w małym okręgu/gridzie wokół bramy zamiast dokładnie nakładać.
+
+- [ ] **Podejrzenie: HQ i StorageBuilding mogą wpadać w powtarzający się cykl transportu tego
+  samego zasobu tam i z powrotem (nie tylko pojedynczy odbicie, ale ciągły, wieloztukowy
+  wzorzec).** Odkryte przypadkowo 2026-07-14 przy pisaniu testu akceptacyjnego dla C1
+  (`tests/AIMilitaryPipelineTests.cpp`) — po dłuższej (~60 sim-sekund), w pełni normalnej
+  rozgrywce AI (bez żadnej nietypowej manipulacji zasobami) log zaczął zalewać się parami
+  `"[Headquarters] Transport zasobu X zakończony, dodaję zasób"` /
+  `"[StorageBuilding] zasób X usunięty z transportables"` (i analogicznie dla STONE) —
+  setki/tysiące linii na sekundę, silnie korelujące ze spowolnieniem (~20-30 ms/tick zamiast
+  <1 ms/tick w tym oknie). Reprodukcja pierwotnie natrafiona przy nadmiernym "seedowaniu"
+  buforów magazynowych w teście (wypełnienie KAŻDEGO typu zasobu do pełna) — po zmniejszeniu
+  seeda objaw był słabszy, ale wciąż obecny pod koniec dłuższych przebiegów, co sugeruje że to
+  NIE jest artefakt samego testu, tylko realny wzorzec w `StorageComponent::Update`'s
+  auto-redystrybucji między dwoma budynkami storage-like (HQ i StorageBuilding), które oba
+  akceptują ten sam typ zasobu — możliwe że `GetReceiveCapacity`/`CanAcceptResource` nie
+  uwzględnia poprawnie zasobu "w locie" (już wysłanego, jeszcze nie policzonego jako zajmujący
+  miejsce u odbiorcy), pozwalając obu stronom myśleć że mają wolne miejsce jednocześnie. **Nie
+  zbadane głębiej — poza zakresem C1** (dotyczy ogólnego systemu dystrybucji zasobów, nie
+  AI/Military). Wymaga dedykowanej sesji: (1) reprodukować w izolowanym teście jednostkowym
+  (HQ + StorageBuilding, oba akceptujące jeden typ zasobu, długi przebieg), (2) potwierdzić czy
+  to faktyczna pętla nieskończona czy tylko dużo pojedynczych, poprawnych transportów w wąskim
+  oknie czasowym, (3) jeśli pętla — sprawdzić `GetReceiveCapacity` pod kątem uwzględniania
+  zasobów już-w-drodze do tego samego odbiorcy.
+
+  **Aktualizacja 2026-07-15 (A5, `docs/work_plan_2026-07-13.md`):** przy wyłączeniu Barracks
+  z ogólnej pętli dystrybucji `StorageComponent::Update` (Barracks miał przestać przyjmować
+  zasoby ambientowo — zobacz A5), `tests/AIMilitaryPipelineTests.cpp` zwolnił z ~95s do ~157s.
+  Zweryfikowane grepem: 281k linii bounce'a (Transport HQ↔StorageBuilding STONE/FOOD_PROVISIONS)
+  w tym przebiegu vs ~272k wcześniej — to POTWIERDZA że to ten sam, znany bug, nie nowy, ale
+  Barracks jako trzeci odbiorca w puli najwyraźniej odciążał trochę ruch między HQ i
+  StorageBuilding; po jego wyłączeniu z puli cały ruch koncentruje się na tych dwóch, więc bug
+  robi się nieco bardziej aktywny/kosztowny. Nie naprawione (wciąż poza zakresem A5/C1) —
+  odnotowane tylko jako potwierdzenie że problem jest realny i priorytet dedykowanej sesji
+  rośnie.
 
 ### 🟡 Średnie
 
@@ -181,6 +213,18 @@ w fundamentach.
   platformami/kompilatorami — stąd checksum+resync. Centralne ryzyko lockstepu dla cross-platform
   MP. → Rozważyć fixed-point dla wielkości wpływających na symulację. Trzymać się `std::map`
   (uporządkowany) zamiast `unordered_map` w ścieżce symulacji.
+- [x] **`std::set<Building*>`/`PlayerDataTracker::buildings` kluczowane surowym wskaźnikiem —
+  pułapka na determinizm w KAŻDYM miejscu, gdzie kolejność iteracji "wygrywa" (nie tylko
+  suma/min/max).** Odkryte 2026-07-13 przy naprawie generacji mapy: dwa wcześniejsze perf-fixy
+  ("tracked buildings zamiast pełnego skanu tilemapy" — `TileMap::AutoConnectBuilding`,
+  `PrimitiveAIModel::TryBuildRoads`) zamieniły iterację po tilemapie (kolejność po id kafla,
+  deterministyczna) na iterację po `GetTrackedBuildings()` (`std::set<Building*>`, kolejność po
+  adresie wskaźnika) — złamało to `HqCombatSystemTests.SiegeToEliminationIsDeterministicForSameSeed`
+  ~2/3 uruchomień pełnego suite (adresy heap różnią się między niezależnie zbudowanymi `GameWorld`).
+  Naprawione: oba miejsca sortują teraz kandydatów po `building->id` przed użyciem. Pełny opis w
+  `docs/post_pivot_audit_2026-07-12.md` follow-up #5. **Lekcja na przyszłość:** przy każdej
+  zamianie "pełny skan mapy" → "tracked registry" jawnie sprawdzić, czy wynik zależy od
+  KOLEJNOŚCI iteracji, czy tylko od ZBIORU wartości — jeśli od kolejności, sortować po `id`.
 
 ### 🟢 Niskie / higiena
 
@@ -196,11 +240,17 @@ w fundamentach.
   krótkiego okna `Dying` (np. 0.3–0.5 s zanikania alfa) zamiast natychmiastowego usunięcia — obecnie
   brak takiego okna nie psuje żadnej mechaniki (wygrywająca jednostka i tak przechodzi do
   `Marching` dopiero po usunięciu przeciwnika w Pass 2).
-- [ ] **CI uruchamia tylko `--gtest_filter=GameCommandTests.*`** — reszta testów (BuildingDomain,
-  RoadNetwork, TileMap...) kompiluje się, ale nie jest uruchamiana.
-- [ ] **Brak cache vcpkg w CI** → raylib reinstalowany co przebieg.
+- [x] **CI uruchamiał tylko `--gtest_filter=GameCommandTests.*`** — naprawione, `.github/workflows/
+  windows-release.yml` uruchamia dziś pełny `rts_tests.exe` bez filtra (patrz CLAUDE.md sekcja CI).
+- [x] **Brak cache vcpkg w CI** — naprawione, workflow ma krok `actions/cache@v4` na
+  `C:\vcpkg\installed`/`C:\Users\runneradmin\AppData\Local\vcpkg`.
 - [ ] **Brak buildu Linux/macOS** mimo ścieżek UNIX w CMake.
 - [ ] **Zduplikowane skrypty** (`*.bat` + `*.ps1`) — `.bat` delegują do `.ps1`, akceptowalne.
+- [ ] **`ResourceType::BEER` bez producenta ani konsumenta.** Odkryte 2026-07-13 (T13, docs-sync):
+  CLAUDE.md błędnie opisywał "Well → WATER → Inn → BEER" — Inn faktycznie produkuje
+  `FOOD_PROVISIONS` z BREAD+MEAT+WATER (`assets/data/buildings.rtsdata`), nie BEER. Żaden budynek
+  dziś nie ma `output BEER`. Zostaje jako placeholder w enumie (nie usuwać bez bumpa save/wire) —
+  do świadomej decyzji: dodać producenta (np. nowy budynek "Brewery") albo usunąć zasób.
 
 - [ ] **TD(etap-7) — pociski wież są "homing", nie ballistyczne z wyprzedzeniem.** Plan
   (`docs/tower_defense_rework_plan.md` 7.2) opisuje pocisk jako "pozycja, prędkość, kierunek" —
@@ -232,6 +282,11 @@ w fundamentach.
   wymagać, by maszerująca kolumna mogła zniszczyć wieżę po drodze, to osobny, nie-trywialny
   dodatek (wieża potrzebowałaby własnego HP/hardDefense jak HQ, i mechanizmu ataku jednostek NA
   budynki poza HQ) — poza zakresem etap-7.
+- [ ] **`Bridge` (B6, docs/work_plan_2026-07-13.md) też nie ma HP i nie jest niszczalny przez
+  wroga** — świadomie ta sama decyzja co dla wież powyżej (usuwalny tylko ręczną komendą
+  `DestroyBuilding` przez właściciela). Gdyby gameplay miał wymagać, by maszerująca kolumna
+  mogła zniszczyć most po drodze (odcinając zaopatrzenie przeciwnika), to ten sam nie-trywialny
+  dodatek co dla wież — HP/hardDefense + mechanizm ataku jednostek NA budynki poza HQ.
 - [x] **`ARROWS` nie ma dziś żadnego producenta.** Naprawione w ETAP 9: dodano recipe "Arrows"
   do Smith (`assets/data/buildings.rtsdata`, WOOD+IRON→ARROWS), więc wieże mają teraz realną
   ścieżkę zaopatrzenia przez prawdziwy łańcuch produkcji/logistyki, nie tylko `SetStoredAmount`
@@ -263,18 +318,15 @@ w fundamentach.
   zejść do zera/ujemnej wartości niezależnie od multiplikatora) i GUI panelu rekrutacji
   (`src/ui/Gui.cpp`) zaktualizowane, by pokazywać efektywne (zmodyfikowane), nie surowe wartości.
 
-- [ ] **`assets/data/technologies.rtsdata` (drzewo SCIENCE) nie zgadza się z 8 testami, które
-  oczekują technologii "forestry"/"Mathematics".** Odkryte przy okazji naprawy powyższego —
-  NIE jest to związane z tym pivotem (drzewo SCIENCE to czysto ekonomiczna/naukowa gałąź, bez
-  śladu starego systemu wojny). `TechnologyTests.cpp`/`PlayerEconomyTests.cpp`/
-  `ResearchCatalogTests.cpp` (8 testów, znany od dawna baseline "142 passed / 8 failed") są
-  napisane pod `MakeDefaultTechnologies()` (wbudowany fallback w `Technology.cpp`, pierwszy
-  wpis "forestry"/"Mathematics"), ale prawdziwy plik danych ma zupełnie inne, niepowiązane
-  drzewo (algebra→trygonometria→geometria analityczna→równania różniczkowe→teoria liczb).
-  Ktoś przeprojektował SCIENCE trunk w danych bez aktualizacji testów (albo odwrotnie).
-  Do naprawy: albo zaktualizować te 8 testów pod aktualne id/nazwy z `technologies.rtsdata`,
-  albo dodać do danych placeholder "forestry" jeśli testy mają rację że to powinien być root.
-  Nie ruszone w ETAP 9 (poza zakresem tower-defense pivotu).
+- [x] **`assets/data/technologies.rtsdata` (drzewo SCIENCE) nie zgadzało się z 8 testami, które
+  oczekiwały technologii "forestry"/"Mathematics".** Naprawione 2026-07-13 (T10,
+  `docs/post_pivot_audit_2026-07-12.md`) decyzją użytkownika: te 8 testów usunięte
+  (`TechnologyTests.cpp`/`PlayerEconomyTests.cpp`/`ResearchCatalogTests.cpp` — ten ostatni plik
+  usunięty całkowicie, zawierał tylko ten jeden test) zamiast dostosowywane, ponieważ prawdziwe
+  drzewo SCIENCE i cały tech tree i tak czekają na ręczne przeprojektowanie od podstaw (patrz
+  `docs/tower_defense_design.md`) — dopasowywanie testów do tymczasowych danych nie miało sensu.
+  CI/lokalny suite od teraz w pełni zielony (bez `continue-on-error`), baseline "142 passed / 8
+  failed" nieaktualny.
 
 ---
 

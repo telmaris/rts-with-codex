@@ -145,7 +145,16 @@ void TowerAttackSystem::Update(GameWorld& world, double dt)
         if (playerPtr == nullptr || playerPtr->defeated)
             continue;
 
-        for (Building* towerBuilding : playerPtr->GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+        // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): two
+        // towers of the same player can have overlapping range and target
+        // the same unit in one tick — whichever fires first can kill it
+        // before the other's FindBestTarget runs, changing that tower's own
+        // pick. Iteration order must not depend on Building* heap addresses.
+        std::vector<Building*> sortedTowers(playerPtr->GetTrackedBuildingsWithComponent<TowerCombatComponent>().begin(),
+                                             playerPtr->GetTrackedBuildingsWithComponent<TowerCombatComponent>().end());
+        std::sort(sortedTowers.begin(), sortedTowers.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
+        for (Building* towerBuilding : sortedTowers)
         {
             auto* combat = towerBuilding->GetComponent<TowerCombatComponent>();
             auto* storage = towerBuilding->GetComponent<StorageComponent>();

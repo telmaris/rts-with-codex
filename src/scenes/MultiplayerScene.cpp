@@ -382,6 +382,7 @@ MultiplayerScene::MultiplayerScene()
 // Advances this object's state for one frame.
 void MultiplayerScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     UpdateLobbyMessages(dt);
     if (connectionMessageTimer > 0.0)
         connectionMessageTimer = std::max(0.0, connectionMessageTimer - dt);

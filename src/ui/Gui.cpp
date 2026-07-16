@@ -619,6 +619,7 @@ namespace
             case BuildingType::University: return "University";
             case BuildingType::Barracks: return "Barracks";
             case BuildingType::Road: return "Road";
+            case BuildingType::Bridge: return "Bridge";
             default: return "Building";
         }
     }
@@ -1773,34 +1774,10 @@ void GuiPanel::Update(double dt)
         UiText::Draw("Recruitment", contentX, y, 22, Color{190, 198, 208, 255});
         y += 30;
 
-        if (!recruitment->queue.empty())
-        {
-            UiText::Draw("Queue", contentX, y, 18, Color{190, 215, 255, 255});
-            y += 24;
-            for (const auto& entry : recruitment->queue)
-            {
-                if (y + 34 > bottom - destroyButton.size.y - margin)
-                    break;
-
-                const UnitDefinition* def = FindUnitDefinition(entry.unitDefId);
-                std::string label = (def != nullptr ? def->displayName : entry.unitDefId) +
-                    " - " + FormatSeconds(entry.remaining) + " / " + FormatSeconds(entry.total);
-                DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f}, 14, RAYWHITE);
-                y += 20;
-
-                float progress = entry.total > 0.0
-                    ? std::clamp(static_cast<float>(1.0 - entry.remaining / entry.total), 0.0f, 1.0f)
-                    : 0.0f;
-                Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 8.0f};
-                DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
-                Rectangle fill = bar;
-                fill.width *= progress;
-                DrawRectangleRounded(fill, 0.2f, 4, Color{79, 181, 128, 255});
-                y += 14;
-            }
-            y += margin / 2;
-        }
-
+        // A2 (docs/work_plan_2026-07-13.md): recruit buttons render at a fixed
+        // position right after the title so they don't shift as the queue
+        // below grows/shrinks — the queue (variable length) is drawn AFTER
+        // the buttons instead of before them.
         UiText::Draw("Available units", contentX, y, 18, Color{190, 215, 255, 255});
         y += 24;
 
@@ -1828,20 +1805,71 @@ void GuiPanel::Update(double dt)
             for (const auto& cost : def.cost)
                 costText += ", " + rt2s(cost.type) + " " + std::to_string(cost.amount);
 
-            UiButton recruitButton;
-            recruitButton.pos = Vec2i{contentX, y};
-            recruitButton.size = Vec2i{contentW, rowH - 6};
-            recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText);
-            std::string unitDefId = id;
-            recruitButton.func = [self, panelScene, unitDefId]()
+            // T4 (docs/post_pivot_audit_2026-07-12.md): mirror QueueRecruitment's
+            // own checks (non-mutating) so the button visibly disables with a
+            // reason instead of silently doing nothing on click.
+            std::string blockReason = recruitment->DiagnoseRecruitmentBlock(*building, id);
+            Rectangle rowRect{static_cast<float>(contentX), static_cast<float>(y),
+                              static_cast<float>(contentW), static_cast<float>(rowH - 6)};
+
+            if (blockReason.empty())
             {
-                if (self == nullptr || panelScene == nullptr || panelScene->game == nullptr)
-                    return;
-                panelScene->SubmitLocalCommand(GameCommand::RecruitUnit(
-                    panelScene->game->GetLocalPlayerId(), self->positionId, unitDefId));
-            };
-            recruitButton.Update(dt);
+                UiButton recruitButton;
+                recruitButton.pos = Vec2i{contentX, y};
+                recruitButton.size = Vec2i{contentW, rowH - 6};
+                recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText);
+                std::string unitDefId = id;
+                recruitButton.func = [self, panelScene, unitDefId]()
+                {
+                    if (self == nullptr || panelScene == nullptr || panelScene->game == nullptr)
+                        return;
+                    panelScene->SubmitLocalCommand(GameCommand::RecruitUnit(
+                        panelScene->game->GetLocalPlayerId(), self->positionId, unitDefId));
+                };
+                recruitButton.Update(dt);
+            }
+            else
+            {
+                DrawRectangleRounded(rowRect, 0.08f, 8, Color{40, 42, 46, 210});
+                DrawRectangleRoundedLines(rowRect, 0.08f, 8, 1.0f, Color{75, 79, 85, 210});
+                DrawTextFit(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText,
+                    {rowRect.x + 12.0f, rowRect.y, rowRect.width - 24.0f, rowRect.height},
+                    15, Color{128, 132, 138, 255});
+                if (CheckCollisionPointRec(GetMousePosition(), rowRect))
+                    QueueTooltip(def.displayName, {blockReason});
+            }
             y += rowH;
+        }
+
+        if (!recruitment->queue.empty())
+        {
+            y += margin / 2;
+            UiText::Draw("Queue", contentX, y, 18, Color{190, 215, 255, 255});
+            y += 24;
+            for (const auto& entry : recruitment->queue)
+            {
+                if (y + 34 > bottom - destroyButton.size.y - margin)
+                    break;
+
+                const UnitDefinition* def = FindUnitDefinition(entry.unitDefId);
+                std::string name = def != nullptr ? def->displayName : entry.unitDefId;
+                std::string label = entry.resourcesReady
+                    ? name + " - " + FormatSeconds(entry.remaining) + " / " + FormatSeconds(entry.total)
+                    : name + " - Waiting for resources";
+                DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 18.0f},
+                    14, entry.resourcesReady ? RAYWHITE : Color{230, 190, 110, 255});
+                y += 20;
+
+                float progress = entry.resourcesReady && entry.total > 0.0
+                    ? std::clamp(static_cast<float>(1.0 - entry.remaining / entry.total), 0.0f, 1.0f)
+                    : 0.0f;
+                Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 8.0f};
+                DrawRectangleRounded(bar, 0.2f, 4, Color{20, 23, 29, 255});
+                Rectangle fill = bar;
+                fill.width *= progress;
+                DrawRectangleRounded(fill, 0.2f, 4, entry.resourcesReady ? Color{79, 181, 128, 255} : Color{150, 120, 60, 255});
+                y += 14;
+            }
         }
 
         drawDestroyButton();

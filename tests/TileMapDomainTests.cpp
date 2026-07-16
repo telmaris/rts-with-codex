@@ -25,22 +25,18 @@ namespace
     }
 }
 
-TEST(TileMapDomainTests, TileOwnershipBuildingLifecycleAndBuildRules)
+TEST(TileMapDomainTests, TileBuildingLifecycle)
 {
     Tile tile{3};
-    Player* player = reinterpret_cast<Player*>(0x1);
-    tile.SetOwner(player);
-    EXPECT_EQ(tile.owner, player);
-    EXPECT_TRUE(tile.CanBuild(player));
 
     tile.CreateBuilding(std::make_unique<Road>(9));
     ASSERT_NE(tile.GetBuilding(), nullptr);
     EXPECT_TRUE(tile.IsBuildingAnchor());
-    EXPECT_FALSE(tile.CanBuild(player));
+    EXPECT_TRUE(tile.HasBuilding());
 
     tile.DestroyBuilding();
     EXPECT_EQ(tile.GetBuilding(), nullptr);
-    EXPECT_TRUE(tile.CanBuild(player));
+    EXPECT_FALSE(tile.HasBuilding());
 }
 
 TEST(TileMapDomainTests, AdjacentTileIdsSkipFootprintAndDiagonals)

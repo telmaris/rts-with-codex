@@ -42,6 +42,7 @@ SaveGameScene::SaveGameScene()
 // Advances this object's state for one frame.
 void SaveGameScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     if (overwriteConfirmationVisible)
         render.Draw({&backButton, &saveName, &newSaveButton, &saveButtons, &confirmOverwriteButton, &cancelOverwriteButton}, dt);
     else

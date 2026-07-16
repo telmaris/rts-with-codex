@@ -1,0 +1,58 @@
+#include "core/GameWorld.h"
+#include "simulation/MapGenerator.h"
+
+#include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <vector>
+
+// Perf regression guard (docs/post_pivot_audit_2026-07-12.md follow-up).
+//
+// History: after the T1 logistics fix unfroze the AI economy, every AI build
+// decision ran FindBuildAnchor over the ENTIRE 301×301 tilemap with a
+// per-candidate-tile full-map DistanceToNearestInfrastructure scan — O(map²),
+// measured at 7.7 SECONDS per simulation tick (Debug), firing on the ~1.24 s
+// AI decision cadence. In-game this froze everything (sim thread holds the
+// world lock) for seconds, every few seconds. The transport path had similar
+// latent full-map scans (CountIncomingToDestination per shipped unit).
+//
+// This test runs a realistic worst-case world (default map size, AI opponent,
+// debug resources so the economy runs hot) for 60 simulated seconds and fails
+// if any single tick blows past a deliberately fat threshold. The fixed code
+// measures <10 ms/tick worst case in Debug; the regression this guards
+// against measured 7700+ ms — three orders of magnitude of headroom, so slow
+// CI machines can't flake it while a reintroduced O(map²) scan can't hide.
+TEST(SimulationPerfTests, NoSimulationTickTakesCatastrophicallyLong)
+{
+    MapParameters params;      // defaults: 301x301
+    params.aiOpponentCount = 1;
+    params.debugMode = true;   // grant resources so the AI actually builds
+
+    GameWorld world;
+    world.InitWorld("perf-guard", nullptr, nullptr, params);
+
+    const int ticks = 6000;    // 60 sim-seconds — covers several AI decision cycles
+    const double dt = 0.01;
+    double worstMs = 0.0;
+    int worstTick = -1;
+
+    for (int i = 0; i < ticks; i++)
+    {
+        auto t0 = std::chrono::steady_clock::now();
+        world.UpdateSimulation(dt);
+        auto t1 = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        if (ms > worstMs)
+        {
+            worstMs = ms;
+            worstTick = i;
+        }
+    }
+
+    fprintf(stderr, "[PERF-GUARD] worst tick: #%d, %.1f ms\n", worstTick, worstMs);
+    EXPECT_LT(worstMs, 1000.0)
+        << "a single simulation tick took " << worstMs << " ms — some code path "
+        << "is likely scanning the whole tilemap (or worse) inside the tick; "
+        << "see the header comment of this test for the last time this happened";
+}

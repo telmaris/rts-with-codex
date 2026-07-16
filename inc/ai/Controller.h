@@ -45,34 +45,20 @@ enum class AIDifficulty
     Hard
 };
 
-// TD(etap-1): Military axis/plans/milestones/actions are stubbed — the old war
-// system (Division/GarrisonComponent/ArmyRegistry) they scored against is gone.
-// The AI plays economy-only; these enumerators stay so the shape of the
-// pipeline (fixed-size axis array, plan/goal switches) doesn't need touching
-// twice. A full military AI overhaul is a separate project (see CLAUDE.md).
+// C1 (docs/work_plan_2026-07-13.md): Diplomacy and Expansion dropped —
+// post-pivot there is no diplomacy system, and "territorial expansion" no
+// longer means anything without the removed ground-ownership concept (see
+// docs/post_pivot_audit_2026-07-12.md T2); their pressure folded into
+// Resources (ExpandTerritory goal now reads Resources, see GoalPrimaryAxis).
+// Military is no longer stubbed — see AnalyzeAxis/EvaluateAxis.
 enum class AIStrategyAxis
 {
     Resources,
     Logistics,
     Military,
-    Expansion,
     InternalDevelopment,
     Technology,
-    Diplomacy,
     Risk
-};
-
-enum class AIStrategicPlan
-{
-    RecoverEconomy,
-    FixLogistics,
-    BuildArmy,
-    DefendBorder,
-    PrepareOffensive,
-    ExpandForResources,
-    DevelopPopulation,
-    ResearchSpecialization,
-    ConsolidateTerritory
 };
 
 enum class AIGovernmentPreference
@@ -175,8 +161,7 @@ struct AIStrategySignal
 struct AIStrategySnapshot
 {
     std::vector<AIStrategySignal> signals;
-    AIStrategicPlan selectedPlan{AIStrategicPlan::RecoverEconomy};
-    std::array<float, 8> axisScores{};  // indexed by static_cast<int>(AIStrategyAxis), range [-1, 1]
+    std::array<float, 6> axisScores{};  // indexed by static_cast<int>(AIStrategyAxis), range [-1, 1]
 
     float GetUrgency(AIStrategyAxis axis) const
     {
@@ -280,7 +265,6 @@ private:
     AIMapAssessment AssessMap(GameWorld& world, Player* player) const;
     AIStrategySnapshot UpdateStrategyPipeline(GameWorld& world, Player* player, double dt, const AIModelSettings& settings);
     std::vector<AIStrategySignal> AnalyzeAxis(GameWorld& world, Player* player, AIStrategyAxis axis, const AIModelSettings& settings) const;
-    AIStrategicPlan SelectStrategicPlan(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
     int CountOwnedBuildings(GameWorld& world, Player* player, BuildingType type) const;
     int CountStoredResource(GameWorld& world, Player* player, ResourceType type) const;
     int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type) const;
@@ -297,7 +281,7 @@ private:
     float EvaluateAxis(GameWorld& world, Player* player, AIStrategyAxis axis, const AIModelSettings& settings) const;
 
     // TIER 1 — goal selection with hysteresis.
-    AIStrategicGoal SelectStrategicGoal(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
+    AIStrategicGoal SelectStrategicGoal(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
     void UpdateGoalState(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings, double dt);
 
     // TIER 2 — milestone chains.
@@ -319,17 +303,48 @@ private:
     std::string SelectResearchTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
     std::string SelectFocusTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const;
 
+    // C1 (docs/work_plan_2026-07-13.md): Military axis + Recruit/Attack action
+    // helpers. Returns the id of a connected, non-defeated enemy to deploy
+    // against (ring-adjacent or reachable through eliminated players' conquered
+    // HQs — see PathingService::AreHqsConnected), or -1 if none is reachable
+    // yet (e.g. still mid-ring, or every neighbor already eliminated).
+    int FindAttackTargetPlayer(GameWorld& world, Player* player) const;
+    // Perf fix (found verifying C1's own acceptance test, docs/work_plan_2026-07-13.md):
+    // SelectStrategicGoal and MilestoneProgress's AttackReady case both call
+    // FindAttackTargetPlayer, and both run EVERY tick (UpdateGoalState is
+    // unconditional, unlike RunUnifiedDecision's decisionTimer-gated block) —
+    // calling a real PathingService::AreHqsConnected lookup 100x/sim-second
+    // measured at ~32 ms/tick average (vs. the <1 ms/tick baseline) once a
+    // Barracks/roster made the Military axis actually engage. Cached on its
+    // own timer, decremented alongside the other timers in Update().
+    int GetCachedAttackTargetPlayer(GameWorld& world, Player* player) const;
+    mutable double attackTargetCacheTimer{0.0};
+    mutable int cachedAttackTargetPlayer{-1};
+
     double roadTimer{0.0};
     double economyTimer{0.0};
     double militaryTimer{4.0};
     double attackTimer{30.0};
     double decisionTimer{0.0};
     std::vector<AIStrategyAxisCache> strategyAxisCache;
-    AIStrategicPlan activePlan{AIStrategicPlan::RecoverEconomy};
     AIGoalState goalState;
     std::map<int, double> reservedRoadTiles;
     std::map<BuildingType, double> recentBuildOrders;
     std::map<std::string, double> recentResearchOrders;
+    // Perf fix (docs/post_pivot_audit_2026-07-12.md follow-up #3, 2026-07-12):
+    // FindBuildAnchor's last-resort tier scans the ENTIRE tilemap (~90k tiles
+    // on the default map) — cheap windowed tiers cover the common case, but a
+    // terrain-specific extractor (Woodcutter/Mine) with no deposit left
+    // nearby keeps falling through to that full scan EVERY decision cycle,
+    // repeatedly, since the negative result doesn't change from one cycle to
+    // the next. Measured: ~190 ms/decision once triggered, recurring on the
+    // ~1.2-2 s AI decision cadence — the residual "freeze every couple
+    // seconds" after the AssessMap/DistanceToNearestInfrastructure fix.
+    // Throttle: once the full-map tier comes up empty for a building type,
+    // don't pay for it again for a while (map state — deposits, buildings —
+    // doesn't change fast enough to need retrying every cycle). Mutable
+    // because FindBuildAnchor is const; decayed alongside the other timers.
+    mutable std::map<BuildingType, double> expensiveAnchorSearchCooldown;
 };
 
 class AIController : public IController

@@ -8,11 +8,12 @@ class TileMap;
 struct NavigationNode
 {
     Building* node{nullptr};
-    // Returns true when this navigation node contains a road building.
-    bool IsRoad() 
-    { 
+    // Returns true when this navigation node contains a road-like building
+    // (Road or Bridge, B6 — see IsRoadLike in economy/Building.h).
+    bool IsRoad()
+    {
         if( node == nullptr) return false;
-        return node->buildingType == BuildingType::Road ? true : false;
+        return IsRoadLike(node->buildingType);
     }
 };
 
@@ -58,8 +59,18 @@ class RoadNetwork
         int CountReservedRoadCapacity(int roadTileId) const;
         // Counts transports already heading to a destination buffer.
         int CountIncomingToDestination(Building* dest, ResourceType type) const;
-        // Returns true when a tile id is already present in the current path.
-        bool CheckIfPathWasTaken(int id, std::vector<int>& path);
+
+        // Perf fix (docs/post_pivot_audit_2026-07-12.md follow-up, 2026-07-12):
+        // CalculatePath does a full grid BFS over the whole tilemap (allocating
+        // three map-sized vectors) on every call. Before the T1 tile.owner fix
+        // this cost was latent (every lookup failed instantly); with transport
+        // actually working, every dispatching building calls it at least once
+        // per (src, dest) pair per tick, and per RESOURCE UNIT within a
+        // dispatch batch. Cache every computed (src, dest) -> path, keyed by
+        // building ids (deterministic ordering), cleared on any road-network
+        // topology change (UpdateNavMap — fires on every build/destroy).
+        // Purely a performance memo: identical inputs, identical BFS result.
+        std::map<std::pair<int, int>, std::vector<int>> pathCache;
 };
 
 #endif

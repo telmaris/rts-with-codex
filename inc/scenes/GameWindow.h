@@ -2,6 +2,7 @@
 #define GAMEWINDOW_H
 
 #include "ui/AudioSystem.h"
+#include "ui/GuiHandler.h"
 #include "core/Events.h"
 
 // Base scene that owns a renderer and receives events from the window broker.
@@ -61,6 +62,13 @@ class GameWindow : public EventBroker
     {
         activeScene = scenes[name];
         activeScene->previousSceneName = previousSceneName;
+        // Central input-gate reset (see IGuiHandler): every activated scene
+        // starts with its GUI input gated until it has presented a frame and
+        // ESC is released — no scene can react to the same key edge that
+        // caused this very transition. Done here, once, so individual scenes
+        // can't forget it.
+        if (auto* guiHandler = dynamic_cast<IGuiHandler*>(activeScene.get()))
+            guiHandler->ResetGuiInputGate();
         activeScene->OnActivated();
     }
 

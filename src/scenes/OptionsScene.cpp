@@ -23,6 +23,7 @@ OptionsScene::OptionsScene()
 // Advances this object's state for one frame.
 void OptionsScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     render.Draw({&backButton, &fullScreenCheckBox, &masterVolume, &musicVolume, &sfxVolume}, dt);
 
     if (fullScreenCheckBox.HasChanged())

@@ -97,7 +97,7 @@ public:
         static_assert(std::is_base_of<Building, T>::value);
         T preview{0};
         Vec2i anchor = tilemap.GetCoordsFromId(tilePos);
-        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this))
+        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this, preview.buildingType))
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
@@ -163,6 +163,9 @@ public:
     }
 
     double GetFoodProductivity() const;
+    // Raw food supply ratio (0-1) averaged across villages — see Player.cpp
+    // for why this must not be confused with GetFoodProductivity().
+    double GetFoodSupplyRatio() const;
 
     double ModifyBalance(BalanceStat stat, double base, BuildingType buildingType = BuildingType::Building,
                          ResourceType resourceType = ResourceType::Null) const
@@ -261,10 +264,7 @@ public:
         BalanceModifierContext context{stat, buildingType, resourceType};
         context.position = position;
         if (position.has_value() && tilemap.IsInside(position.value()))
-        {
             context.positionId = tilemap.GetIdFromCoords(position.value());
-            context.ownedTerritory = tilemap.tilemap[context.positionId.value()].owner == this;
-        }
         return context;
     }
 
@@ -282,11 +282,7 @@ public:
         context.buildingId = building->id;
         context.positionId = building->positionId;
         if (building->positionId >= 0)
-        {
             context.position = tilemap.GetCoordsFromId(building->positionId);
-            if (tilemap.IsInside(context.position.value()))
-                context.ownedTerritory = tilemap.tilemap[building->positionId].owner == this;
-        }
         return context;
     }
 

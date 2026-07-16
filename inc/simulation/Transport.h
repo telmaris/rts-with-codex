@@ -4,6 +4,7 @@
 #include "core/Utils.h"
 
 class Building;
+class Player;
 class TileMap;
 
 struct Transportable
@@ -17,6 +18,11 @@ struct Transportable
     TileMap* map = nullptr;
     std::vector<int> transportPath;
     int currentPathStep = 0;
+    // Owner captured once at BeginTransport, not re-read from sourceBuilding->owner
+    // every tick — the road/building ownership check below must stay valid even if
+    // the source building itself changes hands mid-transport (would otherwise be
+    // self-referential and never detect the change).
+    Player* originatingOwner = nullptr;
     
     bool Update(double);
     void BeginTransport(Building*, Building*, TileMap*, const std::vector<int>&);

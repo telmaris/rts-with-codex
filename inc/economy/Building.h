@@ -46,8 +46,25 @@ enum class BuildingType : int
     // TD(etap-7): one class handles every tower tier (data-driven, like
     // BattleUnit) rather than a Woodcutter/Mine-style class per tier — so
     // this is the only tower BuildingType value needed for now.
-    DefenseTower = 40
+    DefenseTower = 40,
+
+    // B6 (docs/work_plan_2026-07-13.md): resource-road crossing over an
+    // isMilitaryRoad tile — the only building type whose placement rule
+    // REQUIRES that ground instead of refusing it (see TileMap::
+    // CanBuildFootprint). Appended at the end so old save files (which
+    // serialize this enum as a plain int) keep loading unchanged.
+    Bridge = 41
 };
+
+// True for every building type the resource-road network (RoadNetwork/
+// NavigationMap) treats as a traversable road node — Road itself plus Bridge
+// (B6), which is functionally a Road that happens to sit on a military-road
+// tile. Single source of truth so a future road-like type only needs to be
+// added here, not at every "is this tile a road" call site.
+inline bool IsRoadLike(BuildingType type)
+{
+    return type == BuildingType::Road || type == BuildingType::Bridge;
+}
 
 // What deposit (if any) sits on a tile — read by Mine/Woodcutter terrain_production.
 enum class TileType : int
@@ -269,6 +286,29 @@ public:
     double GetModifiedSpeedModifier() const;
 };
 
+// Resource-road crossing over the immutable military road (B6, docs/
+// work_plan_2026-07-13.md) — a ring/edge of the unit track can otherwise cut
+// off part of the map from the resource-road network (nothing may be built
+// on isMilitaryRoad tiles), stranding whatever is on the far side. Bridge is
+// a Road in every way that matters to the logistics network (same
+// RoadComponent, same IsRoadLike() treatment in RoadNetwork) — the only
+// difference is TileMap::CanBuildFootprint's placement rule, which REQUIRES
+// isMilitaryRoad ground instead of refusing it. Marching units are
+// unaffected: UnitMarchSystem walks the ring's own precomputed tile list, not
+// building occupancy, so a bridge sitting on a track tile doesn't block or
+// alter marching. Bridges have no HP (consistent with towers being the only
+// combat-capable structure today) — they can only be removed by their owner.
+class Bridge : public Building
+{
+public:
+    Bridge() = default;
+    Bridge(int i);
+
+    RoadComponent road;
+    int GetModifiedMaxCapacity() const;
+    double GetModifiedSpeedModifier() const;
+};
+
 // Building that stores resources and serves as a logistics hub.
 class StorageBuilding : public Building
 {
@@ -314,8 +354,10 @@ public:
 };
 
 // Recruitment factory. Holds a StorageComponent buffer for delivered unit
-// costs (fed by the existing road network, same as a production building's
-// inputs) and a RecruitmentComponent queue that spends those resources plus
+// costs, a LogisticsComponent that actively requests those costs over the
+// road network (T3 fix, docs/post_pivot_audit_2026-07-12.md — mirrors
+// DefenseTower's ammo pull, RecruitmentComponent::Update drives it every
+// tick), and a RecruitmentComponent queue that spends those resources plus
 // player manpower to produce BattleUnit instances into the owner's roster.
 class Barracks : public Building
 {
@@ -325,6 +367,7 @@ public:
 
     // --- Component members ---
     StorageComponent storage;
+    LogisticsComponent logistics;
     RecruitmentComponent recruitment;
 };
 

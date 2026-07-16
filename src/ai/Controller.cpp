@@ -46,6 +46,25 @@ namespace
         return personality;
     }
 
+    // C1 (docs/work_plan_2026-07-13.md): shared by AnalyzeAxis/EvaluateAxis's
+    // Military signals and BuildMilitary's milestone target, so "how big a
+    // garrison feels comfortable" agrees everywhere it's asked.
+    int ComfortableGarrisonSize(const AIPersonality& p)
+    {
+        return 2 + static_cast<int>((p.militarism + p.aggression) * 4.0f);
+    }
+
+    // Roster headcount LaunchOffensive commits an attack column at — smaller
+    // than the "comfortable garrison" (an offensive-minded AI is willing to
+    // strip its home defense to go on the attack), further reduced by
+    // opportunism: an opportunistic AI is willing to swing with less.
+    int AttackReadyRosterSize(const AIPersonality& p)
+    {
+        int base = 3 + static_cast<int>((p.militarism + p.aggression) * 3.0f);
+        int discount = static_cast<int>(p.opportunism * 2.0f);
+        return std::max(2, base - discount);
+    }
+
     double AxisAnalysisInterval(AIStrategyAxis axis)
     {
         switch (axis)
@@ -56,8 +75,6 @@ namespace
             case AIStrategyAxis::Risk: return 12.0;
             case AIStrategyAxis::InternalDevelopment: return 15.0;
             case AIStrategyAxis::Technology: return 20.0;
-            case AIStrategyAxis::Expansion: return 30.0;
-            case AIStrategyAxis::Diplomacy: return 45.0;
         }
         return 10.0;
     }
@@ -69,10 +86,8 @@ namespace
             AIStrategyAxis::Resources,
             AIStrategyAxis::Logistics,
             AIStrategyAxis::Military,
-            AIStrategyAxis::Expansion,
             AIStrategyAxis::InternalDevelopment,
             AIStrategyAxis::Technology,
-            AIStrategyAxis::Diplomacy,
             AIStrategyAxis::Risk})
         {
             cache.push_back({axis, AxisAnalysisInterval(axis), 0.0, {}});
@@ -85,8 +100,22 @@ namespace
         return player != nullptr ? player->GetTrackedBuildingCount(type, true) : 0;
     }
 
+    // Perf fix (2026-07-12): this is a pure function of the static building
+    // catalog (GetBuildingDefinitions() is loaded once from buildings.rtsdata
+    // and never changes at runtime) — yet it was recomputed by iterating every
+    // building definition's full cost/recipe list on EVERY call, and
+    // TryBuildEconomy calls it once per resource type on every invocation
+    // (itself an AI fallback path that runs often — see the call site).
+    // Memoize per resource type; first call per type pays the real cost, every
+    // later call for that type is a map lookup.
     double ResourceDevelopmentValue(ResourceType type)
     {
+        static std::map<uint8_t, double> cache;
+        auto key = static_cast<uint8_t>(type);
+        auto it = cache.find(key);
+        if (it != cache.end())
+            return it->second;
+
         double value = 0.0;
         for (const auto& definition : GetBuildingDefinitions())
         {
@@ -106,6 +135,7 @@ namespace
             for (const auto& recipe : definition.recipes)
                 inspectProduction(recipe.production);
         }
+        cache[key] = value;
         return value;
     }
 
@@ -193,9 +223,18 @@ namespace
     int DistanceToNearestInfrastructure(TileMap& tilemap, Player* player, Vec2i pos)
     {
         int best = std::numeric_limits<int>::max() / 4;
-        for (const auto& tile : tilemap.tilemap)
+        if (player == nullptr)
+            return best;
+
+        // Perf fix (2026-07-12): this iterated the WHOLE tilemap (~90k tiles on
+        // the default map) — and it runs once per candidate tile inside
+        // FindBuildAnchor's scan, making anchor search O(map²) (billions of
+        // tile visits, measured 7.7 s per AI build decision). The tracked-
+        // buildings registry is a few dozen entries with identical results.
+        // Iteration order of the std::set doesn't matter: min() is
+        // order-independent, so determinism is preserved.
+        for (const Building* building : player->GetTrackedBuildings())
         {
-            Building* building = tile.building.get();
             if (building == nullptr || building->owner != player || building->IsUnderConstruction())
                 continue;
             if (building->buildingType != BuildingType::Road && !building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
@@ -271,6 +310,7 @@ void PrimitiveAIModel::Update(GameWorld& world, Player* player, double dt, const
     roadTimer -= dt;
     attackTimer -= dt;
     decisionTimer -= dt;
+    attackTargetCacheTimer -= dt;
     auto decay = [dt](auto& container)
     {
         for (auto it = container.begin(); it != container.end();)
@@ -285,6 +325,7 @@ void PrimitiveAIModel::Update(GameWorld& world, Player* player, double dt, const
     decay(reservedRoadTiles);
     decay(recentBuildOrders);
     decay(recentResearchOrders);
+    decay(expensiveAnchorSearchCooldown);
 
     // Logistics maintenance runs on its own cadence — keeps the network healthy
     // independently of the strategic decision core below.
@@ -381,13 +422,11 @@ bool PrimitiveAIModel::TryBuildEconomy(GameWorld& world, Player* player, const A
         addOpening(BuildingType::LumberMill, TileType::GRASS, 1, 260.0);
 
     add(BuildingType::StorageBuilding, TileType::GRASS,
-        (storagePressure ? 45.0 + settings.personality.logisticsAwareness * 25.0 : 0.0) +
-        (activePlan == AIStrategicPlan::FixLogistics && (stalledBuildings > 0 || storagePressure) ? 35.0 : 0.0));
+        (storagePressure ? 45.0 + settings.personality.logisticsAwareness * 25.0 : 0.0));
 
     add(BuildingType::Village, TileType::GRASS,
         (populationRatio > 0.82 ? 75.0 : 0.0) +
-        (villages < 1 ? 35.0 : 0.0) +
-        (activePlan == AIStrategicPlan::DevelopPopulation ? 35.0 : 0.0));
+        (villages < 1 ? 35.0 : 0.0));
 
     std::function<void(ResourceType, int, double)> collectResourceCandidates = [&](ResourceType resource, int depth, double weight)
     {
@@ -475,7 +514,6 @@ bool PrimitiveAIModel::TryBuildEconomy(GameWorld& world, Player* player, const A
             utility.personalityModifier = personality * inputModifier * noise;
             utility.feasibility = costCoverage;
             utility.urgency = 1.0 + spendPressure;
-            utility.planModifier = activePlan == AIStrategicPlan::RecoverEconomy || activePlan == AIStrategicPlan::ExpandForResources ? 1.10 : 1.0;
             add(option.buildingType, option.terrain, utility.Score() * existingPenalty);
         }
     }
@@ -488,8 +526,14 @@ bool PrimitiveAIModel::TryBuildEconomy(GameWorld& world, Player* player, const A
         return a.score > b.score;
     });
 
+    // Perf fix (2026-07-12): same reasoning as RunUnifiedDecision's cap — don't
+    // pay for a real anchor search for every candidate in an unbounded list.
+    constexpr int kMaxAnchorSearchAttempts = 3;
+    int attempts = 0;
     for (const auto& candidate : candidates)
     {
+        if (attempts++ >= kMaxAnchorSearchAttempts)
+            break;
         Vec2i anchor = FindBuildAnchor(world, player, candidate.type, candidate.terrain, nullptr);
         if (anchor.x >= 0 && TrySubmitBuild(world, player, candidate.type, anchor))
             return true;
@@ -511,7 +555,17 @@ bool PrimitiveAIModel::TryBuildRoads(GameWorld& world, Player* player)
     if (roads > std::max(6, buildings * 3))
         return false;
 
-    for (auto* building : player->GetTrackedBuildings())
+    // Determinism fix (docs/work_plan_2026-07-13.md, found while verifying B1/
+    // B2): this loop returns (submits a command) on the first disconnected
+    // storage-like/HQ building, so — same reasoning as the sorted loop below
+    // it — iteration order is simulation-visible and must not depend on
+    // Building* heap addresses. This instance was missed by the follow-up #5
+    // fix that sorted the other loop in this function; found via a
+    // reproducible SiegeToEliminationIsDeterministicForSameSeed flake
+    // (checksum divergence deep into a long AI-driven run).
+    std::vector<Building*> disconnectedCandidates(player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
+    std::sort(disconnectedCandidates.begin(), disconnectedCandidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+    for (Building* building : disconnectedCandidates)
     {
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
@@ -538,9 +592,17 @@ bool PrimitiveAIModel::TryBuildRoads(GameWorld& world, Player* player)
         }
     }
 
-    for (auto& tile : world.GetTileMap().tilemap)
+    // Perf fix (2026-07-12): full tilemap scan on the ~1.25-2 s road-maintenance
+    // cadence — same tracked-buildings substitution as the loop above. Sorted
+    // by id rather than iterated in the set's native pointer order: this loop
+    // returns (submits a command) on the first match, so iteration order is
+    // simulation-visible and must not depend on Building* heap addresses,
+    // which differ across separately-constructed GameWorld instances (found
+    // via a flaky lockstep-determinism test).
+    std::vector<Building*> roadCandidates(player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
+    std::sort(roadCandidates.begin(), roadCandidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+    for (Building* building : roadCandidates)
     {
-        Building* building = tile.building.get();
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
         if (building->buildingType == BuildingType::Road || building->IsStorageLike())
@@ -572,12 +634,21 @@ AIMapAssessment PrimitiveAIModel::AssessMap(GameWorld& world, Player* player) co
         return type == TileType::IRON_ORE || type == TileType::COAL || type == TileType::STONE || type == TileType::WOOD;
     };
 
+    // Tile::owner is a relic of the pre-pivot territory system (ETAP 1
+    // removed it; nothing sets it in production anymore — see
+    // docs/post_pivot_audit_2026-07-12.md T2). "Ownership" of a resource
+    // tile today can only mean "a building of mine already sits on it" —
+    // there is no separate ground-ownership concept post-pivot.
     int nearestUnownedStrategic = 9999;
     for (const auto& tile : world.GetTileMap().tilemap)
     {
         Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
         int distance = std::abs(pos.x - origin.x) + std::abs(pos.y - origin.y);
-        if (tile.owner != nullptr && tile.owner != player)
+        const Building* tileBuilding = tile.GetBuilding();
+        bool enemyOwned = tileBuilding != nullptr && tileBuilding->owner != nullptr && tileBuilding->owner != player;
+        bool selfOwned = tileBuilding != nullptr && tileBuilding->owner == player;
+
+        if (enemyOwned)
         {
             assessment.nearestEnemyDistance = std::min(assessment.nearestEnemyDistance, distance);
             if (isStrategicResource(tile.tileType))
@@ -587,7 +658,7 @@ AIMapAssessment PrimitiveAIModel::AssessMap(GameWorld& world, Player* player) co
         if (!isStrategicResource(tile.tileType) || tile.resourceRichness <= 0)
             continue;
 
-        if (tile.owner == player)
+        if (selfOwned)
             assessment.ownedStrategicResourceTiles++;
         else
         {
@@ -596,9 +667,9 @@ AIMapAssessment PrimitiveAIModel::AssessMap(GameWorld& world, Player* player) co
                 assessment.nearbyUnownedStrategicResourceTiles++;
         }
 
-        if (tile.tileType == TileType::IRON_ORE && tile.owner != player)
+        if (tile.tileType == TileType::IRON_ORE && !selfOwned)
             assessment.nearestIronDistance = std::min(assessment.nearestIronDistance, distance);
-        if (tile.tileType == TileType::COAL && tile.owner != player)
+        if (tile.tileType == TileType::COAL && !selfOwned)
             assessment.nearestCoalDistance = std::min(assessment.nearestCoalDistance, distance);
     }
 
@@ -637,8 +708,6 @@ AIStrategySnapshot PrimitiveAIModel::UpdateStrategyPipeline(GameWorld& world, Pl
         snapshot.axisScores[static_cast<int>(axisCache.axis)] = axisCache.score;
     }
 
-    snapshot.selectedPlan = SelectStrategicPlan(snapshot, settings);
-    activePlan = snapshot.selectedPlan;
     return snapshot;
 }
 
@@ -697,9 +766,6 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
     int stalledBuildings = 0;
     int disconnectedBuildings = 0;
     int storageBuildings = 0;
-    int ownedTiles = 0;
-    int borderTiles = 0;
-    int enemyBorderTiles = 0;
     for (const auto* building : player->GetTrackedBuildings())
     {
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
@@ -730,55 +796,44 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
 
     if (axis == AIStrategyAxis::Military)
     {
-        // TD(etap-1): stubbed — no signals until the Tower Defense rework adds a
-        // unit-roster-based read of military standing (ETAP 3+).
-        return signals;
-    }
+        // C1 (docs/work_plan_2026-07-13.md): first real Military signal since
+        // the Tower Defense pivot — roster/garrison strength read directly
+        // from the unit/tower systems that replaced the old war system.
+        int barracksCount = CountCompletedBuildings(player, BuildingType::Barracks);
+        int rosterSize = static_cast<int>(player->roster.units.size());
 
-    if (axis == AIStrategyAxis::Expansion || axis == AIStrategyAxis::Risk)
-    {
-        for (const auto& tile : world.GetTileMap().tilemap)
+        if (barracksCount <= 0 && completedBuildings >= 6)
+            push(axis, 0.30f + settings.personality.militarism * 0.30f, ResourceType::Null, "no barracks");
+
+        if (barracksCount > 0)
         {
-            if (tile.owner != player)
-                continue;
-            ownedTiles++;
-            Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
-            const std::array<Vec2i, 4> neighbours{
-                Vec2i{pos.x + 1, pos.y},
-                Vec2i{pos.x - 1, pos.y},
-                Vec2i{pos.x, pos.y + 1},
-                Vec2i{pos.x, pos.y - 1}
-            };
-            bool isBorder = false;
-            for (Vec2i neighbour : neighbours)
-            {
-                if (!world.GetTileMap().IsInside(neighbour))
-                    continue;
-                const Tile& other = world.GetTileMap().tilemap[world.GetTileMap().GetIdFromCoords(neighbour)];
-                if (other.owner != player)
-                {
-                    isBorder = true;
-                    if (other.owner != nullptr)
-                        enemyBorderTiles++;
-                }
-            }
-            if (isBorder)
-                borderTiles++;
+            int comfortableGarrison = ComfortableGarrisonSize(settings.personality);
+            if (rosterSize < comfortableGarrison)
+                push(axis, (comfortableGarrison - rosterSize) / static_cast<float>(std::max(1, comfortableGarrison))
+                    * (0.35f + settings.personality.militarism * 0.35f), ResourceType::Null, "roster below comfortable garrison");
         }
-    }
 
-    if (axis == AIStrategyAxis::Expansion)
-    {
-        int terrainResources = 0;
-        for (const auto& tile : world.GetTileMap().tilemap)
-            if (tile.owner == player && (tile.tileType == TileType::WOOD || tile.tileType == TileType::STONE || tile.tileType == TileType::IRON_ORE || tile.tileType == TileType::COAL))
-                terrainResources++;
-        if (completedBuildings < 8)
-            push(axis, (8 - completedBuildings) / 8.0f * settings.personality.expansionism, ResourceType::Null, "small settlement footprint");
-        if (terrainResources < 8)
-            push(axis, 0.35f + settings.personality.expansionism * 0.35f, ResourceType::Null, "limited owned resource terrain");
-        if (ownedTiles > 0 && borderTiles > ownedTiles * 0.45)
-            push(axis, 0.30f + settings.personality.expansionism * 0.25f, ResourceType::Null, "thin irregular territory");
+        // Interim defensive-coverage proxy: towers built but starved of ammo.
+        // A sharper version driven by real combat losses lands with C4's
+        // unit-death telemetry (docs/work_plan_2026-07-13.md) — this reads
+        // what's directly inspectable today rather than waiting on it.
+        int towersLowOnAmmo = 0;
+        int totalTowers = 0;
+        for (const auto* tower : player->GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+        {
+            const auto* combat = tower != nullptr ? tower->GetComponent<TowerCombatComponent>() : nullptr;
+            const auto* storage = tower != nullptr ? tower->GetComponent<StorageComponent>() : nullptr;
+            if (combat == nullptr || storage == nullptr || tower->owner != player || tower->IsUnderConstruction())
+                continue;
+            totalTowers++;
+            auto bufferIt = storage->buffers.find(combat->ammoResource);
+            int ammo = bufferIt != storage->buffers.end() ? static_cast<int>(bufferIt->second.buffer.size()) : 0;
+            if (ammo < combat->GetModifiedAmmoPerShot(*tower) * 3)
+                towersLowOnAmmo++;
+        }
+        if (totalTowers > 0 && towersLowOnAmmo > 0)
+            push(axis, 0.30f + (static_cast<float>(towersLowOnAmmo) / totalTowers) * 0.40f, ResourceType::Null, "towers low on ammo");
+
         return signals;
     }
 
@@ -805,28 +860,11 @@ std::vector<AIStrategySignal> PrimitiveAIModel::AnalyzeAxis(GameWorld& world, Pl
         return signals;
     }
 
-    if (axis == AIStrategyAxis::Diplomacy)
-    {
-        int rivalBuildings = 0;
-        for (const auto& tile : world.GetTileMap().tilemap)
-        {
-            const Building* building = tile.GetBuilding();
-            if (building == nullptr || building->owner == nullptr || building->owner == player || building->IsUnderConstruction())
-                continue;
-            rivalBuildings++;
-        }
-        if (rivalBuildings > 0)
-            push(axis, std::min(1.0f, 0.20f + rivalBuildings * 0.02f * (settings.personality.aggression + settings.personality.opportunism)), ResourceType::Null, "known rivals");
-        return signals;
-    }
-
     if (axis == AIStrategyAxis::Risk)
     {
         if (player->economyTelemetry.current.consumptionRatesPerMinute[ResourceType::FOOD_PROVISIONS] >
             player->economyTelemetry.current.productionRatesPerMinute[ResourceType::FOOD_PROVISIONS])
             push(axis, 0.45f + (1.0f - settings.personality.riskTolerance) * 0.35f, ResourceType::FOOD_PROVISIONS, "supply reserve risk");
-        if (enemyBorderTiles > 0)
-            push(axis, std::min(1.0f, 0.25f + enemyBorderTiles * 0.03f * (1.0f - settings.personality.riskTolerance + settings.personality.defensiveBias)), ResourceType::Null, "hostile border exposure");
         if (storageBuildings <= 1 && completedBuildings >= 8)
             push(axis, 0.30f + settings.personality.planning * 0.25f, ResourceType::Null, "low rebuild reserve capacity");
         return signals;
@@ -929,17 +967,41 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
     }
 
     case AIStrategyAxis::Military:
-        // TD(etap-1): stubbed neutral — see AnalyzeAxis. Other axes' formulas
-        // (goal/plan scoring) read this via GetPressure/GetAxisScore; 0.0 keeps
-        // them inert without crashing on the removed ArmyRegistry.
-        return 0.0f;
-
-    case AIStrategyAxis::Expansion:
     {
-        AIMapAssessment map = AssessMap(world, player);
-        float richnessScore = std::tanh(map.ownedStrategicResourceTiles / 8.0f - 1.0f);
-        float pressureScore = -static_cast<float>(map.expansionPressure);
-        return std::clamp(richnessScore * 0.65f + pressureScore * 0.35f, -1.0f, 1.0f);
+        // C1 (docs/work_plan_2026-07-13.md): mirrors AnalyzeAxis's signals as
+        // a signed score — no Barracks is a clear negative once the economy
+        // can afford one; otherwise scaled by how full the roster is against
+        // a personality-scaled "comfortable garrison", plus tower ammo health.
+        int barracksCount = CountCompletedBuildings(player, BuildingType::Barracks);
+        int totalOwnedCompleted = 0;
+        for (const auto* b : player->GetTrackedBuildings())
+            if (b != nullptr && b->owner == player && !b->IsUnderConstruction())
+                totalOwnedCompleted++;
+
+        if (barracksCount <= 0)
+            return totalOwnedCompleted >= 6 ? -0.4f : 0.0f;
+
+        int rosterSize = static_cast<int>(player->roster.units.size());
+        int comfortableGarrison = ComfortableGarrisonSize(settings.personality);
+        float rosterScore = std::tanh((static_cast<float>(rosterSize) / std::max(1, comfortableGarrison) - 0.7f) * 2.0f);
+
+        int totalTowers = 0;
+        int wellStockedTowers = 0;
+        for (const auto* tower : player->GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+        {
+            const auto* combat = tower != nullptr ? tower->GetComponent<TowerCombatComponent>() : nullptr;
+            const auto* storage = tower != nullptr ? tower->GetComponent<StorageComponent>() : nullptr;
+            if (combat == nullptr || storage == nullptr || tower->owner != player || tower->IsUnderConstruction())
+                continue;
+            totalTowers++;
+            auto bufferIt = storage->buffers.find(combat->ammoResource);
+            int ammo = bufferIt != storage->buffers.end() ? static_cast<int>(bufferIt->second.buffer.size()) : 0;
+            if (ammo >= combat->GetModifiedAmmoPerShot(*tower) * 3)
+                wellStockedTowers++;
+        }
+        float towerScore = totalTowers > 0 ? (static_cast<float>(wellStockedTowers) / totalTowers) * 2.0f - 1.0f : 0.0f;
+
+        return std::clamp(rosterScore * 0.7f + towerScore * 0.3f, -1.0f, 1.0f);
     }
 
     case AIStrategyAxis::InternalDevelopment:
@@ -987,12 +1049,6 @@ float PrimitiveAIModel::EvaluateAxis(GameWorld& world, Player* player, AIStrateg
         float score = std::tanh(coverage * 4.0f - 0.5f) * 0.8f + (anyResearching ? 0.2f : -0.1f);
         return std::clamp(score, -1.0f, 1.0f);
     }
-
-    case AIStrategyAxis::Diplomacy:
-        // TD(etap-1): stubbed — fortification building comparison relied on the
-        // removed GuardTower/Fortress/Castle classes and HP concept. Neutral
-        // score until the Tower Defense rework gives this axis a fresh signal.
-        return 0.5f;
 
     case AIStrategyAxis::Risk:
     {
@@ -1047,9 +1103,9 @@ const char* AIStrategicGoalLabel(AIStrategicGoal goal)
 namespace
 {
     // Which axes a building improves, indexed by static_cast<int>(AIStrategyAxis).
-    std::array<float, 8> GetBuildingAxisAffinity(BuildingType type)
+    std::array<float, 6> GetBuildingAxisAffinity(BuildingType type)
     {
-        std::array<float, 8> a{};
+        std::array<float, 6> a{};
         auto set = [&](AIStrategyAxis ax, float v) { a[static_cast<int>(ax)] = v; };
         switch (type)
         {
@@ -1082,8 +1138,7 @@ namespace
                 set(AIStrategyAxis::Technology, 1.00f);
                 set(AIStrategyAxis::InternalDevelopment, 0.40f); break;
             case BuildingType::Mint:
-                set(AIStrategyAxis::Resources, 0.50f);
-                set(AIStrategyAxis::Diplomacy, 0.30f); break;
+                set(AIStrategyAxis::Resources, 0.50f); break;
             case BuildingType::Glassworks:
                 set(AIStrategyAxis::Resources, 0.70f);
                 set(AIStrategyAxis::InternalDevelopment, 0.20f); break;
@@ -1102,13 +1157,11 @@ namespace
     {
         switch (axis)
         {
-            case AIStrategyAxis::Resources:            return 0.7f + p.economicFocus * 0.6f;
+            case AIStrategyAxis::Resources:            return 0.7f + p.economicFocus * 0.6f + p.expansionism * 0.2f;
             case AIStrategyAxis::Logistics:            return 0.6f + p.logisticsAwareness * 0.8f;
             case AIStrategyAxis::Military:             return 0.5f + p.militarism * 0.7f + p.aggression * 0.3f;
-            case AIStrategyAxis::Expansion:            return 0.5f + p.expansionism * 0.8f;
             case AIStrategyAxis::InternalDevelopment:  return 0.6f + p.economicFocus * 0.4f + p.planning * 0.2f;
             case AIStrategyAxis::Technology:           return 0.5f + p.planning * 0.8f;
-            case AIStrategyAxis::Diplomacy:            return 0.5f + p.opportunism * 0.5f;
             case AIStrategyAxis::Risk:                 return 0.5f + p.defensiveBias * 0.6f + (1.0f - p.riskTolerance) * 0.4f;
         }
         return 1.0f;
@@ -1119,7 +1172,12 @@ namespace
         switch (goal)
         {
             case AIStrategicGoal::StabilizeEconomy:      return AIStrategyAxis::Resources;
-            case AIStrategicGoal::ExpandTerritory:       return AIStrategyAxis::Expansion;
+            // C1 (docs/work_plan_2026-07-13.md): Expansion axis removed — the
+            // old "territorial growth" reading has no equivalent post-pivot
+            // (no ground ownership to expand), so this goal now reads the
+            // same Resources pressure as StabilizeEconomy, differentiated
+            // purely by personality weight (expansionism vs economicFocus).
+            case AIStrategicGoal::ExpandTerritory:       return AIStrategyAxis::Resources;
             case AIStrategicGoal::DevelopInfrastructure: return AIStrategyAxis::InternalDevelopment;
             case AIStrategicGoal::BuildMilitary:         return AIStrategyAxis::Military;
             case AIStrategicGoal::LaunchOffensive:       return AIStrategyAxis::Military;
@@ -1142,7 +1200,7 @@ namespace
     }
 }
 
-AIStrategicGoal PrimitiveAIModel::SelectStrategicGoal(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const
+AIStrategicGoal PrimitiveAIModel::SelectStrategicGoal(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const
 {
     const auto& p = settings.personality;
     auto pressure = [&](AIStrategyAxis a) { return static_cast<double>(snapshot.GetPressure(a)); };
@@ -1150,17 +1208,23 @@ AIStrategicGoal PrimitiveAIModel::SelectStrategicGoal(const AIStrategySnapshot& 
 
     struct Candidate { AIStrategicGoal goal; double value; };
 
-    // Offensive only makes sense when we are strong AND outmatch the enemy AND not starving.
-    double offensiveReadiness = std::clamp(score(AIStrategyAxis::Military), 0.0, 1.0) * 0.5
-                              + std::clamp(score(AIStrategyAxis::Diplomacy), 0.0, 1.0) * 0.5;
+    // C1 (docs/work_plan_2026-07-13.md): offensive readiness now reads the
+    // real Military axis alone (Diplomacy axis removed — see AIStrategyAxis).
+    // An opportunistic personality (p.opportunism) is willing to go with a
+    // thinner military edge; a hard reachability gate stops the AI from ever
+    // committing to LaunchOffensive when no enemy HQ is actually reachable
+    // yet (still mid-ring, or every neighbor already eliminated).
+    double militaryReadiness = std::clamp(score(AIStrategyAxis::Military), 0.0, 1.0);
+    double offensiveReadiness = std::clamp(militaryReadiness + p.opportunism * 0.3, 0.0, 1.0);
     double riskGate = score(AIStrategyAxis::Risk) > -0.3 ? 1.0 : 0.25;
+    double reachabilityGate = GetCachedAttackTargetPlayer(world, player) != -1 ? 1.0 : 0.0;
 
     std::vector<Candidate> candidates{
         {AIStrategicGoal::StabilizeEconomy,      pressure(AIStrategyAxis::Resources) * (0.9 + p.economicFocus) + pressure(AIStrategyAxis::Logistics) * 0.3},
-        {AIStrategicGoal::ExpandTerritory,       std::max(pressure(AIStrategyAxis::Expansion), pressure(AIStrategyAxis::Resources) * 0.5) * (0.55 + p.expansionism)},
+        {AIStrategicGoal::ExpandTerritory,       pressure(AIStrategyAxis::Resources) * 0.6 * (0.55 + p.expansionism)},
         {AIStrategicGoal::DevelopInfrastructure, pressure(AIStrategyAxis::InternalDevelopment) * (0.7 + p.economicFocus) + pressure(AIStrategyAxis::Technology) * (0.4 + p.planning)},
         {AIStrategicGoal::BuildMilitary,         pressure(AIStrategyAxis::Military) * (0.6 + p.militarism) + pressure(AIStrategyAxis::Risk) * 0.25},
-        {AIStrategicGoal::LaunchOffensive,       offensiveReadiness * (0.4 + p.aggression + p.opportunism * 0.5) * riskGate},
+        {AIStrategicGoal::LaunchOffensive,       offensiveReadiness * (0.4 + p.aggression + p.opportunism * 0.5) * riskGate * reachabilityGate},
         {AIStrategicGoal::Fortify,               pressure(AIStrategyAxis::Risk) * (0.55 + p.defensiveBias) + pressure(AIStrategyAxis::Military) * 0.3}
     };
 
@@ -1191,6 +1255,10 @@ std::vector<AIMilestone> PrimitiveAIModel::BuildMilestoneChain(AIStrategicGoal g
     { return AIMilestone{AIMilestoneKind::ResourceStock, BuildingType::Building, r, "", n, label}; };
     auto Tag = [](const char* tag, int n, const char* label)
     { return AIMilestone{AIMilestoneKind::TechWithTag, BuildingType::Building, ResourceType::Null, tag, n, label}; };
+    auto Army = [](int n, const char* label)
+    { return AIMilestone{AIMilestoneKind::ArmyStrength, BuildingType::Building, ResourceType::Null, "", n, label}; };
+    auto Ready = [](int n, const char* label)
+    { return AIMilestone{AIMilestoneKind::AttackReady, BuildingType::Building, ResourceType::Null, "", n, label}; };
 
     switch (goal)
     {
@@ -1217,20 +1285,23 @@ std::vector<AIMilestone> PrimitiveAIModel::BuildMilestoneChain(AIStrategicGoal g
                 B(BuildingType::Windmill, 1, "windmill"),
                 B(BuildingType::Bakery, 1, "bakery")
             };
-        // TD(etap-1): BuildMilitary/LaunchOffensive/Fortify used to chain through
-        // Barracks recruitment and GuardTower/Fortress defenses; both the army
-        // strength milestone and those building types are gone. Reduced to a
-        // harmless single-step chain so the goal/milestone state machine never
-        // stalls if personality weights still select one of these goals — a real
-        // military chain returns with the Tower Defense unit/tower systems.
+        // C1 (docs/work_plan_2026-07-13.md): real chains against the Tower
+        // Defense unit/tower systems, replacing the old war system's
+        // Division/GarrisonComponent equivalents.
         case AIStrategicGoal::BuildMilitary:
+            return {
+                B(BuildingType::Barracks, 1, "barracks"),
+                Army(ComfortableGarrisonSize(settings.personality), "garrison strength")
+            };
         case AIStrategicGoal::LaunchOffensive:
             return {
-                B(BuildingType::Barracks, 1, "barracks")
+                B(BuildingType::Barracks, 1, "barracks"),
+                Ready(AttackReadyRosterSize(settings.personality), "attack column ready")
             };
         case AIStrategicGoal::Fortify:
             return {
-                B(BuildingType::StorageBuilding, 2, "deep reserves")
+                B(BuildingType::StorageBuilding, 2, "deep reserves"),
+                B(BuildingType::DefenseTower, 1, "defense tower")
             };
     }
     return {};
@@ -1255,13 +1326,20 @@ double PrimitiveAIModel::MilestoneProgress(GameWorld& world, Player* player, con
             return ratio(GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute, m.resource), m.threshold);
         case AIMilestoneKind::ResourceStock:
             return ratio(CountStoredResource(world, player, m.resource), m.threshold);
-        // TD(etap-1): stubbed complete — ArmyRegistry is gone and no goal chain
-        // still emits these two kinds (see BuildMilitaryChain), but the switch
-        // must stay exhaustive. Always-satisfied so a stray milestone can never
-        // stall the goal state machine.
+        // C1 (docs/work_plan_2026-07-13.md): "army strength" is read as
+        // roster headcount (units recruited but not yet deployed) — simple,
+        // and it naturally resets to 0 after a DeployUnits attack, so the
+        // milestone/goal machinery makes the AI rebuild a garrison before it
+        // can commit to another wave rather than emptying the roster once.
         case AIMilestoneKind::ArmyStrength:
+            return ratio(static_cast<double>(player->roster.units.size()), m.threshold);
+        // Attack-ready additionally requires a reachable enemy HQ — with none,
+        // progress is pinned at 0 regardless of roster size, so the goal
+        // machinery doesn't report "ready" for an attack that has nowhere to go.
         case AIMilestoneKind::AttackReady:
-            return 1.0;
+            return GetCachedAttackTargetPlayer(world, player) != -1
+                ? ratio(static_cast<double>(player->roster.units.size()), m.threshold)
+                : 0.0;
         case AIMilestoneKind::TechWithTag:
         {
             int count = 0;
@@ -1284,7 +1362,7 @@ int PrimitiveAIModel::FindActiveMilestone(GameWorld& world, Player* player, cons
 
 void PrimitiveAIModel::UpdateGoalState(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings, double dt)
 {
-    AIStrategicGoal selected = SelectStrategicGoal(snapshot, settings);
+    AIStrategicGoal selected = SelectStrategicGoal(world, player, snapshot, settings);
     if (!goalState.initialized || selected != goalState.goal)
     {
         goalState.goal = selected;
@@ -1297,7 +1375,6 @@ void PrimitiveAIModel::UpdateGoalState(GameWorld& world, Player* player, const A
         goalState.timeInGoal += dt;
     }
     goalState.activeMilestone = FindActiveMilestone(world, player, goalState.chain);
-    activePlan = snapshot.selectedPlan;  // keep legacy plan field in sync for any external readers
 }
 
 double PrimitiveAIModel::ForecastSecondsToAfford(GameWorld& world, Player* player, const std::vector<ResourceAmountDefinition>& costs) const
@@ -1345,7 +1422,16 @@ double PrimitiveAIModel::MilestoneAlignment(const AIActionCandidate& candidate, 
 
 Building* PrimitiveAIModel::FindUniversity(GameWorld& world, Player* player) const
 {
-    for (auto* building : player->GetTrackedBuildings())
+    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): unlike
+    // FindOwnedHeadquarters, there is NO "at most one" invariant here — a
+    // player can own multiple Universities (no build-count cap), so which
+    // idle one gets picked to start research must not depend on Building*
+    // heap addresses (it becomes per-building ResearchComponent state, which
+    // is simulation-visible).
+    std::vector<Building*> sortedUniversities(player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
+    std::sort(sortedUniversities.begin(), sortedUniversities.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
+    for (auto* building : sortedUniversities)
     {
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
@@ -1356,6 +1442,42 @@ Building* PrimitiveAIModel::FindUniversity(GameWorld& world, Player* player) con
             return building;
     }
     return nullptr;
+}
+
+// C1 (docs/work_plan_2026-07-13.md): first non-defeated player reachable
+// through the military-road ring (direct edge, or via a chain of conquered
+// HQs — PathingService::AreHqsConnected already covers both). Iterates
+// playerHandler.players in id order (std::map, not a heap-address-keyed
+// container), so the result is deterministic across independently
+// constructed GameWorld instances for the same seed/command history.
+int PrimitiveAIModel::FindAttackTargetPlayer(GameWorld& world, Player* player) const
+{
+    if (player == nullptr)
+        return -1;
+
+    auto isEliminated = [&](int playerId)
+    {
+        return world.IsPlayerDefeated(playerId);
+    };
+
+    for (const auto& [otherId, otherPlayer] : world.GetPlayerHandler().players)
+    {
+        if (otherPlayer == nullptr || otherId == player->id || otherPlayer->defeated)
+            continue;
+        if (PathingService::AreHqsConnected(world.GetMilitaryRoads(), player->id, otherId, isEliminated))
+            return otherId;
+    }
+    return -1;
+}
+
+int PrimitiveAIModel::GetCachedAttackTargetPlayer(GameWorld& world, Player* player) const
+{
+    if (attackTargetCacheTimer <= 0.0)
+    {
+        cachedAttackTargetPlayer = FindAttackTargetPlayer(world, player);
+        attackTargetCacheTimer = 3.0;
+    }
+    return cachedAttackTargetPlayer;
 }
 
 std::string PrimitiveAIModel::SelectResearchTarget(GameWorld& world, Player* player, const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const
@@ -1517,12 +1639,63 @@ std::vector<AIActionCandidate> PrimitiveAIModel::GatherActionCandidates(GameWorl
         }
     }
 
-    // TD(etap-1): Recruit/Attack candidate generation removed with the old war
-    // system (RecruitmentComponent/GarrisonComponent/ArmyRegistry) — no candidate
-    // of either kind is ever produced now, so ScoreAction/ExecuteAction's cases
-    // for them are unreachable stubs kept only so those switches stay exhaustive.
-    // A fresh recruitment/attack pipeline returns with the Tower Defense unit
-    // roster and military-road systems (ETAP 3+).
+    // (f) Recruit — one candidate per (Barracks, affordable unit type) pair.
+    // Reuses AIActionCandidate::sourceTileId for the barracks position and
+    // researchId for the unit definition id, same "generic field reuse"
+    // pattern Research/Focus already use for their own target ids.
+    {
+        std::vector<Building*> barracksList(player->GetTrackedBuildingsWithComponent<RecruitmentComponent>().begin(),
+                                             player->GetTrackedBuildingsWithComponent<RecruitmentComponent>().end());
+        // Determinism (docs/work_plan_2026-07-13.md, pre-Block-C audit):
+        // GetTrackedBuildingsWithComponent is a std::set<Building*> ordered by
+        // heap address — sort by id before ScoreAction's tie-break noise
+        // (seeded by candidate.building, which Recruit candidates leave at
+        // its default) has to decide between two barracks recommending the
+        // same unit.
+        std::sort(barracksList.begin(), barracksList.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
+        for (Building* barracks : barracksList)
+        {
+            auto* recruitment = barracks != nullptr ? barracks->GetComponent<RecruitmentComponent>() : nullptr;
+            if (recruitment == nullptr || barracks->owner != player || barracks->IsUnderConstruction())
+                continue;
+            if (recruitment->queue.size() >= 2)
+                continue; // don't stack orders faster than the queue drains
+
+            for (const auto& [unitId, def] : GetUnitCatalog())
+            {
+                if (def.recruitBuilding != barracks->buildingType)
+                    continue;
+                if (!recruitment->DiagnoseRecruitmentBlock(*barracks, unitId).empty())
+                    continue;
+                AIActionCandidate c;
+                c.kind = AIActionKind::Recruit;
+                c.sourceTileId = barracks->positionId;
+                c.researchId = unitId;
+                candidates.push_back(std::move(c));
+            }
+        }
+    }
+
+    // (g) Attack — commit the whole roster (id order — UnitRoster::units is a
+    // std::map, deterministic) once AttackReadyRosterSize's threshold is met
+    // and a reachable enemy exists. targetTileId reuses GameCommand::
+    // DeployUnits' own established convention of carrying the target player
+    // id rather than an actual tile. attackTimer (reset in RunUnifiedDecision
+    // whenever an Attack candidate is attempted) paces successive waves
+    // instead of deploying again the moment the roster refills.
+    if (attackTimer <= 0.0 && !player->roster.units.empty()
+        && static_cast<int>(player->roster.units.size()) >= AttackReadyRosterSize(settings.personality))
+    {
+        int targetPlayer = GetCachedAttackTargetPlayer(world, player);
+        if (targetPlayer != -1)
+        {
+            AIActionCandidate c;
+            c.kind = AIActionKind::Attack;
+            c.targetTileId = targetPlayer;
+            candidates.push_back(std::move(c));
+        }
+    }
 
     return candidates;
 }
@@ -1546,7 +1719,7 @@ double PrimitiveAIModel::ScoreAction(GameWorld& world, Player* player, const AIA
             const auto& def = GetBuildingDefinition(candidate.building);
             auto affinity = GetBuildingAxisAffinity(candidate.building);
             double need = 0.30;
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 6; i++)
             {
                 AIStrategyAxis axis = static_cast<AIStrategyAxis>(i);
                 need += snapshot.GetPressure(axis) * affinity[i] * PersonalityAxisWeight(settings.personality, axis);
@@ -1572,12 +1745,23 @@ double PrimitiveAIModel::ScoreAction(GameWorld& world, Player* player, const AIA
             double drive = 0.7 + settings.personality.planning * 0.5;
             return base * drive * alignment * noise;
         }
-        // TD(etap-1): unreachable — GatherActionCandidates never emits these
-        // kinds anymore (see its comment). Kept only so this switch stays
-        // exhaustive; scores are irrelevant since no candidate exists to score.
         case AIActionKind::Recruit:
+        {
+            double pressure = snapshot.GetPressure(AIStrategyAxis::Military);
+            double base = 10.0 + pressure * 12.0;
+            double goalBoost = (goalState.goal == AIStrategicGoal::BuildMilitary || goalState.goal == AIStrategicGoal::LaunchOffensive) ? 1.4 : 1.0;
+            return base * (0.6 + settings.personality.militarism * 0.6 + settings.personality.aggression * 0.3) * alignment * goalBoost * noise;
+        }
         case AIActionKind::Attack:
-            return 0.0;
+        {
+            // High, mostly-flat base: once GatherActionCandidates has already
+            // gated this on roster size + reachability, an AI that values
+            // aggression should actually commit rather than let it get
+            // outscored by routine economy upkeep.
+            double base = 16.0 + settings.personality.aggression * 14.0;
+            double goalBoost = goalState.goal == AIStrategicGoal::LaunchOffensive ? 1.6 : 1.0;
+            return base * alignment * goalBoost * noise;
+        }
     }
     return 0.0;
 }
@@ -1612,10 +1796,26 @@ bool PrimitiveAIModel::ExecuteAction(GameWorld& world, Player* player, const AIA
             world.SubmitCommand(GameCommand::StartFocus(player->id, candidate.researchId));
             return true;
         }
-        // TD(etap-1): unreachable — see GatherActionCandidates/ScoreAction.
         case AIActionKind::Recruit:
+        {
+            if (candidate.researchId.empty() || candidate.sourceTileId < 0)
+                return false;
+            world.SubmitCommand(GameCommand::RecruitUnit(player->id, candidate.sourceTileId, candidate.researchId));
+            return true;
+        }
         case AIActionKind::Attack:
-            return false;
+        {
+            if (candidate.targetTileId < 0)
+                return false;
+            std::vector<int> orderedIds;
+            orderedIds.reserve(player->roster.units.size());
+            for (const auto& [instanceId, unit] : player->roster.units) // std::map — deterministic id order
+                orderedIds.push_back(instanceId);
+            if (orderedIds.empty())
+                return false;
+            world.SubmitCommand(GameCommand::DeployUnits(player->id, candidate.targetTileId, std::move(orderedIds)));
+            return true;
+        }
     }
     return false;
 }
@@ -1631,56 +1831,28 @@ bool PrimitiveAIModel::RunUnifiedDecision(GameWorld& world, Player* player, cons
     std::sort(candidates.begin(), candidates.end(),
         [](const AIActionCandidate& a, const AIActionCandidate& b) { return a.score > b.score; });
 
+    // Perf fix (2026-07-12): ExecuteAction's Build case pays for a real
+    // FindBuildAnchor search (even the cheap windowed tiers add up: ~11k tile
+    // evaluations each) — trying EVERY scored candidate in a row when the top
+    // ones keep failing (e.g. several terrain-hungry extractors with nothing
+    // reachable) turned "one AI decision" into 10+ full anchor searches,
+    // recurring every ~1-2 s. Cap attempts; a candidate that isn't in the top
+    // few by score isn't worth searching for this cycle anyway — it'll get
+    // another chance next decision tick.
+    constexpr int kMaxAnchorSearchAttempts = 3;
+    int attempts = 0;
     for (const auto& c : candidates)
     {
-        if (c.score <= 0.0)
+        if (c.score <= 0.0 || attempts >= kMaxAnchorSearchAttempts)
             break;
         if (c.kind == AIActionKind::Attack)
             attackTimer = 8.0 + (1.0 - settings.personality.aggression) * 8.0;
+        if (c.kind == AIActionKind::Build)
+            attempts++;
         if (ExecuteAction(world, player, c))
             return true;
     }
     return TryBuildEconomy(world, player, settings);
-}
-
-AIStrategicPlan PrimitiveAIModel::SelectStrategicPlan(const AIStrategySnapshot& snapshot, const AIModelSettings& settings) const
-{
-    struct Candidate
-    {
-        AIStrategicPlan plan;
-        double score;
-    };
-
-    auto p = [&](AIStrategyAxis axis) -> double { return snapshot.GetPressure(axis); };
-
-    std::vector<Candidate> candidates{
-        {AIStrategicPlan::RecoverEconomy,       p(AIStrategyAxis::Resources) * (0.9 + settings.personality.economicFocus)},
-        {AIStrategicPlan::FixLogistics,         p(AIStrategyAxis::Logistics) * (0.9 + settings.personality.logisticsAwareness)},
-        {AIStrategicPlan::BuildArmy,            p(AIStrategyAxis::Military)  * (0.7 + settings.personality.militarism)},
-        {AIStrategicPlan::DefendBorder,         std::max(p(AIStrategyAxis::Military), p(AIStrategyAxis::Risk)) * (0.7 + settings.personality.defensiveBias)},
-        {AIStrategicPlan::PrepareOffensive,     std::max(p(AIStrategyAxis::Military), p(AIStrategyAxis::Diplomacy)) * (0.5 + settings.personality.aggression + settings.personality.opportunism * 0.5)},
-        {AIStrategicPlan::ExpandForResources,   std::max(p(AIStrategyAxis::Expansion), p(AIStrategyAxis::Resources)) * (0.6 + settings.personality.expansionism)},
-        {AIStrategicPlan::DevelopPopulation,    p(AIStrategyAxis::InternalDevelopment) * (0.7 + settings.personality.economicFocus)},
-        {AIStrategicPlan::ResearchSpecialization, p(AIStrategyAxis::Technology) * (0.8 + settings.personality.planning)},
-        {AIStrategicPlan::ConsolidateTerritory, std::max(p(AIStrategyAxis::Risk), p(AIStrategyAxis::Expansion)) * (0.6 + settings.personality.planning + settings.personality.defensiveBias * 0.5)}
-    };
-
-    auto best = std::max_element(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b)
-    {
-        return a.score < b.score;
-    });
-    if (best == candidates.end() || best->score <= 0.05)
-        return activePlan;
-
-    double currentScore = 0.0;
-    for (const auto& candidate : candidates)
-        if (candidate.plan == activePlan)
-            currentScore = candidate.score;
-
-    double switchThreshold = 0.08 + settings.personality.persistence * 0.18 - settings.personality.adaptability * 0.10;
-    if (best->plan != activePlan && best->score < currentScore + switchThreshold)
-        return activePlan;
-    return best->plan;
 }
 
 // Initializes PrimitiveAIModel::CountOwnedBuildings.
@@ -1891,7 +2063,6 @@ double PrimitiveAIModel::ScoreProducerOption(GameWorld& world, Player* player, c
     utility.personalityModifier = personality * noise;
     utility.feasibility = feasibility;
     utility.urgency = 1.0 + diagnosis.urgency;
-    utility.planModifier = activePlan == AIStrategicPlan::RecoverEconomy || activePlan == AIStrategicPlan::ExpandForResources ? 1.15 : 1.0;
     return utility.Score() * existingPenalty;
 }
 
@@ -1911,47 +2082,59 @@ bool PrimitiveAIModel::TrySubmitBuild(GameWorld& world, Player* player, Building
 Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, BuildingType type, TileType preferredTile, const Building* target) const
 {
     const auto& definition = GetBuildingDefinition(type);
-    Vec2i bestAnchor{-1, -1};
-    int bestScore = std::numeric_limits<int>::max();
+    TileMap& map = world.GetTileMap();
     Vec2i targetPos{};
     bool hasTarget = target != nullptr;
     if (hasTarget)
-        targetPos = world.GetTileMap().GetCoordsFromId(target->positionId);
+        targetPos = map.GetCoordsFromId(target->positionId);
     Building* headquarters = FindOwnedHeadquarters(player);
     Vec2i headquartersPos{};
     bool hasHeadquarters = headquarters != nullptr;
     if (hasHeadquarters)
-        headquartersPos = world.GetTileMap().GetCoordsFromId(headquarters->positionId);
+        headquartersPos = map.GetCoordsFromId(headquarters->positionId);
 
-    for (const auto& tile : world.GetTileMap().tilemap)
+    // Evaluates one tile; updates best score/anchor. Same filter + scoring as
+    // the original whole-map scan.
+    Vec2i bestAnchor{-1, -1};
+    int bestScore = std::numeric_limits<int>::max();
+    auto evaluateTile = [&](Vec2i pos)
     {
+        const Tile& tile = map[map.GetIdFromCoords(pos)];
         // TD(etap-1): tile ownership no longer expands (RecalculateTerritory is
         // gone) — placement is now gated solely by CanPlaceBuilding's occupancy +
         // enemy-proximity rule, matching what the human player's build UI allows.
         if (tile.HasBuilding())
-            continue;
+            return;
 
-        Vec2i pos = world.GetTileMap().GetCoordsFromId(tile.id);
-        if (!world.GetTileMap().CanPlaceBuilding(type, pos, definition.footprint, player))
-            continue;
+        // Perf fix (2026-07-12, follow-up): cheap single-tile terrain reject
+        // BEFORE the expensive CanPlaceBuilding call (which itself scans a
+        // 7x7 neighbourhood for IsWithinEnemyProximity on every single
+        // candidate). For a terrain-hungry building (Woodcutter/Mine hunting
+        // WOOD/STONE) the overwhelming majority of tiles in any window are
+        // the wrong terrain — paying the expensive check on all of them
+        // before finding out is exactly backwards. CanPlaceBuilding still
+        // re-validates terrain internally (with richness, footprint-wide) —
+        // this is a pure ordering change, not a relaxed check.
+        if (preferredTile != TileType::GRASS && tile.tileType != preferredTile)
+            return;
 
-        if (preferredTile != TileType::GRASS && world.GetTileMap()[world.GetTileMap().GetIdFromCoords(pos)].tileType != preferredTile)
-            continue;
+        if (!map.CanPlaceBuilding(type, pos, definition.footprint, player))
+            return;
 
         if (preferredTile == TileType::GRASS)
         {
             bool terrainMatches = true;
             for (int y = 0; y < definition.footprint.y && terrainMatches; y++)
                 for (int x = 0; x < definition.footprint.x && terrainMatches; x++)
-                    terrainMatches = world.GetTileMap()[{pos.x + x, pos.y + y}].tileType == TileType::GRASS;
+                    terrainMatches = map[{pos.x + x, pos.y + y}].tileType == TileType::GRASS;
 
             if (!terrainMatches)
-                continue;
+                return;
         }
 
         int distanceToTarget = hasTarget ? std::abs(pos.x - targetPos.x) + std::abs(pos.y - targetPos.y) : 0;
         int distanceToHeadquarters = hasHeadquarters ? std::abs(pos.x - headquartersPos.x) + std::abs(pos.y - headquartersPos.y) : 0;
-        int infrastructureDistance = DistanceToNearestInfrastructure(world.GetTileMap(), player, pos);
+        int infrastructureDistance = DistanceToNearestInfrastructure(map, player, pos);
         int borderPenalty = 0;
         const std::array<Vec2i, 4> neighbours{
             Vec2i{pos.x + 1, pos.y},
@@ -1961,12 +2144,17 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
         };
         for (Vec2i neighbour : neighbours)
         {
-            if (!world.GetTileMap().IsInside(neighbour))
+            if (!map.IsInside(neighbour))
             {
                 borderPenalty += 10;
                 continue;
             }
-            if (world.GetTileMap()[world.GetTileMap().GetIdFromCoords(neighbour)].owner != player)
+            // Tile::owner (ground "territory") is a relic of the removed
+            // pre-pivot territory system and always nullptr today — the
+            // nearest equivalent to "growing from my own territory" is
+            // "next to one of my own buildings" (docs/post_pivot_audit_2026-07-12.md T2).
+            const Building* neighbourBuilding = map[map.GetIdFromCoords(neighbour)].GetBuilding();
+            if (neighbourBuilding == nullptr || neighbourBuilding->owner != player)
                 borderPenalty += 6;
         }
 
@@ -1979,8 +2167,68 @@ Vec2i PrimitiveAIModel::FindBuildAnchor(GameWorld& world, Player* player, Buildi
             bestScore = score;
             bestAnchor = pos;
         }
+    };
+
+    // Perf fix (2026-07-12): the original scanned the ENTIRE tilemap (~90k
+    // tiles on the default 301×301 map) — and with the per-tile
+    // DistanceToNearestInfrastructure call this froze the sim for seconds per
+    // AI build decision (latent before T1: the AI economy was dead, so it
+    // could never afford to reach this code). The score strongly favors
+    // proximity to the HQ/target anyway (distance terms dominate), so scan an
+    // expanding window centered there instead: the practical optimum is
+    // always nearby; the full-map pass remains only as the last-resort
+    // fallback when nothing valid exists close (e.g. extractors hunting a
+    // distant deposit). Deterministic: pure function of world state, same
+    // row-major tie-breaking within each window.
+    Vec2i center = hasTarget ? targetPos
+                 : hasHeadquarters ? headquartersPos
+                 : Vec2i{map.params.sizeX / 2, map.params.sizeY / 2};
+    int fullMargin = std::max(map.params.sizeX, map.params.sizeY);
+
+    // Perf fix (2026-07-12, follow-up): even the smallest window isn't free —
+    // every empty candidate tile still pays for TileMap::CanPlaceBuilding's
+    // IsWithinEnemyProximity scan (its own nested (2*3+1)² = 49-tile lookup
+    // per candidate, unrelated to this function and not something to touch
+    // here since the human player's placement validation shares it). A
+    // margin=24 window is 49×49 = 2401 candidates — ~118k tile lookups just
+    // for the first (and, empirically, almost always sufficient) tier,
+    // measured at ~3 ms/call in Debug. Start smaller: the score heavily
+    // favors proximity, so a hit in the first tier is the overwhelmingly
+    // common case, and shrinking it from 2401 to 625 candidate tiles cuts
+    // that dominant cost by ~4x with no change in the final answer (same
+    // tiles get considered, just in smaller/more numerous rings until a
+    // valid one turns up).
+    // Perf fix (2026-07-12, follow-up #2): a terrain-hungry candidate
+    // (measured case: HuntersHut, WOOD-terrain) can keep failing EVEN in the
+    // smallest window — a nearby forest patch may have plenty of WOOD tiles
+    // (passing the cheap terrain pre-filter above) that all still fail the
+    // deeper richness/footprint/enemy-proximity check inside
+    // CanPlaceBuilding (e.g. already claimed by an existing Woodcutter, or
+    // richness depleted). That's real per-tile work no cheap pre-filter can
+    // skip. Once the WHOLE search (every tier) fails for a building type,
+    // don't retry ANY tier — even the smallest — until the cooldown expires;
+    // map state (deposits, nearby construction) doesn't change fast enough to
+    // justify re-paying this (measured ~17-190 ms in Debug depending on how
+    // far the search got) every ~1-2 s indefinitely.
+    if (expensiveAnchorSearchCooldown.count(type) > 0)
+        return bestAnchor;
+
+    for (int margin : {12, 24, 48, 96, fullMargin})
+    {
+        int minX = std::max(0, center.x - margin);
+        int maxX = std::min(map.params.sizeX - 1, center.x + margin);
+        int minY = std::max(0, center.y - margin);
+        int maxY = std::min(map.params.sizeY - 1, center.y + margin);
+
+        for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+                evaluateTile({x, y});
+
+        if (bestAnchor.x >= 0)
+            return bestAnchor;
     }
 
+    expensiveAnchorSearchCooldown[type] = 120.0;
     return bestAnchor;
 }
 

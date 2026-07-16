@@ -33,6 +33,7 @@ namespace
 // Advances this object's state for one frame.
 void ControlsScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     BeginDrawing();
     ClearBackground(BLACK);
 

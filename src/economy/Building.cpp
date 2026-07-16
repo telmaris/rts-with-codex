@@ -276,6 +276,17 @@ std::vector<ResourceBufferView> Building::GetInputBufferViews() const
                  static_cast<int>(pop->foodBuffer.buffer.size()),
                  pop->foodBuffer.bufferSize,
                  static_cast<int>(std::ceil(pop->foodPackageUpkeep))}};
+    // T3 fix (docs/post_pivot_audit_2026-07-12.md): a tower's ammo buffer and
+    // Barracks' unit-cost buffers are ordinary StorageComponent entries that
+    // this building needs delivered TO it, unlike a plain warehouse/HQ where
+    // StorageComponent is only ever offered FROM (GetOutputBufferViews) —
+    // without exposing them as inputs too, AutoConnectBuilding has no input
+    // view to wire a supplier from, so ammo/unit costs never auto-connect.
+    if (auto* storage = GetComponent<StorageComponent>())
+    {
+        if (HasComponent<TowerCombatComponent>() || HasComponent<RecruitmentComponent>())
+            return storage->GetBufferViews();
+    }
     return {};
 }
 
@@ -324,7 +335,7 @@ bool Building::IsStorageLike() const
 float Building::GetProductionProgress() const
 {
     auto* prod = GetComponent<ProductionComponent>();
-    return prod != nullptr ? prod->GetProgress() : 0.0f;
+    return prod != nullptr ? prod->GetProgress(*this) : 0.0f;
 }
 
 float Building::GetWorkerRatio() const
@@ -481,6 +492,29 @@ double Road::GetModifiedSpeedModifier() const
     return road.GetModifiedSpeedModifier(*this);
 }
 
+// ─── Bridge ──────────────────────────────────────────────────────────────────
+
+Bridge::Bridge(int i)
+{
+    id = i;
+    const auto& def = GetBuildingDefinition(BuildingType::Bridge);
+    ApplyBuildingDefinition(*this, def);
+    road.upgradeLevel  = def.road.upgradeLevel;
+    road.maxCapacity   = def.road.maxCapacity;
+    road.speedModifier = def.road.speedModifier;
+    RegisterComponent(&road);
+}
+
+int Bridge::GetModifiedMaxCapacity() const
+{
+    return road.GetModifiedMaxCapacity(*this);
+}
+
+double Bridge::GetModifiedSpeedModifier() const
+{
+    return road.GetModifiedSpeedModifier(*this);
+}
+
 // ─── StorageBuilding ─────────────────────────────────────────────────────────
 
 StorageBuilding::StorageBuilding(int actualId)
@@ -526,6 +560,7 @@ Barracks::Barracks(int actualId)
 {
     id = actualId;
     RegisterComponent(&storage);
+    RegisterComponent(&logistics);
     RegisterComponent(&recruitment);
     const auto& def = GetBuildingDefinition(BuildingType::Barracks);
     ApplyBuildingDefinition(*this, def);

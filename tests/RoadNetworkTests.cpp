@@ -37,6 +37,22 @@ namespace
             network.UpdateNavMap(occupiedTileId, placed);
         return placed;
     }
+
+    // Bare grass map with every Tile::owner left at its default (nullptr) —
+    // matches what a freshly generated map actually looks like today (the
+    // territory system that used to populate Tile::owner was removed in the
+    // Tower Defense pivot, ETAP 1). Deliberately the opposite of
+    // FillOwnedMap/PlaceAndRegister above, which exist only as test-only
+    // shortcuts and must not be relied on to prove production code works.
+    void FillUnownedMap(TileMap& map, int width = 10, int height = 6)
+    {
+        map.params.sizeX = width;
+        map.params.sizeY = height;
+        map.tilemap.clear();
+        map.tilemap.reserve(width * height);
+        for (int i = 0; i < width * height; i++)
+            map.tilemap.emplace_back(i);
+    }
 }
 
 TEST(RoadNetworkTests, CalculatesPathAcrossRoadTilesBetweenBuildingFootprints)
@@ -229,7 +245,13 @@ TEST(RoadNetworkTests, BeginTransportRejectsFullDestination)
     destination->storage.buffers[ResourceType::WOOD].Clear();
 }
 
-TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
+// Replaces the old "path leaves owner territory" scenario: individual tile
+// ownership (Tile::owner) was removed with the territory system in the Tower
+// Defense pivot (ETAP 1) and Transportable::Update no longer reads it — the
+// analogous real-world event is a road segment on the path changing hands
+// (e.g. a future building-capture mechanic), which flips the Road building's
+// own `owner` field.
+TEST(RoadNetworkTests, TransportableCancelsWhenPathRoadChangesOwner)
 {
     TileMap map;
     Player player{0, map};
@@ -239,10 +261,12 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
 
     auto* source = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
     auto* destination = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
-    PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
-    PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4);
+    auto* roadA = PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
+    auto* roadB = PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4);
     ASSERT_NE(source, nullptr);
     ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
 
     source->storage.buffers.clear();
     source->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
@@ -253,8 +277,96 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathLeavesOwnerTerritory)
     ASSERT_TRUE(network.BeginTransport(source, destination, &wood));
     ASSERT_FALSE(wood.transportPath.empty());
 
-    map.tilemap[wood.transportPath.front()].owner = &enemy;
+    int roadATileId = map.GetIdFromCoords({3, 2});
+    auto roadStepIt = std::find(wood.transportPath.begin(), wood.transportPath.end(), roadATileId);
+    ASSERT_NE(roadStepIt, wood.transportPath.end());
+    wood.currentPathStep = static_cast<int>(std::distance(wood.transportPath.begin(), roadStepIt));
+
+    roadA->owner = &enemy;
     EXPECT_TRUE(wood.Update(0.1));
     EXPECT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
-    source->storage.buffers[ResourceType::WOOD].Clear();
+    // Plain vector clear, NOT ResourceBuffer::Clear(): cancellation just
+    // returned the stack-local `wood` into this buffer via
+    // Building::ReturnOutgoingResource, and ResourceBuffer::Clear() calls
+    // ResourcePool::FreeResource on every entry — which would hand this
+    // non-pool stack address to the global resource pool's free-list,
+    // corrupting it for every later test that draws from the WOOD pool
+    // (surfaces as a stale-pointer access violation elsewhere, not here).
+    source->storage.buffers[ResourceType::WOOD].buffer.clear();
+    roadA->owner = &player;
+}
+
+// Regression test for the P0 audit finding (docs/post_pivot_audit_2026-07-12.md,
+// T1): every other test in this file builds its world through FillOwnedMap,
+// which manually stamps Tile::owner on every tile — a shortcut nothing in
+// production does since the territory system was removed (ETAP 1). That
+// shortcut is exactly why these tests kept passing while real games had
+// completely dead logistics. This test instead uses the actual production
+// placement path (Player::Build<T>, the same call GameCommand execution and
+// AI both use) on a bare map where Tile::owner is never touched.
+TEST(RoadNetworkTests, ProductionPlacementFindsPathWithoutTileOwnership)
+{
+    TileMap map;
+    FillUnownedMap(map);
+    Player player{0, map};
+
+    auto* source = player.Build<StorageBuilding>(Vec2i{0, 1}, false);
+    auto* destination = player.Build<StorageBuilding>(Vec2i{5, 1}, false);
+    auto* roadA = player.Build<Road>(Vec2i{3, 2}, false);
+    auto* roadB = player.Build<Road>(Vec2i{4, 2}, false);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    std::vector<int> path = player.roadNetwork->CalculatePath(source, destination);
+    ASSERT_FALSE(path.empty());
+
+    Resource wood{ResourceType::WOOD};
+    EXPECT_TRUE(player.roadNetwork->BeginTransport(source, destination, &wood));
+}
+
+// End-to-end companion to the test above: drives the full production dispatch
+// pipeline (StorageComponent::Update -> Player::BeginTransport ->
+// RoadNetwork::CalculatePath/Transportable::Update) by ticking the real
+// buildings, and asserts the resource actually arrives — catching both the
+// CalculatePath bug and the Transportable::Update self-cancel bug that a
+// path-only assertion would miss.
+TEST(RoadNetworkTests, StorageComponentPushDeliversResourceOverRealPlacementPath)
+{
+    TileMap map;
+    FillUnownedMap(map);
+    Player player{0, map};
+
+    auto* source = dynamic_cast<StorageBuilding*>(player.Build<StorageBuilding>(Vec2i{0, 1}, false));
+    auto* destination = dynamic_cast<StorageBuilding*>(player.Build<StorageBuilding>(Vec2i{5, 1}, false));
+    auto* roadA = dynamic_cast<Road*>(player.Build<Road>(Vec2i{3, 2}, false));
+    auto* roadB = dynamic_cast<Road*>(player.Build<Road>(Vec2i{4, 2}, false));
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    source->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    ASSERT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
+
+    // Deliberately does not tick `destination` itself: StorageComponent::Update
+    // auto-pushes a storage building's own buffers to ANY tracked building that
+    // still accepts the resource, with no notion of "just arrived here" — with
+    // two plain storage buildings both accepting WOOD, ticking the destination
+    // too would immediately push the resource straight back toward `source`
+    // (a separate, pre-existing quirk of the unconditional auto-push, out of
+    // scope for this regression test). Delivery itself happens synchronously
+    // inside Transportable::Update -> Building::ReceptTransport -> AddResource
+    // as roadB advances the resource, so ticking source/roadA/roadB is enough
+    // to observe it land in destination's buffer.
+    for (int tick = 0; tick < 10 && destination->storage.buffers[ResourceType::WOOD].buffer.empty(); tick++)
+    {
+        source->Update(1.0);
+        roadA->Update(1.0);
+        roadB->Update(1.0);
+    }
+
+    EXPECT_EQ(destination->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
+    EXPECT_TRUE(source->storage.buffers[ResourceType::WOOD].buffer.empty());
 }

@@ -93,7 +93,11 @@ struct ProductionComponent : IBuildingComponent
     BuildingCapability GetCapability() const override { return BuildingCapability::Production; }
     void Update(Building& self, double dt) override;
     void Produce(Building& self, double dt);
-    float GetProgress() const;
+    // Fraction of the CURRENT cycle elapsed, against the same (tech/focus-
+    // modified) cycle time Produce() actually completes the cycle against —
+    // using the unmodified base here would desync the reported percentage
+    // from the real completion point (see GetProgress's definition).
+    float GetProgress(const Building& self) const;
     double GetModifiedCycleTime(const Building& self) const;
     // Cycle time adjusted for current worker efficiency; infinity when idle.
     double GetEffectiveCycleTime(const Building& self) const;
@@ -231,33 +235,55 @@ struct PopulationComponent : IBuildingComponent
 
 // --- RecruitmentComponent ---
 // One in-progress recruit order: which unit definition, and how much of its
-// recruitTime remains. Resources + manpower are deducted up front when the
-// order is queued (QueueRecruitment), not when it completes.
+// recruitTime remains. Manpower is deducted up front when the order is
+// queued (QueueRecruitment). Resources may not be — resourcesReady is false
+// while this entry is still waiting on a RequestResource delivery; `total`/
+// `remaining` only start counting down once resourcesReady flips true (see
+// RecruitmentComponent::Update).
 struct RecruitmentQueueEntry
 {
     std::string unitDefId;
     double total{0.0};
     double remaining{0.0};
+    bool resourcesReady{true};
 };
 
 // Recruitment queue for a unit-producing building (Barracks; future
 // Stables/MageTower/Workshop are only new UnitDefinition::recruitBuilding
-// values, no new component). Consumes resources from the building's own
-// StorageComponent buffer (delivered by the existing road network, exactly
-// like a production building's inputs) and manpower from the owning
-// player's global pool at the moment an order is queued. On completion the
-// finished unit is added to the owning player's UnitRoster in state InRoster.
+// values, no new component). User request (docs/work_plan_2026-07-13.md,
+// 2026-07-15): an order joins the queue immediately on click (as long as
+// manpower allows), tagged "waiting for resources" if its cost isn't already
+// sitting in this building's own StorageComponent buffer — QueueRecruitment
+// requests the shortfall via the normal road network, and
+// RecruitmentComponent::Update only starts the timed build once the front
+// entry's cost has fully arrived and been consumed. On completion the
+// finished unit is added to the owning player's UnitRoster in state
+// InRoster.
 struct RecruitmentComponent : IBuildingComponent
 {
     std::deque<RecruitmentQueueEntry> queue;
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Recruitment; }
     void Update(Building& self, double dt) override;
-    // Attempts to start recruiting one unit now: validates the unit exists,
-    // the building's storage buffer holds every required resource, and the
-    // owner has enough manpower — then deducts both immediately and queues
-    // the timed build. Returns false (no state changed) if any check fails.
+    // Queues one unit order now: validates the unit exists and the owner has
+    // enough manpower (deducted immediately — the only hard gate), then
+    // pushes a queue entry. If this building's own buffer already covers the
+    // resource cost, it's consumed now and the entry starts counting down
+    // right away; otherwise the shortfall is requested from the wired
+    // supplier and the entry waits (see RecruitmentQueueEntry::resourcesReady)
+    // until Update() sees it arrive. Returns false only when manpower alone
+    // is insufficient — resource unavailability never blocks queueing.
     bool QueueRecruitment(Building& self, const std::string& unitDefId);
+    // Non-mutating read, for GUI/AI feasibility — returns an empty string
+    // when the unit's resource cost exists SOMEWHERE in the player's global
+    // storage network and manpower is sufficient, otherwise a short
+    // human-readable reason. Deliberately global even though QueueRecruitment
+    // itself only checks this building's local buffer: this is what lets the
+    // GUI button / AI candidate generation offer recruiting before anything
+    // has physically arrived — if this also checked only the local buffer
+    // (always empty for a fresh order), nothing would ever attempt
+    // QueueRecruitment, so the first RequestResource would never fire.
+    std::string DiagnoseRecruitmentBlock(const Building& self, const std::string& unitDefId) const;
 };
 
 // --- HqComponent ---
@@ -278,6 +304,12 @@ struct HqComponent : IBuildingComponent
     // Conquest spoils (TD etap-6.3), read once at elimination time.
     double captureStockFraction{0.2};
     double conquestRampDuration{60.0};
+
+    // Render-only "under attack" indicator (ticked in HqCombatSystem::Update,
+    // set whenever siege damage lands) — deliberately NOT persisted/saved,
+    // resetting to 0 after a load is an acceptable trade-off for a transient
+    // HUD cue.
+    double recentDamageTimer{0.0};
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Hq; }
     double GetModifiedMaxHp(const Building& self) const;

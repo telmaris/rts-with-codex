@@ -340,56 +340,6 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
     }
     EndLayer();
 
-    ClearLayer(2);
-    BeginLayer(2);
-    for (int x = minTileX; x <= maxTileX; x++)
-    {
-        for (int y = minTileY; y <= maxTileY; y++)
-        {
-            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
-            if (!tile.hasOwner)
-                continue;
-
-            Vec2f pos = {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
-            Color border = tile.ownerColor;
-            border.a = 230;
-            if (camera.zoom < 0.75f)
-            {
-                Color fill = tile.ownerColor;
-                fill.a = camera.zoom < 0.45f ? 64 : 38;
-                DrawRectangle(static_cast<int>(pos.x),
-                              static_cast<int>(RENDER_HEIGHT - TILE_SIZE - pos.y),
-                              TILE_SIZE,
-                              TILE_SIZE,
-                              fill);
-            }
-
-            auto hasSameOwner = [&](int nx, int ny)
-            {
-                if (nx < 0 || ny < 0 || nx >= snapshot.mapSize.x || ny >= snapshot.mapSize.y)
-                    return false;
-                const auto& other = snapshot.tiles[static_cast<size_t>(ny * snapshot.mapSize.x + nx)];
-                return other.hasOwner &&
-                       other.ownerColor.r == tile.ownerColor.r &&
-                       other.ownerColor.g == tile.ownerColor.g &&
-                       other.ownerColor.b == tile.ownerColor.b &&
-                       other.ownerColor.a == tile.ownerColor.a;
-            };
-
-            float sx = pos.x;
-            float sy = static_cast<float>(RENDER_HEIGHT - TILE_SIZE - pos.y);
-            if (!hasSameOwner(x, y - 1))
-                DrawLineEx({sx, sy + TILE_SIZE}, {sx + TILE_SIZE, sy + TILE_SIZE}, 4.0f, border);
-            if (!hasSameOwner(x + 1, y))
-                DrawLineEx({sx + TILE_SIZE, sy}, {sx + TILE_SIZE, sy + TILE_SIZE}, 4.0f, border);
-            if (!hasSameOwner(x, y + 1))
-                DrawLineEx({sx, sy}, {sx + TILE_SIZE, sy}, 4.0f, border);
-            if (!hasSameOwner(x - 1, y))
-                DrawLineEx({sx, sy}, {sx, sy + TILE_SIZE}, 4.0f, border);
-        }
-    }
-    EndLayer();
-
     ClearLayer(1);
     BeginLayer(1);
     for (int x = minTileX; x <= maxTileX; x++)

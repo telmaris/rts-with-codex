@@ -146,6 +146,50 @@ TEST(BuildingDomainTests, ProductionBuildingEffectiveCycleTimeUsesWorkerEfficien
     EXPECT_TRUE(std::isinf(building.production.GetEffectiveCycleTime(building)));
 }
 
+// Regression test for the "production stalls for a moment right at 100%"
+// report: GetProductionProgress() used to divide by the unmodified
+// cycleTime.GetBase(), while Produce() actually completes the cycle when
+// elapsed reaches GetModifiedCycleTime() (tech/focus/state-development
+// adjusted) — any active modifier on ProductionCycleTime desynced the two,
+// most commonly a StateDevelopment level bonus, which applies automatically
+// as the player's civilization progresses (not a chosen tech), so this bit
+// nearly every real playthrough once past the starting tier.
+TEST(BuildingDomainTests, ProductionProgressMatchesModifiedCycleTimeNotBaseline)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+
+    auto* building = dynamic_cast<Woodcutter*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({2, 2}), &player, std::make_unique<Woodcutter>(9)));
+    ASSERT_NE(building, nullptr);
+    building->production.cycleTime = 10.0;
+    building->production.started = true;
+
+    // An extra 50% slowdown (e.g. a StateDevelopment / focus penalty) on top
+    // of whatever a fresh player already has (a default StateDevelopment tier
+    // alone gives a non-1.0 ProductionCycleTime multiplier — this bug bit
+    // essentially every real playthrough, not just an edge case). Read back
+    // the real effective threshold rather than hardcoding it: the point is
+    // that GetProductionProgress must track WHATEVER GetModifiedCycleTime
+    // returns, not the raw base.
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::ProductionCycleTime, 0.0, 1.5, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:slow_production"});
+    double effective = building->production.GetModifiedCycleTime(*building);
+    ASSERT_GT(effective, 10.0) << "test modifier should make the cycle slower than the 10.0 base";
+
+    // At elapsed == base (10.0), the cycle is nowhere near actually done
+    // (needs `effective`) — progress must reflect that, not report 100%.
+    building->production.elapsed = 10.0;
+    EXPECT_FLOAT_EQ(building->GetProductionProgress(), static_cast<float>(10.0 / effective));
+
+    // At elapsed == the real modified threshold, progress is exactly 100% —
+    // matching the point where Produce() actually completes the cycle.
+    building->production.elapsed = effective;
+    EXPECT_FLOAT_EQ(building->GetProductionProgress(), 1.0f);
+}
+
 TEST(BuildingDomainTests, TerrainRichnessIsConsumedAndTurnsExhaustedTileToGrass)
 {
     TileMap map;
@@ -613,5 +657,151 @@ TEST(BuildingDomainTests, RefundBuildCostReturnsResourcesToStorageAndDropsOverfl
     EXPECT_EQ(storage->storage.buffers[ResourceType::WOOD].buffer.size(), 10u);
 
     storage->storage.buffers[ResourceType::WOOD].Clear();
+}
+
+// Regression test, updated 2026-07-15 (docs/work_plan_2026-07-13.md, A5 +
+// correction): the T3 background-pull mechanism this test originally
+// verified (LogisticsComponent::MaintainStorageRequests continuously topping
+// up Barracks' own buffer regardless of demand) was removed by design.
+// QueueRecruitment now queues the order immediately (tagged "waiting" — see
+// RecruitmentQueueEntry::resourcesReady) and requests the shortfall from its
+// wired supplier; RecruitmentComponent::Update keeps retrying each tick until
+// it physically arrives through the real road network, at which point the
+// entry's build timer starts.
+TEST(BuildingDomainTests, BarracksRequestsAndReceivesUnitCostsOnDemandThroughRoadNetwork)
+{
+    TileMap map;
+    map.params.sizeX = 10;
+    map.params.sizeY = 6;
+    map.tilemap.clear();
+    map.tilemap.reserve(map.params.sizeX * map.params.sizeY);
+    for (int i = 0; i < map.params.sizeX * map.params.sizeY; i++)
+        map.tilemap.emplace_back(i);
+
+    Player player{0, map};
+    player.strategicResources.Set(StrategicResourceType::Manpower, 100);
+
+    auto* warehouse = dynamic_cast<StorageBuilding*>(player.Build<StorageBuilding>(Vec2i{0, 0}, false));
+    auto* barracks = dynamic_cast<Barracks*>(player.Build<Barracks>(Vec2i{5, 0}, false));
+    auto* roadA = player.Build<Road>(Vec2i{3, 1}, false);
+    auto* roadB = player.Build<Road>(Vec2i{4, 1}, false);
+    ASSERT_NE(warehouse, nullptr);
+    ASSERT_NE(barracks, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(roadB, nullptr);
+
+    warehouse->storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
+    for (int i = 0; i < 3; i++)
+        warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+
+    // No ticks have run yet: nothing has moved toward the Barracks on its
+    // own, unlike the removed background poll.
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::IRON_SWORD].buffer.size(), 0u);
+
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "swordsman"))
+        << "manpower alone should be enough to queue the order";
+    ASSERT_FALSE(barracks->recruitment.queue.empty());
+    EXPECT_FALSE(barracks->recruitment.queue.front().resourcesReady)
+        << "nothing is local yet, so the order should start out waiting";
+
+    bool resourcesArrived = false;
+    for (int tick = 0; tick < 20 && !resourcesArrived; tick++)
+    {
+        warehouse->Update(1.0);
+        roadA->Update(1.0);
+        roadB->Update(1.0);
+        barracks->Update(1.0);
+        resourcesArrived = !barracks->recruitment.queue.empty() && barracks->recruitment.queue.front().resourcesReady;
+    }
+
+    EXPECT_TRUE(resourcesArrived) << "swordsman costs (IRON_SWORD 1, FOOD_PROVISIONS 3) never arrived at Barracks";
+}
+
+// Regression test: user report — only militia/swordsman were recruitable, not
+// knight or ram. Root cause was in the DATA, not the code: buildings.rtsdata's
+// Barracks block only declared storage buffers for FOOD_PROVISIONS and
+// IRON_SWORD (swordsman's cost) — knight needs STEEL_SWORD and ram needs
+// PLANKS+IRON, neither of which had a buffer at all, so
+// RecruitmentComponent::QueueRecruitment's `storage->buffers.find(cost.type)`
+// always came up empty and recruitment silently failed regardless of how much
+// of those resources the player had. Fixed by adding the missing `storage`
+// lines to buildings.rtsdata's Barracks block.
+TEST(BuildingDomainTests, BarracksCanRecruitKnightAndRamNotJustSwordsman)
+{
+    TileMap map;
+    Player player{0, map};
+    player.strategicResources.Set(StrategicResourceType::Manpower, 100);
+
+    Barracks barracks{1};
+    barracks.owner = &player;
+    // Recruitment now pulls from the player's GLOBAL storage network
+    // (docs/work_plan_2026-07-13.md, 2026-07-14), which is indexed via
+    // RegisterBuilding — Player::Build<T> does this implicitly, but a
+    // manually-constructed Barracks needs it done explicitly here.
+    player.RegisterBuilding(&barracks);
+    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::STEEL_SWORD))
+        << "knight costs STEEL_SWORD but Barracks has no buffer for it";
+    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::PLANKS))
+        << "ram costs PLANKS but Barracks has no buffer for it";
+    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::IRON))
+        << "ram costs IRON but Barracks has no buffer for it";
+
+    barracks.storage.buffers[ResourceType::STEEL_SWORD].GenerateResource(ResourceType::STEEL_SWORD);
+    barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    for (int i = 0; i < 4; i++)
+        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    EXPECT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "knight"));
+
+    barracks.storage.buffers[ResourceType::PLANKS].SetStoredAmount(20);
+    barracks.storage.buffers[ResourceType::IRON].SetStoredAmount(10);
+    for (int i = 0; i < 4; i++)
+        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    EXPECT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "ram"));
+}
+
+// Updated 2026-07-15 (docs/work_plan_2026-07-13.md, A5 correction): Diagnose
+// and QueueRecruitment are now DELIBERATELY decoupled — Diagnose stays a
+// global feasibility scan (see BuildingComponents.h for why), while
+// QueueRecruitment only hard-fails on manpower and otherwise queues the
+// order as "waiting" until resources arrive locally. They no longer agree
+// on "empty iff recruitable" by design.
+TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpower)
+{
+    TileMap map;
+    Player player{0, map};
+
+    Barracks barracks{1};
+    barracks.owner = &player;
+    // See BarracksCanRecruitKnightAndRamNotJustSwordsman above: global-storage
+    // recruitment needs the building registered to be visible to the check.
+    player.RegisterBuilding(&barracks);
+
+    // No manpower, no resources yet: Diagnose reports both, and
+    // QueueRecruitment fails outright — manpower is the one hard gate.
+    std::string reason = barracks.recruitment.DiagnoseRecruitmentBlock(barracks, "swordsman");
+    EXPECT_FALSE(reason.empty());
+    EXPECT_FALSE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
+    EXPECT_TRUE(barracks.recruitment.queue.empty());
+
+    // Give manpower but still no unit-cost resources anywhere: Diagnose still
+    // reports the missing resource, but QueueRecruitment now succeeds anyway
+    // — the order joins the queue tagged "waiting for resources" instead of
+    // being rejected.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 100);
+    reason = barracks.recruitment.DiagnoseRecruitmentBlock(barracks, "swordsman");
+    EXPECT_FALSE(reason.empty());
+    ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
+    ASSERT_FALSE(barracks.recruitment.queue.empty());
+    EXPECT_FALSE(barracks.recruitment.queue.back().resourcesReady);
+
+    // Stock it directly: Diagnose returns empty, and a FRESH order now
+    // consumes immediately and starts counting down right away. Swordsman
+    // costs IRON_SWORD 1 + FOOD_PROVISIONS 3 (assets/data/units.rtsdata).
+    barracks.storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
+    for (int i = 0; i < 3; i++)
+        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    EXPECT_TRUE(barracks.recruitment.DiagnoseRecruitmentBlock(barracks, "swordsman").empty());
+    ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
+    EXPECT_TRUE(barracks.recruitment.queue.back().resourcesReady);
 }
 

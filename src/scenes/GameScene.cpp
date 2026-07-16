@@ -161,7 +161,10 @@ namespace
             else if (scene.latestSnapshot.IsValid())
                 scene.render.DrawSnapshot(scene.latestSnapshot);
 
-            scene.inputs.HandleInputs();
+            // Gated through IGuiHandler (GameScene::HandleGuiInput forwards to
+            // inputs.HandleInputs()) so the first frame after a scene switch
+            // never re-consumes the key edge that caused the switch.
+            scene.ProcessGuiInput(dt);
             scene.controller->Update(dt);
 
             std::vector<UiWidget*> widgets = scene.controller->GetUiWidgets();

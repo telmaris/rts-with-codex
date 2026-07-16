@@ -110,6 +110,51 @@ TEST(EliminationTests, EliminationTransfersProductionBuildingWithUntouchedBuffer
     EXPECT_TRUE(hasRamp) << "the conqueror should start a productivity ramp on the captured building";
 }
 
+TEST(EliminationTests, CapturedBuildingRejoinsConquerorsRoadNetworkAfterElimination)
+{
+    // T12 (docs/post_pivot_audit_2026-07-12.md): each Player owns an
+    // independent RoadNetwork/NavigationMap. Reassigning Building::owner on
+    // capture (proven by the test above) does nothing to either network on
+    // its own — the conqueror's CalculatePath must separately learn that the
+    // captured building's footprint tiles exist.
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeRingParams(10, 1));
+    Player* p0 = world.GetPlayerHandler().players.at(0).get();
+    Player* p1 = world.GetPlayerHandler().players.at(1).get();
+    TileMap& map = world.GetTileMap();
+
+    // Woodcutter (2x2) owned by p1, soon to be captured.
+    Building* woodcutter = map.PlaceLoadedBuilding(map.GetIdFromCoords({5, 5}), p1, std::make_unique<Woodcutter>(9001));
+    ASSERT_NE(woodcutter, nullptr);
+
+    // p0's own storage (3x3) + a connecting road, right up to the woodcutter's
+    // doorstep — as if p0 had already built infrastructure nearby.
+    Building* road = map.PlaceLoadedBuilding(map.GetIdFromCoords({7, 5}), p0, std::make_unique<Road>(9002));
+    ASSERT_NE(road, nullptr);
+    Building* storage = map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 5}), p0, std::make_unique<StorageBuilding>(9003));
+    ASSERT_NE(storage, nullptr);
+    for (int t : map.GetBuildingTileIds(road))
+        p0->roadNetwork->UpdateNavMap(t, road);
+    for (int t : map.GetBuildingTileIds(storage))
+        p0->roadNetwork->UpdateNavMap(t, storage);
+
+    // Before capture: p0's network has never heard of the woodcutter's tiles.
+    EXPECT_TRUE(p0->roadNetwork->CalculatePath(storage, woodcutter).empty())
+        << "p0 shouldn't be able to path to a building it doesn't own yet";
+
+    world.EliminatePlayer(1, 0);
+    ASSERT_EQ(woodcutter->owner, p0);
+
+    std::vector<int> path = p0->roadNetwork->CalculatePath(storage, woodcutter);
+    EXPECT_FALSE(path.empty())
+        << "conqueror's road network must learn about a captured building's tiles";
+
+    // A second elimination call is a no-op (idempotent) — re-registering must
+    // not duplicate anything or throw.
+    world.EliminatePlayer(1, 0);
+    EXPECT_FALSE(p0->roadNetwork->CalculatePath(storage, woodcutter).empty());
+}
+
 TEST(EliminationTests, EliminationDrainsDefeatedStorageAndCreditsFractionToConqueror)
 {
     GameWorld world;

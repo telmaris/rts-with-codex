@@ -57,6 +57,7 @@ void MainMenuScene::OnActivated()
 // Advances this object's state for one frame.
 void MainMenuScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     if (statusTimer > 0.0)
         statusTimer = std::max(0.0, statusTimer - dt);
 

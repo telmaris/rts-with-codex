@@ -54,8 +54,10 @@ TEST(BuildingConfigTests, BuildPanelListsContainExpectedTypes)
     EXPECT_NE(std::find(buildings.begin(), buildings.end(), BuildingType::Barracks), buildings.end());
     EXPECT_EQ(std::find(buildings.begin(), buildings.end(), BuildingType::Headquarters), buildings.end());
 
-    ASSERT_EQ(roads.size(), 1u);
+    // B6 (docs/work_plan_2026-07-13.md): Bridge shares the road build panel.
+    ASSERT_EQ(roads.size(), 2u);
     EXPECT_EQ(roads.front(), BuildingType::Road);
+    EXPECT_NE(std::find(roads.begin(), roads.end(), BuildingType::Bridge), roads.end());
 }
 
 TEST(BuildingConfigTests, TerrainSpecificProductionCanBeFound)

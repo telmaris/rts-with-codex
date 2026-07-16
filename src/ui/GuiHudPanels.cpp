@@ -20,6 +20,7 @@ namespace
         int populationCap{0};
         double manpowerGainPerMinute{0.0};
         int foodSupplyPercent{100};
+        int workerProductivityPercent{100};
         double villageFoodConsumptionPerMinute{0.0};
         std::map<ResourceType, int> storedResources;
         std::map<ResourceType, int> productionRatesPerMinute;
@@ -39,7 +40,12 @@ namespace
         stats.workers = static_cast<int>(std::floor(player->strategicResources.Get(StrategicResourceType::Workers)));
         stats.totalPopulation = static_cast<int>(std::floor(player->GetTotalPopulation()));
         stats.populationCap = player->GetPopulationCap();
-        stats.foodSupplyPercent = static_cast<int>(std::round(player->GetFoodProductivity() * 100.0));
+        // T6 (docs/post_pivot_audit_2026-07-12.md): the HUD chip must show the
+        // raw food supply ratio, not GetFoodProductivity()'s floored (0.3+)
+        // worker-productivity average — the village panel already shows the
+        // real supply ratio, and the two disagreed (e.g. "30%" vs "0%").
+        stats.foodSupplyPercent = static_cast<int>(std::round(player->GetFoodSupplyRatio() * 100.0));
+        stats.workerProductivityPercent = static_cast<int>(std::round(player->GetFoodProductivity() * 100.0));
         stats.productionRatesPerMinute = player->economyTelemetry.current.productionRatesPerMinute;
         stats.consumptionRatesPerMinute = player->economyTelemetry.current.consumptionRatesPerMinute;
 
@@ -323,6 +329,7 @@ void StrategicResourceHudWidget::Update(double dt)
     {
         Tooltip::Draw("Food Supply", {
             "Supply: " + std::to_string(stats.foodSupplyPercent) + "%",
+            "Worker productivity: " + std::to_string(stats.workerProductivityPercent) + "%",
             "Village consumption: " + FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min"
         }, 290.0f);
     }
@@ -498,6 +505,7 @@ void StatsPanelWidget::Update(double dt)
     drawRow(left, 3, "Growth", "+" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min", Color{154, 238, 166, 255});
     drawRow(left, 4, "Food supply", std::to_string(stats.foodSupplyPercent) + "%", stats.foodSupplyPercent < 60 ? Color{248, 126, 126, 255} : Color{154, 238, 166, 255});
     drawRow(left, 5, "Food use", FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min");
+    drawRow(left, 6, "Worker productivity", std::to_string(stats.workerProductivityPercent) + "%");
     drawRow(left, 7, "Buildings", std::to_string(stats.buildingCount));
     drawRow(left, 8, "Roads", std::to_string(stats.roadCount));
     drawRow(left, 9, "Recruitment buildings", std::to_string(player->GetTrackedBuildingCount(BuildingType::Barracks, true)));
@@ -719,7 +727,8 @@ bool StatsPanelWidget::HandleClick(Vec2i point)
 StatsGuiSystem::StatsGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*).
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 

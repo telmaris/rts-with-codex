@@ -85,6 +85,26 @@ void StorageComponent::Update(Building& self, double dt)
     if (self.owner == nullptr)
         return;
 
+    // T3 fix (docs/post_pivot_audit_2026-07-12.md): a tower's ammo buffer and
+    // Barracks' unit-cost buffers exist purely as demand sinks for this
+    // building's own consumption (TowerCombatComponent/RecruitmentComponent),
+    // not a general warehouse to redistribute from. Without this guard, the
+    // moment ammo/costs arrive they get auto-pushed straight back out to the
+    // nearest other building that also accepts the type (e.g. the warehouse
+    // they just came from) — a real, reproducible bounce that never lets
+    // ammo/costs actually accumulate for use.
+    if (self.HasComponent<TowerCombatComponent>() || self.HasComponent<RecruitmentComponent>())
+        return;
+
+    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): with 2+
+    // valid receivers competing for a finite buffer, whichever one is visited
+    // first drains it — so iteration order is simulation-visible and must not
+    // depend on Building* heap addresses (same bug class as the main
+    // per-tick building loop / PrimitiveAIModel::TryBuildRoads). Sort once
+    // per Update() call rather than per-resource-type.
+    std::vector<Building*> sortedReceivers(self.owner->GetTrackedBuildings().begin(), self.owner->GetTrackedBuildings().end());
+    std::sort(sortedReceivers.begin(), sortedReceivers.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
     std::vector<Building*> visitedReceivers;
     for (auto& [res, buf] : buffers)
     {
@@ -93,13 +113,23 @@ void StorageComponent::Update(Building& self, double dt)
 
         visitedReceivers.clear();
         // OPTIMIZATION: Iterate tracked buildings instead of full tilemap (~100 vs 1M tiles).
-        for (Building* receiver : self.owner->GetTrackedBuildings())
+        for (Building* receiver : sortedReceivers)
         {
             if (receiver == nullptr || receiver == &self)
                 continue;
             if (std::find(visitedReceivers.begin(), visitedReceivers.end(), receiver) != visitedReceivers.end())
                 continue;
             visitedReceivers.push_back(receiver);
+            // User report (docs/work_plan_2026-07-13.md, 2026-07-15): a Barracks
+            // has buffer room from the moment it's built, so this ambient
+            // "push to anyone who'll accept" scan was delivering unit-cost
+            // resources to it starting turn one, regardless of whether the
+            // player had ever ordered a unit. Recruitment costs now move only
+            // via RecruitmentComponent's own explicit RequestResource call
+            // (RecruitmentComponent::QueueRecruitment) — never via this
+            // ambient distribution.
+            if (receiver->HasComponent<RecruitmentComponent>())
+                continue;
             if (!receiver->CanAcceptResource(res))
                 continue;
 

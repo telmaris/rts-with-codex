@@ -12,6 +12,7 @@
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
 #include "research/StateDevelopment.h"
+#include "warfare/UnitDefinition.h"
 
 #include <algorithm>
 #include <cmath>
@@ -150,6 +151,24 @@ namespace
             case BalanceStat::ManpowerRate: return "Manpower growth";
             case BalanceStat::PopulationCap: return "Population cap";
             case BalanceStat::BuilderAmount: return "Builders";
+            // T5 (docs/post_pivot_audit_2026-07-12.md): the rest of the enum
+            // was silently falling through to "Effect" — every focus/tech
+            // modifier touching a unit/HQ/tower stat showed no real label.
+            case BalanceStat::UnitHp: return "Unit HP";
+            case BalanceStat::UnitRoadAttack: return "Unit road attack";
+            case BalanceStat::UnitSiegeAttack: return "Unit siege attack";
+            case BalanceStat::UnitArmor: return "Unit armor";
+            case BalanceStat::UnitMoveSpeed: return "Unit move speed";
+            case BalanceStat::UnitAttackSpeed: return "Unit attack speed";
+            case BalanceStat::UnitRecruitTime: return "Unit recruit time";
+            case BalanceStat::UnitRecruitManpowerCost: return "Unit manpower cost";
+            case BalanceStat::HqMaxHp: return "HQ max HP";
+            case BalanceStat::HqDefense: return "HQ hard defense";
+            case BalanceStat::HqThorns: return "HQ thorns damage";
+            case BalanceStat::TowerDamage: return "Tower damage";
+            case BalanceStat::TowerRange: return "Tower range";
+            case BalanceStat::TowerAttackSpeed: return "Tower attack speed";
+            case BalanceStat::TowerAmmoEfficiency: return "Tower ammo per shot";
             default: return "Effect";
         }
     }
@@ -162,6 +181,13 @@ namespace
             case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
+            // T5: "less" is the improvement for these three, same reasoning
+            // as the build/production timers above — a lower recruit time,
+            // lower manpower cost, or fewer arrows burned per shot is the
+            // bonus direction, not a bigger raw number.
+            case BalanceStat::UnitRecruitTime:
+            case BalanceStat::UnitRecruitManpowerCost:
+            case BalanceStat::TowerAmmoEfficiency:
                 return true;
             default:
                 return false;
@@ -228,7 +254,9 @@ namespace
             case BuildingType::Powderworks: return "Powderworks";
             case BuildingType::University: return "University";
             case BuildingType::Barracks: return "Barracks";
+            case BuildingType::DefenseTower: return "Defense Tower";
             case BuildingType::Road: return "Road";
+            case BuildingType::Bridge: return "Bridge";
             default: return "Building";
         }
     }
@@ -259,6 +287,17 @@ namespace
             stream << " for " << FocusBuildingLabel(modifier.buildingType.value());
         if (modifier.resourceType.has_value())
             stream << " producing " << rt2s(modifier.resourceType.value());
+        // T5 (docs/post_pivot_audit_2026-07-12.md): unit-scoped and
+        // category-scoped modifiers previously showed no hint they were
+        // filtered at all — e.g. a "+1 HP for archers" tech looked identical
+        // to a global one.
+        if (modifier.unitDefId.has_value())
+        {
+            const UnitDefinition* unitDef = FindUnitDefinition(modifier.unitDefId.value());
+            stream << " for " << (unitDef != nullptr ? unitDef->displayName : modifier.unitDefId.value());
+        }
+        if (modifier.resourceCategory.has_value())
+            stream << " (" << ResourceCategoryLabel(modifier.resourceCategory.value()) << ")";
         stream << ": ";
 
         bool hasValue = false;
@@ -808,7 +847,8 @@ void ResearchTreePanelWidget::AdjustTreeZoom(Vec2i point, float wheel)
 FocusGuiSystem::FocusGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*).
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 
@@ -949,7 +989,8 @@ void FocusGuiSystem::Scroll()
 TechGuiSystem::TechGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*).
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 
@@ -964,6 +1005,14 @@ void TechGuiSystem::UpdateUiWidgets(Vec2i windowSize)
 {
     techPanel.UpdateSize(windowSize);
     strategicHudWidget.UpdateSize(windowSize);
+}
+
+// Domain gate moved out of GuiController::ChangeSystem (user-directed rework,
+// 2026-07-14): the controller stays generic, the precondition lives with the
+// system it protects.
+bool TechGuiSystem::CanActivate()
+{
+    return HasUniversity(scene);
 }
 
 void TechGuiSystem::Update(double dt)

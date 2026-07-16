@@ -137,7 +137,12 @@ TEST(BattleUnitTests, RecruitTimeAndManpowerCostAreModifiableButFloored)
         << "recruitTime must be floored so a strong multiplier can't make recruitment instant";
 }
 
-TEST(BattleUnitTests, RecruitmentFailsWithoutEnoughResourcesOrManpower)
+// Updated 2026-07-15 (docs/work_plan_2026-07-13.md, A5 correction): missing
+// resources no longer block QueueRecruitment outright — the order joins the
+// queue tagged "waiting" and the shortfall is requested on demand (see
+// RecruitmentComponent::QueueRecruitment). Manpower is the only hard gate,
+// since it's a global pool with nothing to physically wait on.
+TEST(BattleUnitTests, RecruitmentQueuesAsWaitingWithoutResourcesButFailsWithoutManpowerOrUnit)
 {
     TileMap map;
     Player player{0, map};
@@ -146,7 +151,11 @@ TEST(BattleUnitTests, RecruitmentFailsWithoutEnoughResourcesOrManpower)
     ASSERT_NE(barracks, nullptr);
 
     barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].Clear();
-    EXPECT_FALSE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
+    ASSERT_FALSE(barracks->recruitment.queue.empty());
+    EXPECT_FALSE(barracks->recruitment.queue.back().resourcesReady)
+        << "no resources locally yet, so the order should start out waiting";
+    barracks->recruitment.queue.clear();
 
     barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(40);
     player.strategicResources.Set(StrategicResourceType::Manpower, 0);

@@ -98,6 +98,7 @@ NewGameScene::NewGameScene()
 // Advances this object's state for one frame.
 void NewGameScene::Update(double dt)
 {
+    ProcessGuiInput(dt);
     RefreshOptionLabels();
 
     render.Draw({&gameName,

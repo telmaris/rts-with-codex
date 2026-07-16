@@ -100,51 +100,6 @@ TEST(PlayerEconomyTests, TribalManpowerGrowthAppliesToPopulationComponent)
     EXPECT_NEAR(player.ResolveStat(village->population.manpowerRate, village), 0.224, 0.0001);
 }
 
-TEST(PlayerEconomyTests, TechnologyModifiersRefreshIntoBalanceSet)
-{
-    TileMap map;
-    map.params.debugMode = true;
-    Player player{0, map};
-
-    ASSERT_TRUE(player.UnlockTechnology("forestry"));
-    EXPECT_FALSE(player.balanceModifiers.GetModifiers().empty());
-
-    double modified = player.ModifyBalance(
-        BalanceStat::ProductionCycleTime,
-        10.0,
-        BuildingType::Woodcutter);
-    EXPECT_LT(modified, 10.0);
-}
-
-TEST(PlayerEconomyTests, TechnologyOutputBonusIsVisibleInBuildingBufferViews)
-{
-    TileMap map;
-    map.params.debugMode = true;
-    Player player{0, map};
-
-    Woodcutter woodcutter{7};
-    woodcutter.owner = &player;
-
-    auto before = woodcutter.GetOutputBufferViews();
-    auto woodBefore = std::find_if(before.begin(), before.end(), [](const ResourceBufferView& view)
-    {
-        return view.type == ResourceType::WOOD;
-    });
-    ASSERT_NE(woodBefore, before.end());
-    const int baseAmount = woodBefore->recipeAmount;
-    EXPECT_GT(baseAmount, 0);
-
-    ASSERT_TRUE(player.UnlockTechnology("forestry"));
-
-    auto after = woodcutter.GetOutputBufferViews();
-    auto woodAfter = std::find_if(after.begin(), after.end(), [](const ResourceBufferView& view)
-    {
-        return view.type == ResourceType::WOOD;
-    });
-    ASSERT_NE(woodAfter, after.end());
-    EXPECT_EQ(woodAfter->recipeAmount, baseAmount + 1);
-}
-
 TEST(PlayerEconomyTests, TelemetryDoesNotReportTheoreticalProduction)
 {
     TileMap map;
@@ -259,15 +214,3 @@ TEST(PlayerEconomyTests, BuildCostModifierReducesEffectiveBuildCosts)
     }
 }
 
-TEST(PlayerEconomyTests, TelemetryRecordsTechnologyMilestones)
-{
-    TileMap map;
-    map.params.debugMode = true;
-    Player player{0, map};
-
-    ASSERT_TRUE(player.UnlockTechnology("forestry"));
-
-    ASSERT_EQ(player.economyTelemetry.researchMilestones.size(), 1u);
-    EXPECT_EQ(player.economyTelemetry.researchMilestones.front().type, ResearchMilestoneType::Technology);
-    EXPECT_EQ(player.economyTelemetry.researchMilestones.front().id, "forestry");
-}

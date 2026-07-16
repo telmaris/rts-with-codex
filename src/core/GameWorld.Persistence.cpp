@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 25\n";
+    out << "RTS_SAVE 26\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -221,7 +221,8 @@ bool GameWorld::SaveToFile(const std::string& path) const
         {
             out << "RECRUIT " << recruitment->queue.size() << '\n';
             for (const auto& entry : recruitment->queue)
-                out << "RQ " << std::quoted(entry.unitDefId) << ' ' << entry.total << ' ' << entry.remaining << '\n';
+                out << "RQ " << std::quoted(entry.unitDefId) << ' ' << entry.total << ' ' << entry.remaining
+                    << ' ' << (entry.resourcesReady ? 1 : 0) << '\n';
         }
 
         out << "ENDB\n";
@@ -265,7 +266,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 25)
+    if (tag != "RTS_SAVE" || version != 26)
         return false;
 
     render = renderer;
@@ -480,6 +481,12 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             in >> biome;
             tile.biome = static_cast<BiomeType>(biome);
         }
+        // Tile::owner is a relic of the pre-pivot territory system (ETAP 1
+        // removed it; nothing in production sets it anymore, see
+        // docs/post_pivot_audit_2026-07-12.md T2) — restored here only
+        // because it's still part of the save format. Left in place rather
+        // than bumping the save version to drop the field; ownerId always
+        // reads back as whatever was written (effectively unused/-1 today).
         auto ownerIt = playerHandler.players.find(ownerId);
         tile.owner = ownerIt != playerHandler.players.end() ? ownerIt->second.get() : nullptr;
         tilemap.tilemap[id] = std::move(tile);
@@ -760,9 +767,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 {
                     std::string unitDefId;
                     double total = 0.0, remaining = 0.0;
-                    in >> tag >> std::quoted(unitDefId) >> total >> remaining;
+                    int resourcesReady = 1;
+                    in >> tag >> std::quoted(unitDefId) >> total >> remaining >> resourcesReady;
                     if (tag != "RQ") return false;
-                    recruitment->queue.push_back(RecruitmentQueueEntry{unitDefId, total, remaining});
+                    recruitment->queue.push_back(RecruitmentQueueEntry{unitDefId, total, remaining, resourcesReady != 0});
                 }
             }
             else if (tag == "HQ")
@@ -807,7 +815,6 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     }
     tilemap.terrainDirty = true;
     tilemap.buildingsDirty = true;
-    tilemap.territoryDirty = true;
 
     for (const auto& pending : pendingConnections)
     {

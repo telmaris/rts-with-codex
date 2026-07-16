@@ -1,5 +1,8 @@
 #include "core/GameWorldInternal.h"
 
+#include <algorithm>
+#include <vector>
+
 using namespace GameWorldInternal;
 
 // Creates and registers the requested runtime object.
@@ -15,32 +18,6 @@ void Tile::DestroyBuilding()
 {
     building = nullptr;
     buildingRef = nullptr;
-}
-
-// Updates the requested state value.
-void Tile::SetOwner(Player *player)
-{
-    owner = player;
-}
-
-// Returns whether this condition is currently true.
-bool Tile::CanBuild(Player *player)
-{
-    bool allowed = true;
-    if (player != owner)
-    {
-        Log::Msg("[Tile]", " player is not an owner");
-        allowed = false;
-    }
-    if (building != nullptr)
-    {
-        allowed = false;
-    }
-    if (buildingRef != nullptr)
-    {
-        allowed = false;
-    }
-    return allowed;
 }
 
 // Returns the building occupying this tile, following footprint references.
@@ -264,10 +241,16 @@ bool TileMap::IsInsideFootprint(Vec2i anchor, Vec2i footprint) const
 }
 
 // Returns whether this condition is currently true.
-bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) const
+bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, BuildingType type) const
 {
     if (!IsInsideFootprint(anchor, footprint))
         return false;
+
+    // B6 (docs/work_plan_2026-07-13.md): Bridge is the sole exception to the
+    // TD(etap-2) rule below — it REQUIRES isMilitaryRoad ground instead of
+    // refusing it, so a resource road can cross the immutable unit track
+    // (which would otherwise wall off whatever lies on the far side).
+    bool requiresMilitaryRoad = type == BuildingType::Bridge;
 
     for (int y = 0; y < footprint.y; y++)
     {
@@ -277,8 +260,9 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) c
             if (tile.HasBuilding())
                 return false;
             // TD(etap-2): the immutable military road track is disjoint from
-            // buildings/resource roads — nothing may ever be placed on it.
-            if (tile.isMilitaryRoad)
+            // buildings/resource roads — nothing may ever be placed on it,
+            // except Bridge, which may ONLY be placed on it (see above).
+            if (tile.isMilitaryRoad != requiresMilitaryRoad)
                 return false;
         }
     }
@@ -288,6 +272,20 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player) c
     constexpr int kEnemyProximityRadius = 3;
     if (IsWithinEnemyProximity(anchor, footprint, player, kEnemyProximityRadius))
         return false;
+
+    // B6 follow-up (playtest 2026-07-14): two Bridges sitting edge-to-edge
+    // would form a single, longer crossing rather than the intended one-tile
+    // gap in the track — reject placement if any orthogonal neighbour is
+    // already a Bridge (regardless of owner).
+    if (type == BuildingType::Bridge)
+    {
+        for (int neighbourId : GetAdjacentTileIds(anchor, footprint))
+        {
+            const Building* neighbourBuilding = tilemap[neighbourId].GetBuilding();
+            if (neighbourBuilding != nullptr && neighbourBuilding->buildingType == BuildingType::Bridge)
+                return false;
+        }
+    }
 
     return true;
 }
@@ -365,7 +363,7 @@ bool TileMap::HasRequiredTerrainForBuilding(BuildingType type, Vec2i anchor, Vec
 // Returns whether this condition is currently true.
 bool TileMap::CanPlaceBuilding(BuildingType type, Vec2i anchor, Vec2i footprint, Player* player) const
 {
-    if (!CanBuildFootprint(anchor, footprint, player))
+    if (!CanBuildFootprint(anchor, footprint, player, type))
         return false;
 
     if (!HasRequiredTerrainForBuilding(type, anchor, footprint, 2))
@@ -398,12 +396,15 @@ std::vector<int> TileMap::GetBuildingTileIds(const Building* building) const
 // Returns walkable neighbor tile ids around a building footprint.
 std::vector<int> TileMap::GetAdjacentTileIds(const Building* building) const
 {
-    std::vector<int> result;
     if (building == nullptr)
-        return result;
+        return {};
 
-    Vec2i anchor = GetCoordsFromId(building->positionId);
-    Vec2i footprint = building->GetFootprint();
+    return GetAdjacentTileIds(GetCoordsFromId(building->positionId), building->GetFootprint());
+}
+
+std::vector<int> TileMap::GetAdjacentTileIds(Vec2i anchor, Vec2i footprint) const
+{
+    std::vector<int> result;
     for (int y = -1; y <= footprint.y; y++)
     {
         for (int x = -1; x <= footprint.x; x++)
@@ -588,15 +589,33 @@ void TileMap::AutoConnectBuilding(Building* building)
 
     if (building->IsStorageLike())
     {
-        for (auto& tile : tilemap)
+        // OPTIMIZATION: tracked buildings (ETAP 10 registry) instead of a full
+        // tilemap scan, same pattern as StorageComponent::Update. Sorted by
+        // id (not the set's native pointer order) because this loop's
+        // outcome — which building wins a receiver/supplier slot — is
+        // simulation-visible and must be identical across processes/hosts;
+        // GetTrackedBuildings() orders by Building* (heap address), which is
+        // NOT deterministic across separately-constructed GameWorld
+        // instances (found via a flaky lockstep-determinism test).
+        std::vector<Building*> ordered(building->owner->GetTrackedBuildings().begin(),
+                                        building->owner->GetTrackedBuildings().end());
+        std::sort(ordered.begin(), ordered.end(), [](Building* a, Building* b) { return a->id < b->id; });
+        for (Building* other : ordered)
         {
-            auto* other = tile.building.get();
-            if (other == nullptr || other == building || other->owner != building->owner)
+            if (other == nullptr || other == building)
                 continue;
 
             for (const auto& output : other->GetOutputBufferViews())
             {
-                if (!other->HasReceiver(output.type))
+                // T3 fix (docs/post_pivot_audit_2026-07-12.md): only wire the
+                // new storage-like building as a receiver for types it can
+                // actually accept — a tower/Barracks is storage-like too, but
+                // only declares the few resource types it needs, unlike a
+                // plain warehouse/HQ. Without this check, building one next
+                // to a producer of an unrelated resource silently hijacked
+                // that producer's receiver, blocking its real fallback
+                // delivery to the nearest storage.
+                if (!other->HasReceiver(output.type) && building->CanAcceptResource(output.type))
                     other->SetReceiver(output.type, building);
             }
 

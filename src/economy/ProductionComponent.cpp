@@ -80,50 +80,68 @@ void ProductionComponent::Produce(Building& self, double dt)
             }
             started = false;
             elapsed = 0.0;
+            // Fall through to the "try to start a new cycle" check below
+            // instead of waiting for the next Update() tick — otherwise a
+            // fully-buffered production chain shows a visible stall/reset on
+            // the progress bar for one simulation tick between 100% and the
+            // next cycle actually starting, even though nothing was blocking it.
         }
         else
         {
             elapsed         += dt * workerEff;
             self.activeTime += dt * workerEff;
+            return;
         }
     }
-    else
-    {
-        for (auto& [res, buf] : outputBuffers)
-            if (buf.buffer.size() >= static_cast<size_t>(buf.bufferSize))
-                return;
 
-        bool canStart = true;
-        if (terrainBased && !HasTerrainRichness(self))
+    for (auto& [res, buf] : outputBuffers)
+        if (buf.buffer.size() >= static_cast<size_t>(buf.bufferSize))
+            return;
+
+    bool canStart = true;
+    if (terrainBased && !HasTerrainRichness(self))
+        canStart = false;
+
+    for (auto& [res, amount] : ingredients)
+        if (inputBuffers[res].buffer.size() < static_cast<size_t>(amount))
             canStart = false;
 
+    if (canStart)
+    {
         for (auto& [res, amount] : ingredients)
-            if (inputBuffers[res].buffer.size() < static_cast<size_t>(amount))
-                canStart = false;
-
-        if (canStart)
         {
-            for (auto& [res, amount] : ingredients)
+            for (int i = 0; i < amount; i++)
             {
-                for (int i = 0; i < amount; i++)
-                {
-                    inputBuffers[res].FreeResource();
-                    if (self.owner != nullptr)
-                        self.owner->economyTelemetry.RecordConsumption(res);
-                }
-                if (logistics != nullptr)
-                    logistics->RequestResource(res, amount, self);
+                inputBuffers[res].FreeResource();
+                if (self.owner != nullptr)
+                    self.owner->economyTelemetry.RecordConsumption(res);
             }
-            started = true;
+            if (logistics != nullptr)
+                logistics->RequestResource(res, amount, self);
         }
+        started = true;
     }
 }
 
-float ProductionComponent::GetProgress() const
+float ProductionComponent::GetProgress(const Building& self) const
 {
     if (!started || cycleTime.GetBase() <= 0.0)
         return 0.0f;
-    double effective = cycleTime.GetBase(); // caller applies modifiers
+    // Bug fix (2026-07-12): this used to divide by cycleTime.GetBase() (the
+    // raw, unmodified cycle time), while Produce() decides the cycle is done
+    // when elapsed >= GetModifiedCycleTime(self) (tech/focus/state-development
+    // adjusted). Any active modifier on ProductionCycleTime — e.g. a
+    // StateDevelopment level bonus, which applies automatically as the
+    // player's civilization progresses, not just a chosen tech — made these
+    // two thresholds different: a speed-up modifier completed the cycle
+    // before the bar ever visually reached 100% (it jumped from some lower
+    // percentage straight to a reset 0%), while a slow-down modifier made the
+    // bar hit the 100% clamp and then visibly sit there, stalled, until the
+    // real (larger) modified cycle time finally elapsed — exactly the
+    // reported "production freezes for a moment right at 100%".
+    double effective = GetModifiedCycleTime(self);
+    if (effective <= 0.0)
+        return 1.0f;
     return std::clamp(static_cast<float>(elapsed / effective), 0.0f, 1.0f);
 }
 

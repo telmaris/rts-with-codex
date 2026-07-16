@@ -86,8 +86,8 @@ class GameWorld
         // point. Const-qualified callers (e.g. code holding a `const GameWorld&`)
         // get a read-only view; non-const callers still get a mutable one, since
         // TileMap's own accessors (GetBuilding, operator[], ...) aren't const-
-        // qualified yet — tightening that is follow-up work, tracked in
-        // docs/grand_refactor_plan.md ETAP 12. Even so, gameplay state must only
+        // qualified yet — tightening that is deferred follow-up work (see
+        // docs/tech_debt.md). Even so, gameplay state must only
         // be MUTATED through GameCommand (ProcessCommands) or persistence; UI code
         // reading through the non-const overload must not write.
         TileMap& GetTileMap() { return tilemap; }
@@ -121,10 +121,28 @@ class GameWorld
         PlayerHandler& GetPlayerHandlerForTesting() { return playerHandler; }
 
     private:
+        // B5 (docs/work_plan_2026-07-13.md): generates terrain, HQ anchors
+        // (B1) and the military road ring (B2) for `playerCount` players,
+        // retrying with a deterministically perturbed seed (up to a bounded
+        // attempt count) if the resulting ring fails validation (not fully
+        // connected). Entirely before any Player/Building exists, so a retry
+        // never needs to undo player-visible state — each attempt just
+        // regenerates the tilemap terrain and ring from scratch. Returns the
+        // (fixed) HQ footprint and writes the accepted anchors (one per
+        // player id 0..playerCount-1) to `outAnchors`.
+        Vec2i GenerateWorldLayout(MapParameters& params, int playerCount, std::vector<Vec2i>& outAnchors);
         // Creates one player and initializes display/controller metadata.
         Player* CreatePlayer(int id, PlayerControllerType controllerType, const std::string& name, Color color);
-        // Creates HQ, starting territory, village and start road for one player.
-        Vec2i CreateStartingBase(Player* player, Vec2i hqAnchor, unsigned int seed);
+        // Places just the Headquarters (and clears its starting area) — must
+        // run BEFORE the military road is generated, so the road's
+        // impassable-rectangle fallback can never land on a not-yet-built HQ.
+        // Returns the clamped HQ anchor actually used.
+        Vec2i CreateStartingHq(Player* player, Vec2i hqAnchor, unsigned int seed);
+        // Places the village, its start road to the HQ, and the starting
+        // resource patches — must run AFTER the military road is generated,
+        // so TileMap::CanBuildFootprint's existing isMilitaryRoad check keeps
+        // all of this off the road automatically.
+        void CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor, unsigned int seed);
         // Attaches the right controller implementation for one player.
         void AttachControllerForPlayer(Player* player);
         // Advances all input/AI/network controllers.

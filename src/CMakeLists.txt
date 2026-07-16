@@ -58,6 +58,7 @@ target_sources(game
                scenes/GameScene.cpp
                scenes/GameMenuScene.cpp
                ui/Gui.cpp
+               ui/GuiHandler.cpp
                ui/InputManager.cpp
                research/ResearchCatalog.cpp
                ui/Renderer.cpp

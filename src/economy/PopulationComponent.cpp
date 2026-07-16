@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <vector>
 
 // ─── PopulationComponent ─────────────────────────────────────────────────────
 
@@ -15,9 +16,14 @@ void PopulationComponent::Update(Building& self, double dt)
     if (self.owner == nullptr)
         return;
 
-    // ETAP 9: Villages now receive food via supply packages (SupplyCategory::Food)
-    // instead of pulling from storage (RequestFoodSupply). Legacy pull-request
-    // kept for backward compat, but disabled by default. Check GetFoodDemand() instead.
+    // T6 (docs/post_pivot_audit_2026-07-12.md): actively pull FOOD_PROVISIONS
+    // from the owner's storage every tick — same pattern as DefenseTower's
+    // ammo / Barracks' unit costs (T3). Before this fix a village only ever
+    // received food pushed by a supplier's own StorageComponent::Update
+    // (via AutoConnectBuilding's auto-wiring), with nothing to actively
+    // request it if no producer happened to auto-connect nearby.
+    RequestFoodSupply(self);
+
     bool hasBufferedFood = !foodBuffer.buffer.empty();
     bool hasIncomingFood = CountIncomingResources(&self, ResourceType::FOOD_PROVISIONS) > 0;
     if (!hasBufferedFood && !hasIncomingFood)
@@ -79,11 +85,21 @@ int PopulationComponent::RequestFoodSupply(Building& self)
     if (missing <= 0)
         return 0;
 
-    for (auto& tile : self.owner->tilemap.tilemap)
+    // T6 (docs/post_pivot_audit_2026-07-12.md): tracked-buildings registry
+    // instead of a full tilemap scan (same perf-follow-up pattern already
+    // applied to CountIncomingResources/AutoConnectBuilding/TryBuildRoads).
+    // Sorted by id — "first matching storage wins the delivery" is order-
+    // sensitive, and GetTrackedBuildings() is a std::set<Building*> ordered
+    // by heap address, not by anything deterministic across separately-
+    // constructed GameWorld instances (see the lockstep-determinism bug this
+    // exact mistake caused in AutoConnectBuilding/TryBuildRoads, same doc).
+    std::vector<Building*> candidates(self.owner->GetTrackedBuildings().begin(),
+                                       self.owner->GetTrackedBuildings().end());
+    std::sort(candidates.begin(), candidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
+    for (Building* storage : candidates)
     {
-        Building* storage = tile.building.get();
-        if (storage == nullptr || storage->owner != self.owner ||
-            !storage->HasComponent<StorageComponent>())
+        if (storage == nullptr || !storage->HasComponent<StorageComponent>())
             continue;
 
         missing -= storage->HandleTransport(ResourceType::FOOD_PROVISIONS, missing, &self);

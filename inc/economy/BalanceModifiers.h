@@ -14,8 +14,7 @@ enum class BalanceModifierScopeType
 {
     GlobalPlayer,
     Building,
-    Area,
-    Territory
+    Area
 };
 
 struct BalanceModifierScope
@@ -55,13 +54,6 @@ struct BalanceModifierScope
         scope.radius = std::max(0, areaRadius);
         return scope;
     }
-
-    static BalanceModifierScope Territory()
-    {
-        BalanceModifierScope scope;
-        scope.type = BalanceModifierScopeType::Territory;
-        return scope;
-    }
 };
 
 struct BalanceModifierContext
@@ -72,7 +64,6 @@ struct BalanceModifierContext
     std::optional<Vec2i> position;
     std::optional<int> buildingId;
     std::optional<int> positionId;
-    bool ownedTerritory{false};
     // TD(etap-3): unit-definition id (e.g. "swordsman") for BattleUnit stat
     // queries. Empty for every non-unit context.
     std::string unitDefId;
@@ -137,9 +128,6 @@ struct BalanceModifier
                 int dy = context.position->y - scope.center->y;
                 return dx * dx + dy * dy <= scope.radius * scope.radius;
             }
-
-            case BalanceModifierScopeType::Territory:
-                return context.ownedTerritory;
         }
 
         return false;

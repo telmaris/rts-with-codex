@@ -32,8 +32,20 @@ void ApplyStrategicHudCameraPadding(GameScene* scene);
 // Applies the standard full-width top-bar layout to the strategic HUD.
 void UpdateStrategicHudLayout(StrategicResourceHudWidget& hud, Vec2i windowSize);
 
-// Middle-mouse camera drag shared by all interaction systems.
+// Middle/right-mouse camera drag shared by all interaction systems.
 void MoveCamera(GameScene* scene, CameraMovement& cameraMovement);
+
+// A3 (docs/work_plan_2026-07-13.md): starts a pan candidate on RMB press and
+// remembers the press position, for systems where RMB also triggers a click
+// action (only BasicMapViewSystem today). Systems with no competing RMB
+// click action can keep setting cameraMovement.isMoving = true directly.
+void BeginCameraDrag(CameraMovement& cameraMovement);
+
+// Ends the RMB pan candidate started by BeginCameraDrag. Returns true when
+// the press+release stayed under the drag threshold (a real click — the
+// caller should still run its click action), false when it was a pan
+// gesture (camera already moved; no click action should fire).
+bool EndCameraDragWasClick(CameraMovement& cameraMovement);
 
 // Mouse-wheel zoom around the cursor.
 void ZoomCamera(GameScene* scene);
@@ -51,6 +63,13 @@ void DrawCloseButton(Rectangle panel);
 
 // Formats a compact fixed-point HUD value with one decimal place.
 std::string FormatOneDecimal(double value);
+
+// Returns the local player's headquarters building, or nullptr.
+Building* FindLocalHeadquarters(GameScene* scene);
+
+// Grants the local player's HQ a package of every resource — debug worlds
+// only (params.debugMode). Wired to the F10 action in WireCommonSystemActions.
+void GrantDebugResources(GameScene* scene, int amount);
 
 // ─── Strategic HUD buttons ───────────────────────────────────────────────────
 
@@ -103,12 +122,21 @@ void WireCommonSystemActions(SystemT& system, CameraMovement& cameraMovement)
     system.actionMap["f"]    = [&system] { system.FocusPressed(); };
     system.actionMap["t"]    = [&system] { system.TechPressed(); };
     system.actionMap["u"]    = [&system] { system.RosterPressed(); };
-    system.actionMap["lmbp"] = [&system] { system.LmbPressed(); };
+    // Click sound + dispatch — lives here (in the systems' own wiring), not
+    // in GuiController::MakeAction: the controller is pure transition/
+    // dispatch plumbing (user-directed rework, 2026-07-14).
+    system.actionMap["lmbp"] = [&system]
+    {
+        if (system.scene != nullptr && system.scene->audioSystem != nullptr)
+            system.scene->audioSystem->PlaySound("click", 1.0f);
+        system.LmbPressed();
+    };
     system.actionMap["lmbr"] = [&system] { system.LmbReleased(); };
     system.actionMap["rmbp"] = [&system] { system.RmbPressed(); };
     system.actionMap["rmbr"] = [&system] { system.RmbReleased(); };
     system.actionMap["mmbp"] = [&cameraMovement] { cameraMovement.isMoving = true; };
     system.actionMap["mmbr"] = [&cameraMovement] { cameraMovement.isMoving = false; };
+    system.actionMap["debug_resources"] = [&system] { GrantDebugResources(system.scene, 50); };
     system.actionMap["scroll"] = [&system] { system.Scroll(); };
 }
 

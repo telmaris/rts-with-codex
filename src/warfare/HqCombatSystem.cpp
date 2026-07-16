@@ -12,6 +12,10 @@
 
 namespace
 {
+    // How long the HUD keeps showing an HQ's health bar after its last hit
+    // (render-only UX cue — see HqComponent::recentDamageTimer).
+    constexpr double kHqDamageIndicatorDuration = 5.0;
+
     // Thorns radius comfortably covers the contact tile just outside the
     // footprint edge, where every AttackingHq unit stands — a CircleShape
     // overlap test either way, per the plan's explicit ask to validate the
@@ -63,6 +67,8 @@ void HqCombatSystem::Update(GameWorld& world, double dt)
         if (hqBuilding == nullptr || hq == nullptr)
             continue;
 
+        hq->recentDamageTimer = std::max(0.0, hq->recentDamageTimer - dt);
+
         std::vector<int> besiegerIds = BesiegersOf(deployedUnits, ownerId);
 
         // Siege damage: every besieger acts independently in parallel (TD
@@ -96,6 +102,7 @@ void HqCombatSystem::Update(GameWorld& world, double dt)
             double resolved = CombatResolver::ResolveDamage(damage, hardDefense, DamageType::Physical, noResistances,
                                                              worldSeed, tick, besieger.instanceId);
             hq->currentHp -= resolved;
+            hq->recentDamageTimer = kHqDamageIndicatorDuration;
             if (hq->currentHp <= 0.0 && conquerorId == -1)
                 conquerorId = besieger.ownerPlayerId;
         }

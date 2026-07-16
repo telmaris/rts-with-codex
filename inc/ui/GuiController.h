@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+class Scene;
 class GameScene;
 class GuiController;
 
@@ -28,6 +29,14 @@ class GuiController;
 struct CameraMovement
 {
     bool isMoving = false;
+    // A3 (docs/work_plan_2026-07-13.md): in the default map view RMB does
+    // double duty as both the pan button and a click action (assign
+    // logistics receiver), so BeginCameraDrag/EndCameraDragWasClick (see
+    // GuiInternal.h) track cumulative screen displacement since the press to
+    // tell a real click (no drag) from a pan gesture. Unused by systems that
+    // only ever pan on RMB (no competing click action there).
+    Vec2i rmbPressScreenPos{-1, -1};
+    bool rmbDragged = false;
 };
 
 // One selectable item in the build panel.
@@ -69,7 +78,28 @@ public:
     virtual void OnActivate() {}
     virtual void OnDeactivate() {}
 
+    // Domain gate for ChangeSystem: a system that has preconditions (e.g.
+    // TechGuiSystem needs a completed University) overrides this. Keeps the
+    // controller itself free of any game-domain logic — it only manages
+    // transitions between systems (user-directed rework, 2026-07-14).
+    virtual bool CanActivate() { return true; }
+
     GuiController* owner{nullptr};
+    // Owning scene — hoisted to the base (2026-07-14): every interaction
+    // system needs SOME scene (at minimum for render/audioSystem, both
+    // declared on the Scene base itself), and the shared action wiring
+    // (WireCommonSystemActions) reads it uniformly regardless of which
+    // concrete scene type owns the controller. A4 (docs/work_plan_2026-07-13.md):
+    // typed as the generic Scene base rather than GameScene — the controller
+    // itself is scene-agnostic. Concrete game interaction systems (which need
+    // GameScene-specific members: game, SubmitLocalCommand, ...) redeclare
+    // their OWN same-named `GameScene* scene` member, which shadows this one
+    // within their scope — every existing `scene->game` etc. call site in
+    // those systems' .cpp files keeps compiling unchanged, since name lookup
+    // finds the nearer (derived) declaration first. See BasicMapViewSystem
+    // etc. below for the pattern; a menu-scene system would instead use this
+    // base member directly (or its own typed shadow of its own scene type).
+    Scene* scene{nullptr};
     std::map<std::string, std::function<void()>> actionMap;
 };
 
@@ -77,8 +107,9 @@ public:
 class GuiController
 {
 public:
-    // Creates interaction systems and attaches the controller to a game scene.
-    void Init(GameScene *);
+    // Creates interaction systems and attaches the controller to a scene
+    // (any Scene, not just GameScene — A4, docs/work_plan_2026-07-13.md).
+    void Init(Scene *);
     // Updates the active system.
     void Update(double);
     // Executes an action in the active system when it is registered.
@@ -92,7 +123,8 @@ public:
         systems[name] = std::make_shared<T>(this);
     }
 
-    // Switches active interaction system. Refuses to open "tech" without a completed University.
+    // Switches active interaction system (refuses when the target system's
+    // own CanActivate() precondition isn't met, e.g. TechGuiSystem).
     void ChangeSystem(std::string name);
     // Returns widgets that should be drawn by the renderer.
     inline std::vector<UiWidget*> GetUiWidgets() { return ui; }
@@ -103,7 +135,7 @@ public:
     std::shared_ptr<GuiSystem> activeSystem;
 
     std::vector<UiWidget*> ui;
-    GameScene *scene{nullptr};
+    Scene *scene{nullptr};
 };
 
 // ─── Map overlay widgets ─────────────────────────────────────────────────────
@@ -303,7 +335,9 @@ public:
     // the moment another GuiSystem becomes active — see GuiSystem::OnDeactivate.
     void OnDeactivate() override;
 
-    GameScene* scene;
+    // Shadows GuiSystem::scene with the concrete type this system actually
+    // needs (game, SubmitLocalCommand, ...) — A4, docs/work_plan_2026-07-13.md.
+    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
 
     BuildingInfoPanel buildingInfoPanel;
@@ -333,6 +367,11 @@ class BuildGuiSystem : public GuiSystem
 public:
     explicit BuildGuiSystem(GuiController* con);
     BuildGuiSystem() = delete;
+
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it;
+    // also inherited as-is by RoadBuildSystem below.
+    GameScene* scene{nullptr};
 
     // Rebuilds build-mode widget list.
     void UpdateUiWidgets(Vec2i) override;
@@ -377,7 +416,6 @@ protected:
     // Places selected option under cursor when placement is valid.
     bool TryPlaceSelectedAtHovered(bool returnAfterBuild);
 
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     BuildPanelWidget buildPanel;
     StrategicResourceHudWidget strategicHudWidget;
@@ -409,6 +447,14 @@ public:
 
 private:
     bool TryPlaceRoadAtHovered();
+    // Road mode has no visible option panel (Update never draws buildPanel),
+    // so the Road/Bridge choice can't be a manual selection — instead it
+    // follows the cursor: hovering an isMilitaryRoad tile selects Bridge,
+    // anywhere else selects Road. Dragging a road across the unit track
+    // therefore inserts the bridge automatically (B6 follow-up #2, playtest
+    // 2026-07-14 — both "can't build roads" and "can't build bridges" were
+    // this same invisible, unswitchable selection stuck on one type).
+    void SyncSelectionToHoveredTile();
 
     Vec2i lastRoadDragTile{-9999, -9999};
 };
@@ -418,6 +464,10 @@ class DestroyGuiSystem : public GuiSystem
 public:
     explicit DestroyGuiSystem(GuiController* con);
     DestroyGuiSystem() = delete;
+
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
 
     void UpdateUiWidgets(Vec2i) override;
     void Update(double dt) override;
@@ -442,7 +492,6 @@ private:
     // Drops the hover target before leaving destroy mode.
     void ClearHoverTarget();
 
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     SelectedBuildingWidget destroyTargetWidget;
     Building* hoveredBuilding{nullptr};
@@ -455,6 +504,10 @@ public:
     explicit StatsGuiSystem(GuiController* con);
     StatsGuiSystem() = delete;
 
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
+
     void UpdateUiWidgets(Vec2i) override;
     void Update(double dt) override;
 
@@ -474,7 +527,6 @@ public:
     void Scroll();
 
 private:
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     StatsPanelWidget statsPanel;
     StrategicResourceHudWidget strategicHudWidget;
@@ -486,6 +538,10 @@ public:
     explicit FocusGuiSystem(GuiController* con);
     FocusGuiSystem() = delete;
 
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
+
     void UpdateUiWidgets(Vec2i) override;
     void Update(double dt) override;
 
@@ -505,7 +561,6 @@ public:
     void Scroll();
 
 private:
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     ResearchTreePanelWidget focusPanel{ResearchTreeKind::Focus};
     StrategicResourceHudWidget strategicHudWidget;
@@ -517,8 +572,16 @@ public:
     explicit TechGuiSystem(GuiController* con);
     TechGuiSystem() = delete;
 
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
+
     void UpdateUiWidgets(Vec2i) override;
     void Update(double dt) override;
+
+    // The tech tree only opens once the local player has a completed
+    // University — domain gate moved here from GuiController::ChangeSystem.
+    bool CanActivate() override;
 
     void EscPressed();
     void BuildPressed();
@@ -536,7 +599,6 @@ public:
     void Scroll();
 
 private:
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     ResearchTreePanelWidget techPanel{ResearchTreeKind::Technology};
     StrategicResourceHudWidget strategicHudWidget;
@@ -551,6 +613,10 @@ public:
     explicit RosterGuiSystem(GuiController* con);
     RosterGuiSystem() = delete;
 
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
+
     void UpdateUiWidgets(Vec2i) override;
     void Update(double dt) override;
 
@@ -570,7 +636,6 @@ public:
     void Scroll();
 
 private:
-    GameScene* scene{nullptr};
     CameraMovement cameraMovement;
     RosterPanelWidget rosterPanel;
     StrategicResourceHudWidget strategicHudWidget;

@@ -30,6 +30,60 @@ Vec2i GetMapSize(GameScene* scene)
     return Vec2i{scene->game->GetTileMap().params.sizeX, scene->game->GetTileMap().params.sizeY};
 }
 
+// Finds the local player's headquarters building.
+Building* FindLocalHeadquarters(GameScene* scene)
+{
+    Player* player = GuiLocalPlayer(scene);
+    if (player == nullptr)
+        return nullptr;
+
+    for (auto* building : player->GetTrackedBuildings())
+    {
+        if (building != nullptr && building->owner == player && building->buildingType == BuildingType::Headquarters)
+            return building;
+    }
+
+    return nullptr;
+}
+
+namespace
+{
+    // Adds a debug resource package to one storage-like building.
+    void GrantResourcesToStorage(StorageComponent* storage, int amount)
+    {
+        if (storage == nullptr || amount <= 0)
+            return;
+
+        for (ResourceType type : resourceTypes)
+        {
+            auto& buffer = storage->buffers[type];
+            if (buffer.type == ResourceType::Null)
+                buffer = ResourceBuffer{type, amount};
+            buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
+            for (int i = 0; i < amount; i++)
+                buffer.GenerateResource(type);
+        }
+    }
+}
+
+// Grants local debug resources when the current world allows debug helpers.
+// Moved out of GuiController (user-directed rework, 2026-07-14): the
+// controller is pure system-transition plumbing, concrete actions live in
+// the systems' actionMaps.
+void GrantDebugResources(GameScene* scene, int amount)
+{
+    if (scene == nullptr || scene->game == nullptr || !scene->game->GetTileMap().params.debugMode)
+        return;
+
+    Building* headquarters = FindLocalHeadquarters(scene);
+    auto* storage = headquarters != nullptr ? headquarters->GetComponent<StorageComponent>() : nullptr;
+    if (storage == nullptr)
+        return;
+
+    GrantResourcesToStorage(storage, amount);
+    Log::Msg("[Debug]", "granted ", amount, " of every resource to local HQ");
+}
+
 namespace
 {
     float StrategicHudHeightForWindow(Vec2i windowSize)
@@ -59,14 +113,33 @@ void ApplyStrategicHudCameraPadding(GameScene* scene)
     scene->render.ClampCameraToMap(GetMapSize(scene));
 }
 
+namespace
+{
+    // Net screen-space displacement beyond which an RMB press+release counts
+    // as a pan drag rather than a click (A3, docs/work_plan_2026-07-13.md).
+    constexpr float kRmbDragThresholdPixels = 4.0f;
+}
+
 void MoveCamera(GameScene* scene, CameraMovement& cameraMovement)
 {
     if (!cameraMovement.isMoving)
         return;
-    if (!InputManager::IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
+    if (!InputManager::IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) && !InputManager::IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
     {
         cameraMovement.isMoving = false;
         return;
+    }
+
+    // Only set (via BeginCameraDrag) for systems where RMB also has a
+    // competing click action — MMB-only drags never populate this, so this
+    // is a no-op for them.
+    if (cameraMovement.rmbPressScreenPos.x >= 0)
+    {
+        Vector2 mouse = GetMousePosition();
+        float dx = mouse.x - static_cast<float>(cameraMovement.rmbPressScreenPos.x);
+        float dy = mouse.y - static_cast<float>(cameraMovement.rmbPressScreenPos.y);
+        if (dx * dx + dy * dy > kRmbDragThresholdPixels * kRmbDragThresholdPixels)
+            cameraMovement.rmbDragged = true;
     }
 
     Vector2 delta = GetMouseDelta();
@@ -76,6 +149,23 @@ void MoveCamera(GameScene* scene, CameraMovement& cameraMovement)
     scene->render.camera.target = Vector2Add(scene->render.camera.target, delta);
     ApplyStrategicHudCameraPadding(scene);
     scene->render.ClampCameraToMap(GetMapSize(scene));
+}
+
+void BeginCameraDrag(CameraMovement& cameraMovement)
+{
+    cameraMovement.isMoving = true;
+    Vector2 mouse = GetMousePosition();
+    cameraMovement.rmbPressScreenPos = {static_cast<int>(mouse.x), static_cast<int>(mouse.y)};
+    cameraMovement.rmbDragged = false;
+}
+
+bool EndCameraDragWasClick(CameraMovement& cameraMovement)
+{
+    bool wasClick = cameraMovement.rmbPressScreenPos.x >= 0 && !cameraMovement.rmbDragged;
+    cameraMovement.isMoving = false;
+    cameraMovement.rmbPressScreenPos = {-1, -1};
+    cameraMovement.rmbDragged = false;
+    return wasClick;
 }
 
 void ZoomCamera(GameScene* scene)

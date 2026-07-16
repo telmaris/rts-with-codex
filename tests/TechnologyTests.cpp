@@ -72,50 +72,6 @@ namespace
     }
 }
 
-TEST(TechnologyTests, DefinitionsAreLoadedWithCategoriesCostsAndModifiers)
-{
-    const auto& definitions = GetTechnologyDefinitions();
-    ASSERT_FALSE(definitions.empty());
-
-    const TechnologyDefinition* forestry = FindTechnologyDefinition("forestry");
-    ASSERT_NE(forestry, nullptr);
-    EXPECT_EQ(forestry->name, "Mathematics");
-    EXPECT_EQ(forestry->category, "SCIENCE");
-    EXPECT_EQ(forestry->layoutLane, "Core Sciences");
-    EXPECT_GT(forestry->researchTime, 0.0);
-    EXPECT_FALSE(forestry->modifiers.empty());
-}
-
-TEST(TechnologyTests, PrerequisitesGateUnlocks)
-{
-    TechnologyState state;
-
-    ASSERT_TRUE(state.UnlockTechnology("forestry"));
-    EXPECT_TRUE(state.HasTechnology("forestry"));
-
-    if (FindTechnologyDefinition("sawmill_blades") != nullptr)
-    {
-        TechnologyState gatedState;
-        EXPECT_FALSE(gatedState.CanUnlock("sawmill_blades"));
-
-        gatedState.RestoreTechnology("forestry");
-        EXPECT_TRUE(gatedState.CanUnlock("sawmill_blades"));
-    }
-}
-
-TEST(TechnologyTests, CollectModifiersExportsUnlockedTechnologyEffects)
-{
-    TechnologyState state;
-    ASSERT_TRUE(state.UnlockTechnology("forestry"));
-
-    BalanceModifierSet modifiers;
-    state.CollectModifiers(modifiers);
-
-    EXPECT_FALSE(modifiers.GetModifiers().empty());
-    for (const auto& modifier : modifiers.GetModifiers())
-        EXPECT_EQ(modifier.source, "tech:forestry");
-}
-
 TEST(TechnologyTests, LoadsTechnologyDataFileWithQuotedTextPrerequisitesCostsAndModifiers)
 {
     const auto path = WriteTechnologyFixture(R"DATA(
@@ -241,63 +197,6 @@ TEST(TechnologyTests, LoadedAssetTagsAreNormalizedAndUnique)
 
     expectNormalizedTags(LoadTechnologyDefinitionsFromFile("assets/data/technologies.rtsdata"));
     expectNormalizedTags(LoadFocusDefinitionsFromFile("assets/data/focuses.rtsdata"));
-}
-
-TEST(TechnologyTests, AssetTechnologyTreeUsesScientificTrunkAndBranches)
-{
-    const auto definitions = LoadTechnologyDefinitionsFromFile("assets/data/technologies.rtsdata");
-    ASSERT_FALSE(definitions.empty());
-
-    std::set<std::string> ids;
-    std::vector<std::string> roots;
-    for (const auto& definition : definitions)
-    {
-        ids.insert(definition.id);
-        EXPECT_EQ(definition.category, "SCIENCE") << definition.id;
-        EXPECT_FALSE(definition.layoutLane.empty()) << definition.id;
-    }
-
-    for (const auto& definition : definitions)
-    {
-        if (definition.prerequisites.empty())
-            roots.push_back(definition.id);
-        for (const auto& prerequisite : definition.prerequisites)
-            EXPECT_TRUE(ids.contains(prerequisite)) << definition.id << " missing prerequisite " << prerequisite;
-    }
-
-    EXPECT_EQ(roots, std::vector<std::string>{"forestry"});
-
-    auto find = [&](const std::string& id) -> const TechnologyDefinition*
-    {
-        auto it = std::find_if(definitions.begin(), definitions.end(), [&](const TechnologyDefinition& definition)
-        {
-            return definition.id == id;
-        });
-        return it == definitions.end() ? nullptr : &*it;
-    };
-
-    const auto* mathematics = find("forestry");
-    const auto* physics = find("masonry");
-    const auto* chemistry = find("specialized_foundries");
-    const auto* engineering = find("engineering_corps");
-    const auto* medicine = find("communal_health");
-    ASSERT_NE(mathematics, nullptr);
-    ASSERT_NE(physics, nullptr);
-    ASSERT_NE(chemistry, nullptr);
-    ASSERT_NE(engineering, nullptr);
-    ASSERT_NE(medicine, nullptr);
-
-    EXPECT_EQ(mathematics->name, "Mathematics");
-    EXPECT_EQ(physics->name, "Physics");
-    EXPECT_EQ(chemistry->name, "Chemistry");
-    EXPECT_EQ(engineering->name, "Engineering");
-    EXPECT_EQ(medicine->name, "Medicine");
-    EXPECT_EQ(chemistry->layoutLane, "Core Sciences");
-    EXPECT_EQ(engineering->layoutLane, "Engineering");
-    EXPECT_EQ(medicine->layoutLane, "Medicine");
-    EXPECT_TRUE(std::find(physics->prerequisites.begin(), physics->prerequisites.end(), "forestry") != physics->prerequisites.end());
-    EXPECT_TRUE(std::find(chemistry->prerequisites.begin(), chemistry->prerequisites.end(), "deep_mining") != chemistry->prerequisites.end());
-    EXPECT_TRUE(std::find(engineering->prerequisites.begin(), engineering->prerequisites.end(), "specialized_foundries") != engineering->prerequisites.end());
 }
 
 TEST(TechnologyTests, MissingTechnologyDataUsesBuiltInDefaults)

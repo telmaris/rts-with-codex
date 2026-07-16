@@ -82,7 +82,6 @@ void MapGenerator::GenerateTileMap(TileMap& tilemap, MapParameters& params)
     tilemap.params = params;
     tilemap.terrainDirty = true;
     tilemap.buildingsDirty = true;
-    tilemap.territoryDirty = true;
     std::mt19937 rng(params.seed);
 
     for(int i = 0; i < size; i++)
@@ -128,14 +127,102 @@ int MapGenerator::SizeFromPreset(MapSizePreset preset)
     }
 }
 
-// Picks a map position or generated value.
-Vec2i MapGenerator::PickHeadquartersAnchor(const MapParameters& params)
+namespace
+{
+    constexpr double kTwoPi = 6.283185307179586;
+    constexpr double kPi = 3.141592653589793;
+
+    Vec2i ClampAnchorToMap(Vec2i anchor, Vec2i footprint, const MapParameters& params)
+    {
+        return Vec2i{
+            std::clamp(anchor.x, 1, std::max(1, params.sizeX - footprint.x - 2)),
+            std::clamp(anchor.y, 1, std::max(1, params.sizeY - footprint.y - 2))};
+    }
+
+    int AnchorManhattanDistance(Vec2i a, Vec2i b)
+    {
+        return std::abs(a.x - b.x) + std::abs(a.y - b.y);
+    }
+
+    // Builds one candidate n-gon layout (jittered if jitter>0.0, exact regular
+    // polygon if jitter==0.0) for `playerCount` HQs around `mapCenter`, using
+    // `rng` for the per-vertex jitter draws.
+    std::vector<Vec2i> BuildRingLayout(Vec2i mapCenter, Vec2i footprint, const MapParameters& params,
+                                        int playerCount, double radius, double rotation, double jitter,
+                                        std::mt19937& rng)
+    {
+        std::vector<Vec2i> anchors;
+        anchors.reserve(playerCount);
+        double sector = kTwoPi / playerCount;
+        std::uniform_real_distribution<double> angleJitterDist(-jitter * 0.25 * sector, jitter * 0.25 * sector);
+        std::uniform_real_distribution<double> radiusJitterDist(1.0 - jitter * 0.15, 1.0);
+
+        for (int i = 0; i < playerCount; i++)
+        {
+            double angle = rotation + i * sector + angleJitterDist(rng);
+            double r = radius * radiusJitterDist(rng);
+            Vec2i center{
+                static_cast<int>(std::lround(mapCenter.x + r * std::cos(angle))),
+                static_cast<int>(std::lround(mapCenter.y + r * std::sin(angle)))};
+            Vec2i anchor{center.x - footprint.x / 2, center.y - footprint.y / 2};
+            anchors.push_back(ClampAnchorToMap(anchor, footprint, params));
+        }
+        return anchors;
+    }
+
+    bool AllPairsClearMinDistance(const std::vector<Vec2i>& anchors, int minSafeDistance)
+    {
+        for (size_t i = 0; i < anchors.size(); i++)
+            for (size_t j = i + 1; j < anchors.size(); j++)
+                if (AnchorManhattanDistance(anchors[i], anchors[j]) < minSafeDistance)
+                    return false;
+        return true;
+    }
+}
+
+// Deterministically places `playerCount` HQ anchors on an n-gon (B1,
+// docs/work_plan_2026-07-13.md): the nominal radius is chosen so adjacent
+// ring vertices clear minSafeDistance by construction (chord = 2R sin(pi/n),
+// the smallest chord in a regular polygon — every non-adjacent pair is
+// therefore automatically farther apart), then a handful of deterministic
+// jittered layouts are tried for a less mechanically regular look; if none
+// of them happen to clear the safety margin (jitter got unlucky), the exact
+// zero-jitter regular polygon is used as a guaranteed-safe fallback.
+std::vector<Vec2i> MapGenerator::PickHeadquartersAnchors(const MapParameters& params, int playerCount)
 {
     Vec2i footprint = HeadquartersFootprint();
-    return {
-        params.sizeX / 2 - footprint.x / 2,
-        params.sizeY / 2 - footprint.y / 2
-    };
+    if (playerCount <= 0)
+        return {};
+    if (playerCount == 1)
+        return {Vec2i{params.sizeX / 2 - footprint.x / 2, params.sizeY / 2 - footprint.y / 2}};
+
+    Vec2i mapCenter{params.sizeX / 2, params.sizeY / 2};
+    int margin = std::max(14, HeadquartersTerritorySize() / 2 + 4);
+    double maxRadius = std::max(20.0, static_cast<double>(std::min(params.sizeX, params.sizeY)) / 2.0 - margin);
+
+    double minSafeDistance = std::max(70.0, static_cast<double>(std::min(params.sizeX, params.sizeY)) / 3.0);
+    double nominalRadius = minSafeDistance / (2.0 * std::sin(kPi / playerCount));
+    double radius = std::clamp(nominalRadius, 20.0, maxRadius);
+
+    std::mt19937 rng(params.seed ^ 0x51ED270Bu);
+    std::uniform_real_distribution<double> rotationDist(0.0, kTwoPi);
+    double rotation = rotationDist(rng);
+
+    constexpr int kJitteredAttempts = 16;
+    for (int attempt = 0; attempt < kJitteredAttempts; attempt++)
+    {
+        std::vector<Vec2i> candidate = BuildRingLayout(mapCenter, footprint, params, playerCount, radius, rotation, 1.0, rng);
+        if (AllPairsClearMinDistance(candidate, static_cast<int>(minSafeDistance)))
+            return candidate;
+    }
+
+    // Fallback: exact regular polygon, no jitter — guaranteed to clear
+    // minSafeDistance by the chord-length argument above (modulo integer
+    // rounding, comfortably covered by clamping radius conservatively).
+    // jitter=0.0 collapses both distributions to a fixed point, so the RNG
+    // state fed in here doesn't actually affect the result.
+    std::mt19937 fallbackRng(0);
+    return BuildRingLayout(mapCenter, footprint, params, playerCount, radius, rotation, 0.0, fallbackRng);
 }
 
 // Initializes MapGenerator::GenerateResourcePatches.
@@ -152,6 +239,22 @@ void MapGenerator::GenerateResourcePatches(TileMap& tilemap, const MapParameters
     }
 }
 
+// B3 rework (docs/work_plan_2026-07-13.md + user follow-up 2026-07-14):
+// clean, rounded/oval deposits (Factorio-style). Shape = ellipse (randomized
+// eccentricity + rotation) with a smooth low-frequency wobble on its boundary
+// radius — a single simply-connected, gently undulating oval.
+//
+// The 2026-07-14 follow-up fixed WHY patches still looked jagged after the
+// first ellipse version: the biome gate used to be applied PER TILE while
+// painting, so a clean oval got clipped along the noisy value-noise biome
+// border it straddled — producing exactly the "poszarpane bryły" the shape
+// rework was supposed to remove. The biome constraint now applies to the
+// patch CENTER only (deterministic re-draws until an allowed biome is hit),
+// and the whole oval is painted regardless of what biome its outer tiles
+// touch — geographic placement is preserved, the silhouette stays clean.
+// Small patches additionally scale the wobble down: on a radius-2 deposit a
+// full-amplitude wobble is just integer-rounding teeth, not an organic edge.
+//
 // Initializes MapGenerator::GeneratePatch.
 void MapGenerator::GeneratePatch(TileMap& tilemap, const ResourcePatchParameters& patch, std::mt19937& rng)
 {
@@ -161,93 +264,92 @@ void MapGenerator::GeneratePatch(TileMap& tilemap, const ResourcePatchParameters
     std::uniform_int_distribution<int> radiusDist(std::max(1, patch.minRadius), std::max(patch.minRadius, patch.maxRadius));
     std::uniform_int_distribution<int> xDist(0, tilemap.params.sizeX - 1);
     std::uniform_int_distribution<int> yDist(0, tilemap.params.sizeY - 1);
-    std::uniform_real_distribution<float> fillDist(0.0f, 1.0f);
+    std::uniform_real_distribution<double> axisScaleDist(0.9, 1.15);
+    std::uniform_real_distribution<double> eccentricityDist(0.68, 1.0); // minor/major axis ratio
+    std::uniform_real_distribution<double> rotationDist(0.0, kTwoPi);
+    std::uniform_real_distribution<double> phaseDist(0.0, kTwoPi);
+    constexpr double kWobbleAmplitude = 0.16;
+    constexpr int kWobbleLobesA = 3;
+    constexpr int kWobbleLobesB = 5;
+    constexpr int kCenterDrawAttempts = 16;
+
+    auto biomeAllowed = [&](Vec2i pos)
+    {
+        if (patch.allowedBiomes.empty())
+            return true;
+        const Tile& tile = tilemap[pos];
+        return std::find(patch.allowedBiomes.begin(), patch.allowedBiomes.end(), tile.biome) != patch.allowedBiomes.end();
+    };
 
     for (int patchIndex = 0; patchIndex < patch.patchCount; patchIndex++)
     {
         int radius = radiusDist(rng);
         int diameter = radius * 2 + 1;
-        std::vector<int> cells(diameter * diameter, 0);
-        std::vector<int> next = cells;
 
-        int blobs = std::max(3, radius / 2);
-        std::uniform_int_distribution<int> offsetDist(-std::max(1, radius / 2), std::max(1, radius / 2));
-        std::uniform_int_distribution<int> blobRadiusDist(std::max(2, radius / 3), radius);
+        double majorAxis = std::max(1.0, radius * axisScaleDist(rng));
+        double minorAxis = majorAxis * eccentricityDist(rng);
+        double rotation = rotationDist(rng);
+        double cosR = std::cos(-rotation);
+        double sinR = std::sin(-rotation);
+        double phaseA = phaseDist(rng);
+        double phaseB = phaseDist(rng);
+        double wobbleScale = std::min(1.0, radius / 5.0);
+        double wobbleA = kWobbleAmplitude * wobbleScale;
+        double wobbleB = kWobbleAmplitude * 0.6 * wobbleScale;
 
-        for (int blob = 0; blob < blobs; blob++)
+        // Deterministic center hunt: keep drawing until the CENTER lands in
+        // an allowed biome; give up on this patch after a bounded number of
+        // attempts (map may simply lack that biome for this seed).
+        Vec2i center{-1, -1};
+        for (int attempt = 0; attempt < kCenterDrawAttempts; attempt++)
         {
-            int cx = radius + offsetDist(rng);
-            int cy = radius + offsetDist(rng);
-            int blobRadius = blobRadiusDist(rng);
-
-            for (int y = 0; y < diameter; y++)
+            Vec2i candidate{xDist(rng), yDist(rng)};
+            if (biomeAllowed(candidate))
             {
-                for (int x = 0; x < diameter; x++)
-                {
-                    int dx = x - cx;
-                    int dy = y - cy;
-                    if (dx * dx + dy * dy <= blobRadius * blobRadius)
-                        cells[x + y * diameter] = 1;
-                }
+                center = candidate;
+                break;
             }
         }
+        if (center.x < 0)
+            continue;
 
-        for (int pass = 0; pass < std::max(1, patch.smoothingPasses); pass++)
-        {
-            next = cells;
-            for (int y = 0; y < diameter; y++)
-            {
-                for (int x = 0; x < diameter; x++)
-                {
-                    int neighbours = 0;
-                    for (int oy = -1; oy <= 1; oy++)
-                    {
-                        for (int ox = -1; ox <= 1; ox++)
-                        {
-                            if (ox == 0 && oy == 0)
-                                continue;
-
-                            int nx = x + ox;
-                            int ny = y + oy;
-                            if (nx < 0 || ny < 0 || nx >= diameter || ny >= diameter)
-                            {
-                                neighbours++;
-                                continue;
-                            }
-                            neighbours += cells[nx + ny * diameter];
-                        }
-                    }
-
-                    if (cells[x + y * diameter] == 1)
-                        next[x + y * diameter] = neighbours >= 3 ? 1 : 0;
-                    else
-                        next[x + y * diameter] = neighbours >= 6 ? 1 : 0;
-                }
-            }
-            cells.swap(next);
-        }
-
-        Vec2i center{xDist(rng), yDist(rng)};
         for (int y = 0; y < diameter; y++)
         {
             for (int x = 0; x < diameter; x++)
             {
-                if (cells[x + y * diameter] == 0)
-                    continue;
+                double dx = x - radius;
+                double dy = y - radius;
+                double distFromCenter = std::sqrt(dx * dx + dy * dy);
 
-                Vec2i mapPos{center.x + x - radius, center.y + y - radius};
+                if (dx != 0.0 || dy != 0.0)
+                {
+                    double rx = dx * cosR - dy * sinR;
+                    double ry = dx * sinR + dy * cosR;
+                    double normalized = std::sqrt((rx * rx) / (majorAxis * majorAxis) + (ry * ry) / (minorAxis * minorAxis));
+                    double angle = std::atan2(ry, rx);
+                    double wobble = 1.0 + wobbleA * std::sin(kWobbleLobesA * angle + phaseA)
+                                        + wobbleB * std::sin(kWobbleLobesB * angle + phaseB);
+                    if (normalized > wobble)
+                        continue;
+                }
+
+                Vec2i mapPos{center.x + static_cast<int>(dx), center.y + static_cast<int>(dy)};
                 if (!tilemap.IsInside(mapPos))
                     continue;
 
                 auto& tile = tilemap[mapPos];
-                // Biome gate: keep deposits geographically plausible.
-                if (!patch.allowedBiomes.empty() &&
-                    std::find(patch.allowedBiomes.begin(), patch.allowedBiomes.end(), tile.biome) == patch.allowedBiomes.end())
+                // Never paint over the (already carved) military road, and
+                // keep the silhouette intact otherwise — no per-tile biome
+                // clipping (see the function comment).
+                if (tile.isMilitaryRoad)
                     continue;
 
+                // Gentle richness gradient — richest at the deposit's core,
+                // tapering toward its (already gently undulating) edge.
+                double edgeFalloff = std::clamp(1.0 - 0.3 * (distFromCenter / (majorAxis + 1.0)), 0.7, 1.0);
                 tile.tileType = patch.type;
                 tile.terrainTextureId = tilemap.PickTerrainTexture(patch.type, rng);
-                tile.resourceRichness = std::max(1, static_cast<int>(std::round(tilemap.params.resourceRichness * patch.richnessScale)));
+                tile.resourceRichness = std::max(1, static_cast<int>(std::round(tilemap.params.resourceRichness * patch.richnessScale * edgeFalloff)));
             }
         }
     }

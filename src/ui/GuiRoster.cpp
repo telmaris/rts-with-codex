@@ -223,7 +223,8 @@ void RosterPanelWidget::Update(double dt)
 RosterGuiSystem::RosterGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*).
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 

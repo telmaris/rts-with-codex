@@ -88,8 +88,12 @@ TEST(UnitCombatSystemTests, StrongerUnitWinsAndResumesMarchingTowardHq)
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(600));
     DuelSetup duel = DeployDuel(world, "swordsman", "militia");
 
+    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
+    // separation on this tiny test map, so marching to contact (and later
+    // on to the HQ door) can take longer than it used to for a given seed —
+    // budgets bumped with generous headroom rather than tuned to a distance.
     bool defenderDied = false;
-    for (int i = 0; i < 8000 && !defenderDied; i++)
+    for (int i = 0; i < 15000 && !defenderDied; i++)
     {
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         if (world.GetDeployedUnits().count(duel.defenderId) == 0)
@@ -104,7 +108,7 @@ TEST(UnitCombatSystemTests, StrongerUnitWinsAndResumesMarchingTowardHq)
     // swordsman should be free to resume marching and eventually reach the
     // enemy HQ door.
     bool reachedHq = false;
-    for (int i = 0; i < 8000 && !reachedHq; i++)
+    for (int i = 0; i < 15000 && !reachedHq; i++)
     {
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         auto it = world.GetDeployedUnits().find(duel.attackerId);
@@ -166,8 +170,11 @@ TEST(UnitCombatSystemTests, NoZombieAttackAfterDeathInSameTick)
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(800));
     DuelSetup duel = DeployDuel(world, "militia", "militia");
 
+    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
+    // separation on this tiny test map, so contact can take longer than it
+    // used to for a given seed — budget bumped with generous headroom.
     bool locked = false;
-    for (int i = 0; i < 6000 && !locked; i++)
+    for (int i = 0; i < 15000 && !locked; i++)
     {
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         const auto& units = world.GetDeployedUnits();
@@ -212,8 +219,11 @@ TEST(UnitCombatSystemTests, SimultaneousLethalSetupResolvesToSingleSurvivorViaId
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(900));
     DuelSetup duel = DeployDuel(world, "militia", "militia");
 
+    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
+    // separation on this tiny test map, so contact can take longer than it
+    // used to for a given seed — budget bumped with generous headroom.
     bool locked = false;
-    for (int i = 0; i < 6000 && !locked; i++)
+    for (int i = 0; i < 15000 && !locked; i++)
     {
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         const auto& units = world.GetDeployedUnits();

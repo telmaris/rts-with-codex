@@ -9,57 +9,6 @@
 
 #include <algorithm>
 
-namespace
-{
-    // Finds the local player's headquarters building.
-    Building* FindLocalHeadquarters(GameScene* scene)
-    {
-        Player* player = GuiLocalPlayer(scene);
-        if (player == nullptr)
-            return nullptr;
-
-        for (auto* building : player->GetTrackedBuildings())
-        {
-            if (building != nullptr && building->owner == player && building->buildingType == BuildingType::Headquarters)
-                return building;
-        }
-
-        return nullptr;
-    }
-
-    // Adds a debug resource package to one storage-like building.
-    void GrantResourcesToStorage(StorageComponent* storage, int amount)
-    {
-        if (storage == nullptr || amount <= 0)
-            return;
-
-        for (ResourceType type : resourceTypes)
-        {
-            auto& buffer = storage->buffers[type];
-            if (buffer.type == ResourceType::Null)
-                buffer = ResourceBuffer{type, amount};
-            buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
-            for (int i = 0; i < amount; i++)
-                buffer.GenerateResource(type);
-        }
-    }
-
-    // Grants local debug resources when the current world allows debug helpers.
-    void GrantDebugResources(GameScene* scene, int amount)
-    {
-        if (scene == nullptr || scene->game == nullptr || !scene->game->GetTileMap().params.debugMode)
-            return;
-
-        Building* headquarters = FindLocalHeadquarters(scene);
-        auto* storage = headquarters != nullptr ? headquarters->GetComponent<StorageComponent>() : nullptr;
-        if (storage == nullptr)
-            return;
-
-        GrantResourcesToStorage(storage, amount);
-        Log::Msg("[Debug]", "granted ", amount, " of every resource to local HQ");
-    }
-}
-
 // ─── InputProcessor ──────────────────────────────────────────────────────────
 
 // Translates raw input into named controller actions once per frame.
@@ -106,17 +55,17 @@ void InputProcessor::HandleInputs()
 // ─── GuiController ───────────────────────────────────────────────────────────
 
 // Attaches the controller to a scene.
-void GuiController::Init(GameScene *s)
+void GuiController::Init(Scene *s)
 {
     scene = s;
 }
 
-// Switches active interaction system. Refuses to open "tech" without a completed University.
+// Switches active interaction system. Purely generic (user-directed rework,
+// 2026-07-14): any domain gating lives in the target system's CanActivate()
+// (e.g. TechGuiSystem requires a completed University) — the controller only
+// manages transitions between systems.
 void GuiController::ChangeSystem(std::string name)
 {
-    if (name == "tech" && !HasUniversity(scene))
-        return;
-
     auto it = systems.find(name);
     if (it == systems.end())
     {
@@ -125,6 +74,9 @@ void GuiController::ChangeSystem(std::string name)
     }
 
     if (activeSystem == it->second)
+        return;
+
+    if (!it->second->CanActivate())
         return;
 
     if (activeSystem != nullptr)
@@ -140,17 +92,13 @@ void GuiController::Update(double dt)
     activeSystem->Update(dt);
 }
 
-// Dispatches a named UI action to the active GUI system.
+// Dispatches a named UI action to the active GUI system. Pure dispatch —
+// every concrete action (including the debug grant and the click sound)
+// lives in the systems' actionMaps (WireCommonSystemActions), not here.
 void GuiController::MakeAction(std::string action)
 {
-    if (action == "debug_resources")
-    {
-        GrantDebugResources(scene, 50);
+    if (activeSystem == nullptr)
         return;
-    }
-
-    if (action == "lmbp" && scene != nullptr && scene->audioSystem != nullptr)
-        scene->audioSystem->PlaySound("click", 1.0f);
 
     auto it = activeSystem->actionMap.find(action);
     if (it != activeSystem->actionMap.end())
@@ -162,7 +110,9 @@ void GuiController::MakeAction(std::string action)
 BasicMapViewSystem::BasicMapViewSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*)
+    // with the concrete GameScene* this system actually needs.
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
     actionMap["space"] = [this] { CenterOnHeadquartersPressed(); };
@@ -460,7 +410,12 @@ void BasicMapViewSystem::LmbReleased()
 {
 }
 
-// Assigns logistics receivers through the right button.
+// A3 (docs/work_plan_2026-07-13.md): RMB does double duty in the default map
+// view — a press+drag pans the camera (matching every other GUI mode, which
+// already pan on plain RMB press since they have no competing click action),
+// while a press+release with no meaningful drag still assigns a logistics
+// receiver, exactly as before. The actual receiver assignment is deferred to
+// RmbReleased so it can check whether the gesture turned out to be a drag.
 void BasicMapViewSystem::RmbPressed()
 {
     auto mousePos = GetMousePosition();
@@ -471,6 +426,17 @@ void BasicMapViewSystem::RmbPressed()
         return;
     }
 
+    BeginCameraDrag(cameraMovement);
+}
+
+// Stops camera drag; if the press+release was a click (no meaningful drag),
+// assigns a logistics receiver under the cursor instead.
+void BasicMapViewSystem::RmbReleased()
+{
+    if (!EndCameraDragWasClick(cameraMovement))
+        return;
+
+    auto mousePos = GetMousePosition();
     if (isBuildingSelected && ActivePanel()->HasBuilding())
     {
         Vec2i tilePos = ScreenToTile(scene, mousePos);
@@ -487,19 +453,9 @@ void BasicMapViewSystem::RmbPressed()
                 Log::Msg("[Input]", receiver->name,
                          alternativeReceiver ? " set as alternative receiver for " : " set as receiver for ",
                          selected->name);
-                return;
             }
         }
     }
-
-    // Camera panning lives on the middle mouse button (see mmbp/mmbr), so the
-    // right button is free for movement and combat orders.
-}
-
-// Stops camera drag.
-void BasicMapViewSystem::RmbReleased()
-{
-    cameraMovement.isMoving = false;
 }
 
 // Scrolls panels under the cursor or zooms the camera.

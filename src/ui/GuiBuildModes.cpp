@@ -94,6 +94,7 @@ namespace
             case BuildingType::University:
                 return "SCIENCE";
             case BuildingType::Road:
+            case BuildingType::Bridge:
                 return "ROADS";
             default:
                 return "OTHER";
@@ -243,6 +244,7 @@ namespace
             case BuildingType::Barracks: return MakeBuildOption<Barracks>(scene, definition);
             case BuildingType::DefenseTower: return MakeBuildOption<DefenseTower>(scene, definition);
             case BuildingType::Road: return MakeBuildOption<Road>(scene, definition);
+            case BuildingType::Bridge: return MakeBuildOption<Bridge>(scene, definition);
             default: return {};
         }
     }
@@ -548,7 +550,9 @@ void BuildGhostWidget::Update(double dt)
 BuildGuiSystem::BuildGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*) —
+    // also inherited as-is by RoadBuildSystem.
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 
@@ -801,7 +805,41 @@ RoadBuildSystem::RoadBuildSystem(GuiController* con)
         options.push_back(MakeBuildOption(scene, type));
     SortBuildOptions(options);
 
-    SelectOption(0);
+    // Initial state only — the live selection follows the cursor every frame
+    // (SyncSelectionToHoveredTile), because road mode has no visible panel to
+    // switch options with. Start on Road, the overwhelmingly common case.
+    auto roadIt = std::find_if(options.begin(), options.end(),
+        [](const BuildOption& option) { return option.buildingType == BuildingType::Road; });
+    SelectOption(roadIt != options.end() ? static_cast<size_t>(std::distance(options.begin(), roadIt)) : 0);
+}
+
+// Picks Road or Bridge based on what's under the cursor — see the header
+// comment: with no panel drawn in road mode, a fixed selection silently
+// locks the player out of whichever type isn't selected.
+void RoadBuildSystem::SyncSelectionToHoveredTile()
+{
+    if (scene == nullptr || scene->game == nullptr)
+        return;
+
+    TileMap& map = scene->game->GetTileMap();
+    Vec2i tilePos = GetHoveredTile();
+    if (!map.IsInside(tilePos))
+        return;
+
+    BuildingType wanted = map[map.GetIdFromCoords(tilePos)].isMilitaryRoad
+        ? BuildingType::Bridge
+        : BuildingType::Road;
+    if (selectedIndex < options.size() && options[selectedIndex].buildingType == wanted)
+        return;
+
+    for (size_t i = 0; i < options.size(); i++)
+    {
+        if (options[i].buildingType == wanted)
+        {
+            SelectOption(i);
+            return;
+        }
+    }
 }
 
 // Updates camera drag, ghost preview and drag placement.
@@ -812,6 +850,7 @@ void RoadBuildSystem::Update(double dt)
 
     ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
+    SyncSelectionToHoveredTile();
     RefreshGhost();
     owner->AddUiWidget(&ghostWidget);
     owner->AddUiWidget(&strategicHudWidget);
@@ -859,6 +898,10 @@ void RoadBuildSystem::Scroll()
 // Places a road under the cursor once per hovered tile during a drag.
 bool RoadBuildSystem::TryPlaceRoadAtHovered()
 {
+    // Input is processed before this frame's Update — re-sync here so a
+    // click can't place the type picked for the PREVIOUS frame's hover tile.
+    SyncSelectionToHoveredTile();
+
     Vec2i tilePos = GetHoveredTile();
     if (tilePos == lastRoadDragTile)
         return false;
@@ -879,7 +922,8 @@ bool RoadBuildSystem::TryPlaceRoadAtHovered()
 DestroyGuiSystem::DestroyGuiSystem(GuiController* con)
     : GuiSystem(con)
 {
-    scene = owner->scene;
+    // A4 (docs/work_plan_2026-07-13.md): shadows GuiSystem::scene (Scene*).
+    scene = dynamic_cast<GameScene*>(owner->scene);
 
     WireCommonSystemActions(*this, cameraMovement);
 

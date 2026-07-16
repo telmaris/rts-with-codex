@@ -34,6 +34,7 @@ namespace GameWorldInternal
             case BuildingType::Barracks: return std::make_unique<Barracks>(id);
             case BuildingType::Road: return std::make_unique<Road>(id);
             case BuildingType::DefenseTower: return std::make_unique<DefenseTower>(id);
+            case BuildingType::Bridge: return std::make_unique<Bridge>(id);
             default: return nullptr;
         }
     }
@@ -76,11 +77,6 @@ namespace GameWorldInternal
         return Vec2i{
             std::clamp(anchor.x, 1, std::max(1, params.sizeX - footprint.x - 2)),
             std::clamp(anchor.y, 1, std::max(1, params.sizeY - footprint.y - 2))};
-    }
-
-    inline int AnchorDistance(Vec2i a, Vec2i b)
-    {
-        return std::abs(a.x - b.x) + std::abs(a.y - b.y);
     }
 
     inline void SetFootprintTerrain(TileMap& tilemap, Vec2i anchor, Vec2i footprint, TileType type, std::mt19937& rng, int padding = 0)
@@ -152,7 +148,7 @@ namespace GameWorldInternal
                             continue;
 
                         const Tile& tile = tilemap[pos];
-                        if (tile.tileType == TileType::GRASS && !tile.HasBuilding())
+                        if (tile.tileType == TileType::GRASS && !tile.HasBuilding() && !tile.isMilitaryRoad)
                             paintableTiles++;
                     }
                 }
@@ -209,6 +205,14 @@ namespace GameWorldInternal
                 Tile& tile = tilemap[pos];
                 if (tile.tileType != TileType::GRASS)
                     continue;
+                // Since the 2026-07-12 generation reorder these starting
+                // patches run AFTER the military road is baked — a road tile
+                // still has tileType GRASS (only isMilitaryRoad + richness=0
+                // are set), so without this check the patch painted WOOD/
+                // STONE straight over the unit track (user report 2026-07-14:
+                // "tor jednostek na poletku kamienia czy drewna").
+                if (tile.isMilitaryRoad)
+                    continue;
 
                 tile.tileType = type;
                 tile.terrainTextureId = tilemap.PickTerrainTexture(type, rng);
@@ -219,38 +223,6 @@ namespace GameWorldInternal
         if (painted == 0)
             Log::Msg("[MapGenerator]", "Starting resource patch failed for tile type ", static_cast<int>(type));
         tilemap.terrainDirty = true;
-    }
-
-    inline Vec2i PickEnemyHeadquartersAnchor(const std::vector<Vec2i>& occupiedAnchors, Vec2i footprint, const MapParameters& params, unsigned int seed)
-    {
-        int margin = std::max(14, MapGenerator::HeadquartersTerritorySize() / 2 + 4);
-        int maxX = std::max(margin, params.sizeX - footprint.x - margin);
-        int maxY = std::max(margin, params.sizeY - footprint.y - margin);
-        std::mt19937 rng(seed);
-        std::uniform_int_distribution<int> xDist(margin, maxX);
-        std::uniform_int_distribution<int> yDist(margin, maxY);
-
-        int minSafeDistance = std::max(70, std::min(params.sizeX, params.sizeY) / 3);
-        Vec2i firstAnchor = occupiedAnchors.empty() ? MapGenerator::PickHeadquartersAnchor(params) : occupiedAnchors.front();
-        Vec2i best = ClampAnchor({params.sizeX - firstAnchor.x - footprint.x - 1,
-                                  params.sizeY - firstAnchor.y - footprint.y - 1}, footprint, params);
-        int bestDistance = -1;
-        for (int attempt = 0; attempt < 128; attempt++)
-        {
-            Vec2i candidate = ClampAnchor({xDist(rng), yDist(rng)}, footprint, params);
-            int distance = std::numeric_limits<int>::max();
-            for (Vec2i occupied : occupiedAnchors)
-                distance = std::min(distance, AnchorDistance(candidate, occupied));
-            if (distance > bestDistance)
-            {
-                bestDistance = distance;
-                best = candidate;
-            }
-            if (distance >= minSafeDistance)
-                return candidate;
-        }
-
-        return best;
     }
 
     // Builds a simple orthogonal road between two starting buildings.

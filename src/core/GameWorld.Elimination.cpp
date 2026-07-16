@@ -130,6 +130,19 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
         building->owner = conqueror;
         conqueror->RegisterBuilding(building);
         conqueror->conqueredEconomy.AddRamp(building->id, conquestRampDuration);
+
+        // T12 (docs/post_pivot_audit_2026-07-12.md): each Player owns an
+        // independent RoadNetwork/NavigationMap — reassigning `owner` above
+        // does nothing to either one, so without this the conqueror's
+        // CalculatePath has no idea these footprint tiles exist even after
+        // building a fresh road up to them. Roads themselves are deliberately
+        // NOT transferred (no ProductionComponent) — the conqueror must
+        // build their own connecting road, same as any other new building.
+        for (int occupiedTileId : tilemap.GetBuildingTileIds(building))
+        {
+            defeated->roadNetwork->UpdateNavMap(occupiedTileId, nullptr);
+            conqueror->roadNetwork->UpdateNavMap(occupiedTileId, building);
+        }
     }
 
     // 4. Victory is derived on demand from Player::defeated (GetVictorPlayerId)

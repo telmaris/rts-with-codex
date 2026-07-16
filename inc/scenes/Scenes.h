@@ -4,6 +4,7 @@
 #include "scenes/GameWindow.h"
 #include "core/GameSession.h"
 #include "ui/Gui.h"
+#include "ui/GuiHandler.h"
 #include "ui/Input.h"
 #include "ui/GuiController.h"
 
@@ -29,7 +30,7 @@ class IGameRuntimeLoop
 };
 
 // Main menu scene with textured background and primary navigation buttons.
-class MainMenuScene : public Scene
+class MainMenuScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -39,6 +40,8 @@ class MainMenuScene : public Scene
     void Update(double dt) override;
     // Starts the menu music theme.
     void OnActivated() override;
+    // Main menu has no back destination — ESC does nothing here.
+    void HandleGuiInput(double dt) override {}
 
     // Opens the new game scene.
     void OnNewGamePressed();
@@ -63,7 +66,7 @@ class MainMenuScene : public Scene
 };
 
 // Options scene for display and audio preferences.
-class OptionsScene : public Scene
+class OptionsScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -74,6 +77,9 @@ class OptionsScene : public Scene
         void OnActivated() override;
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC returns to the previous scene.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override { OnBackPressed(); }
 
         // Returns to the previous scene.
         void OnBackPressed();
@@ -86,7 +92,7 @@ class OptionsScene : public Scene
 };
 
 // New game form scene.
-class NewGameScene : public Scene
+class NewGameScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -95,6 +101,9 @@ class NewGameScene : public Scene
         void Update(double dt) override;
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC returns to the main menu.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override { OnBackPressed(); }
 
         // Returns to the previous scene.
         void OnBackPressed();
@@ -123,7 +132,7 @@ class NewGameScene : public Scene
 };
 
 // LAN multiplayer entry scene.
-class MultiplayerScene : public Scene
+class MultiplayerScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -132,6 +141,15 @@ class MultiplayerScene : public Scene
         void Update(double dt) override;
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC closes the settings sub-panel first, then returns to the menu.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override
+        {
+            if (showGameSettings)
+                OnCloseGameSettingsPressed();
+            else
+                OnBackPressed();
+        }
 
         // Returns to the main menu.
         void OnBackPressed();
@@ -212,7 +230,7 @@ class MultiplayerScene : public Scene
 };
 
 // Save selection scene used to load existing games.
-class LoadGameScene : public Scene
+class LoadGameScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -221,6 +239,9 @@ class LoadGameScene : public Scene
         void Update(double dt) override;
         // Handles resize, save-list and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC returns to the previous scene.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override { OnBackPressed(); }
 
         // Returns to the previous scene.
         void OnBackPressed();
@@ -234,7 +255,7 @@ class LoadGameScene : public Scene
 };
 
 // Save selection scene used to create or overwrite save files.
-class SaveGameScene : public Scene
+class SaveGameScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -243,6 +264,15 @@ class SaveGameScene : public Scene
         void Update(double dt) override;
         // Handles resize, save-list and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC cancels a pending overwrite prompt first, then goes back.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override
+        {
+            if (overwriteConfirmationVisible)
+                OnCancelOverwrite();
+            else
+                OnBackPressed();
+        }
 
         // Returns to the previous scene.
         void OnBackPressed();
@@ -268,7 +298,7 @@ class SaveGameScene : public Scene
 };
 
 // Live gameplay scene owning world simulation, renderer and GUI controller.
-class GameScene : public Scene
+class GameScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -277,6 +307,10 @@ class GameScene : public Scene
         void Update(double dt) override;
         // Handles game lifecycle and menu events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // Routes gameplay input through this scene's InputProcessor into the
+        // GuiController (which dispatches to the active interaction system —
+        // ESC handling included, via BasicMapViewSystem::EscPressed etc.).
+        void HandleGuiInput(double dt) override { inputs.HandleInputs(); }
 
 
         // Creates and enters a generated world.
@@ -310,7 +344,7 @@ class GameScene : public Scene
 };
 
 // Static controls reference scene shown from the main menu.
-class ControlsScene : public Scene
+class ControlsScene : public Scene, public IGuiHandler
 {
     public:
 
@@ -319,6 +353,9 @@ class ControlsScene : public Scene
         void Update(double dt) override;
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // ESC returns to the main menu.
+        void HandleGuiInput(double dt) override { HandleBackNavigation(); }
+        void OnNavigateBack() override { OnBackPressed(); }
 
         // Returns to the main menu.
         void OnBackPressed();
@@ -326,18 +363,43 @@ class ControlsScene : public Scene
         UiButton backButton;
 };
 
+class GameMenuScene;
+
+// Single-system interaction mode for GameMenuScene (A4 pilot,
+// docs/work_plan_2026-07-13.md): establishes the GuiController pattern for a
+// menu scene that only ever has one screen — nothing to switch between, so
+// this system's whole job is to surface the owning scene's VBox and route
+// "esc" to OnBackPressed, the same shape GameScene uses for its 8 modes.
+class MenuNavSystem : public GuiSystem
+{
+public:
+    explicit MenuNavSystem(GuiController* con);
+    MenuNavSystem() = delete;
+
+    void Update(double dt) override;
+    void UpdateUiWidgets(Vec2i size) override;
+
+    // Shadows GuiSystem::scene (Scene*) with the concrete scene this system
+    // actually needs, same pattern as GameScene's interaction systems.
+    GameMenuScene* menuScene{nullptr};
+};
+
 // In-game pause/menu scene.
-class GameMenuScene : public Scene
+class GameMenuScene : public Scene, public IGuiHandler
 {
     public:
 
         GameMenuScene();
         // Updates menu widgets.
         void Update(double dt) override;
-        // Re-arms the ESC guard so the key that opened the menu can't close it.
-        void OnActivated() override { escArmed = false; }
         // Handles resize and navigation events.
         void HandleEvent(std::shared_ptr<Event>) override;
+        // Routes input through this scene's own GuiController + MenuNavSystem
+        // (A4 pilot, docs/work_plan_2026-07-13.md) — same shape as GameScene,
+        // even though there's only one system. The IGuiHandler input gate
+        // (reset centrally on every scene activation) still wraps this call,
+        // so the old ESC ping-pong class of bug stays fixed at the source.
+        void HandleGuiInput(double dt) override { inputs.HandleInputs(); }
 
         // Returns to gameplay.
         void OnBackPressed();
@@ -353,7 +415,8 @@ class GameMenuScene : public Scene
         void OnQuitPressed();
 
         VBox vbox;
-        bool escArmed{false};  // ESC only closes after being released once
+        std::unique_ptr<GuiController> controller{nullptr};
+        InputProcessor inputs;
 };
 
 #endif
