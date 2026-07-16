@@ -4,6 +4,7 @@
 #include "ai/AIActions.h"
 
 class GameWorld;
+struct UnitDefinition;
 
 // Utility-based tower-defense AI (AI rework, TODO #2 — replaces the removed
 // 3-tier axis/goal/milestone PrimitiveAIModel, whose priority-axis framing
@@ -32,16 +33,31 @@ enum class AINeed
 // throttle, never mutated by execution.
 struct AISituation
 {
-    // Track state (military consumers land in etap 3; sensed already so the
-    // scores have data from day one).
+    // Track state.
     int myDeployedCount{0};
     double myDeployedStrength{0.0};
     int enemyIncomingCount{0};
     double enemyIncomingStrength{0.0};
     double hqHpRatio{1.0};
     int rosterCount{0};
+    // Roster headcount per unit definition id — feeds the composition rule.
+    std::map<std::string, int> rosterByDef;
     int towerCount{0};
+    // Completed towers' damage x attack-speed sum — the static-defense half
+    // of "how hard is my lane to walk down".
+    double towerStrength{0.0};
+    int arrowsStored{0};
+    int arrowsRate{0};
     int barracksCount{0};
+
+    // enemyIncomingStrength vs. (deployed + towers): >1 = losing the lane.
+    double Threat() const
+    {
+        double defense = myDeployedStrength + towerStrength;
+        return enemyIncomingStrength / (defense > 1.0 ? defense : 1.0);
+    }
+    // Posture for roster composition: under attack -> defensive picks.
+    bool UnderAttack() const { return enemyIncomingCount > myDeployedCount; }
 
     double manpower{0.0};
     int villageCount{0};
@@ -74,13 +90,24 @@ public:
 
     void Update(GameWorld& world, Player* player, double dt);
 
+    // Roster-composition rule (etap 3), best pick first. Deterministic: pure
+    // function of the static unit catalog + the situation's posture and
+    // roster mix. Defensive posture maximizes staying power per cost
+    // (roadAttack + armor + hp); offensive posture keeps a ~2:1 mix of
+    // lane-clearers (moveSpeed x roadAttack) to siege (siegeAttack).
+    // Public + static so the rule is unit-testable without a world.
+    static std::vector<const UnitDefinition*> RankUnitChoices(const AISituation& s);
+
 private:
     AISituation Sense(GameWorld& world, Player* player);
     double ScoreNeed(AINeed need, const AISituation& s) const;
     bool ExecuteNeed(AINeed need, GameWorld& world, Player* player, const AISituation& s);
 
+    bool ExecuteDefense(GameWorld& world, Player* player, const AISituation& s);
+    bool ExecuteRecruitDeploy(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteEconomy(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteLogistics(GameWorld& world, Player* player, const AISituation& s);
+    int GetCachedAttackTargetPlayer(GameWorld& world, Player* player);
     // Builds the first affordable producer of `resource` (or of the deepest
     // missing input in its chain). Returns false when nothing can be placed
     // or afforded right now.
@@ -100,6 +127,10 @@ private:
     // last answer is carried between audits.
     double connectivityTimer{0.0};
     std::vector<int> lastUnconnectedPositionIds;
+    // AreHqsConnected is a real pathing query — cached (perf fix inherited
+    // from the C1-era model, where calling it per tick cost ~32 ms/tick).
+    double attackTargetCacheTimer{0.0};
+    int cachedAttackTargetPlayer{-1};
 };
 
 #endif

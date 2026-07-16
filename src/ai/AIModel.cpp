@@ -1,5 +1,6 @@
 #include "ai/AIModel.h"
 #include "core/GameWorld.h"
+#include "warfare/UnitDefinition.h"
 
 #include <algorithm>
 #include <array>
@@ -54,6 +55,57 @@ namespace
     {
         return unit.GetEffectiveRoadAttack(owner) + unit.currentHp * 0.1;
     }
+
+    // Deploy the whole roster once it reaches this headcount (etap 4 may
+    // scale it by difficulty).
+    constexpr int WaveSize = 6;
+    // Threat above this = the lane is being lost — deploy whatever exists.
+    constexpr double EmergencyThreat = 1.0;
+
+    // A unit is a siege specialist when breaching beats lane-fighting.
+    bool IsSiegeUnit(const UnitDefinition& def)
+    {
+        return def.siegeAttack > def.roadAttack;
+    }
+
+    int TotalResourceCost(const UnitDefinition& def)
+    {
+        int total = 0;
+        for (const auto& cost : def.cost)
+            total += cost.amount;
+        return total;
+    }
+
+    // Whether a unit's full resource cost already sits in the building's own
+    // storage buffer (the only stock a roadless Barracks can ever consume).
+    bool CostLocallyBuffered(const Building& barracks, const UnitDefinition& def)
+    {
+        const auto* storage = barracks.GetComponent<StorageComponent>();
+        if (storage == nullptr)
+            return false;
+        for (const auto& cost : def.cost)
+        {
+            auto it = storage->buffers.find(cost.type);
+            int have = it != storage->buffers.end() ? static_cast<int>(it->second.buffer.size()) : 0;
+            if (have < cost.amount)
+                return false;
+        }
+        return true;
+    }
+
+    // How many towers this AI wants standing right now. None until a minimal
+    // economy exists; then a small garrison that grows under pressure.
+    int DesiredTowerCount(const AISituation& s)
+    {
+        if (s.productionBuildingCount < 4)
+            return 0;
+        int desired = 2;
+        if (s.Threat() > 0.5)
+            desired++;
+        if (s.hqHpRatio < 0.7)
+            desired++;
+        return std::min(desired, 4);
+    }
 }
 
 UtilityAIModel::UtilityAIModel(int controlledPlayerId)
@@ -69,6 +121,7 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
     senseTimer -= dt;
     decisionTimer -= dt;
     roadTimer -= dt;
+    attackTargetCacheTimer -= dt;
     actions.Decay(dt);
 
     if (senseTimer <= 0.0)
@@ -148,10 +201,25 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     }
 
     s.rosterCount = static_cast<int>(player->roster.units.size());
+    for (const auto& [instanceId, unit] : player->roster.units)  // std::map — deterministic
+        s.rosterByDef[unit.unitDefId]++;
     s.towerCount = AIActions::CountOwnedBuildings(player, BuildingType::DefenseTower);
     s.barracksCount = AIActions::CountOwnedBuildings(player, BuildingType::Barracks);
     s.villageCount = AIActions::CountOwnedBuildings(player, BuildingType::Village);
     s.manpower = player->strategicResources.Get(StrategicResourceType::Manpower);
+
+    // Static-defense strength + ammo state. Pure aggregation — order-safe.
+    for (const auto* building : player->GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+    {
+        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+            continue;
+        const auto* combat = building->GetComponent<TowerCombatComponent>();
+        if (combat != nullptr)
+            s.towerStrength += combat->GetModifiedDamage(*building) * combat->GetModifiedAttackSpeed(*building);
+    }
+    s.arrowsStored = AIActions::CountStoredResource(player, ResourceType::ARROWS);
+    s.arrowsRate = AIActions::GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute,
+                                              ResourceType::ARROWS);
 
     for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
         if (building != nullptr && building->owner == player && !building->IsUnderConstruction())
@@ -188,6 +256,27 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         if (diagnosis.urgency > 0.2)
             s.deficits.push_back({type, diagnosis.urgency});
     }
+
+    // Provision toward the composition's preferred pick before telemetry has
+    // any consumption signal for it: a cost resource with (almost) no stock
+    // and no production gets a fixed mid-urgency deficit, driving
+    // EconomySustain to raise its chain (e.g. Smith for swords) while the
+    // recruiter falls back to whatever IS affordable in the meantime.
+    std::vector<const UnitDefinition*> ranked = RankUnitChoices(s);
+    if (!ranked.empty() && ranked.front() != nullptr)
+    {
+        for (const auto& cost : ranked.front()->cost)
+        {
+            int stored = AIActions::CountStoredResource(player, cost.type);
+            int rate = AIActions::GetResourceRate(
+                player->economyTelemetry.current.productionRatesPerMinute, cost.type);
+            bool alreadyListed = std::any_of(s.deficits.begin(), s.deficits.end(),
+                [&](const AISituation::Deficit& d) { return d.resource == cost.type; });
+            if (!alreadyListed && stored < cost.amount * 2 && rate == 0)
+                s.deficits.push_back({cost.type, 0.5});
+        }
+    }
+
     std::stable_sort(s.deficits.begin(), s.deficits.end(),
                      [](const AISituation::Deficit& a, const AISituation::Deficit& b)
                      {
@@ -236,8 +325,25 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
     switch (need)
     {
         case AINeed::Defense:
+        {
+            // Standing garrison gap + the live-pressure formula from the
+            // plan: half lane pressure, half HQ damage taken.
+            double score = s.towerCount < DesiredTowerCount(s) ? 0.3 : 0.0;
+            if (s.towerCount > 0 && s.arrowsStored == 0 && s.arrowsRate == 0)
+                score = std::max(score, 0.45);  // towers without ammo are decoration
+            double pressure = std::clamp(0.5 * s.Threat() + 0.5 * (1.0 - s.hqHpRatio), 0.0, 1.0);
+            return std::max(score, pressure);
+        }
         case AINeed::RecruitDeploy:
-            return 0.0;  // etap 3 — military layer lands next
+        {
+            // The prime TD objective — permanently high, higher still when
+            // the lane is quiet (push!), and dominant when an emergency
+            // deploy is possible.
+            double score = 0.55 + 0.25 * (1.0 - std::clamp(s.Threat(), 0.0, 1.0));
+            if (s.Threat() > EmergencyThreat && s.rosterCount > 0)
+                score = 0.95;
+            return score;
+        }
         case AINeed::EconomySustain:
         {
             double score = 0.0;
@@ -263,12 +369,14 @@ bool UtilityAIModel::ExecuteNeed(AINeed need, GameWorld& world, Player* player, 
 {
     switch (need)
     {
+        case AINeed::Defense:
+            return ExecuteDefense(world, player, s);
+        case AINeed::RecruitDeploy:
+            return ExecuteRecruitDeploy(world, player, s);
         case AINeed::EconomySustain:
             return ExecuteEconomy(world, player, s);
         case AINeed::LogisticsRepair:
             return ExecuteLogistics(world, player, s);
-        case AINeed::Defense:
-        case AINeed::RecruitDeploy:
         case AINeed::Research:
         case AINeed::Count:
             break;
@@ -359,6 +467,173 @@ bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
         // Cooldown after a just-submitted order of this type — move on.
     }
     return false;
+}
+
+std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISituation& s)
+{
+    // Offensive mix bookkeeping: how much siege the roster already holds.
+    int siegeCount = 0;
+    for (const auto& [defId, count] : s.rosterByDef)
+    {
+        const UnitDefinition* def = FindUnitDefinition(defId);
+        if (def != nullptr && IsSiegeUnit(*def))
+            siegeCount += count;
+    }
+    // Keep roughly one siege unit per two lane-fighters. Strict `<` against
+    // rosterCount alone makes an EMPTY roster start with fighters — siege
+    // units are escort-dependent (see units.rtsdata's ram note) and must
+    // never be the first recruit.
+    bool wantSiege = siegeCount * 3 < s.rosterCount;
+    bool defensive = s.UnderAttack();
+
+    std::vector<std::pair<const UnitDefinition*, double>> scored;
+    for (const auto& [defId, def] : GetUnitCatalog())  // std::map — deterministic id order
+    {
+        double score = 0.0;
+        if (defensive)
+        {
+            // Hold the lane: staying power + lane damage per cost.
+            score = (def.roadAttack + def.armor + 0.5 * def.maxHp) /
+                    std::max(1.0, def.manpowerCost + TotalResourceCost(def));
+        }
+        else
+        {
+            // Push: fill whichever class the 2:1 mix is short on; rank
+            // within the class by what that class is for.
+            bool preferredClass = IsSiegeUnit(def) == wantSiege;
+            double classValue = IsSiegeUnit(def) ? def.siegeAttack : def.moveSpeed * def.roadAttack;
+            score = (preferredClass ? 1000.0 : 0.0) + classValue;
+        }
+        scored.emplace_back(&def, score);
+    }
+
+    std::stable_sort(scored.begin(), scored.end(),
+                     [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    std::vector<const UnitDefinition*> ranked;
+    ranked.reserve(scored.size());
+    for (const auto& [def, score] : scored)
+        ranked.push_back(def);
+    return ranked;
+}
+
+bool UtilityAIModel::ExecuteDefense(GameWorld& world, Player* player, const AISituation& s)
+{
+    // 1. Missing towers — anchor near the HQ (the lane's endpoint).
+    if (s.towerCount < DesiredTowerCount(s) &&
+        player->CanBuildDefinition(GetBuildingDefinition(BuildingType::DefenseTower)))
+    {
+        Building* hq = AIActions::FindOwnedHeadquarters(player);
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::DefenseTower,
+                                                  TileType::GRASS, hq, actions);
+        if (anchor.x >= 0 && AIActions::TrySubmitBuild(world, player, BuildingType::DefenseTower, anchor, actions))
+            return true;
+    }
+
+    // 2. Towers standing but nothing feeds them — build toward the ARROWS
+    //    chain (Smith + inputs).
+    if (s.towerCount > 0 && s.arrowsStored == 0 && s.arrowsRate == 0)
+        return TryBuildProducerFor(world, player, ResourceType::ARROWS);
+
+    return false;
+}
+
+bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, const AISituation& s)
+{
+    // No recruiting without a Barracks — that IS the recruit-deploy action
+    // until one stands.
+    if (s.barracksCount == 0)
+    {
+        if (!player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Barracks)))
+            return false;
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Barracks,
+                                                  TileType::GRASS, nullptr, actions);
+        return anchor.x >= 0 &&
+               AIActions::TrySubmitBuild(world, player, BuildingType::Barracks, anchor, actions);
+    }
+
+    // Wave ready (or the lane is being lost and anything helps) — deploy the
+    // whole roster at the reachable enemy. Ids in instanceId order
+    // (std::map) — deterministic.
+    bool emergency = s.Threat() > EmergencyThreat && s.rosterCount > 0;
+    if (s.rosterCount >= WaveSize || emergency)
+    {
+        int target = GetCachedAttackTargetPlayer(world, player);
+        if (target >= 0)
+        {
+            std::vector<int> orderedIds;
+            orderedIds.reserve(player->roster.units.size());
+            for (const auto& [instanceId, unit] : player->roster.units)
+                orderedIds.push_back(instanceId);
+            if (!orderedIds.empty())
+            {
+                world.SubmitCommand(GameCommand::DeployUnits(player->id, target, std::move(orderedIds)));
+                return true;
+            }
+        }
+        if (!emergency)
+            return false;  // full wave but no reachable enemy — don't recruit past the cap
+    }
+
+    // Otherwise recruit toward the wave. First completed Barracks by id —
+    // which one trains is simulation-visible state, so the pick must not
+    // depend on heap order (see docs/tech_debt.md).
+    const auto& recruitCapable = player->GetTrackedBuildingsWithComponent<RecruitmentComponent>();
+    std::vector<Building*> sortedBarracks(recruitCapable.begin(), recruitCapable.end());
+    std::sort(sortedBarracks.begin(), sortedBarracks.end(),
+              [](Building* a, Building* b) { return a->id < b->id; });
+    Building* barracks = nullptr;
+    for (Building* building : sortedBarracks)
+    {
+        if (building != nullptr && building->owner == player && !building->IsUnderConstruction())
+        {
+            barracks = building;
+            break;
+        }
+    }
+    if (barracks == nullptr)
+        return false;
+    auto* recruitment = barracks->GetComponent<RecruitmentComponent>();
+    if (recruitment == nullptr)
+        return false;
+    // Progress gates: never stack orders behind one that is still waiting on
+    // deliveries (strict-FIFO queue — everything behind it waits too), and
+    // keep the queue short so orders track the situation, not a backlog.
+    if (!recruitment->queue.empty() && !recruitment->queue.front().resourcesReady)
+        return false;
+    if (recruitment->queue.size() >= 2)
+        return false;
+
+    // DiagnoseRecruitmentBlock is a GLOBAL stock scan — resources counted
+    // there still have to physically reach this Barracks over roads. Without
+    // a road connection only locally-buffered costs can ever be consumed, so
+    // gate on that (learned the hard way: a globally-affordable siege unit
+    // queued into a roadless Barracks starves the whole queue forever).
+    bool connected = std::find(s.unconnectedPositionIds.begin(), s.unconnectedPositionIds.end(),
+                               barracks->positionId) == s.unconnectedPositionIds.end();
+
+    for (const UnitDefinition* def : RankUnitChoices(s))
+    {
+        if (def == nullptr)
+            continue;
+        if (!connected && !CostLocallyBuffered(*barracks, *def))
+            continue;
+        if (!recruitment->DiagnoseRecruitmentBlock(*barracks, def->id).empty())
+            continue;  // not affordable/manpowered right now — next-best pick
+        world.SubmitCommand(GameCommand::RecruitUnit(player->id, barracks->positionId, def->id));
+        return true;
+    }
+    return false;
+}
+
+int UtilityAIModel::GetCachedAttackTargetPlayer(GameWorld& world, Player* player)
+{
+    if (attackTargetCacheTimer <= 0.0)
+    {
+        cachedAttackTargetPlayer = AIActions::FindAttackTargetPlayer(world, player);
+        attackTargetCacheTimer = 3.0;
+    }
+    return cachedAttackTargetPlayer;
 }
 
 bool UtilityAIModel::ExecuteLogistics(GameWorld& world, Player* player, const AISituation& s)

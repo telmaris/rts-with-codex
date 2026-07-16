@@ -1,8 +1,11 @@
 #include "core/GameWorld.h"
 #include "ai/AIActions.h"
+#include "ai/AIModel.h"
 #include "economy/Player.h"
 #include "economy/BuildingComponents.h"
 #include "simulation/MapGenerator.h"
+#include "warfare/BattleUnit.h"
+#include "warfare/UnitDefinition.h"
 
 #include <gtest/gtest.h>
 
@@ -109,4 +112,142 @@ TEST(UtilityAIModelTests, AIBuildsEconomyAndConnectsIt)
 
     EXPECT_GE(newBuildings, 1) << "the AI should have placed at least one economy building";
     EXPECT_GE(newRoads, 1) << "the AI should be wiring its base into the road network";
+}
+
+// Etap 3: composition rule, pure and world-free. Under attack the pick
+// maximizes staying power per cost (assets/data/units.rtsdata: knight);
+// on the offensive an empty roster starts with a siege unit (ram), then
+// tops the 2:1 mix back up with the best lane-clearer (knight by
+// moveSpeed x roadAttack).
+TEST(UtilityAIModelTests, RosterCompositionPrefersDefensiveUnitsUnderAttack)
+{
+    AISituation s;
+    s.enemyIncomingCount = 4;
+    s.myDeployedCount = 0;
+
+    auto ranked = UtilityAIModel::RankUnitChoices(s);
+    ASSERT_FALSE(ranked.empty());
+    EXPECT_EQ(ranked.front()->id, "knight");
+}
+
+TEST(UtilityAIModelTests, RosterCompositionKeepsSiegeInTheOffensiveMix)
+{
+    AISituation s;  // nobody incoming — offensive posture
+
+    auto ranked = UtilityAIModel::RankUnitChoices(s);
+    ASSERT_FALSE(ranked.empty());
+    EXPECT_EQ(ranked.front()->id, "knight")
+        << "an empty offensive roster starts with lane-fighters (siege needs an escort)";
+
+    s.rosterByDef["militia"] = 2;
+    s.rosterCount = 2;
+    ranked = UtilityAIModel::RankUnitChoices(s);
+    ASSERT_FALSE(ranked.empty());
+    EXPECT_EQ(ranked.front()->id, "ram") << "with an escort standing, top the 2:1 mix up with siege";
+
+    s.rosterByDef["ram"] = 1;
+    s.rosterCount = 3;
+    ranked = UtilityAIModel::RankUnitChoices(s);
+    ASSERT_FALSE(ranked.empty());
+    EXPECT_EQ(ranked.front()->id, "knight") << "at 1 siege per 2 fighters, back to lane-clearers";
+}
+
+// Etap 3 acceptance (successor of the removed AIMilitaryPipelineTests):
+// given a Barracks, stocked unit costs and manpower, the AI recruits real
+// units and deploys a wave — a real GameCommand::DeployUnits reaching
+// UpdateSimulation. Barracks placed directly and the roster pre-seeded near
+// the wave threshold, so the test exercises recruit+deploy without waiting
+// out the natural economy.
+TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
+{
+    MapParameters params;  // defaults: 301x301
+    params.aiOpponentCount = 1;
+    params.seed = 777;
+
+    GameWorld world;
+    world.InitWorld("utility-ai-military", nullptr, nullptr, params);
+
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+
+    Building* hq = AIActions::FindOwnedHeadquarters(ai);
+    ASSERT_NE(hq, nullptr);
+    Vec2i hqPos = world.GetTileMap().GetCoordsFromId(hq->positionId);
+
+    // Free spot for a test Barracks near the AI's HQ — expanding square scan.
+    Vec2i barracksPos{-1, -1};
+    Vec2i footprint = GetBuildingDefinition(BuildingType::Barracks).footprint;
+    for (int radius = 5; radius <= 40 && barracksPos.x < 0; radius += 2)
+        for (int y = hqPos.y - radius; y <= hqPos.y + radius && barracksPos.x < 0; y++)
+            for (int x = hqPos.x - radius; x <= hqPos.x + radius; x++)
+            {
+                Vec2i pos{x, y};
+                if (world.GetTileMap().IsInside(pos) &&
+                    world.GetTileMap().CanPlaceBuilding(BuildingType::Barracks, pos, footprint, ai))
+                {
+                    barracksPos = pos;
+                    break;
+                }
+            }
+    ASSERT_GE(barracksPos.x, 0) << "no free spot for a test Barracks near the AI's HQ";
+
+    Building* barracks = ai->Build<Barracks>(barracksPos, false);
+    ASSERT_NE(barracks, nullptr);
+    ASSERT_FALSE(barracks->IsUnderConstruction());
+
+    // Stock militia's cost locally + manpower for the remaining recruits.
+    auto* storage = barracks->GetComponent<StorageComponent>();
+    ASSERT_NE(storage, nullptr);
+    auto foodIt = storage->buffers.find(ResourceType::FOOD_PROVISIONS);
+    if (foodIt == storage->buffers.end())
+    {
+        storage->buffers[ResourceType::FOOD_PROVISIONS] = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 40};
+        foodIt = storage->buffers.find(ResourceType::FOOD_PROVISIONS);
+    }
+    foodIt->second.SetStoredAmount(40);
+    ai->strategicResources.Set(StrategicResourceType::Manpower, 200);
+
+    // Drain sword/siege-cost stocks from every AI storage so militia is the
+    // only affordable pick — keeps the test's timeline on the 8 s militia
+    // recruit instead of a 26 s ram plus multi-resource deliveries.
+    for (Building* building : ai->GetTrackedBuildingsWithComponent<StorageComponent>())
+    {
+        auto* buildingStorage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+        if (buildingStorage == nullptr || building == barracks)
+            continue;
+        for (ResourceType type : {ResourceType::PLANKS, ResourceType::IRON,
+                                  ResourceType::IRON_SWORD, ResourceType::STEEL_SWORD})
+        {
+            auto it = buildingStorage->buffers.find(type);
+            if (it != buildingStorage->buffers.end())
+                it->second.Clear();
+        }
+    }
+
+    // Pre-seed most of the wave (threshold is the model's WaveSize, 6).
+    for (int i = 0; i < 5; i++)
+    {
+        int instanceId = ai->id * 100000 + ai->nextUnitInstanceId++;
+        BattleUnit unit(instanceId, ai->id, "militia");
+        unit.currentHp = unit.GetEffectiveMaxHp(*ai);
+        ai->roster.AddUnit(std::move(unit));
+    }
+    int instanceCounterBefore = ai->nextUnitInstanceId;
+
+    // 60 sim-seconds: recruit the missing unit(s), deploy, first unit spawns.
+    bool deployed = false;
+    for (int tick = 0; tick < 6000 && !deployed; tick++)
+    {
+        world.UpdateSimulation(0.01);
+        for (const auto& [instanceId, unit] : world.GetDeployedUnits())
+            if (unit.ownerPlayerId == ai->id)
+            {
+                deployed = true;
+                break;
+            }
+    }
+
+    EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
+    EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
+        << "the AI should have recruited at least one real unit itself";
 }
