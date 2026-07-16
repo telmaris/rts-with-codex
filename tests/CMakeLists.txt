@@ -33,6 +33,7 @@ add_executable(rts_tests
     TileMapDomainTests.cpp
     TechnologyTests.cpp
     TowerAttackSystemTests.cpp
+    UtilityAIModelTests.cpp
     SimulationPerfTests.cpp
     UnitCombatSystemTests.cpp
     UnitMarchSystemTests.cpp

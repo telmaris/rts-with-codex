@@ -247,6 +247,21 @@ int LogisticsComponent::HandleTransportFrom(ResourceType type, int amount, Build
     return sent;
 }
 
+bool LogisticsComponent::IsConnectedToRoadNetwork(Building& self) const
+{
+    if (self.owner == nullptr || self.owner->roadNetwork == nullptr)
+        return false;
+
+    for (Building* storage : self.owner->storages)
+    {
+        if (storage == nullptr || storage == &self)
+            continue;
+        if (!self.owner->roadNetwork->CalculatePath(&self, storage).empty())
+            return true;
+    }
+    return false;
+}
+
 std::vector<BuildingConnectionView> LogisticsComponent::GetSupplierViews(
     const ProductionComponent& prod) const
 {

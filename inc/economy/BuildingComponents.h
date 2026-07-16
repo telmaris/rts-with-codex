@@ -136,6 +136,14 @@ struct LogisticsComponent : IBuildingComponent
     void DispatchOutputs(Building& self, ProductionComponent& prod);
     int HandleTransportFrom(ResourceType type, int amount, Building* receiver,
                             Building& self, ProductionComponent& prod);
+    // AI rework (TODO #2): whether this building has a physical road path to
+    // ANY of its owner's storage-like buildings (HQ included) — the "is it
+    // wired into the logistics network" check the AI keeps every building
+    // honest with. Order-independent (boolean OR over Player::storages), so
+    // lockstep-safe. Ignores construction state: it inspects roads only.
+    // Not free (one road-network BFS per storage until a hit) — callers on a
+    // per-tick path should throttle/cache.
+    bool IsConnectedToRoadNetwork(Building& self) const;
 
     std::vector<BuildingConnectionView> GetSupplierViews(const ProductionComponent& prod) const;
     std::vector<BuildingConnectionView> GetReceiverViews(const ProductionComponent& prod) const;

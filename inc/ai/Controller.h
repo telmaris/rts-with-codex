@@ -3,6 +3,8 @@
 
 #include "economy/Player.h"
 
+#include <memory>
+
 class GameWorld;
 
 class IController
@@ -43,22 +45,26 @@ enum class AIDifficulty
     Hard
 };
 
-// AI rework czystka (TODO #2, 2026-07-16): the whole PrimitiveAIModel
-// decision layer (strategy axes, goals, milestones, personality, unified
-// action scoring) was removed — priority-axis thinking doesn't fit the tower
-// defense loop. AIController stays as the IController seam the new
-// utility-based model plugs into; the mechanical actuators the old model
-// executed decisions through live on in ai/AIActions.h.
+class UtilityAIModel;
+
+// AI rework (TODO #2, 2026-07-16): the old PrimitiveAIModel decision layer
+// (strategy axes, goals, milestones, personality, unified action scoring)
+// was removed — priority-axis thinking doesn't fit the tower defense loop.
+// AIController is the IController seam owning the utility-based
+// UtilityAIModel (ai/AIModel.h); the mechanical actuators any model executes
+// decisions through live in ai/AIActions.h.
 class AIController : public IController
 {
 public:
     explicit AIController(int controlledPlayerId);
+    ~AIController();  // out-of-line: unique_ptr over the forward-declared model
 
     void Update(GameWorld& world, double dt) override;
     void SetDifficulty(AIDifficulty newDifficulty);
 
 private:
     AIDifficulty difficulty{AIDifficulty::Primitive};
+    std::unique_ptr<UtilityAIModel> model;
 };
 
 #endif
