@@ -14,7 +14,6 @@
 #include "economy/PlayerEconomy.h"
 #include "economy/ConstructionQueue.h"
 #include "economy/ConqueredEconomy.h"
-#include "ai/DiplomaticState.h"
 #include "warfare/BattleUnit.h"
 #include "raylib.h"
 
@@ -39,7 +38,6 @@ public:
     Player(int i, TileMap& tmap) : tilemap(tmap), id(i), build(this, tilemap, id)
     {
         roadNetwork = std::make_unique<RoadNetwork>(tilemap);
-        diplomatic.ownerId = i;
         RefreshTechnologyModifiers();
     }
 
@@ -337,7 +335,6 @@ public:
     PlayerDataTracker dataTracker;
     ConstructionQueue construction;
     PlayerEconomyTelemetry economyTelemetry;
-    DiplomaticState diplomatic;
     // TD(etap-6.3): productivity ramps on buildings captured from eliminated
     // players. Empty for a player who has never conquered anything.
     ConqueredEconomy conqueredEconomy;

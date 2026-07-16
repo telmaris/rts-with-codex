@@ -9,7 +9,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 26\n";
+    out << "RTS_SAVE 27\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -29,26 +29,19 @@ bool GameWorld::SaveToFile(const std::string& path) const
     out << "PLAYERS " << playerHandler.players.size() << '\n';
     for (const auto& [id, player] : playerHandler.players)
     {
-        int diploCount = 0;
-        for (const auto& [otherId, rel] : player->diplomatic.relations)
-            if (rel != DiplomaticRelation::Neutral) diploCount++;
-        int warCount = static_cast<int>(player->diplomatic.wars.size());
+        // Save v27 (AI rework czystka, TODO #2): the dead DiplomaticState —
+        // never read by any gameplay logic post-pivot — was removed, and the
+        // DIPLO/WAR blocks (and their counts on this line) with it.
         out << "PLAYER " << id << ' ' << player->strategicResources.values.size() << ' '
             << player->technologies.GetUnlocked().size() << ' '
             << player->focuses.GetUnlocked().size() << ' '
-            << diploCount << ' ' << warCount << ' ' << (player->defeated ? 1 : 0) << '\n';
+            << (player->defeated ? 1 : 0) << '\n';
         for (const auto& [type, value] : player->strategicResources.values)
             out << "STRAT " << static_cast<int>(type) << ' ' << value << '\n';
         for (const auto& techId : player->technologies.GetUnlocked())
             out << "TECH " << std::quoted(techId) << '\n';
         for (const auto& focusId : player->focuses.GetUnlocked())
             out << "FOCUS " << std::quoted(focusId) << '\n';
-        for (const auto& [otherId, rel] : player->diplomatic.relations)
-            if (rel != DiplomaticRelation::Neutral)
-                out << "DIPLO " << otherId << ' ' << static_cast<int>(rel) << '\n';
-        for (const auto& w : player->diplomatic.wars)
-            out << "WAR " << w.id << ' ' << w.attackerId << ' ' << w.defenderId << ' '
-                << w.startTime << ' ' << static_cast<int>(w.active) << '\n';
 
         // TD(etap-3): recruited-but-not-deployed BattleUnit roster. Equipment
         // is always an empty list in v1 (ETAP 3.4 seam) but its count is
@@ -266,7 +259,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // TD(etap-1): the old war system's save fields (HQ/MIL/DIVS/RECRUIT) were
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
-    if (tag != "RTS_SAVE" || version != 26)
+    // v27 (AI rework czystka): DiplomaticState removed from the format.
+    if (tag != "RTS_SAVE" || version != 27)
         return false;
 
     render = renderer;
@@ -318,21 +312,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         int strategicCount = 0;
         int technologyCount = 0;
         int focusCount = 0;
-        int diploCount = 0;
-        int warCount = 0;
         int defeatedFlag = 0;
-        in >> tag >> playerId >> strategicCount;
+        in >> tag >> playerId >> strategicCount >> technologyCount >> focusCount >> defeatedFlag;
         if (tag != "PLAYER")
             return false;
-        if (version >= 7)
-            in >> technologyCount;
-        if (version >= 11)
-            in >> focusCount;
-        if (version >= 14)
-            in >> diploCount;
-        if (version >= 15)
-            in >> warCount;
-        in >> defeatedFlag;
 
         auto player = std::make_unique<Player>(playerId, tilemap);
         player->defeated = defeatedFlag != 0;
@@ -364,24 +347,6 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             if (tag != "FOCUS")
                 return false;
             player->focuses.RestoreFocus(focusId);
-        }
-        for (int d = 0; d < diploCount; d++)
-        {
-            int otherId = 0;
-            int rel = 0;
-            in >> tag >> otherId >> rel;
-            if (tag != "DIPLO")
-                return false;
-            player->diplomatic.SetRelation(otherId, static_cast<DiplomaticRelation>(rel));
-        }
-        for (int w = 0; w < warCount; w++)
-        {
-            int wid = 0, atk = 0, def = 0, active = 0;
-            double startTime = 0.0;
-            in >> tag >> wid >> atk >> def >> startTime >> active;
-            if (tag != "WAR")
-                return false;
-            player->diplomatic.wars.push_back({wid, atk, def, startTime, active != 0});
         }
         player->RefreshTechnologyModifiers();
 
