@@ -34,14 +34,17 @@ IRON_ORE (teren) → Mine → IRON_ORE → Foundry → IRON
 COAL (teren) → Mine → COAL (potrzebny do Foundry)
 WHEAT (teren) → WheatFarm → WHEAT → Windmill → FLOUR → Bakery → BREAD
 HuntersHut → MEAT / LEATHER
-Well → WATER → Inn → BEER
+Well → WATER
+BREAD + MEAT + WATER → Inn → FOOD_PROVISIONS
 Paperworks → PAPER
 Smith → TOOLS / bronie (COPPER_SWORD, IRON_SWORD, BRONZE_SWORD, STEEL_SWORD) / ARROWS (amunicja wież)
 Mint → COINS, Glassworks → GLASS, Powderworks → GUNPOWDER
 ```
 
-Żywność (BREAD, MEAT, BEER) → wioska → manpower → rekrutacja jednostek + obsada budynków/wież.
-`FOOD_PROVISIONS` to jedyny pozostały logistyczny zasób wojskowy (zasila wioskę→manpower).
+`FOOD_PROVISIONS` (produkowane przez Inn z BREAD+MEAT+WATER) → wioska → manpower → rekrutacja
+jednostek + obsada budynków/wież; to jedyny zasób, który `PopulationComponent` faktycznie przyjmuje.
+`ResourceType::BEER` to nieużywany placeholder w enumie — żaden budynek go dziś nie produkuje ani
+nie konsumuje; nie usuwać bez świadomej decyzji i bumpa save/wire (patrz `docs/tech_debt.md`).
 Stary `WEAPON_SUPPLY`/system pakietów zaopatrzeniowych został usunięty w ramach pivotu — amunicja
 wież to dziś zwykły zasób (`ARROWS`) płynący normalną siecią dróg surowcowych.
 
@@ -73,28 +76,33 @@ Reguła budowania: zakaz stawiania budynku w promieniu 3 kratek (Chebyshev) od w
 
 ### AI
 
-Cztery poziomy trudności (Primitive / Easy / Normal / Hard), jeden model implementacji: `PrimitiveAIModel`
-(`inc/ai/Controller.h`, `src/ai/Controller.cpp`).
+Jeden deterministyczny model utility pod tower defense: `UtilityAIModel` (`inc/ai/AIModel.h`,
+`src/ai/AIModel.cpp`), wpięty przez `AIController` (`inc/ai/Controller.h`). Stary 3-tier
+goal→milestone→action (osie priorytetów, `AIPersonality`, `PrimitiveAIModel`) został całkowicie
+usunięty w AI-rework 2026-07-16 (etap 1 "czystka") — osie nie pasowały do pętli TD.
 
-**Aktualny pipeline (3-tier goal→milestone→action, zastąpił stary hardcoded Try* path):**
-1. **Tier 1 — cel** (`AIStrategicGoal`): `StabilizeEconomy`, `ExpandTerritory`, `DevelopInfrastructure`,
-   `BuildMilitary`, `LaunchOffensive`, `Fortify`. Jeden aktywny cel na raz, wybierany z ocen 8 osi
-   (`AIStrategyAxis`: Resources, Logistics, Military, Expansion, InternalDevelopment, Technology,
-   Diplomacy, Risk).
-2. **Tier 2 — kamienie milowe** (`AIMilestone`/`AIMilestoneKind`): sekwencja konkretnych progów
-   (liczba budynków, tempo produkcji, zapas zasobu, siła armii, tech z tagiem, gotowość do ataku)
-   realizujących wybrany cel.
-3. **Tier 3 — akcje** (`AIActionCandidate`/`AIActionKind`: Build/Research/Focus/Attack/Recruit) —
-   jeden ujednolicony scorer konkuruje kandydatów niezależnie od typu akcji.
+**Cykl decyzyjny (co ~1.5 s sim):**
+1. **Sensing** — `AISituation` (throttlowany snapshot, wyłącznie odczyty): siła jednostek
+   moich/nadchodzących na torze, HP HQ, roster per typ, wieże + amunicja, manpower, telemetria
+   produkcja-vs-konsumpcja, deficyty zasobów, budynki niepodłączone do dróg
+   (`LogisticsComponent::IsConnectedToRoadNetwork`).
+2. **Utility potrzeb** (`AINeed`): Defense / RecruitDeploy / EconomySustain / LogisticsRepair /
+   Research — score [0,1] z prostych wzorów (np. `Threat()` = siła wroga na moim torze vs
+   deployed+wieże). RecruitDeploy jest trwale wysoki — cel nadrzędny AI to jednostki na torze.
+3. **Egzekucja** — potrzeby próbowane w kolejności (score desc, przy remisie stała kolejność
+   enumu = priorytet) aż któraś wykona realny `GameCommand` przez aktuatory z `ai/AIActions.h`
+   (mechaniczne wykonawstwo przeniesione 1:1 ze starego modelu, z fixami determinizmu sort-by-id).
 
-Każde AI ma `AIPersonality` (11 cech float) wpływającą na progi i utility. Stary enum
-`AIStrategicPlan` (`RecoverEconomy`/`BuildArmy`/`DefendBorder`/`PrepareOffensive`/`ConsolidateTerritory`/...)
-zostaje w kodzie jako martwy/stubowany kształt (komentarz `TD(etap-1)` w `Controller.h`) — AI
-military overhaul dopasowany do nowego tower-defense (agresywne deployowanie, obrona wieżami)
-to osobny, nie zaplanowany jeszcze projekt.
+Kompozycja rosteru: pod atakiem defensywna (staying power per koszt), w ofensywie mix 2:1
+lane-fighter:siege (`UtilityAIModel::RankUnitChoices`, pure + unit-tested). Poziomy trudności
+(0 Primitive … 3 Hard, `MapParameters::aiDifficulty`): wyższy = większy grant startowy
+(zasoby+manpower do HQ przy inicie, `GrantDifficultyStartingBonus`), niższy = większy seedowany
+szum decyzyjny (swing utility ±30/20/10/0% + skip cyklu 15/10/5/0%) — jeden model, zero różnic
+w logice. Determinizm: tylko odczyty + `SubmitCommand`, RNG wyłącznie `mt19937` seedowany z
+(seed mapy, id gracza) — lockstep-safe, testowane checksumami dwóch światów przy aktywnym szumie.
 
-Szczegółowy design pipeline'u AI (starszy, częściowo nieaktualny co do konkretnych planów, ale
-aktualny co do struktury pressures/osi) w `docs/strategic_ai_design.md`.
+Pełny opis modelu: `docs/td_ai_design.md`. Historyczny design osiowy: `docs/strategic_ai_design.md`
+(superseded).
 
 ### Balans i modyfikatory
 
@@ -103,9 +111,9 @@ Technologie i focusy z `assets/data/technologies.rtsdata` i `assets/data/focuses
 (focuses.rtsdata jest dziś płaską "ściągawką" statów, nie prawdziwym drzewem — zobacz
 `docs/tower_defense_design.md`).
 Modyfikatory balance przez `BalanceModifierSet` na `Player` — addytywne + multiplikatywne, z zakresem
-Global / Building / Area / Territory, opcjonalnie filtrowane po `buildingType`/`resourceType`/
-`resourceCategory`/`unitDefId`. Formula: `(base + additive) * multiplier`. Pełna lista statów w
-`inc/economy/BalanceStats.h`. Szczegóły w `docs/balance_audit.md`.
+Global / Building / Area (scope Territory usunięty razem z systemem terytorium), opcjonalnie filtrowane
+po `buildingType`/`resourceType`/`resourceCategory`/`unitDefId`. Formula: `(base + additive) * multiplier`.
+Pełna lista statów w `inc/economy/BalanceStats.h`.
 
 ### Multiplayer
 
@@ -196,7 +204,7 @@ inc/            ← nagłówki, per-domena podkatalogi:
                    warfare/ (BattleUnit, UnitDefinition, CombatPipeline, UnitMarchSystem,
                              UnitCombatSystem, HqCombatSystem, TowerAttackSystem)
                    simulation/ (MapGenerator, RoadNetwork, MilitaryRoadNetwork, PathingService)
-                   ai/ (Controller, DiplomaticState)
+                   ai/ (Controller, AIModel, AIActions)
                    research/ (Technology, ResearchCatalog, StateDevelopment)
                    data/ (Resource, Equipment, RtsDataFile, StrategicResource)
                    ui/ (Gui, GuiController, Input, InputManager, Renderer, AudioSystem)
@@ -212,10 +220,12 @@ tests/          ← Google Test — pełny suite uruchamiany w CI (patrz sekcja 
 deps/           ← zależności (raylib-src/, raylib/ gitignored; raygui/ committed)
 cmake/          ← Version.h.in (szablon nagłówka wersji)
 scripts/        ← bump_version.ps1
-docs/           ← tech_debt.md (audyt), balance_audit.md, strategic_ai_design.md,
-                   tower_defense_rework_plan.md (plan pivotu), tower_defense_design.md
-                   (finalna architektura pivotu), resource_world_design.md,
-                   game_engine_architecture.md, grand_refactor_plan.md
+docs/           ← tech_debt.md (audyt długu), post_pivot_audit_2026-07-12.md (audyt +
+                   wykonane bugfixy po pivocie), work_plan_2026-07-13.md (plan pracy;
+                   Blok C superseded przez AI-rework), td_ai_design.md (aktualny model AI),
+                   tower_defense_design.md (finalna architektura pivotu),
+                   tower_defense_rework_plan.md (historyczny plan pivotu),
+                   strategic_ai_design.md (superseded), resource_world_design.md
 assets/         ← tekstury, fonty, dane (.rtsdata)
 ```
 
@@ -243,7 +253,7 @@ usunięte w ramach pivotu.
 - **Sieciowa:** `GameCommand::Serialize/TryDeserialize` — `WireVersion = 12` (osobne mniejsze
   `WireVersion` też na `GameSnapshot` i innych strukturach — sprawdź `inc/core/GameCommand.h`),
   pozycyjna.
-- **Zapis:** `GameWorld::SaveToFile/LoadFromFile` (`src/core/GameWorld.Persistence.cpp`) — tekstowy format `RTS_SAVE`, aktualny save version = 25.
+- **Zapis:** `GameWorld::SaveToFile/LoadFromFile` (`src/core/GameWorld.Persistence.cpp`) — tekstowy format `RTS_SAVE`, aktualny save version = 27 (26→27: usunięty martwy `DiplomaticState`).
 - **Snapshot MP:** `GameSnapshot::Serialize/TryDeserialize` — chunki 12 KB przez TCP przy join.
 
 Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save version.
@@ -253,10 +263,9 @@ Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save v
 `.github/workflows/windows-release.yml`:
 - Triggeruje na każdy push i PR.
 - Instaluje raylib przez vcpkg (`x64-windows`, z cache), używa `deps/raygui/raygui.h` z repo.
-- Uruchamia PEŁEN suite testów (`rts_tests.exe` bez `--gtest_filter`) — **uwaga:** to oznacza,
-  że 8 znanych, pre-existing failing testów (`docs/tech_debt.md` — niezgodność
-  `technologies.rtsdata` z testami oczekującymi technologii "forestry") dziś realnie czerwieni CI,
-  jeśli nikt tego jeszcze nie naprawił / nie dodał `continue-on-error`.
+- Uruchamia PEŁEN suite testów (`rts_tests.exe` bez `--gtest_filter`) — zielony (2026-07-13: usunięto
+  8 pre-existing testów "forestry"/`technologies.rtsdata` mismatch, patrz `docs/tech_debt.md`;
+  drzewo tech/focus i tak czeka na ręczne przeprojektowanie od podstaw).
 - Release tworzony tylko gdy `VERSION` zawiera wersję bez istniejącego tagu.
 
 ## Mapa ficzerów → pliki
@@ -340,10 +349,12 @@ Przy zmianie formatu serializacji: inkrementuj odpowiedni `WireVersion` / save v
 ### AI
 | Ficer | Gdzie szukać |
 |---|---|
-| Pipeline AI (goal → milestone → action scorer) | `src/ai/Controller.cpp`, `inc/ai/Controller.h` |
-| Osobowość, osie, cele/milestone'y/akcje | `inc/ai/Controller.h` — `AIPersonality`, `AIStrategyAxis`, `AIStrategicGoal`, `AIMilestone`, `AIActionCandidate` |
-| Diagnoza braków zasobów | `src/ai/Controller.cpp` — `PrimitiveAIModel::DiagnoseResourceNeed` |
-| Pathfinding AI do budowania dróg | `src/ai/Controller.cpp` — `SubmitRoadPath`, `FindBuildAnchor` |
+| Model decyzyjny AI (sensing → utility potrzeb → akcja) | `inc/ai/AIModel.h`, `src/ai/AIModel.cpp` — `UtilityAIModel`, `AISituation`, `AINeed` |
+| Kompozycja rosteru AI (postawa, mix 2:1) | `inc/ai/AIModel.h` — `UtilityAIModel::RankUnitChoices` (public static, unit-tested) |
+| Aktuatory AI (build anchor, drogi, zapytania) | `inc/ai/AIActions.h`, `src/ai/AIActions.cpp` — `FindBuildAnchor`, `SubmitRoadPath`, `TryBuildRoads`, `DiagnoseResourceNeed`, `FindProducerOptions`, `AIActionState` |
+| Kontroler AI (seam IController) | `inc/ai/Controller.h`, `src/ai/Controller.cpp` — `AIController` |
+| Trudność AI (grant startowy) | `src/core/GameWorld.Init.cpp` — `GrantDifficultyStartingBonus`; szum decyzyjny w `UtilityAIModel::Update` |
+| Check podłączenia budynku do sieci dróg | `src/economy/LogisticsComponent.cpp` — `IsConnectedToRoadNetwork` |
 
 ### Multiplayer i sieć
 | Ficer | Gdzie szukać |
@@ -384,11 +395,13 @@ Pełna lista w `docs/tech_debt.md`. Najważniejsze:
 2. **Snapshoty TCP nie skalują się** dla dużych map (używane do recovery desyncu); recovery
    po desyncu w praktyce nie jest w pełni zaaplikowany do żywego świata klienta — zobacz TODO.md.
 3. **`Player` zbliża się do god-object** — wiele odpowiedzialności, wiele includów.
-4. **CI uruchamia pełen suite bez filtra** — ale 8 pre-existing testów (mismatch
-   `technologies.rtsdata` vs. testy oczekujące "forestry") może dziś realnie czerwienić build.
-5. **`assets/data/focuses.rtsdata`** to płaska ściągawka statów, nie prawdziwe drzewo focusów —
+4. **`assets/data/focuses.rtsdata`** to płaska ściągawka statów, nie prawdziwe drzewo focusów —
    czeka na przeprojektowanie (zobacz `docs/tower_defense_design.md`).
-6. **GUI bez pokrycia testami automatycznymi** — każda zmiana GUI wymaga ręcznej weryfikacji.
+5. **GUI bez pokrycia testami automatycznymi** — każda zmiana GUI wymaga ręcznej weryfikacji.
+6. **`std::set<Building*>` (`GetTrackedBuildings()`) kluczowany surowym wskaźnikiem** — bezpieczny
+   dla sum/min/max, ale ŁAMIE determinizm lockstep w każdym miejscu, gdzie kolejność iteracji
+   decyduje, co "wygrywa" (np. auto-connect, pierwszy pasujący budynek). Przy zamianie pełnego
+   skanu tilemapy na ten rejestr — sortować po `building->id`, zobacz `docs/tech_debt.md`.
 
 ## Ważne szczegóły
 

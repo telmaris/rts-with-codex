@@ -4,6 +4,7 @@
 #include "ai/AIModel.h"
 #include "economy/Player.h"
 #include "economy/BuildingComponents.h"
+#include "economy/ProductionBuildings.h"
 #include "simulation/MapGenerator.h"
 #include "warfare/BattleUnit.h"
 #include "warfare/UnitDefinition.h"
@@ -251,6 +252,58 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
     EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
         << "the AI should have recruited at least one real unit itself";
+}
+
+// Etap 5: a standing idle University (or an unstarted focus) gets used — the
+// Research need starts a real focus and/or technology through commands.
+TEST(UtilityAIModelTests, AIUsesAnIdleUniversityOrStartsAFocus)
+{
+    MapParameters params;  // defaults: 301x301
+    params.aiOpponentCount = 1;
+    params.seed = 9001;
+
+    GameWorld world;
+    world.InitWorld("utility-ai-research", nullptr, nullptr, params);
+
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+
+    Building* hq = AIActions::FindOwnedHeadquarters(ai);
+    ASSERT_NE(hq, nullptr);
+    Vec2i hqPos = world.GetTileMap().GetCoordsFromId(hq->positionId);
+
+    Vec2i uniPos{-1, -1};
+    Vec2i footprint = GetBuildingDefinition(BuildingType::University).footprint;
+    for (int radius = 5; radius <= 40 && uniPos.x < 0; radius += 2)
+        for (int y = hqPos.y - radius; y <= hqPos.y + radius && uniPos.x < 0; y++)
+            for (int x = hqPos.x - radius; x <= hqPos.x + radius; x++)
+            {
+                Vec2i pos{x, y};
+                if (world.GetTileMap().IsInside(pos) &&
+                    world.GetTileMap().CanPlaceBuilding(BuildingType::University, pos, footprint, ai))
+                {
+                    uniPos = pos;
+                    break;
+                }
+            }
+    ASSERT_GE(uniPos.x, 0);
+
+    Building* university = ai->Build<University>(uniPos, false);
+    ASSERT_NE(university, nullptr);
+    ASSERT_FALSE(university->IsUnderConstruction());
+
+    auto researchStarted = [&]()
+    {
+        const auto* research = university->GetComponent<ResearchComponent>();
+        bool techRunning = research != nullptr && research->remaining > 0.0;
+        return techRunning || !ai->focuses.GetActiveFocusId().empty();
+    };
+
+    for (int tick = 0; tick < 3000 && !researchStarted(); tick++)
+        world.UpdateSimulation(0.01);
+
+    EXPECT_TRUE(researchStarted())
+        << "with an idle University standing, the AI should start a focus or a technology";
 }
 
 // Etap 4: the difficulty noise must be seeded, never wall-clock or unseeded —

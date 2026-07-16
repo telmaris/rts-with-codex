@@ -1,5 +1,11 @@
 # Strategic AI Design
 
+> **SUPERSEDED (2026-07-16, AI-rework TODO #2).** The axis/goal/milestone
+> architecture this document describes was removed entirely — priority axes
+> proved impractical for the tower-defense loop. The current model is the
+> utility-based `UtilityAIModel`, documented in `docs/td_ai_design.md`.
+> Kept for historical reference only.
+
 This document defines the target architecture for the strategic AI controller. The model is data-oriented: game state is converted into pressures, pressures select a plan, and the plan generates concrete tasks. Personality changes thresholds and utility scores, but it never replaces situation assessment.
 
 ## Pipeline

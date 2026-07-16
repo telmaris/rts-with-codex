@@ -257,6 +257,10 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         AIActions::GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute,
                                    ResourceType::FOOD_PROVISIONS) > 0;
 
+    s.universityCount = AIActions::CountOwnedBuildings(player, BuildingType::University);
+    s.hasIdleUniversity = AIActions::FindUniversity(player) != nullptr;
+    s.focusActive = !player->focuses.GetActiveFocusId().empty();
+
     // Resource deficits. Candidate list is deterministic: the manpower
     // lifeline first, then every unit-cost resource (catalog is a std::map),
     // tower ammo when towers exist, then everything currently consumed.
@@ -386,7 +390,20 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
         case AINeed::LogisticsRepair:
             return std::min(1.0, 0.4 * static_cast<double>(s.unconnectedPositionIds.size()));
         case AINeed::Research:
-            return 0.0;  // etap 5
+        {
+            if (s.Threat() > 0.5)
+                return 0.0;  // guns before books
+            double score = 0.0;
+            if (s.hasIdleUniversity)
+                score = 0.35;  // a standing idle University is sunk cost — use it
+            if (!s.focusActive)
+                score = std::max(score, 0.25);  // focuses cost nothing to start
+            // Building a University is an investment — only once the economy
+            // demonstrably carries itself.
+            if (s.universityCount == 0 && s.foodProductionAlive && s.productionBuildingCount >= 6)
+                score = std::max(score, 0.3);
+            return score;
+        }
         case AINeed::Count:
             break;
     }
@@ -406,6 +423,7 @@ bool UtilityAIModel::ExecuteNeed(AINeed need, GameWorld& world, Player* player, 
         case AINeed::LogisticsRepair:
             return ExecuteLogistics(world, player, s);
         case AINeed::Research:
+            return ExecuteResearch(world, player, s);
         case AINeed::Count:
             break;
     }
@@ -652,6 +670,63 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
         return true;
     }
     return false;
+}
+
+bool UtilityAIModel::ExecuteResearch(GameWorld& world, Player* player, const AISituation& s)
+{
+    // 1. Focus first — costs nothing to start, pure strategic modifier.
+    //    First unlockable in catalog order (focuses.rtsdata is today a flat
+    //    stat cheat-sheet pending its own redesign — a deliberately minimal
+    //    heuristic until that lands).
+    if (!s.focusActive)
+    {
+        for (const auto& def : GetFocusDefinitions())
+        {
+            if (!player->CanUnlockFocus(def.id))
+                continue;
+            world.SubmitCommand(GameCommand::StartFocus(player->id, def.id));
+            return true;
+        }
+    }
+
+    // 2. No University yet — building one IS the research action.
+    if (s.universityCount == 0)
+    {
+        if (!player->CanBuildDefinition(GetBuildingDefinition(BuildingType::University)))
+            return false;
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::University,
+                                                  TileType::GRASS, nullptr, actions);
+        return anchor.x >= 0 &&
+               AIActions::TrySubmitBuild(world, player, BuildingType::University, anchor, actions);
+    }
+
+    // 3. Idle University — pick a technology: posture-preferred tag first
+    //    (military under pressure, production otherwise), then cheapest.
+    //    Deterministic: catalog iteration order breaks ties (strict >).
+    Building* university = AIActions::FindUniversity(player);
+    if (university == nullptr)
+        return false;
+    const char* preferredTag = (s.Threat() > 0.0 || s.UnderAttack()) ? "military" : "production";
+    const TechnologyDefinition* best = nullptr;
+    double bestScore = -1e18;
+    for (const auto& def : GetTechnologyDefinitions())
+    {
+        if (player->technologies.HasTechnology(def.id) || player->IsTechnologyInProgress(def.id))
+            continue;
+        if (!player->CanResearchTechnology(def.id))
+            continue;
+        bool tagged = std::find(def.tags.begin(), def.tags.end(), preferredTag) != def.tags.end();
+        double score = (tagged ? 1000.0 : 0.0) - def.researchTime;
+        if (score > bestScore)
+        {
+            bestScore = score;
+            best = &def;
+        }
+    }
+    if (best == nullptr)
+        return false;
+    world.SubmitCommand(GameCommand::StartTechnologyResearch(player->id, best->id, university->positionId));
+    return true;
 }
 
 int UtilityAIModel::GetCachedAttackTargetPlayer(GameWorld& world, Player* player)

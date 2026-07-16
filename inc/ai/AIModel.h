@@ -64,6 +64,10 @@ struct AISituation
     double manpower{0.0};
     int villageCount{0};
     int productionBuildingCount{0};
+    int universityCount{0};
+    // A completed University with no research running (AIActions::FindUniversity).
+    bool hasIdleUniversity{false};
+    bool focusActive{false};
     // FOOD_PROVISIONS is the manpower lifeline — "alive" = positive
     // production rate in current telemetry.
     bool foodProductionAlive{false};
@@ -109,6 +113,7 @@ private:
     bool ExecuteRecruitDeploy(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteEconomy(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteLogistics(GameWorld& world, Player* player, const AISituation& s);
+    bool ExecuteResearch(GameWorld& world, Player* player, const AISituation& s);
     int GetCachedAttackTargetPlayer(GameWorld& world, Player* player);
     // Builds the first affordable producer of `resource` (or of the deepest
     // missing input in its chain). Returns false when nothing can be placed
