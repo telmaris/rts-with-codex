@@ -249,11 +249,13 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
     std::mt19937 startRng(seed);
     std::uniform_int_distribution<int> sideDist(0, 3);
     std::uniform_int_distribution<int> offsetDist(-2, 2);
-    // Widened from 3 (2026-07-13, user request): with the military road now
-    // generated BEFORE the village (see CreateStartingHq/InitWorld ordering
-    // comment), overlap is structurally impossible regardless of distance —
-    // no more need to huddle the village right against the HQ wall.
-    int gap = 6;
+    // Widened from 3 (2026-07-13), then from 6 (2026-07-17, user request):
+    // the starting village now sits 14 tiles out — past the 10-tile HQ build
+    // clearance (TileMap::CanBuildFootprint), leaving the HQ apron free for
+    // logistics. With the military road generated BEFORE the village (see
+    // CreateStartingHq/InitWorld ordering comment), overlap is structurally
+    // impossible regardless of distance.
+    int gap = 14;
 
     std::vector<Vec2i> villageCandidates;
     for (int attempt = 0; attempt < 12; attempt++)

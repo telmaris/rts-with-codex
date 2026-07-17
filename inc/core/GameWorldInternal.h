@@ -111,20 +111,26 @@ namespace GameWorldInternal
                                     TileType type, std::mt19937& rng)
     {
         Vec2i center{hqAnchor.x + hqFootprint.x / 2, hqAnchor.y + hqFootprint.y / 2};
-        int half = MapGenerator::HeadquartersTerritorySize() / 2;
         int radius = 4;
-        Vec2i preferredOffset = type == TileType::WOOD ? Vec2i{-half + radius + 1, 0}
-                                                       : Vec2i{half - radius - 1, 0};
+        // User request (2026-07-17): patch centers live in a ring 17..23
+        // tiles from the HQ center, so every patch tile (radius 4) sits at
+        // 13+ — clear of the 10-tile HQ build apron (extractors must be
+        // placeable ON the patch) while staying inside the starting zone.
+        constexpr int kMinPatchCenterDist = 17;
+        constexpr int kMaxPatchCenterDist = 23;
+        Vec2i preferredOffset = type == TileType::WOOD ? Vec2i{-kMaxPatchCenterDist + radius, 0}
+                                                       : Vec2i{kMaxPatchCenterDist - radius, 0};
 
         Vec2i bestCenter{-1, -1};
         int bestScore = std::numeric_limits<int>::min();
-        for (int y = -half + radius; y <= half - radius; y++)
+        for (int y = -kMaxPatchCenterDist; y <= kMaxPatchCenterDist; y++)
         {
-            for (int x = -half + radius; x <= half - radius; x++)
+            for (int x = -kMaxPatchCenterDist; x <= kMaxPatchCenterDist; x++)
             {
                 Vec2i patchCenter{center.x + x, center.y + y};
                 int distSq = x * x + y * y;
-                if (distSq < 25 || distSq > (half - 1) * (half - 1))
+                if (distSq < kMinPatchCenterDist * kMinPatchCenterDist ||
+                    distSq > kMaxPatchCenterDist * kMaxPatchCenterDist)
                     continue;
 
                 Vec2i patchAnchor{patchCenter.x - radius, patchCenter.y - radius};
@@ -168,9 +174,9 @@ namespace GameWorldInternal
 
         if (bestCenter.x < 0)
         {
-            for (int y = -half; y <= half && bestCenter.x < 0; y++)
+            for (int y = -kMaxPatchCenterDist; y <= kMaxPatchCenterDist && bestCenter.x < 0; y++)
             {
-                for (int x = -half; x <= half && bestCenter.x < 0; x++)
+                for (int x = -kMaxPatchCenterDist; x <= kMaxPatchCenterDist && bestCenter.x < 0; x++)
                 {
                     Vec2i pos{center.x + x, center.y + y};
                     if (!tilemap.IsInside(pos))

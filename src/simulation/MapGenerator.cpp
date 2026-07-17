@@ -119,11 +119,14 @@ int MapGenerator::SizeFromPreset(MapSizePreset preset)
 {
     switch (preset)
     {
-        case MapSizePreset::S: return 301;
+        // S raised 301 -> 401 (2026-07-17, user request): with the wider
+        // starting zones and the HQ build clearance, 301 got cramped — the
+        // minimum playable map grows accordingly.
+        case MapSizePreset::S: return 401;
         case MapSizePreset::M: return 501;
         case MapSizePreset::L: return 701;
         case MapSizePreset::XL: return 1001;
-        default: return 301;
+        default: return 401;
     }
 }
 

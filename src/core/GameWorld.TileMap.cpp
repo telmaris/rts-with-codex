@@ -273,6 +273,16 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, B
     if (IsWithinEnemyProximity(anchor, footprint, player, kEnemyProximityRadius))
         return false;
 
+    // User request (2026-07-17): keep a clear apron around every HQ so the
+    // base exit doesn't jam with buildings ("szybko się klinuje"). Roads and
+    // Bridges are exempt — logistics must be able to reach the HQ — and so
+    // is a Headquarters being placed itself.
+    constexpr int kHqClearanceRadius = 10;
+    if (type != BuildingType::Road && type != BuildingType::Bridge &&
+        type != BuildingType::Headquarters &&
+        IsWithinHqClearance(anchor, footprint, kHqClearanceRadius))
+        return false;
+
     // B6 follow-up (playtest 2026-07-14): two Bridges sitting edge-to-edge
     // would form a single, longer crossing rather than the intended one-tile
     // gap in the track — reject placement if any orthogonal neighbour is
@@ -309,6 +319,33 @@ bool TileMap::IsWithinEnemyProximity(Vec2i anchor, Vec2i footprint, const Player
         {
             const Building* building = tilemap[GetIdFromCoords({x, y})].GetBuilding();
             if (building != nullptr && building->owner != nullptr && building->owner != player)
+                return true;
+        }
+    }
+    return false;
+}
+
+// True when any tile within `radius` (Chebyshev, expanded bounding box) of the
+// footprint belongs to ANY player's Headquarters. Scanned with a stride of 2 —
+// the HQ footprint is 3x3 (MapGenerator::HeadquartersFootprint), so a stride-2
+// grid cannot step over it, at a quarter of the tile reads (this runs per
+// candidate tile inside the AI's anchor search).
+bool TileMap::IsWithinHqClearance(Vec2i anchor, Vec2i footprint, int radius) const
+{
+    if (radius <= 0)
+        return false;
+
+    int minX = std::max(0, anchor.x - radius);
+    int maxX = std::min(params.sizeX - 1, anchor.x + footprint.x - 1 + radius);
+    int minY = std::max(0, anchor.y - radius);
+    int maxY = std::min(params.sizeY - 1, anchor.y + footprint.y - 1 + radius);
+
+    for (int y = minY; y <= maxY; y += 2)
+    {
+        for (int x = minX; x <= maxX; x += 2)
+        {
+            const Building* building = tilemap[GetIdFromCoords({x, y})].GetBuilding();
+            if (building != nullptr && building->buildingType == BuildingType::Headquarters)
                 return true;
         }
     }

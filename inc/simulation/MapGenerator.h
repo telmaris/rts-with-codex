@@ -42,7 +42,9 @@ struct BiomeParameters
 struct MapParameters
 {
     MapSizePreset sizePreset{MapSizePreset::S};
-    int sizeX{301}, sizeY{301};
+    // Default follows the S preset (401 since 2026-07-17 — see
+    // MapGenerator::SizeFromPreset for why the minimum grew).
+    int sizeX{401}, sizeY{401};
     unsigned int seed{12345};
     float resourceDensity{0.5f};
     float resourceFieldSize{0.5f};
@@ -92,7 +94,10 @@ class MapGenerator
         // Returns the fixed headquarters footprint.
         static Vec2i HeadquartersFootprint() { return {3, 3}; }
         // Returns the starting territory side length around headquarters.
-        static int HeadquartersTerritorySize() { return 27; }
+        // Widened 27 -> 35 (2026-07-17, user request): the starting zone
+        // scales with the 10-tile HQ build clearance + the 14-tile village +
+        // the pushed-out resource patch ring (see PlaceStartingResourcePatch).
+        static int HeadquartersTerritorySize() { return 35; }
         // Ensures a starting territory contains required early resources.
         static void PrepareStartingArea(TileMap&, Vec2i hqAnchor, std::mt19937&);
 
@@ -195,6 +200,13 @@ class TileMap
         // which also prevents an enemy from ever attaching their road network to
         // yours. Own buildings and unowned ground never block.
         bool IsWithinEnemyProximity(Vec2i anchor, Vec2i footprint, const Player* player, int radius) const;
+        // User request (2026-07-17): buildings crowding right against the HQ
+        // jam the base exit — true when any tile within `radius` (Chebyshev,
+        // expanded bounding box) of the footprint belongs to ANY player's
+        // Headquarters. CanBuildFootprint refuses such placements for every
+        // type except Road/Bridge (logistics must reach the HQ) and the
+        // Headquarters itself.
+        bool IsWithinHqClearance(Vec2i anchor, Vec2i footprint, int radius) const;
         // Returns all tile ids occupied by a building footprint.
         std::vector<int> GetBuildingTileIds(const Building* building) const;
         // Returns all tile ids adjacent to a building footprint.
