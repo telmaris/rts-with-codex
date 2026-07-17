@@ -17,6 +17,7 @@ target_sources(game
                ai/Controller.cpp
                ai/AIActions.cpp
                ai/AIModel.cpp
+               ai/AIEconomyBias.cpp
                research/Technology.cpp
                economy/Building.cpp
                economy/BuildingComponentsInternal.cpp
@@ -81,7 +82,7 @@ source_group("core" FILES
              core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Units.cpp
              core/GameWorld.Elimination.cpp)
 
-source_group("ai" FILES ai/Controller.cpp ai/AIActions.cpp ai/AIModel.cpp)
+source_group("ai" FILES ai/Controller.cpp ai/AIActions.cpp ai/AIModel.cpp ai/AIEconomyBias.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
 source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInternal.cpp
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp

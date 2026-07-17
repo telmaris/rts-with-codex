@@ -1,6 +1,7 @@
 #include "core/GameWorld.h"
 #include "core/GameSession.h"
 #include "ai/AIActions.h"
+#include "ai/AIEconomyBias.h"
 #include "ai/AIModel.h"
 #include "economy/Player.h"
 #include "economy/BuildingComponents.h"
@@ -11,6 +12,9 @@
 #include "warfare/UnitDefinition.h"
 
 #include <gtest/gtest.h>
+
+#include <filesystem>
+#include <fstream>
 
 // AI rework etap 2 (TODO #2): the utility-based UtilityAIModel's economy +
 // logistics layer, and the LogisticsComponent::IsConnectedToRoadNetwork check
@@ -67,7 +71,11 @@ TEST(UtilityAIModelTests, IsConnectedToRoadNetworkDetectsRoadPathToStorage)
 // direct state pokes.
 TEST(UtilityAIModelTests, AIBuildsEconomyAndConnectsIt)
 {
-    MapParameters params;  // defaults: 301x301
+    MapParameters params;
+    // Pinned to the pre-2026-07-17 minimum: these tests exercise AI behavior,
+    // not map size, and the 401x401 default costs ~1.8x the sim time.
+    params.sizeX = 301;
+    params.sizeY = 301;
     params.aiOpponentCount = 1;
     params.seed = 4242;
 
@@ -163,7 +171,11 @@ TEST(UtilityAIModelTests, RosterCompositionKeepsSiegeInTheOffensiveMix)
 // out the natural economy.
 TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
 {
-    MapParameters params;  // defaults: 301x301
+    MapParameters params;
+    // Pinned to the pre-2026-07-17 minimum: these tests exercise AI behavior,
+    // not map size, and the 401x401 default costs ~1.8x the sim time.
+    params.sizeX = 301;
+    params.sizeY = 301;
     params.aiOpponentCount = 1;
     params.seed = 777;
 
@@ -253,6 +265,55 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
     EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
         << "the AI should have recruited at least one real unit itself";
+}
+
+// AI economy bias (user design 2026-07-17): amortized non-constant costs are
+// loaded from a data file, scale with difficulty, and surface as virtual
+// consumption in the AI's resource diagnosis — so a resource nothing consumes
+// YET (like STONE for roads) still registers as a deficit to provision for.
+TEST(UtilityAIModelTests, EconomyBiasLoadsFromFileAndScalesWithDifficulty)
+{
+    const auto path = (std::filesystem::temp_directory_path() / "rts_ai_bias_fixture.rtsdata").string();
+    {
+        std::ofstream file(path);
+        file << "ai_economy_bias\n"
+                "    difficulty_scale 0.5 0.75 1.0 2.0\n"
+                "    consumption STONE 10\n"
+                "    consumption BOGUS_RESOURCE 99\n"
+                "    consumption PLANKS 8\n"
+                "end\n";
+    }
+
+    AIEconomyBias bias = LoadAIEconomyBiasFromFile(path);
+    std::filesystem::remove(path);
+
+    EXPECT_EQ(bias.virtualConsumptionPerMinute.size(), 2u) << "unknown resource names are dropped";
+    EXPECT_EQ(bias.ScaledConsumption(ResourceType::STONE, 0), 5);
+    EXPECT_EQ(bias.ScaledConsumption(ResourceType::STONE, 2), 10);
+    EXPECT_EQ(bias.ScaledConsumption(ResourceType::STONE, 3), 20);
+    EXPECT_EQ(bias.ScaledConsumption(ResourceType::WOOD, 3), 0) << "no entry means zero bias";
+
+    auto scaled = bias.ScaledMap(1);
+    EXPECT_EQ(scaled.at(ResourceType::STONE), 7);
+    EXPECT_EQ(scaled.at(ResourceType::PLANKS), 6);
+}
+
+TEST(UtilityAIModelTests, ConsumptionBiasCreatesADeficitWithoutRealConsumption)
+{
+    TileMap map;
+    FillGrassMap(map, 8, 8);
+    Player player{0, map};
+
+    // No production, no consumption, nothing stored: without a bias STONE is
+    // a non-issue; with one it must diagnose as a missing-producer deficit.
+    AIActions::AIResourceDiagnosis plain = AIActions::DiagnoseResourceNeed(&player, ResourceType::STONE);
+    EXPECT_LE(plain.urgency, 0.05);
+
+    std::map<ResourceType, int> bias{{ResourceType::STONE, 10}};
+    AIActions::AIResourceDiagnosis biased =
+        AIActions::DiagnoseResourceNeed(&player, ResourceType::STONE, 0, &bias);
+    EXPECT_GT(biased.urgency, 0.5) << "amortized consumption with zero production is a hard deficit";
+    EXPECT_EQ(biased.reason, "missing producer");
 }
 
 // Playtest regression (2026-07-16): the AI wedged at the military track edge
@@ -364,7 +425,11 @@ TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
 // Research need starts a real focus and/or technology through commands.
 TEST(UtilityAIModelTests, AIUsesAnIdleUniversityOrStartsAFocus)
 {
-    MapParameters params;  // defaults: 301x301
+    MapParameters params;
+    // Pinned to the pre-2026-07-17 minimum: these tests exercise AI behavior,
+    // not map size, and the 401x401 default costs ~1.8x the sim time.
+    params.sizeX = 301;
+    params.sizeY = 301;
     params.aiOpponentCount = 1;
     params.seed = 9001;
 

@@ -1,0 +1,21 @@
+# AI economy bias (user design, 2026-07-17): virtual, amortized per-minute
+# consumption of the NON-CONSTANT costs — building construction, unit
+# recruitment, tower ammunition — added to the consumption telemetry the AI
+# senses (never to the real telemetry the HUD shows). The AI works to keep
+# production >= consumption, so this bias forces it to stand up and SUSTAIN
+# production of these resources instead of stalling once its starting stock
+# runs dry (playtest 2026-07-17: roads stopped dead when STONE ran out).
+#
+# Values are hand-tuned per-minute averages. difficulty_scale multiplies
+# them per AI difficulty level (0 Primitive .. 3 Hard) — a better-tuned,
+# fuller bias equals a stronger economy, i.e. a harder opponent.
+ai_economy_bias
+    difficulty_scale 0.4 0.6 0.8 1.0
+    consumption WOOD 12
+    consumption STONE 10
+    consumption PLANKS 8
+    consumption IRON 4
+    consumption TOOLS 2
+    consumption FOOD_PROVISIONS 10
+    consumption ARROWS 6
+end

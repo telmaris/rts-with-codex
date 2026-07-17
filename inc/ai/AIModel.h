@@ -146,6 +146,10 @@ private:
     std::mt19937 noiseRng;
     bool noiseSeeded{false};
     int difficulty{0};
+    // AI economy bias (ai/AIEconomyBias.h, user design 2026-07-17), scaled
+    // for the current difficulty — refreshed in Update, consumed by Sense's
+    // deficit diagnosis and the producer-chain walk.
+    std::map<ResourceType, int> consumptionBias;
 };
 
 #endif

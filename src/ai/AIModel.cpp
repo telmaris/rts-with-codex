@@ -1,4 +1,5 @@
 #include "ai/AIModel.h"
+#include "ai/AIEconomyBias.h"
 #include "core/GameWorld.h"
 #include "warfare/UnitDefinition.h"
 
@@ -126,6 +127,10 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
     {
         noiseRng.seed(static_cast<unsigned int>(world.GetTileMap().params.seed) ^
                       (0x9E3779B9u * static_cast<unsigned int>(playerId + 1)));
+        // The amortized-cost bias is static config scaled by difficulty —
+        // computed once alongside the seed (difficulty never changes
+        // mid-game; it comes from map params).
+        consumptionBias = GetAIEconomyBias().ScaledMap(difficulty);
         noiseSeeded = true;
     }
 
@@ -278,13 +283,18 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
             pushCandidate(cost.type);
     if (s.towerCount > 0)
         pushCandidate(ResourceType::ARROWS);
+    // Every amortized-cost resource is always a candidate — the bias exists
+    // precisely so these are provisioned even with zero real consumption yet.
+    for (const auto& [type, amount] : consumptionBias)
+        pushCandidate(type);
     for (const auto& [type, rate] : player->economyTelemetry.current.consumptionRatesPerMinute)
         if (rate > 0)
             pushCandidate(type);
 
     for (ResourceType type : candidates)
     {
-        AIActions::AIResourceDiagnosis diagnosis = AIActions::DiagnoseResourceNeed(player, type);
+        AIActions::AIResourceDiagnosis diagnosis =
+            AIActions::DiagnoseResourceNeed(player, type, 0, &consumptionBias);
         if (diagnosis.urgency > 0.2)
             s.deficits.push_back({type, diagnosis.urgency});
     }
@@ -385,7 +395,14 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
                 score = std::max(score, 0.75);  // manpower lifeline is dead — critical
             if (!s.deficits.empty())
                 score = std::max(score, std::clamp(s.deficits.front().urgency, 0.0, 1.0));
-            return score;
+            // Hard-capped BELOW RecruitDeploy's floor (0.8): the economy
+            // exists to serve the units-on-the-track objective and acts via
+            // fallthrough whenever the military branch can't (unaffordable
+            // recruit, full queue). Harness catch 2026-07-17: bias-driven
+            // deficits scored ~0.9 and, with first-success-wins ordering,
+            // starved the military branch completely — 5 sim-minutes, zero
+            // Barracks, zero recruits.
+            return std::min(score, 0.75);
         }
         case AINeed::LogisticsRepair:
             return std::min(1.0, 0.4 * static_cast<double>(s.unconnectedPositionIds.size()));
@@ -458,7 +475,8 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     ResourceType target = resource;
     for (int depth = 0; depth < 3; depth++)
     {
-        AIActions::AIResourceDiagnosis diagnosis = AIActions::DiagnoseResourceNeed(player, target, depth);
+        AIActions::AIResourceDiagnosis diagnosis =
+            AIActions::DiagnoseResourceNeed(player, target, depth, &consumptionBias);
         if (diagnosis.missingInputs.empty())
             break;
         target = diagnosis.missingInputs.front();

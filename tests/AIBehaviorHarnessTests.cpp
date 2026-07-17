@@ -1,6 +1,7 @@
 #include "core/GameWorld.h"
 #include "ai/AIActions.h"
 #include "economy/Player.h"
+#include "economy/BuildingComponents.h"
 #include "simulation/MapGenerator.h"
 
 #include <gtest/gtest.h>
@@ -39,7 +40,11 @@ namespace
 
 TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
 {
-    MapParameters params;  // defaults: 301x301
+    MapParameters params;
+    // Pinned to the pre-2026-07-17 minimum: these tests exercise AI behavior,
+    // not map size, and the 401x401 default costs ~1.8x the sim time.
+    params.sizeX = 301;
+    params.sizeY = 301;
     params.aiOpponentCount = 1;
     params.seed = 20260716;
     params.aiDifficulty = 3;  // Hard: the production head start compresses the timeline
@@ -141,4 +146,30 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
         << "no unit was ever recruited" << report();
     EXPECT_GE(maxDeployedSeen, 1)
         << "no wave was ever deployed onto the military road" << report();
+
+    // Logistics quality (playtest 2026-07-17 "cuda" report): by the end of
+    // the run every COMPLETED producer must have a real road path to a
+    // storage — at most one building may still be waiting on roads under
+    // construction. Catches both the "orphan stubs everywhere, nothing
+    // connected" wedge (the old 8-tile path cap) and future regressions.
+    int unconnected = 0;
+    std::string unconnectedList;
+    for (const auto* building : ai->GetTrackedBuildingsWithComponent<LogisticsComponent>())
+    {
+        if (building == nullptr || building->owner != ai || building->IsUnderConstruction())
+            continue;
+        if (IsRoadLike(building->buildingType) || building->IsStorageLike() ||
+            building->buildingType == BuildingType::Headquarters)
+            continue;
+        const auto* logistics = building->GetComponent<LogisticsComponent>();
+        if (logistics == nullptr)
+            continue;
+        if (!logistics->IsConnectedToRoadNetwork(*const_cast<Building*>(building)))
+        {
+            unconnected++;
+            unconnectedList += " " + building->name;
+        }
+    }
+    EXPECT_LE(unconnected, 1)
+        << "completed buildings without a road path to any storage:" << unconnectedList << report();
 }

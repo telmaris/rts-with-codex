@@ -73,7 +73,12 @@ namespace AIActions
     Building* FindNearestStorageConnectedRoad(GameWorld& world, Player* player, const Building* source);
     // Pure function of the static building catalog.
     std::vector<AIProducerOption> FindProducerOptions(ResourceType resource);
-    AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth = 0);
+    // `consumptionBias` (optional): virtual per-minute consumption added on
+    // top of real telemetry — the AI economy bias (ai/AIEconomyBias.h, user
+    // design 2026-07-17) amortizing construction/recruitment/ammo costs so
+    // the AI sustains production for them.
+    AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth = 0,
+                                             const std::map<ResourceType, int>* consumptionBias = nullptr);
     // Seconds until the player's current production rates cover `costs`
     // (0 = affordable now, 1e9 = no path with the current economy).
     double ForecastSecondsToAfford(Player* player, const std::vector<ResourceAmountDefinition>& costs);

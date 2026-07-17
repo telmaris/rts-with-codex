@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <deque>
 #include <limits>
 #include <queue>
+#include <set>
 
 // Bodies extracted 1:1 from the removed PrimitiveAIModel (src/ai/Controller.cpp
 // before the AI rework czystka, 2026-07-16) — see AIActions.h. Comments about
@@ -366,15 +368,25 @@ std::vector<AIProducerOption> FindProducerOptions(ResourceType resource)
     return options;
 }
 
-AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth)
+AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth,
+                                         const std::map<ResourceType, int>* consumptionBias)
 {
     AIResourceDiagnosis diagnosis;
     diagnosis.resource = resource;
     if (player == nullptr || resource == ResourceType::Null)
         return diagnosis;
 
+    auto biasFor = [&](ResourceType type)
+    {
+        if (consumptionBias == nullptr)
+            return 0;
+        auto it = consumptionBias->find(type);
+        return it != consumptionBias->end() ? it->second : 0;
+    };
+
     int produced = GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute, resource);
-    int consumed = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, resource);
+    int consumed = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, resource) +
+                   biasFor(resource);
     int stored = CountStoredResource(player, resource);
     bool hasProducerBuilding = false;
     bool stalledProducer = false;
@@ -442,7 +454,8 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
         for (const auto& input : option.inputs)
         {
             int inputProduced = GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute, input.type);
-            int inputConsumed = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, input.type);
+            int inputConsumed = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, input.type) +
+                                biasFor(input.type);
             int inputStored = CountStoredResource(player, input.type);
             if (inputStored < input.amount * 2 || inputProduced < inputConsumed)
             {
@@ -644,22 +657,43 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         return building == nullptr || IsRoadLikeBuilding(building);
     };
 
-    std::queue<int> frontier;
+    // 0-1 BFS: stepping onto an existing (or already-ordered, i.e. placed
+    // and under construction) road/bridge tile is FREE, carving a fresh tile
+    // costs 1 — the planner strongly prefers reusing corridors it already
+    // has over digging a parallel one a tile away. Playtest 2026-07-17: with
+    // a plain unweighted BFS, incremental re-planning across maintenance
+    // cadences kept picking equal-length parallel lines, carpeting the base
+    // with redundant roads.
+    auto stepCost = [&](int tileId)
+    {
+        return IsRoadLikeBuilding(world.GetTileMap().GetBuilding(tileId)) ? 0 : 1;
+    };
+
+    std::deque<int> frontier;
     std::map<int, int> parent;
+    std::map<int, int> pathCost;
     for (int startId : startIds)
     {
         if (!canUseRoadPathTile(startId) || parent.contains(startId))
             continue;
 
         parent[startId] = -1;
-        frontier.push(startId);
+        pathCost[startId] = stepCost(startId);
+        if (pathCost[startId] == 0)
+            frontier.push_front(startId);
+        else
+            frontier.push_back(startId);
     }
 
     int reachedGoal = -1;
+    std::set<int> settled;
     while (!frontier.empty())
     {
         int current = frontier.front();
-        frontier.pop();
+        frontier.pop_front();
+        if (settled.count(current) > 0)
+            continue;
+        settled.insert(current);
 
         if (std::find(goalIds.begin(), goalIds.end(), current) != goalIds.end())
         {
@@ -681,11 +715,21 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
                 continue;
 
             int nextId = world.GetTileMap().GetIdFromCoords(nextPos);
-            if (parent.contains(nextId) || !canUseRoadPathTile(nextId))
+            if (settled.count(nextId) > 0 || !canUseRoadPathTile(nextId))
                 continue;
 
+            int weight = stepCost(nextId);
+            int nextCost = pathCost[current] + weight;
+            auto known = pathCost.find(nextId);
+            if (known != pathCost.end() && known->second <= nextCost)
+                continue;
+
+            pathCost[nextId] = nextCost;
             parent[nextId] = current;
-            frontier.push(nextId);
+            if (weight == 0)
+                frontier.push_front(nextId);
+            else
+                frontier.push_back(nextId);
         }
     }
 
@@ -698,58 +742,28 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
     std::reverse(path.begin(), path.end());
 
     int newRoadTiles = 0;
-    int existingRoadTiles = 0;
-    bool needsBridge = false;
     for (int tileId : path)
     {
         Building* building = world.GetTileMap().GetBuilding(tileId);
-        if (IsRoadLikeBuilding(building))
-            existingRoadTiles++;
-        else if (building == nullptr)
-        {
+        if (building == nullptr)
             newRoadTiles++;
-            if (world.GetTileMap()[tileId].isMilitaryRoad)
-                needsBridge = true;
-        }
     }
     if (newRoadTiles <= 0)
         return false;
-    if (newRoadTiles > 8)
+    // Sanity cap only — NOT a per-call submission limit. Playtest 2026-07-17:
+    // the old hard "reject any path needing more than 8 new tiles" meant a
+    // building farther than 8 tiles from road infrastructure could NEVER be
+    // connected — the AI just kept dropping orphan stubs everywhere instead.
+    // Long connections are now built incrementally: up to 8 tiles per call,
+    // continuing from the (by then existing/pending) road ends on the next
+    // maintenance cadence, until the path closes.
+    constexpr int kMaxPlannedRoadLength = 48;
+    if (newRoadTiles > kMaxPlannedRoadLength)
         return false;
-
-    // Crossing the military track means Bridge tiles (PLANKS+STONE, see
-    // buildings.rtsdata) — if a bridge isn't affordable right now, wait and
-    // retry instead of spamming commands the simulation will reject. No
-    // reservations either: the same crossing stays first choice once the
-    // planks arrive.
-    if (needsBridge && !player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Bridge)))
-        return false;
-
-    // Pre-validate every new tile BEFORE submitting anything: on the track
-    // only Bridge is legal (and e.g. two bridges may not sit orthogonally
-    // adjacent — TileMap::CanBuildFootprint). An invalid tile poisons the
-    // whole path; reserving it steers the next BFS (which skips reserved
-    // tiles) toward a different crossing instead of retrying this one
-    // forever. Playtest 2026-07-16: submitting plain Road onto track tiles
-    // wedged the AI at the track edge indefinitely.
-    for (int tileId : path)
-    {
-        Building* building = world.GetTileMap().GetBuilding(tileId);
-        if (building != nullptr || state.reservedRoadTiles.contains(tileId))
-            continue;
-        Tile& tile = world.GetTileMap()[tileId];
-        BuildingType type = tile.isMilitaryRoad ? BuildingType::Bridge : BuildingType::Road;
-        Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
-        if (!world.GetTileMap().CanPlaceBuilding(type, pos, GetBuildingDefinition(type).footprint, player))
-        {
-            state.reservedRoadTiles[tileId] = 6.0;
-            return false;
-        }
-    }
 
     bool submitted = false;
     int submittedCount = 0;
-    constexpr int maxRoadCommandsPerTick = 8;
+    constexpr int maxRoadCommandsPerCall = 8;
     for (int tileId : path)
     {
         Building* building = world.GetTileMap().GetBuilding(tileId);
@@ -760,11 +774,34 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
         Tile& tile = world.GetTileMap()[tileId];
         BuildingType type = tile.isMilitaryRoad ? BuildingType::Bridge : BuildingType::Road;
-        world.SubmitCommand(GameCommand::BuildBuilding(player->id, type, world.GetTileMap().GetCoordsFromId(tileId)));
+
+        // Affordability gate for EVERY tile type (Road: STONE, Bridge:
+        // PLANKS+STONE) — harness catch 2026-07-17: without it, an AI whose
+        // stone ran dry kept submitting road commands the simulation
+        // rejected, ~130 refusals per 30 s, forever. Stop here and resume
+        // from this exact spot once stocks recover; no reservation, so the
+        // plan stays first choice.
+        if (!player->CanBuildDefinition(GetBuildingDefinition(type)))
+            break;
+
+        // Validate just before submitting (on the track only Bridge is legal,
+        // and e.g. two bridges may not sit orthogonally adjacent). A tile
+        // that can't take its type gets reserved — the next BFS skips
+        // reserved tiles, so the plan reroutes around it instead of retrying
+        // the same spot forever (playtest 2026-07-16: plain Road submitted
+        // onto track tiles wedged the AI at the track edge indefinitely).
+        Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
+        if (!world.GetTileMap().CanPlaceBuilding(type, pos, GetBuildingDefinition(type).footprint, player))
+        {
+            state.reservedRoadTiles[tileId] = 6.0;
+            break;
+        }
+
+        world.SubmitCommand(GameCommand::BuildBuilding(player->id, type, pos));
         state.reservedRoadTiles[tileId] = 6.0;
         submitted = true;
         submittedCount++;
-        if (submittedCount >= maxRoadCommandsPerTick)
+        if (submittedCount >= maxRoadCommandsPerCall)
             break;
     }
 
