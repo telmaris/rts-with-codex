@@ -311,17 +311,22 @@ namespace
                 double wiggleScale = std::clamp((nearestGate - kStraightZone) / kWiggleRamp, 0.0, 1.0);
                 cost += (SerpentineBias(vCol, vRow, seed) + 2.0) * kSerpentineStrength * wiggleScale;
 
-                // Inside a gate's straight zone, drifting off the gate's exit
-                // axis costs per tile — the corridor leaves the HQ as a
-                // straight line and only starts bending once clear of the
-                // base.
+                // Inside a gate's straight zone the corridor must stay near
+                // the gate's exit axis — but as a WIDENING CONE, not a hard
+                // corridor: the allowed off-axis drift grows one tile per two
+                // tiles of distance past the guaranteed-straight stub, so the
+                // route opens into a gentle arc instead of running straight
+                // and snapping 90° at the zone edge (user report 2026-07-17:
+                // "kwadraty przy HQ" — bigger turn radii wanted).
                 for (const GateExit& exit : {exitA, exitB})
                 {
-                    if (ChebyshevDistance(vPos, exit.gate) > kStraightZone)
+                    int gateDistance = ChebyshevDistance(vPos, exit.gate);
+                    if (gateDistance > kStraightZone)
                         continue;
                     int offAxis = exit.exitAlongX ? std::abs(vRow - exit.gate.y)
                                                   : std::abs(vCol - exit.gate.x);
-                    cost += offAxis * kOffAxisPenalty;
+                    int allowedDrift = std::max(0, (gateDistance - kGateStub) / 2);
+                    cost += std::max(0, offAxis - allowedDrift) * kOffAxisPenalty;
                 }
 
                 // B7 (docs/work_plan_2026-07-13.md): nudge away from tiles
