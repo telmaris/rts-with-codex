@@ -1,5 +1,10 @@
 # Plan dostrojenia ekonomii AI — 2026-07-18 (dla wykonawcy: Sonnet)
 
+> **STATUS: WYKONANE (2026-07-18).** Zadania 0-6 zrealizowane w kolejności, każde z zielonym
+> suite'em. Podsumowanie w `docs/td_ai_design.md` (sekcja "Bias ekonomiczny AI") i
+> `docs/tech_debt.md` (odkryty przy okazji, nierozwiązany determinism-flake w pełnym suicie —
+> NIE blokujący, patrz wpis tam). Kod: commity `AI-rework(fix): ...` w historii gita.
+
 Zgłoszenie usera (playtest, screenshoty): AI słabo planuje budynki — **nie buduje tartaków
 (LumberMill) i ma permanentny brak desek**, a podniesienie biasów PLANKS/STONE w
 `assets/data/ai.rtsdata` (12→80, 10→60, 8→80…) **nic nie zmieniło**. Dodatkowo na screenach

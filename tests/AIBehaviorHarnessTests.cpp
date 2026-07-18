@@ -187,4 +187,16 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
     }
     EXPECT_LE(unconnected, 1)
         << "completed buildings without a road path to any storage:" << unconnectedList << report();
+
+    // AI economy tuning plan (2026-07-18, Task 4): the planks chain must
+    // actually stand up, not just spawn an endless forest of Woodcutters
+    // (the "no LumberMill" playtest report, Tasks 1-3 above fix the root
+    // causes). Woodcutter count is a soft ceiling, not exact - it can
+    // legitimately vary with map layout/timing, but a runaway tunnel-vision
+    // count (>4) is the specific regression signature to catch.
+    EXPECT_GE(AIActions::CountOwnedBuildings(ai, BuildingType::LumberMill), 1)
+        << "no LumberMill - the planks chain never stood up" << report();
+    EXPECT_GE(samples.back().woodcutters, 1) << report();
+    EXPECT_LE(samples.back().woodcutters, 4)
+        << "Woodcutter tunnel vision is back (deficit ladder not rotating)" << report();
 }

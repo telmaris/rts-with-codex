@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -63,6 +64,68 @@ TEST(UtilityAIModelTests, IsConnectedToRoadNetworkDetectsRoadPathToStorage)
 
     EXPECT_TRUE(logistics->IsConnectedToRoadNetwork(*barracks))
         << "with the road pair placed, the path to the storage exists";
+}
+
+// AI economy tuning plan (2026-07-18, Task 2): the amortized consumption
+// bias must never poison the chain-input walk - it drives the FINAL
+// resource's own deficit, not a second vote against its inputs. With a real
+// WOOD producer standing (production rate > 0), diagnosing PLANKS must NOT
+// redirect to WOOD even under a large WOOD bias.
+TEST(UtilityAIModelTests, ChainWalkDoesNotDescendPastAProducedInput)
+{
+    TileMap map;
+    FillGrassMap(map, 8, 8);
+    Player player{0, map};
+
+    std::map<ResourceType, int> bias{{ResourceType::WOOD, 80}, {ResourceType::PLANKS, 80}};
+
+    // Case 1: WOOD is genuinely being produced - the walk must stop at PLANKS.
+    player.economyTelemetry.current.productionRatesPerMinute[ResourceType::WOOD] = 10;
+    auto diag = AIActions::DiagnoseResourceNeed(&player, ResourceType::PLANKS, 0, &bias);
+    EXPECT_GT(diag.urgency, 0.5) << "PLANKS itself should still read as a real deficit";
+    EXPECT_EQ(std::find(diag.missingInputs.begin(), diag.missingInputs.end(), ResourceType::WOOD),
+              diag.missingInputs.end())
+        << "WOOD is being produced - the bias must not force a redirect to it";
+
+    // Case 2: no WOOD production and no stock - bootstrap must still work.
+    player.economyTelemetry.current.productionRatesPerMinute[ResourceType::WOOD] = 0;
+    diag = AIActions::DiagnoseResourceNeed(&player, ResourceType::PLANKS, 0, &bias);
+    EXPECT_NE(std::find(diag.missingInputs.begin(), diag.missingInputs.end(), ResourceType::WOOD),
+              diag.missingInputs.end())
+        << "with no WOOD producer at all, the chain walk must still find WOOD missing";
+}
+
+// AI economy tuning plan (2026-07-18, Task 3): a producer already ordered
+// and under construction must credit its future output by capping the
+// deficit's urgency - otherwise the top-of-ladder deficit keeps winning
+// every decision cycle even after a producer for it was already queued,
+// since an in-progress build never lowers urgency on its own (playtest
+// 2026-07-18: a strong WOOD bias produced a forest of Woodcutters and
+// nothing else, because the deficit never rotated to the next problem).
+TEST(UtilityAIModelTests, PendingProducerCapsDeficitUrgency)
+{
+    TileMap map;
+    FillGrassMap(map, 8, 8);
+    Player player{0, map};
+
+    std::map<ResourceType, int> bias{{ResourceType::PLANKS, 80}};
+
+    // Case 1: no producer standing at all - a real, uncapped deficit.
+    auto diag = AIActions::DiagnoseResourceNeed(&player, ResourceType::PLANKS, 0, &bias);
+    EXPECT_GE(diag.urgency, 0.6) << "with no producer standing at all, PLANKS should be a hard deficit";
+
+    // Case 2: a LumberMill is already ordered (still under construction) -
+    // its future output must be credited, capping urgency so the deficit
+    // ladder can move on to the next problem instead of stacking another
+    // producer for the same resource.
+    auto* mill = player.Build<LumberMill>(Vec2i{0, 0}, false);
+    ASSERT_NE(mill, nullptr);
+    mill->constructionRemaining = 10.0;
+    ASSERT_TRUE(mill->IsUnderConstruction());
+
+    diag = AIActions::DiagnoseResourceNeed(&player, ResourceType::PLANKS, 0, &bias);
+    EXPECT_LE(diag.urgency, 0.3 + 1e-9)
+        << "a pending LumberMill should cap the PLANKS deficit so the AI stops piling up more of it";
 }
 
 // Acceptance for etap 2: an AI player with resources available builds out
@@ -419,6 +482,138 @@ TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
     EXPECT_TRUE(bridgeOnTrack) << "crossing the track must be done with a Bridge, not a refused Road";
     EXPECT_TRUE(connected)
         << "the two sides of the track should end up road-connected through the bridge";
+}
+
+// AI economy tuning plan (2026-07-18, Task 1): a road-tile reservation used
+// to block a tile EVEN AFTER the road physically stood there, so a second
+// connection planned minutes later saw its own just-built corridor as a wall
+// and dug a full parallel line beside it (playtest 2026-07-17: "carpets" of
+// redundant roads). Once a tile holds a real Building, the reservation must
+// be irrelevant — only emptiness should ever gate on it.
+TEST(UtilityAIModelTests, SubmitRoadPathReusesJustPlacedCorridor)
+{
+    MapParameters params;
+    params.sizeX = 81;
+    params.sizeY = 81;
+    // No AI opponent: this test only drives the human player directly
+    // through AIActions::SubmitRoadPath and needs no military ring. A live
+    // AI opponent would independently churn the shared, process-wide
+    // ResourcePool for its own economy across many resource types during
+    // every UpdateSimulation tick below — pure noise here, and enough by
+    // itself to have tipped an unrelated, later test
+    // (TwoWorldsSameSeedWithNoisyAIStayInSync) into a real flake.
+    params.aiOpponentCount = 0;
+    params.seed = 6;
+
+    GameWorld world;
+    world.InitWorld("ai-road-reuse", nullptr, nullptr, params);
+
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(human, nullptr);
+    TileMap& map = world.GetTileMap();
+
+    Building* hq = AIActions::FindOwnedHeadquarters(human);
+    ASSERT_NE(hq, nullptr);
+    Vec2i hqPos = map.GetCoordsFromId(hq->positionId);
+
+    // Stock STONE so every submitted Road command can pay its build cost
+    // (buildings.rtsdata: Road costs STONE 2) — TryPayBuildCost pulls from
+    // any of the player's storage, so stocking the HQ is enough. Kept to
+    // just above what the ~13 road tiles this test carves actually need
+    // (26 STONE): SetStoredAmount draws real instances from the process-wide
+    // ResourcePool (10000/type, shared by every test in the suite) — an
+    // earlier 300 was enough to tip a LATER, unrelated test
+    // (TwoWorldsSameSeedWithNoisyAIStayInSync) into a real flake by shifting
+    // how much pool headroom its two GameWorlds had left.
+    auto* hqStorage = hq->GetComponent<StorageComponent>();
+    ASSERT_NE(hqStorage, nullptr);
+    auto stoneIt = hqStorage->buffers.find(ResourceType::STONE);
+    if (stoneIt == hqStorage->buffers.end())
+    {
+        hqStorage->buffers[ResourceType::STONE] = ResourceBuffer{ResourceType::STONE, 60};
+        stoneIt = hqStorage->buffers.find(ResourceType::STONE);
+    }
+    stoneIt->second.SetStoredAmount(40);
+
+    // Find a straight, fully open vertical run of 9 tiles (clear of the
+    // military track, resource patches and the starting village) well past
+    // the HQ apron — A and B anchor the run's ends, C sits 2 tiles off its
+    // midpoint (the second connection's shortest legal join point).
+    const Vec2i footprint{1, 1};
+    constexpr int kRunLength = 8;
+    Vec2i posA{-1, -1};
+    Vec2i posB{-1, -1};
+    Vec2i posC{-1, -1};
+    for (int radius = 20; radius <= 50 && posA.x < 0; radius += 3)
+    {
+        for (int dx = -radius; dx <= radius && posA.x < 0; dx += 2)
+        {
+            Vec2i candidateA{hqPos.x + dx, hqPos.y + radius};
+            Vec2i candidateB{candidateA.x, candidateA.y + kRunLength};
+            if (!map.IsInside(candidateA) || !map.IsInside(candidateB))
+                continue;
+
+            bool columnClear = true;
+            for (int y = candidateA.y; y <= candidateB.y && columnClear; y++)
+                columnClear = map.CanPlaceBuilding(BuildingType::Road, {candidateA.x, y}, footprint, human);
+            if (!columnClear)
+                continue;
+
+            Vec2i candidateC{candidateA.x + 2, candidateA.y + kRunLength / 2};
+            if (!map.IsInside(candidateC) ||
+                !map.CanPlaceBuilding(BuildingType::Road, candidateC, footprint, human))
+                continue;
+
+            posA = candidateA;
+            posB = candidateB;
+            posC = candidateC;
+        }
+    }
+    ASSERT_GE(posA.x, 0) << "no usable open corridor found for the fixture";
+
+    Building* fixtureA = human->Build<Road>(posA, false);
+    Building* fixtureB = human->Build<Road>(posB, false);
+    ASSERT_NE(fixtureA, nullptr);
+    ASSERT_NE(fixtureB, nullptr);
+
+    AIActions::AIActionState state;
+    ASSERT_TRUE(AIActions::SubmitRoadPath(world, human, fixtureA, fixtureB, state))
+        << "the first straight connection A->B should be planned and submitted";
+
+    // Enough sim time for the queued commands to be processed and placed
+    // (as Building instances, possibly still under construction) — the 6s
+    // reservations on these exact tiles stay live in `state` the whole time,
+    // since nothing here ever calls AIActionState::Decay.
+    for (int tick = 0; tick < 50; tick++)
+        world.UpdateSimulation(0.01);
+
+    int roadsAfterFirstPlan = AIActions::CountOwnedBuildings(human, BuildingType::Road);
+    ASSERT_GE(roadsAfterFirstPlan, kRunLength - 1)
+        << "the first connection should have carved (most of) the straight run";
+
+    Building* fixtureC = human->Build<Road>(posC, false);
+    ASSERT_NE(fixtureC, nullptr);
+
+    ASSERT_TRUE(AIActions::SubmitRoadPath(world, human, fixtureC, fixtureB, state))
+        << "the second connection C->B should join the existing corridor";
+
+    for (int tick = 0; tick < 50; tick++)
+        world.UpdateSimulation(0.01);
+
+    int roadsAfterSecondPlan = AIActions::CountOwnedBuildings(human, BuildingType::Road);
+    // -1 for fixtureC itself, which SubmitRoadPath never needs to place
+    // (already a Road) but which the total road count now includes.
+    int newRoadsForSecondConnection = roadsAfterSecondPlan - roadsAfterFirstPlan - 1;
+
+    // C sits 2 tiles off the corridor at its midpoint — Manhattan distance 2
+    // to the nearest reusable corridor tile. Without the Task 1 fix the
+    // planner sees the whole existing corridor as blocked and instead digs a
+    // full second straight line from C down to B (kRunLength/2 + new tiles),
+    // running parallel to the first the entire way.
+    EXPECT_LE(newRoadsForSecondConnection, 4)
+        << "the AI dug a parallel road instead of joining its own just-placed corridor"
+        << " (roadsAfterFirstPlan=" << roadsAfterFirstPlan
+        << ", roadsAfterSecondPlan=" << roadsAfterSecondPlan << ")";
 }
 
 // Etap 5: a standing idle University (or an unstarted focus) gets used — the

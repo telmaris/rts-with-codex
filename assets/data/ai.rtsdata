@@ -9,13 +9,26 @@
 # Values are hand-tuned per-minute averages. difficulty_scale multiplies
 # them per AI difficulty level (0 Primitive .. 3 Hard) — a better-tuned,
 # fuller bias equals a stronger economy, i.e. a harder opponent.
+#
+# Retuned 2026-07-18 (AI economy tuning plan, Task 5) after fixing the three
+# structural bugs the original values were masking (chain-walk poisoned by
+# the bias, no credit for producers already under construction, road-tile
+# reservations blocking corridor reuse) — the earlier 12/10/8/4/2 values
+# never got a fair test since raising them (to 80/60/80/40/20 as a diagnostic
+# experiment) couldn't fix a chain-walk bug that redirected every producer
+# choice back to raw WOOD regardless of bias size. These are a fresh
+# starting point, not re-validated against the old ones. Target: the bias
+# is reachable in ~5-10 minutes of buildout (production catches up, urgency
+# drops, the AI moves on to militaries) - re-tune via the behavior harness
+# (tests/AIBehaviorHarnessTests.cpp)'s planks/m column if it stalls forever
+# (bias too high) or the AI never bothers building the chain (bias too low).
 ai_economy_bias
     difficulty_scale 0.4 0.6 0.8 1.0
-    consumption WOOD 12
-    consumption STONE 10
-    consumption PLANKS 8
-    consumption IRON 4
-    consumption TOOLS 2
-    consumption FOOD_PROVISIONS 10
+    consumption WOOD 20
+    consumption STONE 15
+    consumption PLANKS 12
+    consumption IRON 6
+    consumption TOOLS 3
+    consumption FOOD_PROVISIONS 12
     consumption ARROWS 6
 end

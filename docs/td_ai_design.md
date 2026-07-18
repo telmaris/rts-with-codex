@@ -38,10 +38,11 @@ Timery (sim-time, tick 100 Hz): sensing 1 s, decyzja 1.5 s, utrzymanie dróg 2 s
      (produkcja/min `FOOD_PROVISIONS` > 0);
    - **deficyty**: deterministyczna lista kandydatów (FOOD_PROVISIONS →
      zasoby kosztów jednostek z katalogu → ARROWS przy wieżach → wszystko
-     aktualnie konsumowane) → `AIActions::DiagnoseResourceNeed` → sort
-     (urgency desc, enum asc), top 4; dodatkowo koszty preferowanej jednostki
-     z kompozycji bez zapasu i produkcji dostają deficyt 0.5 (buduje łańcuch
-     Smith/miecze, zanim telemetria zobaczy konsumpcję);
+     aktualnie konsumowane) → `AIActions::DiagnoseResourceNeed` (z biasem
+     ekonomicznym, patrz niżej) → sort (urgency desc, enum asc), top 4;
+     dodatkowo koszty preferowanej jednostki z kompozycji bez zapasu i
+     produkcji dostają deficyt 0.5 (buduje łańcuch Smith/miecze, zanim
+     telemetria zobaczy konsumpcję);
    - **budynki niepodłączone**: `IsConnectedToRoadNetwork` == false, cache'owane
      jako positionId (nie Building* — brak wiszących wskaźników), posortowane
      po id budynku.
@@ -77,8 +78,10 @@ Timery (sim-time, tick 100 Hz): sensing 1 s, decyzja 1.5 s, utrzymanie dróg 2 s
   z kosztem już zbuforowanym lokalnie (DiagnoseRecruitmentBlock liczy zapasy
   GLOBALNIE — bez drogi nic nie dojedzie).
 - **EconomySustain**: manpower <5 przy żywej żywności → dodatkowa Village;
-  deficyty → `TryBuildProducerFor` (schodzi po brakujących inputach łańcucha,
-  depth ≤3; wybór producenta: najmniej posiadanych, potem enum); fallback:
+  deficyty → `TryBuildProducerFor` (schodzi po brakujących inputach łańcucha
+  TYLKO gdy input naprawdę nie istnieje — `inputProduced == 0` i mały zapas,
+  bez biasu na inputach, patrz "Bias ekonomiczny" niżej; depth ≤3; wybór
+  producenta: najmniej posiadanych, potem enum); fallback:
   **opening plan** — stała sekwencja bootstrapująca łańcuch FOOD_PROVISIONS
   (Woodcutter → WheatFarm → Windmill → Bakery → Well → HuntersHut → Inn →
   LumberMill → Woodcutter#2 → Mine → Village#2 → StorageBuilding); krok
@@ -102,6 +105,48 @@ Timery (sim-time, tick 100 Hz): sensing 1 s, decyzja 1.5 s, utrzymanie dróg 2 s
 - Kontrowanie składu wież przeciwnika — **poza zakresem v1**: istnieje jeden
   typ wieży i jeden `DamageType`; architektura (resistances w UnitDefinition,
   postawa w kompozycji) jest gotowa na rozszerzenie danymi.
+
+## Bias ekonomiczny AI (`ai/AIEconomyBias.h`, `assets/data/ai.rtsdata`)
+
+Pomysł usera (2026-07-17): AI ma zerowy wgląd w PRZYSZŁE koszty (budowa,
+rekrutacja, amunicja) dopóki telemetria nie zobaczy realnej konsumpcji —
+skutkowało to głodowaniem STONE/PLANKS gdy startowy zapas się skończył.
+Rozwiązanie: `assets/data/ai.rtsdata` definiuje wirtualną, amortyzowaną
+konsumpcję/min per zasób (`consumption TYPE amount`), skalowaną przez
+`difficulty_scale` (0 Primitive … 3 Hard — pełniejszy bias = trudniejszy
+przeciwnik). `AIActions::DiagnoseResourceNeed` przyjmuje opcjonalną mapę
+`consumptionBias`, dodawaną WYŁĄCZNIE do `consumed` KOŃCOWEGO ocenianego
+zasobu (nigdy do HUD-owej telemetrii) — to zmusza AI do utrzymywania
+produkcji zasobów, które jeszcze nic realnie nie konsumuje.
+
+**Poprawki 2026-07-18 (AI economy tuning plan, po playtest "nie buduje
+tartaków" mimo podniesienia biasu):**
+1. **Bias NIE jest doliczany do inputów łańcucha** przy zejściu po
+   `missingInputs` — tylko do zasobu KOŃCOWEGO. Wcześniej `TryBuildProducerFor`
+   pytające "czego brakuje tartakowi" widziało WOOD (input) z doliczonym
+   biasem jako wiecznie deficytowy → cel zawsze przeskakiwał na WOOD →
+   AI stawiało kolejnego Woodcuttera zamiast LumberMilla, NIEZALEŻNIE od
+   wysokości biasu PLANKS. Zejście do inputu następuje TERAZ tylko gdy
+   `inputProduced == 0` i mały zapas — realny brak w ekonomii, nie
+   podwójnie liczony popyt.
+2. **Producent już w budowie ogranicza urgency (cap 0.3)** — bez tego
+   dominujący bias (np. duży WOOD) wygrywał KAŻDY cykl decyzyjny aż do
+   wyczerpania afordowalności, bo zamówiony-ale-jeszcze-niegotowy budynek
+   nie obniżał deficytu wcale → las Woodcutterów, drabinka deficytów nigdy
+   się nie rotowała na kolejny problem.
+3. Wartości startowe (`ai.rtsdata`) obniżone z eksperymentu diagnostycznego
+   usera (WOOD 80/STONE 60/PLANKS 80…) do WOOD 20/STONE 15/PLANKS 12/IRON
+   6/TOOLS 3/FOOD_PROVISIONS 12/ARROWS 6 — wyższe wartości nigdy nie miały
+   szansy na uczciwy test, bo maskował je bug #1. Strojenie: harness
+   (`tests/AIBehaviorHarnessTests.cpp`) drukuje `planks/m` w tabeli —
+   bias osiągalny w ~5-10 min = dobrze; wiecznie niedoścignięty = za wysoki.
+
+Przy okazji naprawiony pokrewny bug logistyki: `AIActions::SubmitRoadPath`'s
+rezerwacja kafelka blokowała go TAKŻE po tym, jak droga fizycznie już stała
+(~6 s "ściana" dla plannera) → kolejne połączenie w tym samym kierunku
+kopało równoległy rząd dróg zamiast reużyć istniejący korytarz (playtest:
+"cuda" — 2-3 równoległe rzędy). Rezerwacja blokuje TERAZ wyłącznie kafelki
+wciąż PUSTE (komenda złożona, budynek jeszcze nie postawiony).
 
 ## Poziomy trudności (jeden model, zero różnic w logice)
 
@@ -129,6 +174,9 @@ o tym samym seedzie, stan nieserializowany (konwencja stanu AI).
   (`InitMultiplayerWorld`: klient dostaje `Remote`), ale testy dwóch światów
   wymagają pełnej powtarzalności per seed — także z aktywnym szumem
   (`TwoWorldsSameSeedWithNoisyAIStayInSync`, weryfikowane `--gtest_repeat`).
+  **Znany, nierozwiązany flake w PEŁNYM suicie testów** (nie w izolacji —
+  `--gtest_repeat=10` na samym tym teście jest stabilne) — patrz
+  `docs/tech_debt.md`, sekcja o `TwoWorldsSameSeedWithNoisyAIStayInSync`.
 - Każda pętla po `GetTrackedBuildings()` z semantyką first-match/konkurencji —
   kopia do wektora + sort po `building->id` (patrz `docs/tech_debt.md`,
   klasa bugów pointer-ordering). Agregacje (sumy/liczniki/OR) są bezpieczne.

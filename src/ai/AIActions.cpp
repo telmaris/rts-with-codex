@@ -392,14 +392,28 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
     bool stalledProducer = false;
     bool fullOutput = false;
     bool undermannedProducer = false;
+    // AI economy tuning plan (2026-07-18, Task 3): a producer already ordered
+    // and under construction credits its future output by capping urgency
+    // below (see after the urgency accumulation) - without this, the deficit
+    // ladder kept re-picking the SAME top deficit every cycle even after
+    // ordering a producer for it, since an in-progress build never lowers
+    // urgency on its own (playtest 2026-07-18: a big WOOD bias produced a
+    // forest of Woodcutters and nothing else, never rotating to the next
+    // problem).
+    bool producerUnderConstruction = false;
 
     for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
     {
         const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
-        if (production == nullptr || building->owner != player || building->IsUnderConstruction())
+        if (production == nullptr || building->owner != player)
             continue;
         if (!production->products.contains(resource))
             continue;
+        if (building->IsUnderConstruction())
+        {
+            producerUnderConstruction = true;
+            continue;
+        }
         hasProducerBuilding = true;
         stalledProducer = stalledProducer || building->IsProductionStalled();
         const auto* workers = building->GetComponent<WorkerComponent>();
@@ -446,6 +460,13 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
         diagnosis.reason = "not enough manpower";
     }
 
+    // A producer for this resource is already ordered and building - its
+    // future output is credited by capping the urgency, so the deficit
+    // ladder rotates to the NEXT problem instead of stacking another copy
+    // every cycle (see producerUnderConstruction above).
+    if (producerUnderConstruction)
+        diagnosis.urgency = std::min(diagnosis.urgency, 0.3);
+
     if (diagnosis.urgency <= 0.05)
         return diagnosis;
 
@@ -454,10 +475,16 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
         for (const auto& input : option.inputs)
         {
             int inputProduced = GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute, input.type);
-            int inputConsumed = GetResourceRate(player->economyTelemetry.current.consumptionRatesPerMinute, input.type) +
-                                biasFor(input.type);
             int inputStored = CountStoredResource(player, input.type);
-            if (inputStored < input.amount * 2 || inputProduced < inputConsumed)
+            // AI economy tuning plan (2026-07-18, Task 2): descend only when
+            // the input genuinely doesn't exist in this economy yet - no real
+            // production AND no meaningful stock. The consumption bias is
+            // deliberately NOT applied here - it amortizes the FINAL
+            // resource's demand and already drives that resource's own
+            // deficit; counting it again against chain inputs made every
+            // chain walk collapse to its raw material (playtest 2026-07-18:
+            // PLANKS forever redirected to WOOD, no LumberMill ever built).
+            if (inputProduced == 0 && inputStored < input.amount * 2)
             {
                 if (std::find(diagnosis.missingInputs.begin(), diagnosis.missingInputs.end(), input.type) == diagnosis.missingInputs.end())
                     diagnosis.missingInputs.push_back(input.type);
@@ -649,11 +676,20 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
     {
         if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
             return false;
-        if (state.reservedRoadTiles.contains(tileId))
-            return false;
 
         Tile& tile = world.GetTileMap()[tileId];
         Building* building = tile.GetBuilding();
+        // AI economy tuning plan (2026-07-18, Task 1): a reservation must
+        // only block a tile that's still EMPTY (a command was submitted but
+        // hasn't placed a building yet) — once the road/bridge physically
+        // stands, it's just a road, and MUST be reusable by the 0-1 BFS
+        // below. Blocking it too (as before) made every freshly-placed
+        // corridor look like a wall to the planner for ~6s, so the next
+        // connection in the same direction dug a full parallel row instead
+        // of joining the existing one (playtest 2026-07-17: "carpets" of
+        // 2-3 redundant roads side by side).
+        if (building == nullptr && state.reservedRoadTiles.contains(tileId))
+            return false;
         return building == nullptr || IsRoadLikeBuilding(building);
     };
 

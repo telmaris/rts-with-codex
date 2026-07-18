@@ -115,6 +115,73 @@ w fundamentach.
   musi zbudować własne połączenie, dokładnie jak przy dowolnym innym nowym budynku. Test regresyjny:
   `EliminationTests.CapturedBuildingRejoinsConquerorsRoadNetworkAfterElimination`.
 
+- [ ] **`TwoWorldsSameSeedWithNoisyAIStayInSync` (`tests/UtilityAIModelTests.cpp`) flakuje
+  INTERMITENTNIE w PEŁNYM suicie (NIE w izolacji) — potwierdzona REALNA (nie kosmetyczna)
+  rozbieżność decyzji AI, root cause nieznaleziony.** Odkryte 2026-07-18 przy pisaniu
+  `SubmitRoadPathReusesJustPlacedCorridor` (AI economy tuning plan, Zadanie 1).
+  **UWAGA na wcześniejszą, BŁĘDNĄ hipotezę tego samego dnia:** pierwsze eksperymenty (włącz/wyłącz
+  ten jeden nowy test, `DISABLED_` prefix) wyglądały na 100%-deterministyczną korelację z
+  OBECNOŚCIĄ tego testu — okazało się to MYLĄCE. Późniejsze powtórzenia (już PO naprawie Zadania 2,
+  BEZ żadnej zmiany kodu między próbami) dały 5/5 PASS w jednej serii uruchomień binarium, potem
+  4/4 FAIL w KOLEJNEJ serii — czyli wynik zależy od czegoś, co zmienia się MIĘDZY ODDZIELNYMI
+  URUCHOMIENIAMI PROCESU (każde `& rts_tests.exe` to nowy proces), nie od zawartości testów w
+  binarium. Najbardziej prawdopodobne wyjaśnienie: **ASLR** (Windows losuje bazowy adres sterty
+  per-proces) w połączeniu z NIEZAAUDYTOWANYM gdzieś UŻYCIEM ADRESU WSKAŹNIKA `Building*`/`Resource*`
+  do decyzji (ta sama KLASA bugów co [[determinism_pointer_ordering_bug_pattern]], tylko jeszcze
+  nieznaleziona konkretna lokalizacja) — losowy heap layout per-proces tłumaczyłby, czemu ten sam
+  BINARY, bez zmian, raz przechodzi a raz nie. Task 1/2/3 z planu (fix rezerwacji dróg, fix
+  zejścia łańcucha, cap urgency dla producenta w budowie) NIE ROZWIĄZAŁY tego — wcześniejsza notatka
+  sugerująca że Zadanie 2 to naprawiło była WNIOSKIEM Z ZA MAŁEJ PRÓBKI (5 passów z rzędu, potem
+  4 faile), zostawiona niżej tylko jako ślad rozumowania, NIE jako aktualny status.
+  **Zdiagnozowane przez tymczasowy dump (metoda z [[determinism_pointer_ordering_bug_pattern]]):**
+  pierwsza rozbieżność checksumów na tick=301 (3 sim-s), po 300 TICKACH IDENTYCZNYCH stanów —
+  świat A wybiera zbudować Mine (`ExecuteEconomy`), świat B zamiast tego Road+2×Bridge
+  (`ExecuteLogistics`, przejście przez tor wojskowy) — REALNA decyzja AI się różni, nie tylko
+  kolejność hashowania (`BuildChecksum()` już sortuje `dataTracker.buildings` po `id` — to NIE
+  jest znany bug pointer-ordering z checksuma).
+  **Co ZWERYFIKOWANE jako bezpieczne (audyt na żywo, nie zgadywanie):** `BuildChecksum()` sortuje
+  buildings po id; `Sense()`'s audyt łączności (`unconnectedPositionIds`) sortuje po id;
+  `AIActions::TryBuildRoads` (oba loopy) sortuje po id; `TryBuildProducerFor`/`FindProducerOptions`
+  idą po statycznym, deterministycznym katalogu budynków; `FindBuildAnchor`'s
+  `DistanceToNearestInfrastructure` używa `min()` (agregacja, kolejność bez znaczenia); recruit's
+  barracks-pick sortuje po id; `Player::TryPayBuildCost` sortuje storage po id (już naprawione w
+  2026-07-13); ŻADEN `static` (mutowalny) lokalny w `AIActions.cpp`/`AIModel.cpp`. Zweryfikowano
+  też, że `Resource`/`Transportable` (`sourceBuilding`/`targetBuilding`/`map`/`transportPath`) NIE
+  są resetowane przy `AddResource`/`GenerateResource` po zwrocie do statycznego
+  `resourcePool` (`src/data/Resource.cpp:5`) — TEORETYCZNIE mogłoby to przeciekać stan między
+  światami przez reużyty wskaźnik `Resource*`, ale w `SubmitRoadPathReusesJustPlacedCorridor`
+  zasoby NIGDY nie przechodzą przez `BeginTransport` (płatność = `TryPayBuildCost` →
+  `ResourceBuffer::FreeResource()` bezpośrednio, bez transportu), więc ta konkretna ścieżka NIE
+  powinna zostawiać stale pointerów — ale MECHANIZM (transportowalne pola nigdy nie resetowane na
+  reużyciu ze WSPÓLNEJ, procesowej puli) jest realną, nieaudytowaną luką architektoniczną wartą
+  dalszego sprawdzenia, gdyby INNY test faktycznie transportował zasoby przed zwolnieniem ich do
+  puli.
+  **Co NIE zostało zrobione (poza rozsądnym budżetem czasowym tej sesji):** bisection przez
+  fprintf per-tick liczby wywołań `noiseRng` (`UtilityAIModel::noiseRng`, mt19937 seedowany
+  deterministycznie z `(seed, playerId)`) między światem A i B, żeby potwierdzić/wykluczyć DRIFT
+  liczby losowań PRZED tick 301 (najbardziej prawdopodobny wektor: `roadTimer <= 0.0`'s wczesny
+  `return` w `UtilityAIModel::Update` omija losowanie szumu na te ticki, gdzie `TryBuildRoads`
+  coś zbuduje — jeśli TO się różni między światami mimo identycznego dotąd stanu, drift się
+  akumuluje bez wcześniejszego rozjazdu checksumów, bo `AIActionState`
+  (`reservedRoadTiles`/`recentBuildOrders`/`expensiveAnchorSearchCooldown`) jest per-model,
+  timerowe, i **NIE jest częścią `BuildChecksum()`** — architektoniczna luka: model AI może
+  dryfować wewnętrznie bez wykrycia przez checksum, dopóki dryf nie wpłynie na WIDOCZNĄ decyzję).
+  **Status (finalny, 2026-07-18):** test NIE osłabiony ani wyłączony (łapie prawdziwą rozbieżność,
+  nie fałszywy alarm) — zostawiony jak jest. Task 1/2/3 z planu ekonomii AI scommitowane mimo to:
+  naprawy produkcyjne (`canUseRoadPathTile`, `DiagnoseResourceNeed`) i ich testy są poprawne,
+  zweryfikowane NIEZALEŻNIE od tego flake'a (revert-and-reproduce na KAŻDEJ z nich osobno) — ŻADNA
+  z nich nie jest przyczyną tego bugu, co najwyżej mogły (chwilowo, myląco) wpływać na jego
+  PRAWDOPODOBIEŃSTWO WYSTĄPIENIA przez zmianę heap-churn/liczby alokacji (patrz wyżej — kolejny
+  argument za hipotezą ASLR/heap-address zamiast za logiką testów). Zaobserwowane częstości w tej
+  sesji: 4/4 fail → (po zmianach kodu) 1/1 pass, 4/4 pass → (bez ŻADNYCH zmian kodu, kolejne
+  uruchomienia) 4/4 fail — czyli grubo powyżej 0%, poniżej 100%, NIE skorelowane z konkretnym
+  commitem. Wymaga DEDYKOWANEJ sesji z bisekcją per-tick liczby wywołań `noiseRng` (patrz wyżej)
+  ORAZ, jeśli hipoteza ASLR się potwierdzi, przeglądu WSZYSTKICH miejsc w `ai/AIActions.cpp`/
+  `ai/AIModel.cpp`/`RoadNetwork.cpp` używających wskaźników `Building*`/`Resource*` (nie tylko
+  `Building*` z `GetTrackedBuildings()`, które są już zaudytowane — także lokalne `Building*`
+  zmienne przekazywane między funkcjami, np. czy JAKIŚ tie-break gdzieś porównuje `a < b` na
+  surowych wskaźnikach zamiast na `->id`).
+
 - [ ] **"Ostatnia jednostka oblegająca" (TD etap-6.2, propozycja planu) uproszczona do "najniższe
   instanceId"** (`src/warfare/UnitCombatSystem.cpp`, `FindBesiegerOpponent`). Plan proponuje, żeby
   świeży obrońca walczył z OSTATNIĄ (najnowszą) jednostką oblegającą HQ; zaimplementowano zamiast
