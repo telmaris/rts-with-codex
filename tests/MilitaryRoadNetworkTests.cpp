@@ -209,6 +209,62 @@ TEST(MilitaryRoadNetworkTests, RoutesLeaveEveryGateStraight)
     }
 }
 
+// Playtest 2026-07-17 #3 ("kolanka"): a 90° elbow with 4+ straight tiles on
+// BOTH sides reads as a hard square corner — mid-route those must not
+// survive (the direction-aware search turn-penalizes them and RoundCorners
+// opens the rest into staircase arcs). Gate stubs and their opening cones
+// are exempt via the margin.
+TEST(MilitaryRoadNetworkTests, RoutesHaveNoSquareElbowsMidRoute)
+{
+    constexpr int Margin = 12;  // skip the stub + opening cone at each end
+    constexpr int Leg = 4;
+    for (unsigned int seed : {111u, 555u, 777u})
+    {
+        for (int aiOpponentCount : {1, 3})
+        {
+            GameWorld world;
+            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
+            TileMap& map = world.GetTileMap();
+
+            for (const auto& route : world.GetMilitaryRoads().GetRoutes())
+            {
+                if (route.tiles.size() < static_cast<size_t>(2 * (Margin + Leg)))
+                    continue;
+                auto dirAt = [&](size_t idx)
+                {
+                    Vec2i a = map.GetCoordsFromId(route.tiles[idx]);
+                    Vec2i b = map.GetCoordsFromId(route.tiles[idx + 1]);
+                    return Vec2i{b.x - a.x, b.y - a.y};
+                };
+                for (size_t i = Margin + Leg; i + Margin + Leg < route.tiles.size(); i++)
+                {
+                    Vec2i d1 = dirAt(i - 1);
+                    Vec2i d2 = dirAt(i);
+                    if (d1.x == d2.x && d1.y == d2.y)
+                        continue;  // no elbow here
+
+                    bool longBack = true;
+                    for (int k = 2; k <= Leg && longBack; k++)
+                    {
+                        Vec2i d = dirAt(i - k);
+                        longBack = d.x == d1.x && d.y == d1.y;
+                    }
+                    bool longAhead = true;
+                    for (int k = 1; k < Leg && longAhead; k++)
+                    {
+                        Vec2i d = dirAt(i + k);
+                        longAhead = d.x == d2.x && d.y == d2.y;
+                    }
+                    EXPECT_FALSE(longBack && longAhead)
+                        << "square elbow on route " << route.playerA << "-" << route.playerB
+                        << " at index " << i << " (seed " << seed
+                        << ", players " << aiOpponentCount + 1 << ")";
+                }
+            }
+        }
+    }
+}
+
 TEST(MilitaryRoadNetworkTests, RouteTilesAreNeverResourceTiles)
 {
     for (unsigned int seed : {111u, 222u, 555u, 888u})

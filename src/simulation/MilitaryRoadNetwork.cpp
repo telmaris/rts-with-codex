@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <queue>
 #include <set>
@@ -202,14 +203,23 @@ namespace
         return std::max(std::abs(a.x - b.x), std::abs(a.y - b.y));
     }
 
-    // Deterministic 4-directional Dijkstra over the tilemap. Resource-rich
-    // tiles are heavily (but not infinitely) penalized; tiles inside a
-    // blocked base rectangle are impassable unless explicitly exempted (a
-    // route's own two gate tiles). A smooth positional noise bias
-    // (SerpentineBias) nudges the shortest path away from a straight line —
-    // but only mid-route: near either gate the corridor is straightened
-    // instead (see GateExit above). Ties broken by tile id for
-    // lockstep-safe reproducibility.
+    // Every 90° direction change pays this on top of the tile cost —
+    // playtest 2026-07-17 #3 ("kolanka"): without it the serpentine bias
+    // dissolved into per-tile staircase jitter and random sharp elbows.
+    // With it the route bends in few, deliberate places, which RoundCorners
+    // below then opens into staircase arcs. Comparable to one serpentine
+    // swing (±2 × strength 3) so the wiggle still shapes the route.
+    constexpr double kTurnPenalty = 6.0;
+
+    // Deterministic 4-directional Dijkstra over the tilemap, with the
+    // search state extended to (tile, incoming direction) so turns can be
+    // penalized (kTurnPenalty). Resource-rich tiles are heavily (but not
+    // infinitely) penalized; tiles inside a blocked base rectangle are
+    // impassable unless explicitly exempted (a route's own two gate tiles).
+    // A smooth positional noise bias (SerpentineBias) nudges the shortest
+    // path away from a straight line — but only mid-route: near either gate
+    // the corridor is straightened instead (see GateExit above). Ties broken
+    // by state id for lockstep-safe reproducibility.
     std::vector<int> FindRouteTiles(const TileMap& tilemap, int fromTile, int toTile,
                                      const std::vector<BaseRect>& blockedRects,
                                      const std::vector<int>& exemptTiles, unsigned int seed,
@@ -246,27 +256,41 @@ namespace
             return false;
         };
 
-        std::vector<double> dist(total, std::numeric_limits<double>::infinity());
-        std::vector<int> parent(total, -1);
-        std::vector<bool> visited(total, false);
+        // State layout: tile * 4 + incoming direction.
+        const int stateCount = total * 4;
+        std::vector<double> dist(stateCount, std::numeric_limits<double>::infinity());
+        std::vector<int> parentState(stateCount, -1);
+        std::vector<bool> visited(stateCount, false);
 
         using QueueEntry = std::pair<double, int>;
         std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<>> queue;
 
-        dist[fromTile] = 0.0;
-        queue.push({0.0, fromTile});
+        // The start tile is entered "from nowhere" — seed all four incoming
+        // directions at zero so the first real step never pays a turn.
+        for (int d = 0; d < 4; d++)
+        {
+            dist[fromTile * 4 + d] = 0.0;
+            queue.push({0.0, fromTile * 4 + d});
+        }
 
         const int deltas[4] = {-sizeX, sizeX, -1, 1};
 
+        int goalState = -1;
         while (!queue.empty())
         {
-            auto [d, u] = queue.top();
+            auto [d, s] = queue.top();
             queue.pop();
-            if (visited[u])
+            if (visited[s])
                 continue;
-            visited[u] = true;
+            visited[s] = true;
+
+            int u = s / 4;
+            int incomingDir = s % 4;
             if (u == toTile)
+            {
+                goalState = s;
                 break;
+            }
 
             int col = u % sizeX;
             int row = u / sizeX;
@@ -274,13 +298,17 @@ namespace
             for (int dir = 0; dir < 4; dir++)
             {
                 int v = u + deltas[dir];
-                if (v < 0 || v >= total || visited[v])
+                if (v < 0 || v >= total)
                     continue;
 
                 int vCol = v % sizeX;
                 int vRow = v / sizeX;
                 if (std::abs(vCol - col) + std::abs(vRow - row) != 1)
                     continue; // wrap-around guard on left/right edges
+
+                int vState = v * 4 + dir;
+                if (visited[vState])
+                    continue;
 
                 if (isBlocked(v))
                     continue;
@@ -338,24 +366,138 @@ namespace
                 if (corridorDistance != nullptr && !isExempt(v))
                     cost += CorridorSeparationPenalty((*corridorDistance)[v]);
 
+                if (dir != incomingDir)
+                    cost += kTurnPenalty;
+
                 double next = d + cost;
-                if (next < dist[v])
+                if (next < dist[vState])
                 {
-                    dist[v] = next;
-                    parent[v] = u;
-                    queue.push({next, v});
+                    dist[vState] = next;
+                    parentState[vState] = s;
+                    queue.push({next, vState});
                 }
             }
         }
 
-        if (!visited[toTile])
+        if (goalState < 0)
             return {};
 
         std::vector<int> path;
-        for (int at = toTile; at != -1; at = parent[at])
-            path.push_back(at);
+        for (int at = goalState; at != -1; at = parentState[at])
+            path.push_back(at / 4);
         std::reverse(path.begin(), path.end());
         return path;
+    }
+
+    // Opens a 90° elbow with straight legs into an alternating-step
+    // staircase "arc" (playtest 2026-07-17 #3: "gładkie zakręty, większe
+    // promienie, nie kolanka"). The staircase has the same Manhattan length
+    // as the L it replaces, so it splices in place; every replacement tile
+    // must pass `tileOk`, otherwise the next variant is tried: full radius
+    // first, cutting INSIDE the corner (d1-first) or bulging OUTSIDE it
+    // (d2-first — the inside is often exactly the resource field the route
+    // was bending around), then the same pair at a smaller radius. An elbow
+    // with no valid variant stays as carved — connectivity always wins.
+    constexpr int kCornerRadius = 3;
+
+    bool TryRoundCornerAt(const TileMap& tilemap, std::vector<int>& path, size_t i, int r,
+                          bool insideFirst, const std::function<bool(int)>& tileOk)
+    {
+        auto stepDir = [&](int fromId, int toId) -> Vec2i
+        {
+            Vec2i a = tilemap.GetCoordsFromId(fromId);
+            Vec2i b = tilemap.GetCoordsFromId(toId);
+            return {b.x - a.x, b.y - a.y};
+        };
+
+        Vec2i d1 = stepDir(path[i - 1], path[i]);
+        Vec2i d2 = stepDir(path[i], path[i + 1]);
+
+        // Both legs must run straight for the whole radius.
+        for (int k = 1; k < r; k++)
+        {
+            Vec2i back = stepDir(path[i - k - 1], path[i - k]);
+            Vec2i ahead = stepDir(path[i + k], path[i + k + 1]);
+            if (back.x != d1.x || back.y != d1.y || ahead.x != d2.x || ahead.y != d2.y)
+                return false;
+        }
+
+        // Alternate the two leg directions from the corner window's start —
+        // r steps of each lands exactly on the window's end regardless of
+        // interleaving order; the order only decides which side of the L the
+        // staircase runs on.
+        Vec2i first = insideFirst ? d1 : d2;
+        Vec2i second = insideFirst ? d2 : d1;
+        Vec2i cursor = tilemap.GetCoordsFromId(path[i - r]);
+        std::vector<int> staircase;
+        for (int k = 0; k < r; k++)
+        {
+            for (Vec2i step : {first, second})
+            {
+                cursor = {cursor.x + step.x, cursor.y + step.y};
+                if (!tilemap.IsInside(cursor))
+                    return false;
+                staircase.push_back(tilemap.GetIdFromCoords(cursor));
+            }
+        }
+        if (staircase.back() != path[i + r])
+            return false;
+        // The window's final tile is unchanged by construction; every NEW
+        // intermediate tile must be legal ground for the track.
+        for (size_t k = 0; k + 1 < staircase.size(); k++)
+            if (staircase[k] != path[i - r + 1 + k] && !tileOk(staircase[k]))
+                return false;
+
+        for (size_t k = 0; k + 1 < staircase.size(); k++)
+            path[i - r + 1 + k] = staircase[k];
+        return true;
+    }
+
+    void RoundCorners(const TileMap& tilemap, std::vector<int>& path, int protectedMargin,
+                      const std::function<bool(int)>& tileOkStrict,
+                      const std::function<bool(int)>& tileOkRelaxed)
+    {
+        auto stepDir = [&](int fromId, int toId) -> Vec2i
+        {
+            Vec2i a = tilemap.GetCoordsFromId(fromId);
+            Vec2i b = tilemap.GetCoordsFromId(toId);
+            return {b.x - a.x, b.y - a.y};
+        };
+
+        for (size_t i = 1; i + 1 < path.size(); i++)
+        {
+            Vec2i d1 = stepDir(path[i - 1], path[i]);
+            Vec2i d2 = stepDir(path[i], path[i + 1]);
+            if (d1.x == d2.x && d1.y == d2.y)
+                continue;  // straight — nothing to round
+
+            // Strict variants first; the relaxed validator (may clip a tile
+            // or two off a resource field — the carve resets such tiles
+            // exactly like the relaxed search tiers do) is the last resort
+            // for elbows threading the gap BETWEEN two deposits, where both
+            // the inside cut and the outside bulge hit a field.
+            bool rounded = false;
+            for (const auto* tileOk : {&tileOkStrict, &tileOkRelaxed})
+            {
+                for (int r : {kCornerRadius, kCornerRadius - 1})
+                {
+                    if (r < 2)
+                        break;
+                    if (static_cast<int>(i) < protectedMargin + r ||
+                        i + static_cast<size_t>(protectedMargin + r) >= path.size())
+                        continue;
+                    if (TryRoundCornerAt(tilemap, path, i, r, true, *tileOk) ||
+                        TryRoundCornerAt(tilemap, path, i, r, false, *tileOk))
+                    {
+                        i += r;  // skip past this corner — don't re-round the staircase
+                        rounded = true;
+                        break;
+                    }
+                }
+                if (rounded)
+                    break;
+            }
+        }
     }
 }
 
@@ -572,6 +714,34 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         for (auto it = stubB.rbegin() + 1; it != stubB.rend(); ++it)
             fullPath.push_back(*it);
         path = std::move(fullPath);
+
+        // Round every long-legged elbow into a staircase arc (playtest
+        // 2026-07-17 #3). Replacement tiles must be honest track ground:
+        // untouched by other corridors, outside every starting-base
+        // rectangle, off resource deposits. An elbow whose replacements
+        // fail stays as carved — connectivity always wins.
+        // The relaxed floor mirrors what the carved path itself was allowed
+        // to do: never another corridor's tiles, never an actual HQ
+        // footprint — but the WIDE base rectangles are fair game, because
+        // the route legally runs through them on its final approach to the
+        // gate (fallback tiers) and elbows there must be roundable too
+        // (found via the square-elbow detector: un-rounded corners clustered
+        // right before the gates).
+        auto chamferTileRelaxed = [&](int tileId)
+        {
+            if (usedRouteTiles.count(tileId) > 0)
+                return false;
+            Vec2i pos = tilemap.GetCoordsFromId(tileId);
+            for (const auto& rect : allFootprintRects)
+                if (rect.Contains(pos))
+                    return false;
+            return true;
+        };
+        auto chamferTileStrict = [&](int tileId)
+        {
+            return chamferTileRelaxed(tileId) && tilemap.tilemap[tileId].resourceRichness <= 0;
+        };
+        RoundCorners(tilemap, path, kGateStub, chamferTileStrict, chamferTileRelaxed);
 
         for (int tileId : path)
         {
