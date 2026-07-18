@@ -35,6 +35,14 @@ namespace
         int deployed{0};
         int accepted{0};
         int rejected{0};
+        // Producer mix (AI economy tuning plan, 2026-07-18): tracks whether
+        // the AI actually diversifies its economy instead of tunnel-visioning
+        // on one raw-material producer (the "no LumberMill" playtest report).
+        int woodcutters{0};
+        int lumberMills{0};
+        int mines{0};
+        int foundries{0};
+        int planksRate{0};
     };
 }
 
@@ -100,19 +108,26 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
         sample.deployed = deployedNow;
         sample.accepted = accepted;
         sample.rejected = rejected;
+        sample.woodcutters = AIActions::CountOwnedBuildings(ai, BuildingType::Woodcutter);
+        sample.lumberMills = AIActions::CountOwnedBuildings(ai, BuildingType::LumberMill);
+        sample.mines = AIActions::CountOwnedBuildings(ai, BuildingType::Mine);
+        sample.foundries = AIActions::CountOwnedBuildings(ai, BuildingType::Foundry);
+        sample.planksRate = AIActions::GetResourceRate(
+            ai->economyTelemetry.current.productionRatesPerMinute, ResourceType::PLANKS);
         samples.push_back(sample);
     }
 
     auto report = [&]()
     {
         std::string out = "\nAI behavior report (deltas vs. world init):\n"
-                          "  sim_s | +bldg | +road | roster | deployed | cmd_ok | cmd_rej\n";
-        char line[128];
+                          "  sim_s | +bldg | +road | roster | deployed | cmd_ok | cmd_rej | wcut | lmil | mine | fdry | planks/m\n";
+        char line[160];
         for (const auto& s : samples)
         {
-            std::snprintf(line, sizeof(line), "  %5.0f | %5d | %5d | %6d | %8d | %6d | %7d\n",
+            std::snprintf(line, sizeof(line), "  %5.0f | %5d | %5d | %6d | %8d | %6d | %7d | %4d | %4d | %4d | %4d | %8d\n",
                           s.simSeconds, s.buildings - s.roads, s.roads, s.roster,
-                          s.deployed, s.accepted, s.rejected);
+                          s.deployed, s.accepted, s.rejected,
+                          s.woodcutters, s.lumberMills, s.mines, s.foundries, s.planksRate);
             out += line;
         }
         if (!rejectionReasons.empty())
