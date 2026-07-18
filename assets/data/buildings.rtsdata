@@ -680,6 +680,9 @@ building Barracks
     texture_id 18
     storage FOOD_PROVISIONS 40 0
     storage IRON_SWORD 40 0
+    storage STEEL_SWORD 40 0
+    storage PLANKS 40 0
+    storage IRON 40 0
 end
 
 building Road
@@ -688,6 +691,19 @@ building Road
     texture "assets/textures/building/road.png"
     build_cost STONE 2
     build_time 1.0
+    footprint 1 1
+    texture_id 5
+    transport_time 1.0
+    road upgrade_level 1 max_capacity 5 speed_modifier 1.0
+end
+
+building Bridge
+    name "Bridge"
+    tag "[Bridge]"
+    texture "assets/textures/building/road.png"
+    build_cost PLANKS 6
+    build_cost STONE 6
+    build_time 3.0
     footprint 1 1
     texture_id 5
     transport_time 1.0
