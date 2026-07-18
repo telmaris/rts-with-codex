@@ -115,72 +115,66 @@ w fundamentach.
   musi zbudować własne połączenie, dokładnie jak przy dowolnym innym nowym budynku. Test regresyjny:
   `EliminationTests.CapturedBuildingRejoinsConquerorsRoadNetworkAfterElimination`.
 
-- [ ] **`TwoWorldsSameSeedWithNoisyAIStayInSync` (`tests/UtilityAIModelTests.cpp`) flakuje
-  INTERMITENTNIE w PEŁNYM suicie (NIE w izolacji) — potwierdzona REALNA (nie kosmetyczna)
-  rozbieżność decyzji AI, root cause nieznaleziony.** Odkryte 2026-07-18 przy pisaniu
-  `SubmitRoadPathReusesJustPlacedCorridor` (AI economy tuning plan, Zadanie 1).
-  **UWAGA na wcześniejszą, BŁĘDNĄ hipotezę tego samego dnia:** pierwsze eksperymenty (włącz/wyłącz
-  ten jeden nowy test, `DISABLED_` prefix) wyglądały na 100%-deterministyczną korelację z
-  OBECNOŚCIĄ tego testu — okazało się to MYLĄCE. Późniejsze powtórzenia (już PO naprawie Zadania 2,
-  BEZ żadnej zmiany kodu między próbami) dały 5/5 PASS w jednej serii uruchomień binarium, potem
-  4/4 FAIL w KOLEJNEJ serii — czyli wynik zależy od czegoś, co zmienia się MIĘDZY ODDZIELNYMI
-  URUCHOMIENIAMI PROCESU (każde `& rts_tests.exe` to nowy proces), nie od zawartości testów w
-  binarium. Najbardziej prawdopodobne wyjaśnienie: **ASLR** (Windows losuje bazowy adres sterty
-  per-proces) w połączeniu z NIEZAAUDYTOWANYM gdzieś UŻYCIEM ADRESU WSKAŹNIKA `Building*`/`Resource*`
-  do decyzji (ta sama KLASA bugów co [[determinism_pointer_ordering_bug_pattern]], tylko jeszcze
-  nieznaleziona konkretna lokalizacja) — losowy heap layout per-proces tłumaczyłby, czemu ten sam
-  BINARY, bez zmian, raz przechodzi a raz nie. Task 1/2/3 z planu (fix rezerwacji dróg, fix
-  zejścia łańcucha, cap urgency dla producenta w budowie) NIE ROZWIĄZAŁY tego — wcześniejsza notatka
-  sugerująca że Zadanie 2 to naprawiło była WNIOSKIEM Z ZA MAŁEJ PRÓBKI (5 passów z rzędu, potem
-  4 faile), zostawiona niżej tylko jako ślad rozumowania, NIE jako aktualny status.
-  **Zdiagnozowane przez tymczasowy dump (metoda z [[determinism_pointer_ordering_bug_pattern]]):**
-  pierwsza rozbieżność checksumów na tick=301 (3 sim-s), po 300 TICKACH IDENTYCZNYCH stanów —
-  świat A wybiera zbudować Mine (`ExecuteEconomy`), świat B zamiast tego Road+2×Bridge
-  (`ExecuteLogistics`, przejście przez tor wojskowy) — REALNA decyzja AI się różni, nie tylko
-  kolejność hashowania (`BuildChecksum()` już sortuje `dataTracker.buildings` po `id` — to NIE
-  jest znany bug pointer-ordering z checksuma).
-  **Co ZWERYFIKOWANE jako bezpieczne (audyt na żywo, nie zgadywanie):** `BuildChecksum()` sortuje
-  buildings po id; `Sense()`'s audyt łączności (`unconnectedPositionIds`) sortuje po id;
-  `AIActions::TryBuildRoads` (oba loopy) sortuje po id; `TryBuildProducerFor`/`FindProducerOptions`
-  idą po statycznym, deterministycznym katalogu budynków; `FindBuildAnchor`'s
-  `DistanceToNearestInfrastructure` używa `min()` (agregacja, kolejność bez znaczenia); recruit's
-  barracks-pick sortuje po id; `Player::TryPayBuildCost` sortuje storage po id (już naprawione w
-  2026-07-13); ŻADEN `static` (mutowalny) lokalny w `AIActions.cpp`/`AIModel.cpp`. Zweryfikowano
-  też, że `Resource`/`Transportable` (`sourceBuilding`/`targetBuilding`/`map`/`transportPath`) NIE
-  są resetowane przy `AddResource`/`GenerateResource` po zwrocie do statycznego
-  `resourcePool` (`src/data/Resource.cpp:5`) — TEORETYCZNIE mogłoby to przeciekać stan między
-  światami przez reużyty wskaźnik `Resource*`, ale w `SubmitRoadPathReusesJustPlacedCorridor`
-  zasoby NIGDY nie przechodzą przez `BeginTransport` (płatność = `TryPayBuildCost` →
-  `ResourceBuffer::FreeResource()` bezpośrednio, bez transportu), więc ta konkretna ścieżka NIE
-  powinna zostawiać stale pointerów — ale MECHANIZM (transportowalne pola nigdy nie resetowane na
-  reużyciu ze WSPÓLNEJ, procesowej puli) jest realną, nieaudytowaną luką architektoniczną wartą
-  dalszego sprawdzenia, gdyby INNY test faktycznie transportował zasoby przed zwolnieniem ich do
-  puli.
-  **Co NIE zostało zrobione (poza rozsądnym budżetem czasowym tej sesji):** bisection przez
-  fprintf per-tick liczby wywołań `noiseRng` (`UtilityAIModel::noiseRng`, mt19937 seedowany
-  deterministycznie z `(seed, playerId)`) między światem A i B, żeby potwierdzić/wykluczyć DRIFT
-  liczby losowań PRZED tick 301 (najbardziej prawdopodobny wektor: `roadTimer <= 0.0`'s wczesny
-  `return` w `UtilityAIModel::Update` omija losowanie szumu na te ticki, gdzie `TryBuildRoads`
-  coś zbuduje — jeśli TO się różni między światami mimo identycznego dotąd stanu, drift się
-  akumuluje bez wcześniejszego rozjazdu checksumów, bo `AIActionState`
-  (`reservedRoadTiles`/`recentBuildOrders`/`expensiveAnchorSearchCooldown`) jest per-model,
-  timerowe, i **NIE jest częścią `BuildChecksum()`** — architektoniczna luka: model AI może
-  dryfować wewnętrznie bez wykrycia przez checksum, dopóki dryf nie wpłynie na WIDOCZNĄ decyzję).
-  **Status (finalny, 2026-07-18):** test NIE osłabiony ani wyłączony (łapie prawdziwą rozbieżność,
-  nie fałszywy alarm) — zostawiony jak jest. Task 1/2/3 z planu ekonomii AI scommitowane mimo to:
-  naprawy produkcyjne (`canUseRoadPathTile`, `DiagnoseResourceNeed`) i ich testy są poprawne,
-  zweryfikowane NIEZALEŻNIE od tego flake'a (revert-and-reproduce na KAŻDEJ z nich osobno) — ŻADNA
-  z nich nie jest przyczyną tego bugu, co najwyżej mogły (chwilowo, myląco) wpływać na jego
-  PRAWDOPODOBIEŃSTWO WYSTĄPIENIA przez zmianę heap-churn/liczby alokacji (patrz wyżej — kolejny
-  argument za hipotezą ASLR/heap-address zamiast za logiką testów). Zaobserwowane częstości w tej
-  sesji: 4/4 fail → (po zmianach kodu) 1/1 pass, 4/4 pass → (bez ŻADNYCH zmian kodu, kolejne
-  uruchomienia) 4/4 fail — czyli grubo powyżej 0%, poniżej 100%, NIE skorelowane z konkretnym
-  commitem. Wymaga DEDYKOWANEJ sesji z bisekcją per-tick liczby wywołań `noiseRng` (patrz wyżej)
-  ORAZ, jeśli hipoteza ASLR się potwierdzi, przeglądu WSZYSTKICH miejsc w `ai/AIActions.cpp`/
-  `ai/AIModel.cpp`/`RoadNetwork.cpp` używających wskaźników `Building*`/`Resource*` (nie tylko
-  `Building*` z `GetTrackedBuildings()`, które są już zaudytowane — także lokalne `Building*`
-  zmienne przekazywane między funkcjami, np. czy JAKIŚ tie-break gdzieś porównuje `a < b` na
-  surowych wskaźnikach zamiast na `->id`).
+- [x] **`TwoWorldsSameSeedWithNoisyAIStayInSync` (`tests/UtilityAIModelTests.cpp`) flakował
+  INTERMITENTNIE w PEŁNYM suicie (NIE w izolacji) — ROOT CAUSE ZNALEZIONY I NAPRAWIONY 2026-07-19.**
+  Odkryte 2026-07-18 przy pisaniu `SubmitRoadPathReusesJustPlacedCorridor` (AI economy tuning plan,
+  Zadanie 1); eskalowane 2026-07-19, kiedy ten sam test zaczął realnie blokować GitHub Actions CI
+  usera (nie tylko lokalny suite). Wcześniejsza hipoteza z tej samej sesji (ASLR + niezaudytowany
+  `Building*`/`Resource*` adres w jakimś tie-breaku) była BLISKA, ale nietrafiona co do
+  konkretnego mechanizmu — patrz niżej.
+  **Root cause:** `static ResourcePool resourcePool;` (`src/data/Resource.cpp:5`) to
+  PROCES-GLOBALNY singleton dzielony przez KAŻDY `GameWorld` skonstruowany w binarium testowym —
+  nie tylko przez oba światy w JEDNYM teście, ale przez WSZYSTKIE ~185 testów w całym uruchomieniu
+  `rts_tests.exe`. `ResourceBuffer::GenerateResource(type)` pobiera instancję z
+  `resourcePool.GetResource(type)` — free-listą typu (`std::deque<Resource*>`), FIFO. Gdy testy
+  wcześniej w tej samej sekwencji binarium nie zwracają (albo zwracają nie w pełni) każdego
+  zasobu, jaki trzymały, dany typ ma węższy free-list dla KAŻDEGO kolejnego testu. Test
+  konstruujący DWA strukturalnie identyczne światy (worldA, worldB) z tym samym seedem oczekuje
+  identycznego stanu startowego — ale skoro oba ciągną z TEJ SAMEJ, częściowo wyczerpanej puli,
+  ten świat, którego `GenerateResource()` w danym ticku uruchomi się PIERWSZY, dostaje pierwszeństwo
+  do tego, co zostało; drugi dostaje CICHO OBCIĘTY grant (pętla `for (i=0..amount)
+  GenerateResource()` w `GrantDifficultyStartingBonus`/`GrantDebugResourcesToHeadquarters` po
+  prostu przestaje cokolwiek dodawać, gdy `GetResource` zwróci `nullptr` — brak błędu, brak logu).
+  **Potwierdzone bezpośrednim dumpem** (celowane logi w `ExecuteEconomy`/`TryBuildProducerFor`,
+  usunięte po zdiagnozowaniu): zapas WOOD rozjeżdżał się MIĘDZY OBOMA ŚWIATAMI już na tick=1
+  (np. 135 vs 83), zanim jakakolwiek decyzja AI się wykonała — więc to NIE był dryft decyzji AI,
+  tylko odziedziczona nierówność startowa w surowym stanie ekonomii, która dopiero PÓŹNIEJ (tick
+  ~301 w obserwowanym przebiegu) przełożyła się na widoczną różną decyzję budowy
+  (`player->CanBuildDefinition` zwracał różne wyniki dla tego samego kosztu budynku między
+  światami, bo `HasBuildResources`' sumowanie bufora faktycznie sumowało różne ilości). To
+  wyjaśnia WSZYSTKIE wcześniej zaobserwowane fakty: flake tylko w PEŁNYM suicie (izolacja/
+  `--gtest_repeat` na jednym teście zaczyna od świeżo skonstruowanego procesu, więc pula jest
+  praktycznie pełna — nie ma z czego wyczerpać); wysoka, ale nie 100% powtarzalność MIĘDZY
+  ODDZIELNYMI URUCHOMIENIAMI PROCESU bez zmian kodu (zależy od tego, ile realnego czasu/ticków
+  zdążyły przetworzyć WCZEŚNIEJSZE testy z zegarem tła zanim je zniszczono — timing, nie ASLR).
+  **Audyt na żywo z poprzedniej sesji pozostaje aktualny i nie stracił wartości** — wszystkie
+  zweryfikowane bezpieczne miejsca (`BuildChecksum()` sortowanie po id, `Sense()`'s audyt
+  łączności, `TryBuildRoads`, `TryBuildProducerFor`/`FindProducerOptions`, `FindBuildAnchor`'s
+  `DistanceToNearestInfrastructure` przez `min()`, recruit's barracks-pick, `TryPayBuildCost`) są
+  nadal poprawne i NIE są związane z tym bugiem — [[determinism_pointer_ordering_bug_pattern]]
+  zostaje aktualne dla przyszłych audytów `GetTrackedBuildings()`, po prostu nie było to źródło
+  TEGO konkretnego flake'a.
+  **Fix (2026-07-19, TYLKO infrastruktura testowa, ZERO zmian w kodzie produkcyjnym):**
+  `ResourcePool::Reset()` (`inc/data/Resource.h`, `src/data/Resource.cpp`) odbudowuje free-listę
+  KAŻDEGO typu do pełnej pojemności; wolna funkcja `ResetResourcePool()` daje do niej dostęp z
+  zewnątrz TU (pole `resourcePool` ma linkage wewnętrzny). Nowy `tests/TestResourcePoolIsolation.cpp`
+  rejestruje `::testing::TestEventListener::OnTestStart` wołający `ResetResourcePool()` przed
+  KAŻDYM test case'em — przywraca izolację między testami bez ruszania architektury
+  współdzielonego singletona. Zweryfikowane: 15/15 pełnych przebiegów suite'u zielonych (wcześniej
+  flakowało na próbie #1 niemal za każdym razem), `--gtest_repeat=20` na samym teście determinizmu
+  czysty, pełny suite 186/186 zielony.
+  **Osobne, NIENAPRAWIONE znalezisko do dalszej inwestygacji:** ten sam mechanizm (dzielona,
+  procesowa `ResourcePool`) teoretycznie mógłby dotyczyć PRAWDZIWEGO lokalnego MP — `LocalhostHostSession`
+  + `LocalhostClientSession` trzymają DWA żywe `GameWorld` w JEDNYM procesie. Nie zweryfikowano, czy
+  host i klient faktycznie ścigają się o tę samą pulę w praktyce (być może są w praktyce
+  zabezpieczone tym, że klient dochodzi do tego samego stanu przez IDENTYCZNE komendy, a nie przez
+  niezależne wywołania `GenerateResource`, więc kolejność konstrukcji mogłaby nie mieć znaczenia) —
+  ale to ZAŁOŻENIE, nie dowód. Wymaga osobnej sesji, jeśli kiedyś pojawi się niewyjaśniony desync w
+  realnej lokalnej rozgrywce MP. Docelowa, poprawna naprawa architektoniczna (pula per-`GameWorld`
+  zamiast procesowego singletona) to osobny, większy refaktor — `ResourceBuffer::GenerateResource/
+  FreeResource/SetStoredAmount` mają dziś ~15 wywołujących plików bez referencji do właściciela puli,
+  więc przewleczenie referencji do puli przez wszystkie z nich jest świadomie odłożone jako
+  osobne zadanie, nie improwizowane pod presją "musi działać teraz".
 
 - [ ] **"Ostatnia jednostka oblegająca" (TD etap-6.2, propozycja planu) uproszczona do "najniższe
   instanceId"** (`src/warfare/UnitCombatSystem.cpp`, `FindBesiegerOpponent`). Plan proponuje, żeby

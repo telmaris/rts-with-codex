@@ -339,9 +339,25 @@ public:
     Resource* GetResource(ResourceType);
     // Returns a resource instance to its type-specific free-list.
     void FreeResource(Resource*);
+    // Rebuilds every type's free-list to full capacity, discarding whatever
+    // is currently checked out. This pool is a single process-wide static
+    // (see Resource.cpp) shared by every GameWorld in the process — real
+    // gameplay never needs a mid-run reset, but a test binary that
+    // constructs many short-lived GameWorlds in one process can leave a
+    // type's pool partially (or, given enough tests, mostly) checked out by
+    // the time a later test runs. A test that then builds two structurally
+    // identical worlds and expects identical starting stock breaks: whichever
+    // world's GenerateResource() calls run first gets first pick of what's
+    // left, so the second gets a silently truncated grant. See
+    // tests/TestResourcePoolIsolation.cpp, which resets between test cases.
+    void Reset();
 
     std::map<ResourceType, std::array<Resource, 50000>> pool;
     std::map<ResourceType, AddressPool> addressPool;
 };
+
+// Resets the process-wide resource pool (see ResourcePool::Reset). Exposed
+// as a free function because `resourcePool` itself has internal linkage.
+void ResetResourcePool();
 
 #endif

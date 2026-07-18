@@ -236,3 +236,19 @@ void ResourcePool::FreeResource(Resource* res)
     auto type = res->type;
     addressPool[type].addresses.push_front(res);
 }
+
+void ResourcePool::Reset()
+{
+    for (auto& [type, arr] : pool)
+    {
+        auto& addresses = addressPool[type].addresses;
+        addresses.clear();
+        for (auto& x : arr)
+            addresses.push_back(&x);
+    }
+}
+
+void ResetResourcePool()
+{
+    resourcePool.Reset();
+}
