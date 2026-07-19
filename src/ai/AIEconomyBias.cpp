@@ -26,6 +26,15 @@ namespace
         if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "BRONZE_SWORD") return ResourceType::BRONZE_SWORD;
         if (value == "STEEL_SWORD") return ResourceType::STEEL_SWORD;
+        // Food chain (added for `priority` lines, 2026-07-19 — the
+        // consumption bias never needed these, but build-order priority does:
+        // WheatFarm/Windmill/Bakery/Well feed the same early-game tier as
+        // Woodcutter/Mine).
+        if (value == "WHEAT") return ResourceType::WHEAT;
+        if (value == "FLOUR") return ResourceType::FLOUR;
+        if (value == "BREAD") return ResourceType::BREAD;
+        if (value == "MEAT") return ResourceType::MEAT;
+        if (value == "WATER") return ResourceType::WATER;
         return ResourceType::Null;
     }
 }
@@ -49,6 +58,22 @@ std::map<ResourceType, int> AIEconomyBias::ScaledMap(int difficulty) const
             scaled[type] = value;
     }
     return scaled;
+}
+
+double AIEconomyBias::NormalizedPriority(ResourceType type) const
+{
+    auto it = priorityWeight.find(type);
+    if (it == priorityWeight.end())
+        return 1.0;
+    return std::clamp(it->second / static_cast<double>(PriorityCeiling), 0.0, 1.0);
+}
+
+std::map<ResourceType, double> AIEconomyBias::NormalizedPriorityMap() const
+{
+    std::map<ResourceType, double> normalized;
+    for (const auto& [type, weight] : priorityWeight)
+        normalized[type] = std::clamp(weight / static_cast<double>(PriorityCeiling), 0.0, 1.0);
+    return normalized;
 }
 
 AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
@@ -82,6 +107,20 @@ AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
             int amount = std::stoi(tokens[2]);
             if (type != ResourceType::Null && amount > 0)
                 bias.virtualConsumptionPerMinute[type] = amount;
+            continue;
+        }
+        if (tokens[0] == "priority" && tokens.size() >= 3)
+        {
+            ResourceType type = ParseResourceType(tokens[1]);
+            int weight = std::stoi(tokens[2]);
+            if (type != ResourceType::Null && weight > 0)
+                bias.priorityWeight[type] = std::min(weight, PriorityCeiling);
+            continue;
+        }
+        if (tokens[0] == "tower_readiness_buildings" && tokens.size() >= 2)
+        {
+            bias.towerReadinessBuildings = std::max(0, std::stoi(tokens[1]));
+            continue;
         }
     }
     return bias;

@@ -150,6 +150,11 @@ private:
     // for the current difficulty — refreshed in Update, consumed by Sense's
     // deficit diagnosis and the producer-chain walk.
     std::map<ResourceType, int> consumptionBias;
+    // Build-order priority weights (ai/AIEconomyBias.h's `priority` table,
+    // user design 2026-07-19), normalized [0,1] — NOT difficulty-scaled
+    // (build order is a design choice, unlike the consumption bias's
+    // magnitude). Cached alongside consumptionBias in Update.
+    std::map<ResourceType, double> priorityWeights;
 };
 
 #endif

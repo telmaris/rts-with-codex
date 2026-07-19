@@ -48,6 +48,17 @@ namespace AIActions
         std::map<int, double> reservedRoadTiles;
         std::map<BuildingType, double> recentBuildOrders;
         std::map<BuildingType, double> expensiveAnchorSearchCooldown;
+        // A resource's deficit went through TryBuildProducerFor and every
+        // producer option was unaffordable (2026-07-19) — unlike a failed
+        // anchor search, CanBuildDefinition failures have no backoff of
+        // their own, so a resource that's simply short on OTHER resources
+        // (not a missing anchor) gets retried every decision cycle forever,
+        // starving every lower-priority deficit of a turn even when THEY
+        // would succeed. Short cooldown (not the anchor search's 120s —
+        // affordability can change within a few cycles as production
+        // trickles in) so the ladder rotates fairly instead of wedging on
+        // the top entry.
+        std::map<ResourceType, double> deficitBackoff;
 
         void Decay(double dt);
     };
@@ -77,8 +88,15 @@ namespace AIActions
     // top of real telemetry — the AI economy bias (ai/AIEconomyBias.h, user
     // design 2026-07-17) amortizing construction/recruitment/ammo costs so
     // the AI sustains production for them.
+    // `priorityWeights` (optional): normalized [0,1] build-order weight per
+    // resource (ai/AIEconomyBias.h's `priority` table, user design
+    // 2026-07-19) — multiplies the final urgency, so a resource without an
+    // explicit entry (weight 1.0) is unaffected and low-priority resources
+    // consistently lose ties against high-priority ones instead of the
+    // outcome depending on ResourceType's raw enum value.
     AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth = 0,
-                                             const std::map<ResourceType, int>* consumptionBias = nullptr);
+                                             const std::map<ResourceType, int>* consumptionBias = nullptr,
+                                             const std::map<ResourceType, double>* priorityWeights = nullptr);
     // Seconds until the player's current production rates cover `costs`
     // (0 = affordable now, 1e9 = no path with the current economy).
     double ForecastSecondsToAfford(Player* player, const std::vector<ResourceAmountDefinition>& costs);

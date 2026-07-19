@@ -84,6 +84,7 @@ void AIActionState::Decay(double dt)
     decay(reservedRoadTiles);
     decay(recentBuildOrders);
     decay(expensiveAnchorSearchCooldown);
+    decay(deficitBackoff);
 }
 
 int CountOwnedBuildings(Player* player, BuildingType type)
@@ -369,7 +370,8 @@ std::vector<AIProducerOption> FindProducerOptions(ResourceType resource)
 }
 
 AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, int depth,
-                                         const std::map<ResourceType, int>* consumptionBias)
+                                         const std::map<ResourceType, int>* consumptionBias,
+                                         const std::map<ResourceType, double>* priorityWeights)
 {
     AIResourceDiagnosis diagnosis;
     diagnosis.resource = resource;
@@ -466,6 +468,21 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
     // every cycle (see producerUnderConstruction above).
     if (producerUnderConstruction)
         diagnosis.urgency = std::min(diagnosis.urgency, 0.3);
+
+    // Build-order priority (2026-07-19): scales the final urgency so ties
+    // between resources with equally "zero production yet" raw deficits
+    // (WOOD/STONE/PLANKS/food chain vs IRON/TOOLS/swords, all capped at the
+    // same 0.62-0.9 band above) resolve by DESIGN instead of by whichever
+    // ResourceType enum value happens to be numerically lowest — that
+    // accident used to make IRON (enum 3) win every opening economy decision
+    // and build a Foundry before a single Woodcutter, regardless of the
+    // consumption bias magnitude (see docs/tech_debt.md).
+    if (priorityWeights != nullptr)
+    {
+        auto it = priorityWeights->find(resource);
+        double weight = it != priorityWeights->end() ? it->second : 1.0;
+        diagnosis.urgency = std::clamp(diagnosis.urgency * weight, 0.0, 1.0);
+    }
 
     if (diagnosis.urgency <= 0.05)
         return diagnosis;
@@ -854,40 +871,57 @@ bool TryBuildRoads(GameWorld& world, Player* player, AIActionState& state)
     for (const auto* building : player->GetTrackedBuildings())
         if (building != nullptr && building->owner == player && !building->IsUnderConstruction() && building->buildingType != BuildingType::Road)
             buildings++;
-    if (roads > std::max(6, buildings * 3))
-        return false;
 
-    // Determinism fix (docs/work_plan_2026-07-13.md, found while verifying B1/
-    // B2): this loop returns (submits a command) on the first disconnected
-    // storage-like/HQ building, so — same reasoning as the sorted loop below
-    // it — iteration order is simulation-visible and must not depend on
-    // Building* heap addresses.
-    std::vector<Building*> disconnectedCandidates(player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
-    std::sort(disconnectedCandidates.begin(), disconnectedCandidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
-    for (Building* building : disconnectedCandidates)
+    // Runaway-spam guard for the CHEAP single-tile stub loop below only
+    // (2026-07-19 fix — was gating the whole function, including the bounded
+    // SubmitRoadPath loop beneath it). A single legitimate long connection —
+    // e.g. crossing the military track, which needs a Bridge tile per track
+    // tile crossed — can easily need far more road tiles than 3x the
+    // building count without being spam; SubmitRoadPath already bounds
+    // itself (48 tiles/call, 8 commands/cycle, 6s reservation cooldown on a
+    // tile that can't take its type). Gating THAT loop too meant that once a
+    // base had built "enough" roads elsewhere, any building still stranded
+    // across the track — needing exactly the long bridge crossing this ratio
+    // was suspicious of — could never be tried again: the AI would build 27
+    // road tiles finishing every OTHER connection, trip the cap, and leave
+    // the one building that actually needed a bridge permanently cut off
+    // (playtest 2026-07-19, HardAIMakesSteadyProgressAndAttacks: a Mine far
+    // from HQ never connected, "producer stalled" for its whole output ever
+    // after).
+    if (roads <= std::max(6, buildings * 3))
     {
-        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
-            continue;
-        if (!building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
-            continue;
-        if (HasAdjacentRoad(world, building))
-            continue;
-
-        for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
+        // Determinism fix (docs/work_plan_2026-07-13.md, found while verifying B1/
+        // B2): this loop returns (submits a command) on the first disconnected
+        // storage-like/HQ building, so — same reasoning as the sorted loop below
+        // it — iteration order is simulation-visible and must not depend on
+        // Building* heap addresses.
+        std::vector<Building*> disconnectedCandidates(player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
+        std::sort(disconnectedCandidates.begin(), disconnectedCandidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+        for (Building* building : disconnectedCandidates)
         {
-            if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
+            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
                 continue;
-            Tile& tile = world.GetTileMap()[tileId];
-            if (tile.HasBuilding() || state.reservedRoadTiles.contains(tileId))
+            if (!building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
                 continue;
-            Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
-            const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
-            if (!world.GetTileMap().CanPlaceBuilding(BuildingType::Road, pos, roadDefinition.footprint, player))
+            if (HasAdjacentRoad(world, building))
                 continue;
-            world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, pos));
-            state.reservedRoadTiles[tileId] = 6.0;
-            state.recentBuildOrders[BuildingType::Road] = 1.0;
-            return true;
+
+            for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
+            {
+                if (tileId < 0 || tileId >= static_cast<int>(world.GetTileMap().tilemap.size()))
+                    continue;
+                Tile& tile = world.GetTileMap()[tileId];
+                if (tile.HasBuilding() || state.reservedRoadTiles.contains(tileId))
+                    continue;
+                Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
+                const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
+                if (!world.GetTileMap().CanPlaceBuilding(BuildingType::Road, pos, roadDefinition.footprint, player))
+                    continue;
+                world.SubmitCommand(GameCommand::BuildBuilding(player->id, BuildingType::Road, pos));
+                state.reservedRoadTiles[tileId] = 6.0;
+                state.recentBuildOrders[BuildingType::Road] = 1.0;
+                return true;
+            }
         }
     }
 

@@ -31,4 +31,43 @@ ai_economy_bias
     consumption TOOLS 3
     consumption FOOD_PROVISIONS 12
     consumption ARROWS 6
+
+    # Build-order priority (user design, 2026-07-19): weights DiagnoseResourceNeed's
+    # urgency (0..PriorityCeiling=100, normalized before use) so the AI's FIRST
+    # decisions favor the basic economy instead of a tie decided by ResourceType's
+    # raw enum value. Root cause this fixes: with no producer yet, the urgency
+    # formula gives WOOD/STONE/PLANKS/IRON/TOOLS/FOOD_PROVISIONS an IDENTICAL
+    # 0.9 regardless of their `consumption` bias size (the formula is a ratio,
+    # (consumed-produced)/consumed, which is always 1.0 when produced=0) — so
+    # the tie used to go to whichever enum value was numerically lowest (IRON=3),
+    # building a Foundry before a single Woodcutter. `priority` breaks that tie
+    # by DESIGN. A resource with no line here defaults to the ceiling (full
+    # weight, no penalty) — additive/opt-in.
+    #
+    # Tier 1 (basic economy — wood/stone/food chains): full weight.
+    priority WOOD 100
+    priority PLANKS 100
+    priority STONE 100
+    priority WHEAT 100
+    priority FLOUR 100
+    priority BREAD 100
+    priority MEAT 100
+    priority WATER 100
+    priority FOOD_PROVISIONS 100
+    # Tier 2 (iron/tools/weapon chain — Foundry/Smith/Barracks recruit costs):
+    # suppressed until tier 1 has producers (their own urgency naturally drops
+    # once WOOD/STONE/etc. do, letting tier 2 win a later cycle).
+    priority IRON 40
+    priority TOOLS 40
+    priority COPPER_SWORD 40
+    priority IRON_SWORD 40
+    priority BRONZE_SWORD 40
+    priority STEEL_SWORD 40
+
+    # Tower build-order gate (user design, 2026-07-19): minimum completed
+    # production buildings before the Defense need starts wanting a garrison
+    # at all — "in the meantime" once the economy has SOME footing, not
+    # gated behind the full tier-2 chain. Not a `priority` line since towers
+    # aren't a resource.
+    tower_readiness_buildings 4
 end

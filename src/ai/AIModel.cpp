@@ -95,10 +95,14 @@ namespace
     }
 
     // How many towers this AI wants standing right now. None until a minimal
-    // economy exists; then a small garrison that grows under pressure.
+    // economy exists; then a small garrison that grows under pressure. The
+    // readiness threshold is a build-order lever like `priority`, but towers
+    // aren't a resource — it's ai.rtsdata's `tower_readiness_buildings`
+    // instead (user design 2026-07-19: defense should start "in the
+    // meantime" once the economy has SOME footing, tunable from the same file).
     int DesiredTowerCount(const AISituation& s)
     {
-        if (s.productionBuildingCount < 4)
+        if (s.productionBuildingCount < GetAIEconomyBias().towerReadinessBuildings)
             return 0;
         int desired = 2;
         if (s.Threat() > 0.5)
@@ -131,6 +135,8 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
         // computed once alongside the seed (difficulty never changes
         // mid-game; it comes from map params).
         consumptionBias = GetAIEconomyBias().ScaledMap(difficulty);
+        // Build-order priority — not difficulty-scaled (see AIModel.h).
+        priorityWeights = GetAIEconomyBias().NormalizedPriorityMap();
         noiseSeeded = true;
     }
 
@@ -294,7 +300,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     for (ResourceType type : candidates)
     {
         AIActions::AIResourceDiagnosis diagnosis =
-            AIActions::DiagnoseResourceNeed(player, type, 0, &consumptionBias);
+            AIActions::DiagnoseResourceNeed(player, type, 0, &consumptionBias, &priorityWeights);
         if (diagnosis.urgency > 0.2)
             s.deficits.push_back({type, diagnosis.urgency});
     }
@@ -303,7 +309,10 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     // any consumption signal for it: a cost resource with (almost) no stock
     // and no production gets a fixed mid-urgency deficit, driving
     // EconomySustain to raise its chain (e.g. Smith for swords) while the
-    // recruiter falls back to whatever IS affordable in the meantime.
+    // recruiter falls back to whatever IS affordable in the meantime. Also
+    // priority-weighted (2026-07-19) so a low-priority preferred cost (a
+    // sword tier, weight ~0.4) doesn't jump the queue ahead of the actual
+    // tier-1 economy just because it's the composition's top unit pick.
     std::vector<const UnitDefinition*> ranked = RankUnitChoices(s);
     if (!ranked.empty() && ranked.front() != nullptr)
     {
@@ -315,7 +324,11 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
             bool alreadyListed = std::any_of(s.deficits.begin(), s.deficits.end(),
                 [&](const AISituation::Deficit& d) { return d.resource == cost.type; });
             if (!alreadyListed && stored < cost.amount * 2 && rate == 0)
-                s.deficits.push_back({cost.type, 0.5});
+            {
+                auto it = priorityWeights.find(cost.type);
+                double weight = it != priorityWeights.end() ? it->second : 1.0;
+                s.deficits.push_back({cost.type, std::clamp(0.5 * weight, 0.0, 1.0)});
+            }
         }
     }
 
@@ -405,7 +418,29 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
             return std::min(score, 0.75);
         }
         case AINeed::LogisticsRepair:
-            return std::min(1.0, 0.4 * static_cast<double>(s.unconnectedPositionIds.size()));
+        {
+            // Deadlock fix (playtest 2026-07-19, user report: "AI can't build
+            // bridges when a road cuts buildings off"): a lone disconnected
+            // building used to score only 0.4 — BELOW EconomySustain's
+            // routine "opening: build out the base" floor (0.6) — so the AI
+            // kept greenlighting new producers (each with a real, larger
+            // build cost) before ever finishing the connection on the one it
+            // just placed. On a map where that connection needs a Bridge
+            // (PLANKS+STONE, cheap per tile but still real), the starting
+            // stock got fully spent on 5-6 new buildings within 15 seconds,
+            // and once WOOD/PLANKS production itself depends on the very
+            // building stuck across the track, the deadlock is permanent: no
+            // stock -> can't afford the bridge -> can't connect -> that
+            // building's own output stays stranded -> still no stock.
+            // Any disconnected building now outranks Economy's routine
+            // opening score, so the AI finishes what it built before piling
+            // on more — Economy's CRITICAL escalations (dead food chain,
+            // high real deficit, both capped at 0.75) still win when they
+            // should.
+            if (s.unconnectedPositionIds.empty())
+                return 0.0;
+            return std::min(1.0, 0.65 + 0.1 * static_cast<double>(s.unconnectedPositionIds.size() - 1));
+        }
         case AINeed::Research:
         {
             if (s.Threat() > 0.5)
@@ -460,9 +495,22 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
             return true;
     }
 
+    // Deficit backoff (2026-07-19): a resource that just failed (every
+    // producer option unaffordable, not merely a missing anchor — see
+    // AIActionState::deficitBackoff) is skipped for a few cycles so a
+    // persistently-stuck top deficit can't starve every lower-priority one
+    // of a turn forever. Without this, a resource whose OWN chain is wedged
+    // (e.g. its producer's output never gets hauled away — a pre-existing
+    // logistics issue, not something the priority ladder can fix) retries
+    // itself every single cycle and the AI never tries anything else.
     for (const auto& deficit : s.deficits)
+    {
+        if (actions.deficitBackoff.count(deficit.resource) > 0)
+            continue;
         if (TryBuildProducerFor(world, player, deficit.resource))
             return true;
+        actions.deficitBackoff[deficit.resource] = 12.0;
+    }
 
     return TryOpeningPlan(world, player);
 }
@@ -476,7 +524,7 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     for (int depth = 0; depth < 3; depth++)
     {
         AIActions::AIResourceDiagnosis diagnosis =
-            AIActions::DiagnoseResourceNeed(player, target, depth, &consumptionBias);
+            AIActions::DiagnoseResourceNeed(player, target, depth, &consumptionBias, &priorityWeights);
         if (diagnosis.missingInputs.empty())
             break;
         target = diagnosis.missingInputs.front();
