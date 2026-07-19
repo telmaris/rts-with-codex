@@ -266,9 +266,27 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         if (building != nullptr && building->owner == player && !building->IsUnderConstruction())
             s.productionBuildingCount++;  // pure count — order-independent
 
+    // Rate alone false-positives "dead" once storage tops up: a healthy Inn
+    // with a full output buffer legitimately reads 0/min production (nothing
+    // to push out) even though the chain works fine (playtest 2026-07-19: AI
+    // stopped developing — no more Mines, no University — after its early
+    // buildout filled every buffer, since Research's University trigger also
+    // gates on foodProductionAlive). A raw "stored > 0" check was tried and
+    // reverted (harness catch): the Hard-difficulty starting grant seeds 200
+    // FOOD_PROVISIONS at HQ, so that reads "alive" for a very long time
+    // regardless of whether the chain works at all, which changed Economy's
+    // behavior enough to spam rejected commands on the stress-test seed.
+    // Checking producer HEALTH instead of a stock snapshot sidesteps that
+    // confound entirely: a completed, connected, manned Inn is alive even
+    // mid-topped-up-buffer; one with any real problem flag isn't, regardless
+    // of leftover starting stock.
+    AIActions::AIResourceDiagnosis foodDiagnosis = AIActions::DiagnoseResourceNeed(
+        player, ResourceType::FOOD_PROVISIONS, 0, &consumptionBias, &priorityWeights);
     s.foodProductionAlive =
         AIActions::GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute,
-                                   ResourceType::FOOD_PROVISIONS) > 0;
+                                   ResourceType::FOOD_PROVISIONS) > 0 ||
+        (foodDiagnosis.hasProducerBuilding && !foodDiagnosis.logisticsProblem &&
+         !foodDiagnosis.storageProblem && !foodDiagnosis.manpowerProblem);
     s.populationCap = player->GetPopulationCap();
     s.totalPopulation = player->GetTotalPopulation();
 
