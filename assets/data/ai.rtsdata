@@ -55,8 +55,28 @@ ai_economy_bias
     priority WATER 100
     priority FOOD_PROVISIONS 100
     # Tier 2 (iron/tools/weapon chain — Foundry/Smith/Barracks recruit costs):
-    # suppressed until tier 1 has producers (their own urgency naturally drops
-    # once WOOD/STONE/etc. do, letting tier 2 win a later cycle).
+    # suppressed until tier 1 has producers. NOTE (2026-07-20): "their own
+    # urgency naturally drops once tier 1 does" never actually happened on its
+    # own — the tier-1 consumption bias above is permanent, so tier-1 urgency
+    # never really goes away. The real handoff is now explicit code
+    # (UtilityAIModel::Sense's `economyEstablished` flag, AIModel.cpp) — once
+    # `tower_readiness_buildings` production buildings stand and food is
+    # alive, these weights stop being applied at all (full 1.0 everywhere).
+    # These values only matter before that point, i.e. purely as an OPENING
+    # build-order tiebreaker.
+    # No standalone `consumption COAL` line (2026-07-20, harness catch):
+    # Foundry's own recipe already lists `input COAL 1` alongside IRON_ORE
+    # (buildings.rtsdata), so TryBuildProducerFor's chain-walk finds COAL as a
+    # missing input on its own once IRON is targeted — no bias needed to
+    # surface it. A `consumption COAL` line WAS tried and made COAL a
+    # permanent standalone deficit candidate from tick 1 (pushed every cycle
+    # via the "every amortized-cost resource is a candidate" loop in Sense),
+    # which competed with the deterministic opening bootstrap before a single
+    # Woodcutter existed and wedged the whole run (roster frozen, zero
+    # deploys, AIBehaviorHarnessTests). `priority COAL 40` stays — it's inert
+    # until COAL becomes a real candidate (chain-walk or actual consumption),
+    # and suppresses it the same as the other tier-2 entries until then.
+    priority COAL 40
     priority IRON 40
     priority TOOLS 40
     priority COPPER_SWORD 40

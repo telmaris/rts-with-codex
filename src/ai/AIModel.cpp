@@ -64,6 +64,11 @@ namespace
     constexpr int WaveSize = 6;
     // Threat above this = the lane is being lost — deploy whatever exists.
     constexpr double EmergencyThreat = 1.0;
+    // How often RecruitDeploy may spend a decision cycle building toward the
+    // top pick's missing cost instead of recruiting (2026-07-20) — bounds a
+    // deep, currently-unaffordable chain (steel sword -> iron -> ore) to an
+    // occasional nudge rather than a permanent recruit-fallback lockout.
+    constexpr double RecruitEconomyBuildInterval = 8.0;
 
     // A unit is a siege specialist when breaching beats lane-fighting.
     bool IsSiegeUnit(const UnitDefinition& def)
@@ -139,12 +144,36 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
         consumptionBias = GetAIEconomyBias().ScaledMap(difficulty);
         // Build-order priority — not difficulty-scaled (see AIModel.h).
         priorityWeights = GetAIEconomyBias().NormalizedPriorityMap();
+
+        // Personality bias (user design 2026-07-20): drawn HERE, in a fixed
+        // number of calls right after the seed, so it's identical between two
+        // same-seed worlds regardless of anything that happens later (map
+        // events, other players' actions) — same reasoning as the rest of
+        // this block. Active at every difficulty, including Hard, unlike the
+        // NoiseAmplitude/SkipChance noise below.
+        //
+        // Amplitude bounded by the TIGHTEST hard-won score gap in ScoreNeed,
+        // not chosen freely: EconomySustain's food-dead critical (0.75) must
+        // stay below RecruitDeploy's quiet-lane value (0.8) — an
+        // independent +x/-x swing on both must not invert that, i.e.
+        // (1+x)*0.75 < (1-x)*0.8 => x < 0.0323. 0.025 leaves real margin
+        // (worst case 0.76875 vs 0.78) while still being a visible, permanent
+        // per-AI skew — do not widen this without re-checking every floor
+        // pairing documented in ScoreNeed (EconomySustain's routine cap 0.6 vs
+        // LogisticsRepair's 0.65 floor is the other tight one, gap 0.65/0.6).
+        std::uniform_real_distribution<double> needSkew(-0.025, 0.025);
+        for (double& bias : personalityNeedBias)
+            bias = needSkew(noiseRng);
+        std::uniform_int_distribution<int> waveSkew(-1, 2);
+        personalityWaveBias = waveSkew(noiseRng);
+
         noiseSeeded = true;
     }
 
     senseTimer -= dt;
     decisionTimer -= dt;
     roadTimer -= dt;
+    recruitEconomyBuildTimer -= dt;
     attackTargetCacheTimer -= dt;
     actions.Decay(dt);
 
@@ -184,7 +213,7 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
     for (int i = 0; i < static_cast<int>(AINeed::Count); i++)
     {
         order[i] = i;
-        scores[i] = ScoreNeed(static_cast<AINeed>(i), situation);
+        scores[i] = ScoreNeed(static_cast<AINeed>(i), situation) * (1.0 + personalityNeedBias[i]);
     }
     if (NoiseAmplitude[difficulty] > 0.0)
     {
@@ -294,6 +323,27 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     s.hasIdleUniversity = AIActions::FindUniversity(player) != nullptr;
     s.focusActive = !player->focuses.GetActiveFocusId().empty();
 
+    // Tier-2 priority handoff (2026-07-20): ai.rtsdata's `priority` discount
+    // exists to win the OPENING build order (tier-1 wood/stone/food ties
+    // against tier-2 iron/tools/swords), not to suppress tier-2 forever. But
+    // the tier-1 amortized consumption bias is permanent — construction keeps
+    // draining stock below the "low reserve" threshold indefinitely — so
+    // without an explicit handoff tier-2 never naturally got a turn.
+    //
+    // Threshold is `tower_readiness_buildings` (default 4, ai.rtsdata) — the
+    // SAME "economy has some footing" gate Defense already uses — not the
+    // full 12-step OpeningPlan. Harness catch (2026-07-20): requiring the
+    // entire opening plan complete meant this handoff (and the RecruitDeploy
+    // cost-chain builder in ExecuteRecruitDeploy, gated on the same flag)
+    // never engaged within a realistic playtest/test window at all — Foundry
+    // never got built despite everything else in Tasks 1-3 being correct,
+    // simply because the gate never opened. A handful of standing producers
+    // is enough evidence the opening bootstrap is past its most fragile
+    // stretch (see ExecuteRecruitDeploy's comment for what that fragility was).
+    s.economyEstablished = s.foodProductionAlive &&
+        s.productionBuildingCount >= GetAIEconomyBias().towerReadinessBuildings;
+    const std::map<ResourceType, double>* effectiveWeights = s.economyEstablished ? nullptr : &priorityWeights;
+
     // Resource deficits. Candidate list is deterministic: the manpower
     // lifeline first, then every unit-cost resource (catalog is a std::map),
     // tower ammo when towers exist, then everything currently consumed.
@@ -322,7 +372,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     for (ResourceType type : candidates)
     {
         AIActions::AIResourceDiagnosis diagnosis =
-            AIActions::DiagnoseResourceNeed(player, type, 0, &consumptionBias, &priorityWeights);
+            AIActions::DiagnoseResourceNeed(player, type, 0, &consumptionBias, effectiveWeights);
         if (diagnosis.urgency > 0.2)
             s.deficits.push_back({type, diagnosis.urgency});
     }
@@ -334,7 +384,9 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     // recruiter falls back to whatever IS affordable in the meantime. Also
     // priority-weighted (2026-07-19) so a low-priority preferred cost (a
     // sword tier, weight ~0.4) doesn't jump the queue ahead of the actual
-    // tier-1 economy just because it's the composition's top unit pick.
+    // tier-1 economy just because it's the composition's top unit pick —
+    // unless the economy is already established, in which case the full-weight
+    // handoff above applies here too.
     std::vector<const UnitDefinition*> ranked = RankUnitChoices(s);
     if (!ranked.empty() && ranked.front() != nullptr)
     {
@@ -347,8 +399,12 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
                 [&](const AISituation::Deficit& d) { return d.resource == cost.type; });
             if (!alreadyListed && stored < cost.amount * 2 && rate == 0)
             {
-                auto it = priorityWeights.find(cost.type);
-                double weight = it != priorityWeights.end() ? it->second : 1.0;
+                double weight = 1.0;
+                if (effectiveWeights != nullptr)
+                {
+                    auto it = effectiveWeights->find(cost.type);
+                    weight = it != effectiveWeights->end() ? it->second : 1.0;
+                }
                 s.deficits.push_back({cost.type, std::clamp(0.5 * weight, 0.0, 1.0)});
             }
         }
@@ -361,8 +417,12 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
                              return a.urgency > b.urgency;
                          return static_cast<int>(a.resource) < static_cast<int>(b.resource);
                      });
-    if (s.deficits.size() > 4)
-        s.deficits.resize(4);
+    // Widened 4 -> 6 (2026-07-20): with tier-1's bias permanently live, tier-2
+    // entries used to fall off the end of the list even in cycles where
+    // tier-1 only transiently spiked, never getting a turn against the
+    // deficit ladder at all.
+    if (s.deficits.size() > 6)
+        s.deficits.resize(6);
 
     // Connectivity audit on its own (slower) cadence — carry the previous
     // answer between audits.
@@ -553,7 +613,18 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
         if (actions.deficitBackoff.count(deficit.resource) > 0)
             continue;
         if (TryBuildProducerFor(world, player, deficit.resource))
+        {
+            // Rotation fix (2026-07-20): a SUCCESS used to leave the very top
+            // deficit free to win again next cycle too (nothing but the new
+            // producer's own construction time slowed it down), so a lower-
+            // priority deficit further down the ladder could starve for many
+            // cycles in a row even though it would have succeeded on its own.
+            // Short cooldown (not the 12s failure one — this resource isn't
+            // stuck, it just went) lets the next 2-3 cycles serve other
+            // deficits before this one is eligible again.
+            actions.deficitBackoff[deficit.resource] = 4.0;
             return true;
+        }
         actions.deficitBackoff[deficit.resource] = 12.0;
     }
 
@@ -562,6 +633,15 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
 
 bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, ResourceType resource)
 {
+    // Tier-2 priority handoff (2026-07-20, see Sense's economyEstablished):
+    // once the economy has some real footing and food is alive, stop
+    // discounting tier-2's urgency here too — otherwise IRON/TOOLS/swords
+    // could win a slot on the deficit ladder (Sense) but still lose the
+    // chain-walk/duplicate-guard math below to a tier-1 resource that
+    // out-weighs them 1.0 vs 0.4.
+    const std::map<ResourceType, double>* effectiveWeights =
+        situation.economyEstablished ? nullptr : &priorityWeights;
+
     // Walk down the input chain: if the producer of `resource` is starved of
     // an input, build toward that input instead (bounded depth). missingInputs
     // order comes from the static building catalog — deterministic.
@@ -569,7 +649,7 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     for (int depth = 0; depth < 3; depth++)
     {
         AIActions::AIResourceDiagnosis diagnosis =
-            AIActions::DiagnoseResourceNeed(player, target, depth, &consumptionBias, &priorityWeights);
+            AIActions::DiagnoseResourceNeed(player, target, depth, &consumptionBias, effectiveWeights);
         if (diagnosis.missingInputs.empty())
             break;
         target = diagnosis.missingInputs.front();
@@ -598,12 +678,14 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     // literally being a copy of it. Once two are unhealthy, that path is
     // exhausted too and the hard block resumes.
     std::vector<AIActions::AIProducerOption> options = AIActions::FindProducerOptions(target);
-    int ownedProducers = 0;
-    for (const auto& option : options)
-        ownedProducers += AIActions::CountOwnedBuildings(player, option.buildingType);
+    // Counted per-PRODUCT (2026-07-20 fix), not per-BuildingType: a Mine on a
+    // COAL tile and a Mine on an IRON_ORE tile are different producers as far
+    // as this guard (and the diversify-sort below) are concerned — see
+    // CountProducersOfResource.
+    int ownedProducers = AIActions::CountProducersOfResource(player, target);
 
     AIActions::AIResourceDiagnosis targetDiagnosis =
-        AIActions::DiagnoseResourceNeed(player, target, 0, &consumptionBias, &priorityWeights);
+        AIActions::DiagnoseResourceNeed(player, target, 0, &consumptionBias, effectiveWeights);
     if (targetDiagnosis.hasProducerBuilding && ownedProducers >= 2 &&
         (targetDiagnosis.logisticsProblem || targetDiagnosis.storageProblem || targetDiagnosis.manpowerProblem))
         return false;
@@ -761,7 +843,11 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     // whole roster at the reachable enemy. Ids in instanceId order
     // (std::map) — deterministic.
     bool emergency = s.Threat() > EmergencyThreat && s.rosterCount > 0;
-    if (s.rosterCount >= WaveSize || emergency)
+    // Personality bias (2026-07-20): +/- a couple units on the wave threshold
+    // (5..8) so two AIs on the same map don't deploy in visually identical
+    // lockstep.
+    int effectiveWaveSize = WaveSize + personalityWaveBias;
+    if (s.rosterCount >= effectiveWaveSize || emergency)
     {
         int target = GetCachedAttackTargetPlayer(world, player);
         if (target >= 0)
@@ -778,6 +864,64 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
         }
         if (!emergency)
             return false;  // full wave but no reachable enemy — don't recruit past the cap
+    }
+
+    // Dążenie do ataku (2026-07-20, user report: "AI wciąż nie buduje żelaza/
+    // węgla/narzędzi broni"): RecruitDeploy is the highest-scored need, but it
+    // used to just recruit whatever's affordable and quietly fall back to bare
+    // militia forever — nothing ever asked for the sword/tools/iron economy
+    // the TOP-ranked unit choice actually needs. Build toward the top pick's
+    // missing costs here; a fully-costed unit (e.g. a swordsman) is what
+    // finally drives Foundry/Smith/Mine construction from the need that
+    // should want them most.
+    //
+    // GATED on economyEstablished (harness catch 2026-07-20): without this,
+    // the very FIRST decision cycle of the game (empty roster -> "knight",
+    // needing IRON_SWORD) tried to walk the WHOLE iron chain -- Mine(IRON_ORE)
+    // -> Foundry -> Smith -- before TryOpeningPlan ever got a turn, spending
+    // the AI's limited starting stock and its shared per-type build cooldown
+    // on an out-of-order producer. That one early hijack was enough to wedge
+    // the deterministic opening bootstrap for the ENTIRE rest of the game
+    // (roster froze, zero deploys, every later build request rejected for
+    // lack of resources) -- rate-limiting the ATTEMPT (recruitEconomyBuildTimer)
+    // did nothing because the damage was already done on that first,
+    // unthrottled call. Waiting for the economy to clear its first-footing
+    // threshold (same `economyEstablished` flag Task 2 uses for the priority
+    // handoff, ai.rtsdata's `tower_readiness_buildings`) keeps this action a
+    // genuine complement to a working economy instead of a competitor for its
+    // bootstrap — a handful of standing producers is enough to be past the
+    // fragile stretch, without waiting for the entire opening plan (which
+    // could take many minutes and left this need permanently dead in
+    // practice).
+    std::vector<const UnitDefinition*> ranked = RankUnitChoices(s);
+    if (s.economyEstablished && recruitEconomyBuildTimer <= 0.0 && !ranked.empty() && ranked.front() != nullptr)
+    {
+        for (const auto& cost : ranked.front()->cost)
+        {
+            if (actions.deficitBackoff.count(cost.type) > 0)
+                continue;
+            int stored = AIActions::CountStoredResource(player, cost.type);
+            int rate = AIActions::GetResourceRate(
+                player->economyTelemetry.current.productionRatesPerMinute, cost.type);
+            if (stored >= cost.amount || rate > 0)
+                continue;  // already covered — nothing to build toward
+            // Gate consumed on the FIRST real attempt regardless of outcome —
+            // otherwise a chain with several missing costs could exhaust its
+            // whole per-resource backoff table in one cycle and effectively
+            // recreate the lockout the interval exists to prevent.
+            recruitEconomyBuildTimer = RecruitEconomyBuildInterval;
+            if (TryBuildProducerFor(world, player, cost.type))
+            {
+                // Short success cooldown (not the 12s failure one) — lets the
+                // ladder rotate to the pick's NEXT missing cost across the
+                // next couple of gated attempts instead of hammering the same
+                // one every time.
+                actions.deficitBackoff[cost.type] = 4.0;
+                return true;
+            }
+            actions.deficitBackoff[cost.type] = 12.0;
+            break;
+        }
     }
 
     // Otherwise recruit toward the wave. First completed Barracks by id —
@@ -817,7 +961,7 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     bool connected = std::find(s.unconnectedPositionIds.begin(), s.unconnectedPositionIds.end(),
                                barracks->positionId) == s.unconnectedPositionIds.end();
 
-    for (const UnitDefinition* def : RankUnitChoices(s))
+    for (const UnitDefinition* def : ranked)
     {
         if (def == nullptr)
             continue;

@@ -3,6 +3,7 @@
 
 #include "ai/AIActions.h"
 
+#include <array>
 #include <random>
 
 class GameWorld;
@@ -78,6 +79,22 @@ struct AISituation
     // FOOD_PROVISIONS is the manpower lifeline — "alive" = positive
     // production rate in current telemetry.
     bool foodProductionAlive{false};
+    // Some production footing (>= ai.rtsdata's tower_readiness_buildings
+    // producers) + food alive (user design 2026-07-20): once true, ai.rtsdata's
+    // tier-2 `priority` discount (IRON/TOOLS/swords) stops being applied — the
+    // AI stops treating those as permanently second-class — and
+    // ExecuteRecruitDeploy's cost-chain builder is allowed to fire. The
+    // discount only exists to win the OPENING build order (see AIEconomyBias);
+    // it was never meant to suppress tier-2 forever, but the tier-1 amortized
+    // bias never naturally lets go on its own (construction keeps draining
+    // stock below the "low reserve" threshold indefinitely), so without this
+    // flag tier-2 never got a fair shot at the deficit ladder. Deliberately
+    // NOT gated on the full opening plan (harness catch 2026-07-20): that bar
+    // is high enough it could take many minutes to clear, leaving both
+    // dependents dead in practice; a handful of standing producers is enough
+    // evidence the fragile tick-1 bootstrap stretch has passed (see
+    // ExecuteRecruitDeploy for what going in too early wedged).
+    bool economyEstablished{false};
 
     // Resource shortfalls, worst first (urgency desc, then enum asc) —
     // deterministic ordering.
@@ -121,6 +138,14 @@ public:
     // static (same reasoning as RankUnitChoices) for direct unit testing.
     static bool ManpowerEmergency(const AISituation& s, double manpowerReserve);
 
+    // Test seam (2026-07-20): read-only access to the seeded personality bias
+    // — only populated after the first Update() call (that's where seeding
+    // happens). Used by UtilityAIModelTests to confirm two players draw
+    // different values from the same map seed, and that re-seeding the same
+    // (seed, player id) pair reproduces them exactly.
+    double GetPersonalityNeedBias(AINeed need) const { return personalityNeedBias[static_cast<int>(need)]; }
+    int GetPersonalityWaveBias() const { return personalityWaveBias; }
+
 private:
     AISituation Sense(GameWorld& world, Player* player);
     double ScoreNeed(AINeed need, const AISituation& s) const;
@@ -146,6 +171,16 @@ private:
     double senseTimer{0.0};
     double decisionTimer{0.0};
     double roadTimer{0.0};
+    // Gates RecruitDeploy's "build toward the top pick's missing cost" action
+    // (2026-07-20) to at most once per interval — RecruitDeploy is the
+    // highest-scored need and runs nearly every decision cycle, so without
+    // this gate a deep, currently-unaffordable cost chain (e.g. a siege
+    // unit's steel sword -> iron -> ore) kept "succeeding" (submitting SOME
+    // command, even one the simulation later rejects) every single cycle and
+    // permanently starved the recruit fallback below it — a harness-caught
+    // regression (roster frozen, zero deploys for the whole run). See
+    // ExecuteRecruitDeploy in AIModel.cpp.
+    double recruitEconomyBuildTimer{0.0};
     // Connectivity audits are the expensive part of Sense (road BFS per
     // storage per building) — they run on their own slower cadence and the
     // last answer is carried between audits.
@@ -172,6 +207,17 @@ private:
     // (build order is a design choice, unlike the consumption bias's
     // magnitude). Cached alongside consumptionBias in Update.
     std::map<ResourceType, double> priorityWeights;
+    // Personality bias (user design 2026-07-20: "2 AI nie gra identycznie") —
+    // a small, PERMANENT per-need skew (+/-2.5%, see AIModel.cpp for why that
+    // exact bound) drawn once from noiseRng right after it's seeded, active
+    // at every difficulty (unlike NoiseAmplitude/SkipChance in AIModel.cpp,
+    // which are difficulty levers and zero on Hard). Sized to the tightest
+    // hard-won gap between ScoreNeed's floors so it can only break near-ties
+    // and shift pace, never invert the priority architecture. Two same-seed
+    // worlds draw the identical values (seed XOR player id), so lockstep
+    // holds.
+    std::array<double, static_cast<int>(AINeed::Count)> personalityNeedBias{};
+    int personalityWaveBias{0};
 };
 
 #endif
