@@ -3,7 +3,11 @@
 
 #include "core/GameWorld.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <queue>
+#include <set>
 
 namespace GameWorldInternal
 {
@@ -231,59 +235,110 @@ namespace GameWorldInternal
         tilemap.terrainDirty = true;
     }
 
-    // Builds a simple orthogonal road between two starting buildings.
+    // Builds an orthogonal road between two starting buildings, routing
+    // around the military track (user report 2026-07-19: "road do village
+    // nachodzi na tor jednostek"). The original version walked a straight
+    // Manhattan path (horizontal leg then vertical leg) between ONE fixed
+    // point on each building's nearest side, with no awareness of the track
+    // at all — CanBuildFootprint (via Player::Build) already refuses to
+    // place a Road on an isMilitaryRoad tile, so a track tile on that
+    // straight line was silently skipped, but the walk kept going past it
+    // regardless, leaving a road that runs up against (or gaps across) the
+    // track instead of avoiding it.
+    //
+    // A first BFS-based fix here still picked ONE fixed point per side as
+    // the mandatory start/goal — which failed just as badly whenever that
+    // one point happened to land ON the track itself (very possible: the
+    // track is only GUARANTEED straight for kGateStub tiles out of each HQ,
+    // MilitaryRoadNetwork.cpp, and is free to wiggle after that). A 60-seed
+    // sweep caught 9/120 villages this way: the BFS correctly found no path
+    // to an unbuildable single tile and visited ~99% of the map proving it.
+    //
+    // Fixed properly by treating EVERY tile adjacent to each building's
+    // footprint as a valid start/goal (same pattern AIActions::SubmitRoadPath
+    // already uses for the same reason) — a multi-source, multi-target BFS
+    // that finds the nearest REACHABLE pair of perimeter tiles instead of
+    // gambling that one specific point is buildable.
     inline void BuildStartRoad(Player* player, Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
     {
         if (player == nullptr)
             return;
 
-        Vec2i fromCenter = FootprintCenter(fromAnchor, fromFootprint);
-        Vec2i toCenter = FootprintCenter(toAnchor, toFootprint);
-        Vec2i start = fromCenter;
-        Vec2i end = toCenter;
+        TileMap& tilemap = player->tilemap;
 
-        int fromRight = fromAnchor.x + fromFootprint.x - 1;
-        int toRight = toAnchor.x + toFootprint.x - 1;
-        int fromBottom = fromAnchor.y + fromFootprint.y - 1;
-        int toBottom = toAnchor.y + toFootprint.y - 1;
+        const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
+        auto passable = [&](int tileId)
+        {
+            Vec2i pos = tilemap.GetCoordsFromId(tileId);
+            return tilemap.CanBuildFootprint(pos, roadDefinition.footprint, player, BuildingType::Road);
+        };
 
-        if (fromRight < toAnchor.x)
-        {
-            start = {fromRight + 1, fromCenter.y};
-            end = {toAnchor.x - 1, toCenter.y};
-        }
-        else if (toRight < fromAnchor.x)
-        {
-            start = {fromAnchor.x - 1, fromCenter.y};
-            end = {toRight + 1, toCenter.y};
-        }
-        else if (fromBottom < toAnchor.y)
-        {
-            start = {fromCenter.x, fromBottom + 1};
-            end = {toCenter.x, toAnchor.y - 1};
-        }
-        else if (toBottom < fromAnchor.y)
-        {
-            start = {fromCenter.x, fromAnchor.y - 1};
-            end = {toCenter.x, toBottom + 1};
-        }
+        std::vector<int> fromAdjacent = tilemap.GetAdjacentTileIds(fromAnchor, fromFootprint);
+        std::vector<int> toAdjacent = tilemap.GetAdjacentTileIds(toAnchor, toFootprint);
+        if (fromAdjacent.empty() || toAdjacent.empty())
+            return;
 
-        Vec2i cursor = start;
-        int stepX = cursor.x <= end.x ? 1 : -1;
-        while (cursor.x != end.x)
+        std::set<int> goalSet(toAdjacent.begin(), toAdjacent.end());
+
+        // Unweighted 4-directional BFS — deterministic given fixed map
+        // state (no RNG involved in world-gen pathing).
+        int maxIndex = tilemap.params.sizeX * tilemap.params.sizeY;
+        std::vector<int> parent(maxIndex, -1);
+        std::vector<bool> visited(maxIndex, false);
+        std::queue<int> frontier;
+        for (int tileId : fromAdjacent)
         {
-            player->Build<Road>(cursor, false);
-            cursor.x += stepX;
+            if (visited[tileId] || !passable(tileId))
+                continue;
+            visited[tileId] = true;
+            frontier.push(tileId);
         }
 
-        int stepY = cursor.y <= end.y ? 1 : -1;
-        while (cursor.y != end.y)
+        int reached = -1;
+        while (!frontier.empty())
         {
-            player->Build<Road>(cursor, false);
-            cursor.y += stepY;
+            int current = frontier.front();
+            frontier.pop();
+            if (goalSet.contains(current))
+            {
+                reached = current;
+                break;
+            }
+
+            Vec2i pos = tilemap.GetCoordsFromId(current);
+            const std::array<Vec2i, 4> neighbours{
+                Vec2i{pos.x + 1, pos.y}, Vec2i{pos.x - 1, pos.y},
+                Vec2i{pos.x, pos.y + 1}, Vec2i{pos.x, pos.y - 1}
+            };
+            for (Vec2i next : neighbours)
+            {
+                if (!tilemap.IsInside(next))
+                    continue;
+                int nextId = tilemap.GetIdFromCoords(next);
+                if (visited[nextId] || !passable(nextId))
+                    continue;
+                visited[nextId] = true;
+                parent[nextId] = current;
+                frontier.push(nextId);
+            }
         }
 
-        player->Build<Road>(cursor, false);
+        // No track-avoiding route exists between any pair of perimeter
+        // tiles — shouldn't happen (the ring doesn't enclose a single HQ's
+        // local area) short of a building being fully boxed in; leave the
+        // village unconnected rather than place a Road the placement rules
+        // would refuse anyway (the old straight-walk fallback did exactly
+        // that, silently, for the same net result).
+        if (reached < 0)
+            return;
+
+        std::vector<int> path;
+        for (int cursor = reached; cursor >= 0; cursor = parent[cursor])
+            path.push_back(cursor);
+        std::reverse(path.begin(), path.end());
+
+        for (int tileId : path)
+            player->Build<Road>(tilemap.GetCoordsFromId(tileId), false);
     }
 }
 
