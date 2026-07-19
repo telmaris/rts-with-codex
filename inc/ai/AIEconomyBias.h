@@ -48,6 +48,11 @@ struct AIEconomyBias
     // config), so lowering it is determinism-safe. Default matches the old
     // hardcoded cadence when the line is absent.
     double decisionIntervalSeconds{1.5};
+    // Manpower floor (user design 2026-07-19): below this, with villages
+    // already near population capacity (so manpower won't recover on its
+    // own) and the food chain alive, building another Village becomes the
+    // AI's immediate priority — see UtilityAIModel::ManpowerEmergency.
+    double manpowerReserve{20.0};
 
     // Bias for one resource at a difficulty level, floor-rounded; 0 for
     // resources without an entry.

@@ -4,6 +4,7 @@
 #include "economy/Player.h"
 
 #include <map>
+#include <utility>
 #include <vector>
 
 class GameWorld;
@@ -37,6 +38,13 @@ namespace AIActions
         bool logisticsProblem{false};
         bool manpowerProblem{false};
         bool storageProblem{false};
+        // At least one COMPLETED producer of `resource` already exists (2026-
+        // 07-19 — see TryBuildProducerFor). Distinguishes "genuinely no
+        // producer yet" from "a producer exists but is stalled/bottlenecked/
+        // unmanned" — building ANOTHER producer only fixes the former; the
+        // latter needs its existing one repaired (logistics/manpower), not a
+        // duplicate that will hit the same wall.
+        bool hasProducerBuilding{false};
     };
 
     // Mutable actuator bookkeeping a model owns and passes back in: road tiles
@@ -47,7 +55,12 @@ namespace AIActions
     {
         std::map<int, double> reservedRoadTiles;
         std::map<BuildingType, double> recentBuildOrders;
-        std::map<BuildingType, double> expensiveAnchorSearchCooldown;
+        // Keyed by (type, preferredTile) — not type alone (2026-07-19 fix):
+        // a failed search for one terrain (e.g. Mine hunting COAL) used to
+        // block EVERY other terrain the same BuildingType can extract (Mine
+        // hunting STONE or IRON_ORE) for the same 120s, even though those are
+        // completely independent searches over different tiles.
+        std::map<std::pair<BuildingType, TileType>, double> expensiveAnchorSearchCooldown;
         // A resource's deficit went through TryBuildProducerFor and every
         // producer option was unaffordable (2026-07-19) — unlike a failed
         // anchor search, CanBuildDefinition failures have no backoff of

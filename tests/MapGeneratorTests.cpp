@@ -1,3 +1,4 @@
+#include "core/GameWorld.h"
 #include "simulation/MapGenerator.h"
 
 #include <gtest/gtest.h>
@@ -91,4 +92,65 @@ TEST(MapGeneratorTests, PlacementIsDeterministicForSameSeed)
     auto anchorsA = MapGenerator::PickHeadquartersAnchors(params, 5);
     auto anchorsB = MapGenerator::PickHeadquartersAnchors(params, 5);
     EXPECT_EQ(anchorsA, anchorsB);
+}
+
+// User request 2026-07-19: iron is often missing near spawn. COAL and
+// IRON_ORE starting patches were added alongside WOOD/STONE, on a wider ring
+// (26..32 vs 17..23) so all four fit around the HQ without collisions. Every
+// HQ should end up with a reachable, non-track patch of each within the
+// starting zone.
+TEST(MapGeneratorTests, EveryHqGetsStartingCoalAndIronOrePatches)
+{
+    for (unsigned int seed : {11u, 222u, 3333u, 44444u})
+    {
+        MapParameters params;
+        params.sizePreset = MapSizePreset::S;
+        params.aiOpponentCount = 1;
+        params.seed = seed;
+
+        GameWorld world;
+        world.InitWorld("test", nullptr, nullptr, params);
+        TileMap& map = world.GetTileMap();
+
+        for (auto& [playerId, player] : world.GetPlayerHandler().players)
+        {
+            Building* hq = nullptr;
+            for (auto* building : player->GetTrackedBuildings())
+                if (building != nullptr && building->buildingType == BuildingType::Headquarters)
+                    hq = building;
+            ASSERT_NE(hq, nullptr) << "seed=" << seed << " player=" << playerId;
+            Vec2i hqCenter = map.GetCoordsFromId(hq->positionId);
+
+            int coalTiles = 0;
+            int ironTiles = 0;
+            int coalOnTrack = 0;
+            int ironOnTrack = 0;
+            constexpr int kSearchRadius = 35;
+            for (int y = -kSearchRadius; y <= kSearchRadius; y++)
+            {
+                for (int x = -kSearchRadius; x <= kSearchRadius; x++)
+                {
+                    Vec2i pos{hqCenter.x + x, hqCenter.y + y};
+                    if (!map.IsInside(pos))
+                        continue;
+                    const Tile& tile = map[pos];
+                    if (tile.tileType == TileType::COAL)
+                    {
+                        coalTiles++;
+                        if (tile.isMilitaryRoad) coalOnTrack++;
+                    }
+                    else if (tile.tileType == TileType::IRON_ORE)
+                    {
+                        ironTiles++;
+                        if (tile.isMilitaryRoad) ironOnTrack++;
+                    }
+                }
+            }
+
+            EXPECT_GE(coalTiles, 10) << "seed=" << seed << " player=" << playerId << " too few COAL tiles near HQ";
+            EXPECT_GE(ironTiles, 10) << "seed=" << seed << " player=" << playerId << " too few IRON_ORE tiles near HQ";
+            EXPECT_EQ(coalOnTrack, 0) << "seed=" << seed << " player=" << playerId << " COAL patch overlaps the track";
+            EXPECT_EQ(ironOnTrack, 0) << "seed=" << seed << " player=" << playerId << " IRON_ORE patch overlaps the track";
+        }
+    }
 }

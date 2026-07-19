@@ -425,6 +425,7 @@ AIResourceDiagnosis DiagnoseResourceNeed(Player* player, ResourceType resource, 
         if (bufferIt != production->outputBuffers.end() && bufferIt->second.buffer.size() >= bufferIt->second.bufferSize)
             fullOutput = true;
     }
+    diagnosis.hasProducerBuilding = hasProducerBuilding;
 
     if (consumed > produced)
     {
@@ -643,7 +644,8 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
     // building type, don't retry ANY tier until the cooldown expires; map
     // state (deposits, nearby construction) doesn't change fast enough to
     // justify re-paying this (measured ~17-190 ms in Debug) every ~1-2 s.
-    if (state.expensiveAnchorSearchCooldown.count(type) > 0)
+    auto cooldownKey = std::make_pair(type, preferredTile);
+    if (state.expensiveAnchorSearchCooldown.count(cooldownKey) > 0)
         return bestAnchor;
 
     for (int margin : {12, 24, 48, 96, fullMargin})
@@ -661,7 +663,7 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
             return bestAnchor;
     }
 
-    state.expensiveAnchorSearchCooldown[type] = 120.0;
+    state.expensiveAnchorSearchCooldown[cooldownKey] = 120.0;
     return bestAnchor;
 }
 

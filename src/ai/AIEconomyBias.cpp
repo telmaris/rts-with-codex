@@ -129,6 +129,11 @@ AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
             bias.decisionIntervalSeconds = std::max(0.2, std::stod(tokens[1]));
             continue;
         }
+        if (tokens[0] == "manpower_reserve" && tokens.size() >= 2)
+        {
+            bias.manpowerReserve = std::max(0.0, std::stod(tokens[1]));
+            continue;
+        }
     }
     return bias;
 }

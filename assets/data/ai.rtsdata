@@ -79,4 +79,11 @@ ai_economy_bias
     # affordability checks until production ramps — a faster cadence shortens
     # the reaction lag once resources ARE there, it can't conjure resources.
     decision_interval 1.0
+
+    # Manpower floor (user design 2026-07-19): below this, with villages
+    # already near population capacity (won't recover manpower on their own)
+    # and the food chain alive, building another Village becomes the AI's
+    # immediate priority (EconomySustain jumps to 0.9, above its normal 0.75
+    # cap) instead of waiting for manpower to run out.
+    manpower_reserve 20
 end

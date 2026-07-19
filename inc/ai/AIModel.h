@@ -62,6 +62,13 @@ struct AISituation
     bool UnderAttack() const { return enemyIncomingCount > myDeployedCount; }
 
     double manpower{0.0};
+    // Population cap / total population (Player::GetPopulationCap /
+    // GetTotalPopulation) — feeds the manpower-reserve emergency check
+    // (user design 2026-07-19): existing villages at capacity won't grow
+    // manpower any further, so a low reserve there means "build another
+    // Village now", not "wait, it'll recover on its own".
+    double populationCap{0.0};
+    double totalPopulation{0.0};
     int villageCount{0};
     int productionBuildingCount{0};
     int universityCount{0};
@@ -103,6 +110,16 @@ public:
     // lane-clearers (moveSpeed x roadAttack) to siege (siegeAttack).
     // Public + static so the rule is unit-testable without a world.
     static std::vector<const UnitDefinition*> RankUnitChoices(const AISituation& s);
+
+    // Manpower-reserve emergency (user design 2026-07-19): manpower below
+    // ai.rtsdata's `manpower_reserve` AND existing villages already at
+    // capacity (so manpower won't recover on its own) AND the food chain is
+    // actually alive (a new Village without food can't produce manpower
+    // either — the existing "food is dead" escalation stays the higher
+    // priority in that case). Used by both ScoreNeed and ExecuteEconomy, so
+    // they can never disagree about whether the emergency is live. Public +
+    // static (same reasoning as RankUnitChoices) for direct unit testing.
+    static bool ManpowerEmergency(const AISituation& s, double manpowerReserve);
 
 private:
     AISituation Sense(GameWorld& world, Player* player);

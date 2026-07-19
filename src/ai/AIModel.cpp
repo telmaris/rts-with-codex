@@ -269,6 +269,8 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     s.foodProductionAlive =
         AIActions::GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute,
                                    ResourceType::FOOD_PROVISIONS) > 0;
+    s.populationCap = player->GetPopulationCap();
+    s.totalPopulation = player->GetTotalPopulation();
 
     s.universityCount = AIActions::CountOwnedBuildings(player, BuildingType::University);
     s.hasIdleUniversity = AIActions::FindUniversity(player) != nullptr;
@@ -403,21 +405,41 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
         }
         case AINeed::EconomySustain:
         {
-            double score = 0.0;
-            if (s.productionBuildingCount < static_cast<int>(OpeningPlan.size()))
-                score = 0.6;  // opening: build out the base before anything subtler
+            // Manpower-reserve emergency (user design 2026-07-19) deliberately
+            // bypasses the 0.75 hard cap below: recruitment is already blocked
+            // without manpower (DiagnoseRecruitmentBlock refuses it), so
+            // pushing this above RecruitDeploy's floor doesn't starve
+            // militaries — it unblocks their one missing resource.
+            if (ManpowerEmergency(s, GetAIEconomyBias().manpowerReserve))
+                return 0.9;
+
+            // Critical: the manpower lifeline is dead. Deliberately the only
+            // path allowed to score above LogisticsRepair's floor (0.65) —
+            // see the routine cap below for why.
+            double criticalScore = 0.0;
             if (!s.foodProductionAlive)
-                score = std::max(score, 0.75);  // manpower lifeline is dead — critical
+                criticalScore = 0.75;
+
+            double routineScore = 0.0;
+            if (s.productionBuildingCount < static_cast<int>(OpeningPlan.size()))
+                routineScore = 0.6;  // opening: build out the base before anything subtler
             if (!s.deficits.empty())
-                score = std::max(score, std::clamp(s.deficits.front().urgency, 0.0, 1.0));
-            // Hard-capped BELOW RecruitDeploy's floor (0.8): the economy
-            // exists to serve the units-on-the-track objective and acts via
-            // fallthrough whenever the military branch can't (unaffordable
-            // recruit, full queue). Harness catch 2026-07-17: bias-driven
-            // deficits scored ~0.9 and, with first-success-wins ordering,
-            // starved the military branch completely — 5 sim-minutes, zero
-            // Barracks, zero recruits.
-            return std::min(score, 0.75);
+                routineScore = std::max(routineScore, std::clamp(s.deficits.front().urgency, 0.0, 1.0));
+            // Routine score capped BELOW LogisticsRepair's floor (0.65), not
+            // just RecruitDeploy's (0.8). Harness catch 2026-07-19: chasing a
+            // brand-new resource chain (e.g. IRON, now reachable via the
+            // COAL/IRON_ORE starting patches) can drive deficit urgency up to
+            // the old 0.75 cap, exactly tying a 2-building LogisticsRepair
+            // score — and the stable-sort tie-break (enum order) always
+            // favored Economy, so it kept greenlighting the new chain forever
+            // and Logistics never got a turn: a permanent bridge-
+            // affordability deadlock (starting stock burned on the new
+            // producer instead of the one connection still unfinished). Only
+            // the true food-dead emergency above is allowed to preempt
+            // logistics now.
+            routineScore = std::min(routineScore, 0.6);
+
+            return std::max(criticalScore, routineScore);
         }
         case AINeed::LogisticsRepair:
         {
@@ -486,9 +508,12 @@ bool UtilityAIModel::ExecuteNeed(AINeed need, GameWorld& world, Player* player, 
 
 bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISituation& s)
 {
-    // Manpower starvation with a live food chain → another Village converts
-    // that food into manpower.
-    if (s.manpower < 5.0 && s.foodProductionAlive &&
+    // Manpower-reserve emergency (user design 2026-07-19): villages already
+    // near capacity won't grow manpower further on their own, so another
+    // Village — converting food into manpower — is the immediate fix. Same
+    // condition ScoreNeed uses to escalate above the 0.75 cap, so the two
+    // can never disagree about whether this is live.
+    if (ManpowerEmergency(s, GetAIEconomyBias().manpowerReserve) &&
         player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Village)))
     {
         Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Village,
@@ -532,7 +557,38 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
         target = diagnosis.missingInputs.front();
     }
 
+    // Deadlock fix (rdzeń zgłoszenia 2026-07-19: "AI stawia podejrzanie dużo
+    // chat drwala, nie rozwija się"): re-diagnose the resolved target and
+    // check whether an EXISTING producer is the problem before building
+    // another one. Without this, a stalled/bottlenecked/unmanned producer's
+    // output reads as 0, urgency stays high, and every cycle answers with
+    // "build one more" — the new producer inherits the same disconnection/
+    // manpower drought, stalls too, and the ladder just grows a forest of
+    // producers instead of ever developing. Fixing an EXISTING producer is
+    // LogisticsRepair's (road/storage bottleneck) or the manpower-reserve
+    // emergency's (unmanned) job, not this function's.
+    //
+    // Exactly one redundant producer is still allowed through (harness catch
+    // 2026-07-19, AIBehaviorHarnessTests regression from the initial
+    // unconditional block): when the lone existing producer is stuck behind a
+    // logistics problem LogisticsRepair itself can't clear yet (a Bridge one
+    // tile away that's still unaffordable — a real, not-instantly-fixable
+    // deadlock), refusing ANY duplicate leaves the AI with no path forward at
+    // all while it waits, since the thing that would unblock it (the bridge)
+    // needs the very resource that's now stuck. A second producer placed on
+    // fresh, already-connected ground routes around the stuck one instead of
+    // literally being a copy of it. Once two are unhealthy, that path is
+    // exhausted too and the hard block resumes.
     std::vector<AIActions::AIProducerOption> options = AIActions::FindProducerOptions(target);
+    int ownedProducers = 0;
+    for (const auto& option : options)
+        ownedProducers += AIActions::CountOwnedBuildings(player, option.buildingType);
+
+    AIActions::AIResourceDiagnosis targetDiagnosis =
+        AIActions::DiagnoseResourceNeed(player, target, 0, &consumptionBias, &priorityWeights);
+    if (targetDiagnosis.hasProducerBuilding && ownedProducers >= 2 &&
+        (targetDiagnosis.logisticsProblem || targetDiagnosis.storageProblem || targetDiagnosis.manpowerProblem))
+        return false;
     std::stable_sort(options.begin(), options.end(),
                      [&](const AIActions::AIProducerOption& a, const AIActions::AIProducerOption& b)
                      {
@@ -581,6 +637,23 @@ bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
         // Cooldown after a just-submitted order of this type — move on.
     }
     return false;
+}
+
+bool UtilityAIModel::ManpowerEmergency(const AISituation& s, double manpowerReserve)
+{
+    // Villages already near capacity won't grow manpower any further on
+    // their own — a low reserve there means "build another Village now",
+    // not "wait, it'll recover" (user design 2026-07-19). A dead food chain
+    // stays the higher-priority problem: a new Village without food can't
+    // produce manpower either, so it's not a fix while foodProductionAlive
+    // is false — the existing "food is dead" escalation (0.75) wins instead.
+    if (!s.foodProductionAlive)
+        return false;
+    if (s.manpower >= manpowerReserve)
+        return false;
+    if (s.populationCap <= 0.0)
+        return false;  // no village to be "full" yet — not this emergency
+    return s.totalPopulation >= s.populationCap * 0.95;
 }
 
 std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISituation& s)

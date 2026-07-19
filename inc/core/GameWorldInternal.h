@@ -110,20 +110,75 @@ namespace GameWorldInternal
                a.y + aSize.y + padding > b.y - padding;
     }
 
+    // `minCenterDist`/`maxCenterDist`: ring the patch center must fall in
+    // (tiles from HQ center). `preferredDir`: unit-ish direction vector the
+    // search biases toward within that ring, so multiple patches (WOOD/
+    // STONE/COAL/IRON_ORE) spread around the HQ instead of overlapping —
+    // see CreateStartingVillageAndResources for the four directions used.
     inline void PlaceStartingResourcePatch(TileMap& tilemap, Vec2i hqAnchor, Vec2i hqFootprint,
                                     Vec2i villageAnchor, Vec2i villageFootprint,
-                                    TileType type, std::mt19937& rng)
+                                    TileType type, std::mt19937& rng,
+                                    int minCenterDist, int maxCenterDist, Vec2i preferredDir)
     {
         Vec2i center{hqAnchor.x + hqFootprint.x / 2, hqAnchor.y + hqFootprint.y / 2};
         int radius = 4;
-        // User request (2026-07-17): patch centers live in a ring 17..23
-        // tiles from the HQ center, so every patch tile (radius 4) sits at
-        // 13+ — clear of the 10-tile HQ build apron (extractors must be
-        // placeable ON the patch) while staying inside the starting zone.
-        constexpr int kMinPatchCenterDist = 17;
-        constexpr int kMaxPatchCenterDist = 23;
-        Vec2i preferredOffset = type == TileType::WOOD ? Vec2i{-kMaxPatchCenterDist + radius, 0}
-                                                       : Vec2i{kMaxPatchCenterDist - radius, 0};
+        // User request (2026-07-17): patch centers live in a ring around the
+        // HQ center (radius 4 patch stays clear of the 10-tile HQ build apron
+        // once minCenterDist is 17+) while staying inside the starting zone.
+        // COAL/IRON_ORE (user request 2026-07-19: iron is often missing near
+        // spawn) use a wider ring than WOOD/STONE so all four patches fit
+        // around the HQ without collisions.
+        int kMinPatchCenterDist = minCenterDist;
+        int kMaxPatchCenterDist = maxCenterDist;
+        int preferredMagnitude = kMaxPatchCenterDist - radius;
+        Vec2i preferredOffset{preferredDir.x * preferredMagnitude, preferredDir.y * preferredMagnitude};
+
+        // Track-side reachability (user report 2026-07-19, AIBehaviorHarnessTests
+        // regression): a patch landing on the far side of the military track
+        // from HQ forces the AI's first extractor there to need a Bridge
+        // crossing it wouldn't otherwise need — and if that Bridge's own
+        // PLANKS+STONE cost is blocked by the very extractor stranded across
+        // it (no output reaching storage to build the stock), the deadlock is
+        // permanent. One flood fill from the HQ center, avoiding
+        // isMilitaryRoad tiles (already carved by GenerateWorldLayout before
+        // any player exists), marks every tile reachable from HQ WITHOUT
+        // crossing the track; candidates outside that region are rejected
+        // outright below, same as this function already rejects tiles
+        // sitting on the track itself.
+        int mapTileCount = tilemap.params.sizeX * tilemap.params.sizeY;
+        std::vector<bool> sameSideAsHq(mapTileCount, false);
+        {
+            std::queue<int> frontier;
+            if (tilemap.IsInside(center))
+            {
+                int startId = tilemap.GetIdFromCoords(center);
+                if (!tilemap[startId].isMilitaryRoad)
+                {
+                    sameSideAsHq[startId] = true;
+                    frontier.push(startId);
+                }
+            }
+            while (!frontier.empty())
+            {
+                int current = frontier.front();
+                frontier.pop();
+                Vec2i pos = tilemap.GetCoordsFromId(current);
+                const std::array<Vec2i, 4> neighbours{
+                    Vec2i{pos.x + 1, pos.y}, Vec2i{pos.x - 1, pos.y},
+                    Vec2i{pos.x, pos.y + 1}, Vec2i{pos.x, pos.y - 1}
+                };
+                for (Vec2i next : neighbours)
+                {
+                    if (!tilemap.IsInside(next))
+                        continue;
+                    int nextId = tilemap.GetIdFromCoords(next);
+                    if (sameSideAsHq[nextId] || tilemap[nextId].isMilitaryRoad)
+                        continue;
+                    sameSideAsHq[nextId] = true;
+                    frontier.push(nextId);
+                }
+            }
+        }
 
         Vec2i bestCenter{-1, -1};
         int bestScore = std::numeric_limits<int>::min();
@@ -135,6 +190,8 @@ namespace GameWorldInternal
                 int distSq = x * x + y * y;
                 if (distSq < kMinPatchCenterDist * kMinPatchCenterDist ||
                     distSq > kMaxPatchCenterDist * kMaxPatchCenterDist)
+                    continue;
+                if (!tilemap.IsInside(patchCenter) || !sameSideAsHq[tilemap.GetIdFromCoords(patchCenter)])
                     continue;
 
                 Vec2i patchAnchor{patchCenter.x - radius, patchCenter.y - radius};
