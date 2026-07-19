@@ -143,8 +143,18 @@ TEST(PlayerEconomyTests, TelemetryRecordsActualProductionAndInputConsumption)
     EXPECT_GT(player.economyTelemetry.current.productionRatesPerMinute[ResourceType::PLANKS], 0);
 }
 
-TEST(PlayerEconomyTests, TelemetryRecordsBuildCostConsumption)
+TEST(PlayerEconomyTests, TelemetryDoesNotRecordBuildCostAsConsumption)
 {
+    // 2026-07-19 (user report): a build cost is a one-time spend, not a
+    // recurring per-minute drain — recording it into the same rolling-window
+    // telemetry as real production-input/population consumption made every
+    // construction spike that resource's reported "consumption rate" for the
+    // rest of the window, which fed straight into DiagnoseResourceNeed's
+    // urgency and kept pushing the AI to build MORE producers of whatever it
+    // had just spent on building (observed: AI kept stacking Woodcutters).
+    // The ai_economy_bias virtual-consumption mechanism already exists
+    // specifically to represent non-constant costs like this one — real
+    // telemetry recording it too was double-counting.
     TileMap map;
     Player player{0, map};
     PrepareOwnedMap(map, &player);
@@ -157,10 +167,10 @@ TEST(PlayerEconomyTests, TelemetryRecordsBuildCostConsumption)
     ASSERT_TRUE(player.TryPayBuildCost({{ResourceType::WOOD, 3}}));
     player.UpdateEconomyTelemetry(1.0);
 
-    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::WOOD], 180);
+    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::WOOD], 0);
 }
 
-TEST(PlayerEconomyTests, TelemetryRecordsBuildingPlacementCostConsumption)
+TEST(PlayerEconomyTests, TelemetryDoesNotRecordBuildingPlacementCostAsConsumption)
 {
     TileMap map;
     Player player{0, map};
@@ -177,7 +187,7 @@ TEST(PlayerEconomyTests, TelemetryRecordsBuildingPlacementCostConsumption)
     ASSERT_NE(player.Build<Road>(map.GetIdFromCoords({0, 0})), nullptr);
     player.UpdateEconomyTelemetry(1.0);
 
-    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::STONE], 120);
+    EXPECT_EQ(player.economyTelemetry.current.consumptionRatesPerMinute[ResourceType::STONE], 0);
 }
 
 TEST(PlayerEconomyTests, BuildCostModifierReducesEffectiveBuildCosts)

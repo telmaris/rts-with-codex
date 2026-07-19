@@ -330,7 +330,6 @@ bool Player::TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs)
             while (remaining > 0 && !it->second.buffer.empty())
             {
                 it->second.FreeResource();
-                economyTelemetry.RecordConsumption(cost.type);
                 remaining--;
             }
 
