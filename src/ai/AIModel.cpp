@@ -10,8 +10,10 @@ namespace
 {
     // Sense cadence (seconds). Cheap aggregate reads.
     constexpr double SenseInterval = 1.0;
-    // Decision cadence — one concrete action attempt per cycle.
-    constexpr double DecisionInterval = 1.5;
+    // Decision cadence (one concrete action attempt per cycle) comes from
+    // ai.rtsdata's `decision_interval` (AIEconomyBias) — the pace lever the
+    // user tunes; 1.5 s was the old hardcoded value and remains the default
+    // when the line is absent.
     // Road-network maintenance cadence (AIActions::TryBuildRoads), kept on
     // its own timer like the old model so the network stays healthy
     // independently of what the decision core is busy with.
@@ -161,7 +163,7 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
 
     if (decisionTimer > 0.0)
         return;
-    decisionTimer = DecisionInterval;
+    decisionTimer = GetAIEconomyBias().decisionIntervalSeconds;
 
     // Difficulty noise (etap 4): a worse player sometimes just doesn't act
     // this cycle, and mis-weighs what matters. Hard plays the pure model.

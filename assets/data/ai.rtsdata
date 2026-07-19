@@ -70,4 +70,13 @@ ai_economy_bias
     # gated behind the full tier-2 chain. Not a `priority` line since towers
     # aren't a resource.
     tower_readiness_buildings 4
+
+    # Seconds between AI decision cycles (one concrete action attempt per
+    # cycle). Old hardcoded pace was 1.5; lowered on user request 2026-07-19
+    # ("da się przyspieszyć decyzje AI?"). Note the perceived "fast first
+    # minute, then nothing" is mostly RESOURCE-bound, not cadence-bound: the
+    # opening build-out spends the starting stock, then most decisions fail
+    # affordability checks until production ramps — a faster cadence shortens
+    # the reaction lag once resources ARE there, it can't conjure resources.
+    decision_interval 1.0
 end

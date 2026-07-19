@@ -122,6 +122,13 @@ AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
             bias.towerReadinessBuildings = std::max(0, std::stoi(tokens[1]));
             continue;
         }
+        if (tokens[0] == "decision_interval" && tokens.size() >= 2)
+        {
+            // Floor at 0.2 s — below that the AI would submit faster than the
+            // economy can physically react, burning CPU on refused commands.
+            bias.decisionIntervalSeconds = std::max(0.2, std::stod(tokens[1]));
+            continue;
+        }
     }
     return bias;
 }

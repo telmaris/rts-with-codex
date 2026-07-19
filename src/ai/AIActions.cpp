@@ -707,7 +707,40 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         // 2-3 redundant roads side by side).
         if (building == nullptr && state.reservedRoadTiles.contains(tileId))
             return false;
+        // An empty track tile next to an existing Bridge can never take a
+        // second Bridge (edge-to-edge crossings are rejected by
+        // CanBuildFootprint's adjacency rule) — encode that here so the
+        // planner reroutes up front instead of discovering it at submit
+        // time, reserving the tile, and replanning every cadence.
+        if (building == nullptr && tile.isMilitaryRoad)
+        {
+            for (int neighbourId : world.GetTileMap().GetAdjacentTileIds(world.GetTileMap().GetCoordsFromId(tileId), {1, 1}))
+            {
+                Building* neighbour = world.GetTileMap().GetBuilding(neighbourId);
+                if (neighbour != nullptr && neighbour->buildingType == BuildingType::Bridge)
+                    return false;
+            }
+        }
         return building == nullptr || IsRoadLikeBuilding(building);
+    };
+
+    // The military track may only be CROSSED — one track tile at a time,
+    // perpendicular — never ridden along. Without this rule the track is the
+    // planner's favorite corridor: a long, guaranteed building-free lane at
+    // the same step cost as grass, so paths route straight down it; at
+    // submit time every track tile becomes a Bridge, the first placement
+    // succeeds, the second is orthogonally adjacent and gets refused, the
+    // tile is reserved, the plan reroutes one tile off the track and lays a
+    // Road there instead — net effect: roads glued alongside the track the
+    // whole way (playtest 2026-07-19 screenshot: "AI chyba uznaje tor
+    // jednostek za drogę"). Banning track→track edges makes riding
+    // impossible while leaving every legal crossing intact — a legal
+    // crossing of the 1-tile-wide track only ever occupies one track tile
+    // per crossing anyway (that's exactly what the bridge adjacency rule
+    // enforces at placement).
+    auto isTrackTile = [&](int tileId)
+    {
+        return world.GetTileMap()[tileId].isMilitaryRoad;
     };
 
     // 0-1 BFS: stepping onto an existing (or already-ordered, i.e. placed
@@ -769,6 +802,9 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
             int nextId = world.GetTileMap().GetIdFromCoords(nextPos);
             if (settled.count(nextId) > 0 || !canUseRoadPathTile(nextId))
+                continue;
+            // Cross the track, never ride it (see isTrackTile above).
+            if (isTrackTile(current) && isTrackTile(nextId))
                 continue;
 
             int weight = stepCost(nextId);

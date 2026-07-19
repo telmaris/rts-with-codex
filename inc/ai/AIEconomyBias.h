@@ -42,6 +42,12 @@ struct AIEconomyBias
     // this is the equivalent build-order lever for "start defense in the
     // meantime, once the economy has SOME footing" (user design 2026-07-19).
     int towerReadinessBuildings{4};
+    // Seconds between AI decision cycles (one concrete action attempt per
+    // cycle) — the pace lever (user request 2026-07-19: "da się przyspieszyć
+    // decyzje AI?"). Identical for every AI in both lockstep worlds (static
+    // config), so lowering it is determinism-safe. Default matches the old
+    // hardcoded cadence when the line is absent.
+    double decisionIntervalSeconds{1.5};
 
     // Bias for one resource at a difficulty level, floor-rounded; 0 for
     // resources without an entry.
