@@ -43,6 +43,11 @@ namespace
         int mines{0};
         int foundries{0};
         int planksRate{0};
+        // Weapon/tools chain (2026-07-20, "AI must build toward attack" fix):
+        // tracks whether the sword economy actually stands up, not just the
+        // raw-material tier.
+        int smiths{0};
+        int barracksCount{0};
     };
 }
 
@@ -72,6 +77,12 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
     int accepted = 0;
     int rejected = 0;
     int maxDeployedSeen = 0;
+    // Weapon economy end-to-end (2026-07-20): a militia-only roster means the
+    // AI never actually built toward attack, even if it technically recruited
+    // and deployed something. Checked against BOTH the live roster and units
+    // already marching (deployed units leave the roster) so a fast recruit-
+    // then-deploy cycle can't hide a real militia-only pattern.
+    bool sawNonMilitiaUnit = false;
 
     constexpr int TicksPerWindow = 3000;  // 30 sim-seconds at the fixed 100 Hz tick
     constexpr int Windows = 10;           // 5 sim-minutes total
@@ -96,9 +107,17 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
 
         int deployedNow = 0;
         for (const auto& [instanceId, unit] : world.GetDeployedUnits())
-            if (unit.ownerPlayerId == ai->id && unit.state != BattleUnitState::Dying)
-                deployedNow++;
+        {
+            if (unit.ownerPlayerId != ai->id || unit.state == BattleUnitState::Dying)
+                continue;
+            deployedNow++;
+            if (unit.unitDefId != "militia")
+                sawNonMilitiaUnit = true;
+        }
         maxDeployedSeen = std::max(maxDeployedSeen, deployedNow);
+        for (const auto& [instanceId, unit] : ai->roster.units)
+            if (unit.unitDefId != "militia")
+                sawNonMilitiaUnit = true;
 
         WindowSample sample;
         sample.simSeconds = (window + 1) * 30.0;
@@ -114,20 +133,23 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
         sample.foundries = AIActions::CountOwnedBuildings(ai, BuildingType::Foundry);
         sample.planksRate = AIActions::GetResourceRate(
             ai->economyTelemetry.current.productionRatesPerMinute, ResourceType::PLANKS);
+        sample.smiths = AIActions::CountOwnedBuildings(ai, BuildingType::Smith);
+        sample.barracksCount = AIActions::CountOwnedBuildings(ai, BuildingType::Barracks);
         samples.push_back(sample);
     }
 
     auto report = [&]()
     {
         std::string out = "\nAI behavior report (deltas vs. world init):\n"
-                          "  sim_s | +bldg | +road | roster | deployed | cmd_ok | cmd_rej | wcut | lmil | mine | fdry | planks/m\n";
-        char line[160];
+                          "  sim_s | +bldg | +road | roster | deployed | cmd_ok | cmd_rej | wcut | lmil | mine | fdry | smith | brk | planks/m\n";
+        char line[180];
         for (const auto& s : samples)
         {
-            std::snprintf(line, sizeof(line), "  %5.0f | %5d | %5d | %6d | %8d | %6d | %7d | %4d | %4d | %4d | %4d | %8d\n",
+            std::snprintf(line, sizeof(line), "  %5.0f | %5d | %5d | %6d | %8d | %6d | %7d | %4d | %4d | %4d | %4d | %5d | %3d | %8d\n",
                           s.simSeconds, s.buildings - s.roads, s.roads, s.roster,
                           s.deployed, s.accepted, s.rejected,
-                          s.woodcutters, s.lumberMills, s.mines, s.foundries, s.planksRate);
+                          s.woodcutters, s.lumberMills, s.mines, s.foundries,
+                          s.smiths, s.barracksCount, s.planksRate);
             out += line;
         }
         if (!rejectionReasons.empty())
@@ -199,4 +221,29 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
     EXPECT_GE(samples.back().woodcutters, 1) << report();
     EXPECT_LE(samples.back().woodcutters, 4)
         << "Woodcutter tunnel vision is back (deficit ladder not rotating)" << report();
+
+    // Weapon economy end-to-end (2026-07-20, user report: "AI wciąż nie
+    // buduje żelaza/węgla/narzędzi broni" — passive militia-only games).
+    // RecruitDeploy now builds toward its own top pick's missing cost once
+    // the economy has some footing (UtilityAIModel::ExecuteRecruitDeploy,
+    // gated on AISituation::economyEstablished) — verified here by a real
+    // Smith standing and something other than bare militia in circulation.
+    //
+    // NOT asserting Foundry specifically (investigated 2026-07-20, confirmed
+    // NOT a Task 1-5 regression): Hard difficulty's starting grant seeds 200
+    // IRON at HQ (GameWorld.Init.cpp), which is vastly more than any recipe's
+    // per-cycle IRON input — so TryBuildProducerFor's chain-walk (AIActions.cpp)
+    // never sees IRON as a "missing input" long enough to descend to
+    // Foundry/IRON_ORE; it stops at IRON_SWORD/STEEL_SWORD and (correctly, by
+    // today's logic) tries another Smith instead, which isn't guaranteed to
+    // default to the sword recipe (RecipeComponent picks recipe 0). That's a
+    // separate, pre-existing gap (producer-type vs. active-recipe selection)
+    // outside this fix's scope — confirmed by extending this same run to 10
+    // sim-minutes: Mine(IRON_ORE) DOES eventually get built (mine count 1->2)
+    // and roster/deploy keep growing normally the whole time, but Foundry
+    // still never appears even then.
+    EXPECT_GE(samples.back().smiths, 1)
+        << "no Smith - the tools/weapon chain never stood up" << report();
+    EXPECT_TRUE(sawNonMilitiaUnit)
+        << "the AI never recruited or deployed anything beyond bare militia" << report();
 }
