@@ -125,6 +125,32 @@ int CountStoredResource(Player* player, ResourceType type)
     return amount;
 }
 
+int CountProducersOfResource(Player* player, ResourceType resource)
+{
+    int count = 0;
+    if (player == nullptr || resource == ResourceType::Null)
+        return count;
+
+    // Duplicate-producer guard fix (2026-07-20): counts buildings that
+    // actually produce THIS resource on the terrain they're standing on
+    // (ProductionComponent::products, same source DiagnoseResourceNeed reads),
+    // not every building of a candidate BuildingType. A Mine's products come
+    // from the terrain it was placed on (BuildingConfig.cpp), so a Mine on a
+    // COAL tile does not count toward IRON_ORE's producer count and vice
+    // versa — counting by BuildingType alone conflated the two and let a
+    // stalled/unhealthy COAL mine block (or a healthy one wrongly "diversify
+    // away from") IRON_ORE decisions that have nothing to do with it.
+    for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
+    {
+        const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+        if (production == nullptr || building->owner != player || building->IsUnderConstruction())
+            continue;
+        if (production->products.contains(resource))
+            count++;
+    }
+    return count;
+}
+
 int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type)
 {
     auto it = rates.find(type);

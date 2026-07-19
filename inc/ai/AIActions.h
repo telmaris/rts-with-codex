@@ -80,6 +80,11 @@ namespace AIActions
     int CountOwnedBuildings(Player* player, BuildingType type);
     int CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingType type);
     int CountStoredResource(Player* player, ResourceType type);
+    // Completed producers of `resource` specifically (matched via
+    // ProductionComponent::products, the terrain-resolved recipe output) —
+    // NOT every building of a BuildingType that CAN produce it on some other
+    // terrain (e.g. a Mine standing on COAL vs. one standing on IRON_ORE).
+    int CountProducersOfResource(Player* player, ResourceType resource);
     int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type);
     // A player structurally owns at most one HQ (EliminatePlayer only transfers
     // ProductionComponent buildings), so first-match here is deterministic.
