@@ -697,6 +697,72 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
     }
 }
 
+// Personality bias (2026-07-20): unlike NoiseAmplitude/SkipChance, the
+// per-need personality skew and wave-size jitter are active on EVERY
+// difficulty, including Hard — which had ZERO randomness before this feature.
+// Two same-seed Hard worlds must still stay checksum-identical.
+TEST(UtilityAIModelTests, TwoWorldsSameSeedHardDifficultyWithPersonalityStayInSync)
+{
+    MapParameters params;
+    params.aiOpponentCount = 1;
+    params.seed = 31337;
+    params.aiDifficulty = 3;  // Hard — no difficulty noise, personality bias only
+
+    GameWorld worldA;
+    GameWorld worldB;
+    worldA.InitWorld("personality-determinism", nullptr, nullptr, params);
+    worldB.InitWorld("personality-determinism", nullptr, nullptr, params);
+
+    for (int tick = 0; tick < 3000; tick++)
+    {
+        worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
+        worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
+        if (tick % 100 == 99)
+            ASSERT_EQ(worldA.BuildChecksum(), worldB.BuildChecksum()) << "tick=" << tick;
+    }
+}
+
+// Personality bias (2026-07-20, user request: "2 AI nie gra identycznie"):
+// two players on the SAME map seed must draw DIFFERENT personality values
+// (seed XOR player id) - that's the entire point. Verified against the
+// private state directly through the test-seam getters.
+TEST(UtilityAIModelTests, PersonalityBiasDiffersAcrossPlayersButIsStablePerSeed)
+{
+    MapParameters params;
+    params.aiOpponentCount = 1;
+    params.seed = 2026;
+
+    GameWorld world;
+    world.InitWorld("personality-diversity", nullptr, nullptr, params);
+
+    Player* playerA = world.GetPlayerHandler().players.at(0).get();
+    Player* playerB = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(playerA, nullptr);
+    ASSERT_NE(playerB, nullptr);
+
+    UtilityAIModel modelA(playerA->id);
+    UtilityAIModel modelB(playerB->id);
+    modelA.Update(world, playerA, 0.01);
+    modelB.Update(world, playerB, 0.01);
+
+    bool anyNeedDiffers = false;
+    for (int i = 0; i < static_cast<int>(AINeed::Count); i++)
+        if (modelA.GetPersonalityNeedBias(static_cast<AINeed>(i)) !=
+            modelB.GetPersonalityNeedBias(static_cast<AINeed>(i)))
+            anyNeedDiffers = true;
+    EXPECT_TRUE(anyNeedDiffers || modelA.GetPersonalityWaveBias() != modelB.GetPersonalityWaveBias())
+        << "two different player ids on the same map seed drew an identical personality";
+
+    // Stability: re-seeding the SAME player id against the SAME map seed must
+    // reproduce the identical values - it's a pure function of (seed, id).
+    UtilityAIModel modelARepeat(playerA->id);
+    modelARepeat.Update(world, playerA, 0.01);
+    for (int i = 0; i < static_cast<int>(AINeed::Count); i++)
+        EXPECT_DOUBLE_EQ(modelA.GetPersonalityNeedBias(static_cast<AINeed>(i)),
+                         modelARepeat.GetPersonalityNeedBias(static_cast<AINeed>(i)));
+    EXPECT_EQ(modelA.GetPersonalityWaveBias(), modelARepeat.GetPersonalityWaveBias());
+}
+
 // Etap 4: higher difficulty = a bigger head start (resources + manpower into
 // the AI's HQ at init), never a different algorithm.
 TEST(UtilityAIModelTests, HigherDifficultyGrantsStartingAdvantage)
