@@ -44,6 +44,7 @@ enum class BuildingCapability : std::size_t
     Recruitment,
     Hq,
     TowerCombat,
+    Upgrade,
     Count
 };
 
@@ -70,6 +71,32 @@ struct RoadComponent : IBuildingComponent
     BuildingCapability GetCapability() const override { return BuildingCapability::Road; }
     int GetModifiedMaxCapacity(const Building& self) const;
     double GetModifiedSpeedModifier(const Building& self) const;
+};
+
+// --- UpgradeComponent ---
+// Generic, player-triggered per-instance upgrade progression — introduced
+// for Road but deliberately not road-specific (any future BuildingType can
+// register one). `level` starts at 1 (baseline, not itself upgradeable-to)
+// and climbs toward `maxLevel`; per-level cost/duration/effect data lives in
+// BuildingUpgradeLevelDefinition (BuildingConfig.h), looked up by level from
+// the owning building's BuildingDefinition::upgradeLevels — this component
+// only holds the live per-instance state, not the data.
+struct UpgradeComponent : IBuildingComponent
+{
+    int level{1};
+    int maxLevel{1};
+    bool isUpgrading{false};
+    // Mirrors Building::constructionActive but kept separate: an upgrading
+    // building must NOT report IsUnderConstruction() (that would block
+    // transport, SetReceiver, etc. — see GameWorld.Commands.cpp), so it
+    // can't share constructionRemaining/constructionActive. ConstructionQueue
+    // sets this the same way it sets constructionActive, sharing the same
+    // builder-count pool.
+    bool upgradeActive{true};
+    double upgradeRemaining{0.0};
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::Upgrade; }
+    void Update(Building& self, double dt) override;
 };
 
 // --- ProductionComponent ---
@@ -122,6 +149,7 @@ struct LogisticsComponent : IBuildingComponent
     BuildingCapability GetCapability() const override { return BuildingCapability::Logistics; }
     bool HasSupplier(ResourceType type) const;
     bool HasReceiver(ResourceType type) const;
+    bool AcceptsSupplierFor(ResourceType type, const Building* supplier) const;
 
     void SetSupplier(ResourceType type, Building* supplier, Building& self);
     void SetReceiver(ResourceType type, Building* receiver, Building& self,
@@ -378,5 +406,6 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadCompo
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<HqComponent>() { return BuildingCapability::Hq; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<TowerCombatComponent>() { return BuildingCapability::TowerCombat; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<UpgradeComponent>() { return BuildingCapability::Upgrade; }
 
 #endif

@@ -252,18 +252,31 @@ void Player::RefreshTechnologyModifiers()
 {
     balanceModifiers.ClearSourcePrefix("tech:");
     balanceModifiers.ClearSourcePrefix("focus:");
-    balanceModifiers.ClearSourcePrefix("state:");
-    std::set<std::string> unlockedGovernmentIds;
-    for (const auto& focusId : focuses.GetUnlocked())
-    {
-        const auto* focus = FindFocusDefinition(focusId);
-        if (focus != nullptr && !focus->governmentId.empty())
-            unlockedGovernmentIds.insert(focus->governmentId);
-    }
-    stateDevelopment.RefreshFromGovernmentIds(unlockedGovernmentIds);
     technologies.CollectModifiers(balanceModifiers);
     focuses.CollectModifiers(balanceModifiers);
-    stateDevelopment.CollectModifiers(balanceModifiers);
+}
+
+void Player::ApplyUpgradeLevelModifiers(Building& building)
+{
+    auto* upgrade = building.GetComponent<UpgradeComponent>();
+    if (upgrade == nullptr)
+        return;
+
+    std::string sourcePrefix = "upgrade:" + std::to_string(building.positionId) + ":";
+    balanceModifiers.ClearSourcePrefix(sourcePrefix);
+
+    const auto& definition = GetBuildingDefinition(building.buildingType);
+    auto it = std::find_if(definition.upgradeLevels.begin(), definition.upgradeLevels.end(),
+        [&](const BuildingUpgradeLevelDefinition& levelDef) { return levelDef.level == upgrade->level; });
+    if (it == definition.upgradeLevels.end())
+        return;
+
+    for (BalanceModifier modifier : it->modifiers)
+    {
+        modifier.scope = BalanceModifierScope::BuildingAtPosition(building.positionId);
+        modifier.source = sourcePrefix + std::to_string(upgrade->level);
+        balanceModifiers.AddModifier(std::move(modifier));
+    }
 }
 
 double Player::AddManpower(double amount)

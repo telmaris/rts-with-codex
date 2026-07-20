@@ -306,7 +306,7 @@ namespace GameWorldInternal
     // A first BFS-based fix here still picked ONE fixed point per side as
     // the mandatory start/goal — which failed just as badly whenever that
     // one point happened to land ON the track itself (very possible: the
-    // track is only GUARANTEED straight for kGateStub tiles out of each HQ,
+    // track is only GUARANTEED straight for kStubSeedLength tiles out of each HQ,
     // MilitaryRoadNetwork.cpp, and is free to wiggle after that). A 60-seed
     // sweep caught 9/120 villages this way: the BFS correctly found no path
     // to an unbuildable single tile and visited ~99% of the map proving it.
@@ -316,13 +316,13 @@ namespace GameWorldInternal
     // already uses for the same reason) — a multi-source, multi-target BFS
     // that finds the nearest REACHABLE pair of perimeter tiles instead of
     // gambling that one specific point is buildable.
-    inline void BuildStartRoad(Player* player, Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
+    // Multi-source, multi-target BFS between every tile adjacent to each
+    // building's footprint (same pattern AIActions::SubmitRoadPath uses),
+    // treating every isMilitaryRoad-avoiding, buildable tile as passable.
+    // Read-only — places nothing. Returns an empty path if no route exists.
+    inline std::vector<int> FindRoadPathBetweenFootprints(TileMap& tilemap, Player* player,
+        Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
     {
-        if (player == nullptr)
-            return;
-
-        TileMap& tilemap = player->tilemap;
-
         const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
         auto passable = [&](int tileId)
         {
@@ -333,7 +333,7 @@ namespace GameWorldInternal
         std::vector<int> fromAdjacent = tilemap.GetAdjacentTileIds(fromAnchor, fromFootprint);
         std::vector<int> toAdjacent = tilemap.GetAdjacentTileIds(toAnchor, toFootprint);
         if (fromAdjacent.empty() || toAdjacent.empty())
-            return;
+            return {};
 
         std::set<int> goalSet(toAdjacent.begin(), toAdjacent.end());
 
@@ -382,18 +382,56 @@ namespace GameWorldInternal
 
         // No track-avoiding route exists between any pair of perimeter
         // tiles — shouldn't happen (the ring doesn't enclose a single HQ's
-        // local area) short of a building being fully boxed in; leave the
-        // village unconnected rather than place a Road the placement rules
-        // would refuse anyway (the old straight-walk fallback did exactly
-        // that, silently, for the same net result).
+        // local area) short of a building being fully boxed in.
         if (reached < 0)
-            return;
+            return {};
 
         std::vector<int> path;
         for (int cursor = reached; cursor >= 0; cursor = parent[cursor])
             path.push_back(cursor);
         std::reverse(path.begin(), path.end());
+        return path;
+    }
 
+    // Builds an orthogonal road between two starting buildings, routing
+    // around the military track (user report 2026-07-19: "road do village
+    // nachodzi na tor jednostek"). The original version walked a straight
+    // Manhattan path (horizontal leg then vertical leg) between ONE fixed
+    // point on each building's nearest side, with no awareness of the track
+    // at all — CanBuildFootprint (via Player::Build) already refuses to
+    // place a Road on an isMilitaryRoad tile, so a track tile on that
+    // straight line was silently skipped, but the walk kept going past it
+    // regardless, leaving a road that runs up against (or gaps across) the
+    // track instead of avoiding it.
+    //
+    // A first BFS-based fix here still picked ONE fixed point per side as
+    // the mandatory start/goal — which failed just as badly whenever that
+    // one point happened to land ON the track itself (very possible: the
+    // track is only GUARANTEED straight for kStubSeedLength tiles out of each HQ,
+    // MilitaryRoadNetwork.cpp, and is free to wiggle after that). A 60-seed
+    // sweep caught 9/120 villages this way: the BFS correctly found no path
+    // to an unbuildable single tile and visited ~99% of the map proving it.
+    //
+    // Fixed properly by treating EVERY tile adjacent to each building's
+    // footprint as a valid start/goal (same pattern AIActions::SubmitRoadPath
+    // already uses for the same reason) — a multi-source, multi-target BFS
+    // that finds the nearest REACHABLE pair of perimeter tiles instead of
+    // gambling that one specific point is buildable. Pathfinding itself now
+    // lives in FindRoadPathBetweenFootprints above so callers can measure a
+    // route's length before committing to build it (village-too-far re-roll,
+    // GameWorld.Init.cpp).
+    inline void BuildStartRoad(Player* player, Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
+    {
+        if (player == nullptr)
+            return;
+
+        TileMap& tilemap = player->tilemap;
+        std::vector<int> path = FindRoadPathBetweenFootprints(tilemap, player, fromAnchor, fromFootprint, toAnchor, toFootprint);
+
+        // No track-avoiding route exists — leave the village unconnected
+        // rather than place a Road the placement rules would refuse anyway
+        // (the old straight-walk fallback did exactly that, silently, for
+        // the same net result).
         for (int tileId : path)
             player->Build<Road>(tilemap.GetCoordsFromId(tileId), false);
     }

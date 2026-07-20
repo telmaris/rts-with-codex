@@ -16,7 +16,6 @@ struct TechnologyDefinition
     std::string description;
     std::string category{"SCIENCE"};
     double researchTime{0.0};
-    std::string governmentId;
     std::vector<std::string> prerequisites;
     std::vector<ResourceAmountDefinition> costs;
     std::vector<BalanceModifier> modifiers;

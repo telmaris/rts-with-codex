@@ -2,11 +2,13 @@
 #include "economy/Player.h"
 #include "economy/ProductionBuildings.h"
 #include "simulation/RoadNetwork.h"
+#include "core/GameWorld.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace
 {
@@ -149,11 +151,8 @@ TEST(BuildingDomainTests, ProductionBuildingEffectiveCycleTimeUsesWorkerEfficien
 // Regression test for the "production stalls for a moment right at 100%"
 // report: GetProductionProgress() used to divide by the unmodified
 // cycleTime.GetBase(), while Produce() actually completes the cycle when
-// elapsed reaches GetModifiedCycleTime() (tech/focus/state-development
-// adjusted) — any active modifier on ProductionCycleTime desynced the two,
-// most commonly a StateDevelopment level bonus, which applies automatically
-// as the player's civilization progresses (not a chosen tech), so this bit
-// nearly every real playthrough once past the starting tier.
+// elapsed reaches GetModifiedCycleTime() (tech/focus adjusted) — any active
+// modifier on ProductionCycleTime desynced the two.
 TEST(BuildingDomainTests, ProductionProgressMatchesModifiedCycleTimeNotBaseline)
 {
     TileMap map;
@@ -166,12 +165,9 @@ TEST(BuildingDomainTests, ProductionProgressMatchesModifiedCycleTimeNotBaseline)
     building->production.cycleTime = 10.0;
     building->production.started = true;
 
-    // An extra 50% slowdown (e.g. a StateDevelopment / focus penalty) on top
-    // of whatever a fresh player already has (a default StateDevelopment tier
-    // alone gives a non-1.0 ProductionCycleTime multiplier — this bug bit
-    // essentially every real playthrough, not just an edge case). Read back
-    // the real effective threshold rather than hardcoding it: the point is
-    // that GetProductionProgress must track WHATEVER GetModifiedCycleTime
+    // An extra 50% slowdown (e.g. a focus penalty). Read back the real
+    // effective threshold rather than hardcoding it: the point is that
+    // GetProductionProgress must track WHATEVER GetModifiedCycleTime
     // returns, not the raw base.
     player.balanceModifiers.AddModifier(BalanceModifier{
         BalanceStat::ProductionCycleTime, 0.0, 1.5, BalanceModifierScope::Global(),
@@ -447,6 +443,123 @@ TEST(BuildingDomainTests, RoadStatsUseConfiguredBaseValues)
     EXPECT_DOUBLE_EQ(road.GetModifiedTransportTime(), 4.0);
 }
 
+// User request (2026-07-20): generic building upgrade system, starting with
+// roads. Exercises the whole live path — UpgradeComponent ticking via
+// Building::Update, level-up, BalanceModifier application scoped to this one
+// road (BalanceModifierScope::BuildingAtPosition) — and the one invariant the
+// user explicitly called out: the road must stay fully operational
+// (never IsUnderConstruction()) for the entire upgrade.
+TEST(BuildingDomainTests, RoadUpgradeProgressesConsumesResourcesAndAppliesModifiers)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+
+    auto* storage = dynamic_cast<StorageBuilding*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({2, 2}), &player, std::make_unique<StorageBuilding>(1)));
+    ASSERT_NE(storage, nullptr);
+    storage->storage.buffers[ResourceType::STONE] = ResourceBuffer{ResourceType::STONE, 20};
+    storage->storage.buffers[ResourceType::STONE].SetStoredAmount(20);
+
+    auto* road = dynamic_cast<Road*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({5, 5}), &player, std::make_unique<Road>(2)));
+    ASSERT_NE(road, nullptr);
+    // Same owner, different position — must NOT be affected by the other
+    // road's upgrade (proves the modifier is scoped to one building
+    // instance, not the whole player or every Road).
+    auto* otherRoad = dynamic_cast<Road*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({6, 5}), &player, std::make_unique<Road>(3)));
+    ASSERT_NE(otherRoad, nullptr);
+    int otherBaseCapacity = otherRoad->GetModifiedMaxCapacity();
+    ASSERT_EQ(road->upgrade.level, 1);
+    ASSERT_GE(road->upgrade.maxLevel, 2) << "buildings.rtsdata's Road entry needs at least one 'upgrade level 2 ...' line";
+    int baseCapacity = road->GetModifiedMaxCapacity();
+
+    const auto& definition = GetBuildingDefinition(BuildingType::Road);
+    auto levelIt = std::find_if(definition.upgradeLevels.begin(), definition.upgradeLevels.end(),
+        [](const BuildingUpgradeLevelDefinition& d) { return d.level == 2; });
+    ASSERT_NE(levelIt, definition.upgradeLevels.end());
+    ASSERT_FALSE(levelIt->cost.empty());
+    int stoneBefore = storage->storage.buffers[ResourceType::STONE].buffer.size();
+
+    // Mirrors GameWorld.Commands.cpp's UpgradeBuilding handler exactly (pay,
+    // then start), without going through the command-serialization layer.
+    ASSERT_TRUE(player.TryPayBuildCost(levelIt->cost));
+    EXPECT_LT(storage->storage.buffers[ResourceType::STONE].buffer.size(), stoneBefore) << "cost was not deducted";
+    road->upgrade.isUpgrading = true;
+    road->upgrade.upgradeRemaining = levelIt->buildTime;
+
+    EXPECT_FALSE(road->IsUnderConstruction());
+
+    // Not enough elapsed time yet — still upgrading, no level change, but the
+    // road never stops being a normal, operational road.
+    road->Update(levelIt->buildTime * 0.5);
+    EXPECT_TRUE(road->upgrade.isUpgrading);
+    EXPECT_EQ(road->upgrade.level, 1);
+    EXPECT_FALSE(road->IsUnderConstruction());
+
+    // Finishes the remaining time: level up, modifier applied and scoped to
+    // THIS road only (BuildingAtPosition), not every Road on the map.
+    road->Update(levelIt->buildTime * 0.6);
+    EXPECT_FALSE(road->upgrade.isUpgrading);
+    EXPECT_EQ(road->upgrade.level, 2);
+    EXPECT_FALSE(road->IsUnderConstruction());
+    EXPECT_GT(road->GetModifiedMaxCapacity(), baseCapacity);
+    EXPECT_EQ(otherRoad->GetModifiedMaxCapacity(), otherBaseCapacity)
+        << "the upgrade modifier leaked to a road it was never applied to";
+}
+
+// UpgradeComponent persists only `level`/`isUpgrading`/`upgradeRemaining`
+// (save v28's UPG block) — the BalanceModifiers it implies are NOT
+// serialized, same as tech/focus: GameWorld::LoadFromFile re-derives them via
+// Player::ApplyUpgradeLevelModifiers right after reading the UPG tag. This
+// confirms that round-trip actually reproduces the live bonus, not just the
+// raw level number.
+TEST(BuildingDomainTests, SaveAndLoadPreservesRoadUpgradeLevelAndReappliesModifiers)
+{
+    GameWorld world;
+    MapParameters params;
+    params.sizePreset = MapSizePreset::S;
+    params.aiOpponentCount = 1;
+    params.seed = 4242;
+    world.InitWorld("test", nullptr, nullptr, params);
+
+    Player* player = world.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(player, nullptr);
+    Road* road = nullptr;
+    for (auto* building : player->GetTrackedBuildings())
+        if (auto* candidate = dynamic_cast<Road*>(building))
+            road = candidate;
+    ASSERT_NE(road, nullptr) << "InitWorld should have laid a starting Road (Village<->HQ)";
+
+    // Simulate a completed upgrade to level 2 (same end state UpgradeComponent::Update
+    // reaches, without waiting out the real timer).
+    road->upgrade.level = 2;
+    player->ApplyUpgradeLevelModifiers(*road);
+    int expectedCapacity = road->GetModifiedMaxCapacity();
+    ASSERT_GT(expectedCapacity, road->road.maxCapacity.GetBase());
+
+    const auto path = (std::filesystem::temp_directory_path() / "rts_road_upgrade_test.save").string();
+    ASSERT_TRUE(world.SaveToFile(path));
+
+    GameWorld loaded;
+    ASSERT_TRUE(loaded.LoadFromFile(path, nullptr, nullptr));
+    std::filesystem::remove(path);
+
+    Player* loadedPlayer = loaded.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(loadedPlayer, nullptr);
+    Road* loadedRoad = nullptr;
+    for (auto* building : loadedPlayer->GetTrackedBuildings())
+        if (auto* candidate = dynamic_cast<Road*>(building))
+            if (candidate->positionId == road->positionId)
+                loadedRoad = candidate;
+    ASSERT_NE(loadedRoad, nullptr);
+
+    EXPECT_EQ(loadedRoad->upgrade.level, 2);
+    EXPECT_FALSE(loadedRoad->upgrade.isUpgrading);
+    EXPECT_EQ(loadedRoad->GetModifiedMaxCapacity(), expectedCapacity);
+}
+
 TEST(BuildingDomainTests, ConfiguredBuildingConstructorsApplyRuntimeDefinitions)
 {
     Woodcutter woodcutter{1};
@@ -516,14 +629,14 @@ TEST(BuildingDomainTests, VillageGeneratesManpowerAndFoodShortageReducesProducti
 
     village->Update(1.0);
     EXPECT_TRUE(village->population.hasFood);
-    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 1.12);
+    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 1.0);
     EXPECT_DOUBLE_EQ(village->activeTime, 1.0);
 
     village->Update(1.0);
     EXPECT_TRUE(village->population.hasFood);
     EXPECT_NEAR(village->GetFoodSupplyRatio(), 0.67, 0.0001);
     EXPECT_NEAR(village->GetWorkerProductivity(), 0.769, 0.0001);
-    EXPECT_NEAR(player.strategicResources.Get(StrategicResourceType::Manpower), 1.8704, 0.0001);
+    EXPECT_NEAR(player.strategicResources.Get(StrategicResourceType::Manpower), 1.67, 0.0001);
     EXPECT_NEAR(village->activeTime, 1.67, 0.0001);
     village->population.foodBuffer.Clear();
 }
@@ -818,5 +931,114 @@ TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpo
         barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
     ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
     EXPECT_TRUE(barracks.recruitment.queue.back().resourcesReady);
+}
+
+TEST(BuildingDomainTests, ReproSwitchingSupplierAwayFromHqFallback)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 16, 6);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+
+    Vec2i woodAnchor{0, 1};
+    Paint(map, woodAnchor, GetBuildingDefinition(BuildingType::Woodcutter).footprint, TileType::WOOD, 10);
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {5, 1}, 1);
+    auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {10, 1}, 2);
+    auto* woodcutter = PlaceAndRegister<Woodcutter>(map, *networkPtr, &player, woodAnchor, 3);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(lumberMill, nullptr);
+    ASSERT_NE(woodcutter, nullptr);
+    player.storages.push_back(headquarters);
+
+    // Mirrors GameWorld.Commands.cpp's placement path: each new building
+    // auto-connects, so LumberMill's WOOD input should fall back to HQ.
+    map.AutoConnectBuilding(headquarters);
+    map.AutoConnectBuilding(lumberMill);
+    map.AutoConnectBuilding(woodcutter);
+
+    ASSERT_TRUE(lumberMill->HasSupplier(ResourceType::WOOD));
+    bool suppliedByHqOnly = true;
+    for (const auto& view : lumberMill->GetSupplierViews())
+        if (view.type == ResourceType::WOOD && view.building != headquarters)
+            suppliedByHqOnly = false;
+    EXPECT_TRUE(suppliedByHqOnly) << "sanity check: baseline fallback should be HQ";
+
+    // Mirrors BasicMapViewSystem::RmbReleased: player selects Woodcutter and
+    // right-clicks LumberMill to wire it as the real supplier.
+    map.ConnectReceiver(woodcutter, lumberMill, false);
+
+    bool stillPullingFromHq = false;
+    bool nowSuppliedByWoodcutter = false;
+    for (const auto& view : lumberMill->GetSupplierViews())
+    {
+        if (view.type != ResourceType::WOOD)
+            continue;
+        if (view.building == headquarters)
+            stillPullingFromHq = true;
+        if (view.building == woodcutter)
+            nowSuppliedByWoodcutter = true;
+    }
+
+    EXPECT_TRUE(nowSuppliedByWoodcutter) << "LumberMill should now list Woodcutter as WOOD supplier";
+    EXPECT_FALSE(stillPullingFromHq) << "LumberMill should have dropped the HQ fallback supplier";
+}
+
+TEST(BuildingDomainTests, StorageAmbientPushStopsFeedingReceiverAfterSupplierReassignment)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 16, 6);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {6, 1}, 2);
+    auto* woodcutter = PlaceAndRegister<Woodcutter>(map, *networkPtr, &player, {12, 1}, 3);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(lumberMill, nullptr);
+    ASSERT_NE(woodcutter, nullptr);
+    player.storages.push_back(headquarters);
+
+    // StorageComponent::Update's ambient redistribution scan walks the
+    // player's dataTracker registry (ETAP 10), not tilemap/road proximity —
+    // register both ends directly, same as GameWorld's normal placement path
+    // would via PlayerDataTracker::RegisterBuilding.
+    player.dataTracker.RegisterBuilding(headquarters);
+    player.dataTracker.RegisterBuilding(lumberMill);
+
+    for (int x = 3; x <= 5; x++)
+    {
+        auto* road = PlaceAndRegister<Road>(map, *networkPtr, &player, {x, 2}, 100 + x);
+        ASSERT_NE(road, nullptr);
+        road->road.maxCapacity.SetBase(16);
+    }
+
+    map.AutoConnectBuilding(headquarters);
+    map.AutoConnectBuilding(lumberMill);
+    ASSERT_TRUE(lumberMill->HasSupplier(ResourceType::WOOD));
+
+    // Baseline: with HQ as the only wired supplier, its ambient scan does
+    // feed LumberMill's WOOD input. Delivery takes several ticks to travel
+    // the road, same as ProducerWithNoReceiverPushesFullOutputToNearestHeadquarters.
+    headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    for (int i = 0; i < 8; i++)
+        map.UpdateBuildings(1.1);
+    EXPECT_GT(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 0u)
+        << "sanity check: HQ ambient push should reach an unassigned/HQ-supplied receiver";
+
+    // Player rewires LumberMill's WOOD supplier away from HQ (mirrors
+    // BasicMapViewSystem::RmbReleased connecting Woodcutter directly).
+    lumberMill->production.inputBuffers[ResourceType::WOOD].Clear();
+    map.ConnectReceiver(woodcutter, lumberMill, false);
+    ASSERT_FALSE(lumberMill->AcceptsSupplierFor(ResourceType::WOOD, headquarters));
+
+    headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    for (int i = 0; i < 8; i++)
+        map.UpdateBuildings(1.1);
+    EXPECT_EQ(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 0u)
+        << "HQ must stop ambiently pushing WOOD once LumberMill's supplier was explicitly reassigned";
 }
 

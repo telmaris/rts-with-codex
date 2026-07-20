@@ -262,8 +262,8 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
     }
 
     Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
-    DrawRectangleRounded(dest, 0.04f, 8, modulate(Color{90, 96, 108, 255}));
-    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, modulate(Color{170, 180, 196, 255}));
+    DrawRectangleRounded(dest, 0.04f, 8, modulate(Color{96, 78, 56, 255}));
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, modulate(Color{150, 108, 58, 255}));
 }
 
 // Same, but reads the frame from the type's registered animation clip

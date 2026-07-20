@@ -153,6 +153,13 @@ public:
     std::vector<BuildingConnectionView> GetReceiverViews() const;
     bool HasSupplier(ResourceType type) const;
     bool HasReceiver(ResourceType type) const;
+    // True when `supplier` is one of this building's explicitly wired
+    // suppliers for `type`, or when no supplier is wired at all yet (nothing
+    // to conflict with). False when a *different* supplier is already wired
+    // — lets ambient storage-to-storage redistribution (StorageComponent::
+    // Update) respect an explicit supplier reassignment instead of feeding a
+    // resource through the old link anyway.
+    bool AcceptsSupplierFor(ResourceType type, const Building* supplier) const;
     bool IsStorageLike() const;
     float GetProductionProgress() const;
     float GetWorkerRatio() const;
@@ -282,6 +289,7 @@ public:
     Road(int i);
 
     RoadComponent road;
+    UpgradeComponent upgrade;
     int GetModifiedMaxCapacity() const;
     double GetModifiedSpeedModifier() const;
 };

@@ -9,7 +9,9 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    out << "RTS_SAVE 27\n";
+    // Save v28: added the UPG block (UpgradeComponent — generic per-instance
+    // building upgrade progression, introduced for Road).
+    out << "RTS_SAVE 28\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -218,6 +220,12 @@ bool GameWorld::SaveToFile(const std::string& path) const
                     << ' ' << (entry.resourcesReady ? 1 : 0) << '\n';
         }
 
+        if (const auto* upgrade = building->GetComponent<UpgradeComponent>())
+        {
+            out << "UPG " << upgrade->level << ' ' << (upgrade->isUpgrading ? 1 : 0) << ' '
+                << upgrade->upgradeRemaining << '\n';
+        }
+
         out << "ENDB\n";
     }
 
@@ -260,7 +268,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
-    if (tag != "RTS_SAVE" || version != 27)
+    // v28: added the UPG block (UpgradeComponent).
+    if (tag != "RTS_SAVE" || version != 28)
         return false;
 
     render = renderer;
@@ -754,6 +763,19 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 in >> tower->damage >> tower->range >> tower->attackSpeed >> tower->attackTimer >>
                       ammoResource >> tower->ammoPerShot;
                 tower->ammoResource = static_cast<ResourceType>(ammoResource);
+            }
+            else if (tag == "UPG")
+            {
+                auto* upgrade = placed->GetComponent<UpgradeComponent>();
+                if (upgrade == nullptr) return false;
+                int isUpgrading = 0;
+                in >> upgrade->level >> isUpgrading >> upgrade->upgradeRemaining;
+                upgrade->isUpgrading = isUpgrading != 0;
+                // Modifiers themselves aren't persisted (same as tech/focus) —
+                // re-derive them from the loaded level right away; owner and
+                // positionId are already valid at this point.
+                if (upgrade->level > 1 && placed->owner != nullptr)
+                    placed->owner->ApplyUpgradeLevelModifiers(*placed);
             }
             else
             {

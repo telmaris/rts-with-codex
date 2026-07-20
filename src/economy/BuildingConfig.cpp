@@ -456,6 +456,7 @@ namespace
         definition.buildCosts.clear();
         definition.requiredTechnologies.clear();
         definition.requiredFocuses.clear();
+        definition.upgradeLevels.clear();
 
         while (++index < lines.size())
         {
@@ -518,6 +519,52 @@ namespace
                     else if (key == "max_capacity") definition.road.maxCapacity = std::stoi(value);
                     else if (key == "speed_modifier") definition.road.speedModifier = std::stod(value);
                 });
+            }
+            else if (command == "upgrade" && tokens.size() >= 3 && tokens[1] == "level")
+            {
+                // Generic player-triggered upgrade tier (Building-level
+                // feature, not road-specific — see UpgradeComponent). Named
+                // "upgrade level N ..." rather than reusing "upgrade_level" to
+                // avoid colliding with the unrelated static `road
+                // upgrade_level` key above (that one describes a building
+                // TYPE's fixed variant tier; this describes a live,
+                // player-triggered per-instance progression).
+                //
+                // Not a flat key-value line (ParseKeyValueLine assumes
+                // single-token values) — "cost" needs a resource type AND an
+                // amount.
+                BuildingUpgradeLevelDefinition levelDef;
+                levelDef.level = std::stoi(tokens[2]);
+                for (size_t i = 3; i < tokens.size(); i++)
+                {
+                    if (tokens[i] == "cost" && i + 2 < tokens.size())
+                    {
+                        levelDef.cost.push_back({ParseResourceType(tokens[i + 1]), std::stoi(tokens[i + 2])});
+                        i += 2;
+                    }
+                    else if (tokens[i] == "build_time" && i + 1 < tokens.size())
+                    {
+                        levelDef.buildTime = std::stod(tokens[i + 1]);
+                        i += 1;
+                    }
+                    else if (tokens[i] == "capacity_additive" && i + 1 < tokens.size())
+                    {
+                        BalanceModifier modifier;
+                        modifier.stat = BalanceStat::RoadCapacity;
+                        modifier.additive = std::stod(tokens[i + 1]);
+                        levelDef.modifiers.push_back(modifier);
+                        i += 1;
+                    }
+                    else if (tokens[i] == "speed_multiplier" && i + 1 < tokens.size())
+                    {
+                        BalanceModifier modifier;
+                        modifier.stat = BalanceStat::RoadSpeed;
+                        modifier.multiplier = std::stod(tokens[i + 1]);
+                        levelDef.modifiers.push_back(modifier);
+                        i += 1;
+                    }
+                }
+                definition.upgradeLevels.push_back(std::move(levelDef));
             }
             else if (command == "village")
             {

@@ -209,6 +209,52 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::UpgradeBuilding)
+    {
+        Building* building = tilemap.GetBuilding(command.sourceTileId);
+        if (building == nullptr || building->owner != player)
+            return false;
+
+        auto* upgrade = building->GetComponent<UpgradeComponent>();
+        if (upgrade == nullptr || upgrade->isUpgrading || upgrade->level >= upgrade->maxLevel)
+            return false;
+
+        const auto& definition = GetBuildingDefinition(building->buildingType);
+        int targetLevel = upgrade->level + 1;
+        auto it = std::find_if(definition.upgradeLevels.begin(), definition.upgradeLevels.end(),
+            [&](const BuildingUpgradeLevelDefinition& levelDef) { return levelDef.level == targetLevel; });
+        if (it == definition.upgradeLevels.end())
+            return false;
+
+        if (!player->TryPayBuildCost(it->cost))
+        {
+            Log::Msg("[GameWorld]", "Command rejected: not enough resources to upgrade ", building->name);
+            return false;
+        }
+
+        upgrade->isUpgrading = true;
+        upgrade->upgradeRemaining = it->buildTime;
+        return acceptCommand();
+    }
+
+    if (command.type == GameCommandType::SetRecipe)
+    {
+        Building* building = tilemap.GetBuilding(command.sourceTileId);
+        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+            return false;
+
+        auto* recipes = building->GetComponent<RecipeComponent>();
+        auto* production = building->GetComponent<ProductionComponent>();
+        auto* logistics = building->GetComponent<LogisticsComponent>();
+        auto* workers = building->GetComponent<WorkerComponent>();
+        if (recipes == nullptr || production == nullptr || logistics == nullptr || workers == nullptr)
+            return false;
+
+        if (!recipes->SetActiveRecipe(command.targetTileId, *building, *production, *logistics, *workers))
+            return false;
+        return acceptCommand();
+    }
+
     if (command.type == GameCommandType::SetReceiver)
     {
         Building* source = tilemap.GetBuilding(command.sourceTileId);

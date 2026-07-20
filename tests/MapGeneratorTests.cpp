@@ -1,5 +1,6 @@
 #include "core/GameWorld.h"
 #include "simulation/MapGenerator.h"
+#include "ai/AIActions.h"
 
 #include <gtest/gtest.h>
 
@@ -151,6 +152,55 @@ TEST(MapGeneratorTests, EveryHqGetsStartingCoalAndIronOrePatches)
             EXPECT_GE(ironTiles, 10) << "seed=" << seed << " player=" << playerId << " too few IRON_ORE tiles near HQ";
             EXPECT_EQ(coalOnTrack, 0) << "seed=" << seed << " player=" << playerId << " COAL patch overlaps the track";
             EXPECT_EQ(ironOnTrack, 0) << "seed=" << seed << " player=" << playerId << " IRON_ORE patch overlaps the track";
+        }
+    }
+}
+
+// Playtest report (2026-07-20): the starting Village's actual ROAD path to
+// HQ (not straight-line distance) could end up much longer than intended
+// once BuildStartRoad detours around the military track. Village placement
+// now measures the real road path up front and re-rolls away from
+// candidates that would exceed the budget (GameWorld.Init.cpp).
+TEST(MapGeneratorTests, StartingVillageRoadStaysWithinBudget)
+{
+    constexpr int kMaxVillageRoadTiles = 15;
+    for (unsigned int seed : {11u, 222u, 3333u, 44444u, 55555u, 66666u})
+    {
+        MapParameters params;
+        params.sizePreset = MapSizePreset::S;
+        params.aiOpponentCount = 1;
+        params.seed = seed;
+
+        GameWorld world;
+        world.InitWorld("test", nullptr, nullptr, params);
+
+        for (auto& [playerId, player] : world.GetPlayerHandler().players)
+        {
+            Building* hq = nullptr;
+            Building* village = nullptr;
+            for (auto* building : player->GetTrackedBuildings())
+            {
+                if (building == nullptr)
+                    continue;
+                if (building->buildingType == BuildingType::Headquarters)
+                    hq = building;
+                if (building->buildingType == BuildingType::Village)
+                    village = building;
+            }
+            ASSERT_NE(hq, nullptr) << "seed=" << seed << " player=" << playerId;
+            // A Village should always be placeable on a freshly generated
+            // map; if this ever fires it means placement failed outright,
+            // not just "farther than budget".
+            ASSERT_NE(village, nullptr) << "seed=" << seed << " player=" << playerId << " no starting village placed";
+
+            // The budget is on actual ROAD tiles (what BuildStartRoad places
+            // between the two footprints), not RoadNetwork::CalculatePath's
+            // footprint-inclusive convention (which always counts 2 more —
+            // one tile from each endpoint's own footprint). At world-init
+            // time the only roads a fresh player owns are this start road.
+            int roadTiles = AIActions::CountOwnedBuildings(player.get(), BuildingType::Road);
+            EXPECT_LE(roadTiles, kMaxVillageRoadTiles)
+                << "seed=" << seed << " player=" << playerId << " village road is " << roadTiles << " tiles";
         }
     }
 }

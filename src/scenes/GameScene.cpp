@@ -89,7 +89,7 @@ namespace
     void DrawRuntimeLoadingScreen(const std::string& message)
     {
         BeginDrawing();
-        ClearBackground(Color{12, 16, 22, 255});
+        ClearBackground(Color{20, 14, 10, 255});
         int fontSize = 28;
         int width = UiText::Measure(message, fontSize);
         UiText::Draw(message,

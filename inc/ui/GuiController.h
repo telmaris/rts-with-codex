@@ -2,6 +2,7 @@
 #define GUI_CONTROLLER_H
 
 #include "ui/Gui.h"
+#include "ui/UiTheme.h"
 #include "economy/BuildingConfig.h"
 #include "raylib.h"
 

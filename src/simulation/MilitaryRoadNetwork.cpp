@@ -187,13 +187,17 @@ namespace
     // to apply right up to the HQ gates, producing messy jogs around the
     // base. The track should leave each HQ STRAIGHT and only undulate
     // mid-route. Two mechanisms:
-    //  1. A GUARANTEED straight stub of kGateStub tiles carved outward from
-    //     each gate before pathfinding even runs (soft costs alone lose to
-    //     hard detours — base rects, corridor separation — on crowded rings).
+    //  1. A GUARANTEED straight stub of kStubSeedLength tiles carved outward
+    //     from each gate before pathfinding even runs (soft costs alone lose
+    //     to hard detours — base rects, corridor separation — on crowded
+    //     rings). User request (2026-07-20): every ring edge's stub is now
+    //     laid down for ALL HQs in a pre-pass before any pathfinding runs at
+    //     all (see the two-pass split in Generate below), fixing tracks that
+    //     used to visually merge near a base.
     //  2. Within kStraightZone of either gate the wiggle is off and off-axis
     //     tiles pay a penalty (keeps the corridor straightish beyond the
     //     stub), then the wiggle fades back in over kWiggleRamp tiles.
-    constexpr int kGateStub = 6;
+    constexpr int kStubSeedLength = 5;
     constexpr int kStraightZone = 14;
     constexpr double kWiggleRamp = 8.0;
     constexpr double kOffAxisPenalty = 2.5;
@@ -353,7 +357,7 @@ namespace
                         continue;
                     int offAxis = exit.exitAlongX ? std::abs(vRow - exit.gate.y)
                                                   : std::abs(vCol - exit.gate.x);
-                    int allowedDrift = std::max(0, (gateDistance - kGateStub) / 2);
+                    int allowedDrift = std::max(0, (gateDistance - kStubSeedLength) / 2);
                     cost += std::max(0, offAxis - allowedDrift) * kOffAxisPenalty;
                 }
 
@@ -573,8 +577,26 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
     // (route forced through a deposit by a relaxed fallback tier).
     std::mt19937 carveRng(seed ^ 0x27D4EB2Fu);
 
-    for (const auto& [playerA, playerB] : edges)
+    // Pass 1 — lay every ring edge's guaranteed-straight stub BEFORE any
+    // inter-HQ pathfinding runs (user report 2026-07-20, screenshot: tracks
+    // visually merging near a base). Previously gates/stubs were decided
+    // edge-by-edge, interleaved with each edge's own Dijkstra — so an early
+    // edge's route had no idea where a LATER edge's stub would want to sit,
+    // and CorridorSeparationPenalty (via usedRouteTiles) only ever saw
+    // FULLY CARVED earlier edges, never a not-yet-processed edge's reserved
+    // space. Registering every stub's tiles into usedRouteTiles up front, in
+    // one pre-pass over every HQ, fixes that blind spot: pass 2's Dijkstra
+    // (below) sees every OTHER edge's stub from the very first edge it runs.
+    struct EdgeStubs
     {
+        std::vector<int> stubA, stubB;
+        GateExit exitA{}, exitB{};
+    };
+    std::vector<EdgeStubs> edgeStubs(edges.size());
+
+    for (size_t edgeIndex = 0; edgeIndex < edges.size(); edgeIndex++)
+    {
+        const auto& [playerA, playerB] = edges[edgeIndex];
         Vec2i anchorA = hqAnchors.at(playerA);
         Vec2i anchorB = hqAnchors.at(playerB);
         Vec2i centerA = FootprintCenter(anchorA, hqFootprint);
@@ -586,7 +608,7 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         // edge and the natural pick for THIS edge lands on the same face,
         // push it to the opposite face instead — the two corridors then
         // leave the base from different sides rather than bunching together
-        // (the Dijkstra below is free to route however it needs to reach
+        // (the Dijkstra in pass 2 is free to route however it needs to reach
         // that face, including looping around the base; the user explicitly
         // welcomes that over a cramped shared exit).
         auto resolveGateSide = [&](int playerId, Vec2i anchor, Vec2i naturalGate) -> Vec2i
@@ -616,12 +638,13 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         GateExit exitA{gateA, exitAxisAlongX(anchorA, gateA)};
         GateExit exitB{gateB, exitAxisAlongX(anchorB, gateB)};
 
-        // Guaranteed straight stubs: carve kGateStub tiles straight outward
-        // (away from the HQ center) from each gate; Dijkstra then only
-        // connects the two stub ENDS. The gate tile itself (i == 0) is always
-        // kept even when an earlier edge shares it; deeper stub tiles stop at
-        // anything an earlier edge already claimed or the map edge — a
-        // truncated stub degrades gracefully toward the old behavior.
+        // Guaranteed straight stubs: carve kStubSeedLength tiles straight
+        // outward (away from the HQ center) from each gate; pass 2's
+        // Dijkstra then only connects the two stub ENDS. The gate tile
+        // itself (i == 0) is always kept even when another edge shares it;
+        // deeper stub tiles stop at anything already claimed or the map
+        // edge — a truncated stub degrades gracefully toward the old
+        // behavior.
         auto outwardDir = [&](Vec2i anchor, Vec2i gate) -> Vec2i
         {
             switch (SideOfGate(anchor, hqFootprint, gate))
@@ -636,7 +659,7 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         auto buildStub = [&](Vec2i gate, Vec2i dir)
         {
             std::vector<int> stub;
-            for (int i = 0; i < kGateStub; i++)
+            for (int i = 0; i < kStubSeedLength; i++)
             {
                 Vec2i pos{gate.x + dir.x * i, gate.y + dir.y * i};
                 if (!tilemap.IsInside(pos))
@@ -653,12 +676,38 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         if (stubA.empty() || stubB.empty())
             continue;
 
+        for (int tileId : stubA)
+            usedRouteTiles.insert(tileId);
+        for (int tileId : stubB)
+            usedRouteTiles.insert(tileId);
+
+        edgeStubs[edgeIndex] = EdgeStubs{std::move(stubA), std::move(stubB), exitA, exitB};
+    }
+
+    // Pass 2 — connect stub tip to stub tip (instead of HQ to HQ / gate to
+    // gate) using the precomputed stubs above; every OTHER edge's stub is
+    // already in usedRouteTiles, so CorridorSeparationPenalty sees the full
+    // picture from the first edge processed, not just earlier ones.
+    for (size_t edgeIndex = 0; edgeIndex < edges.size(); edgeIndex++)
+    {
+        const auto& [playerA, playerB] = edges[edgeIndex];
+        EdgeStubs& stubs = edgeStubs[edgeIndex];
+        if (stubs.stubA.empty() || stubs.stubB.empty())
+            continue;
+
+        std::vector<int>& stubA = stubs.stubA;
+        std::vector<int>& stubB = stubs.stubB;
+        const GateExit& exitA = stubs.exitA;
+        const GateExit& exitB = stubs.exitB;
+
         // The search only connects the two stub ENDS; stub interiors (and
-        // the gates) are hard-blocked so the mid-route can never double back
-        // over its own straight exits. Strict tiers additionally avoid
-        // earlier edges' corridors as before; the last-resort relaxed tiers
-        // still drop that constraint (connectivity first) but keep the stub
-        // blocking.
+        // the gates) are hard-blocked — already true via usedRouteTiles,
+        // which pass 1 seeded with every edge's stub tiles — so the
+        // mid-route can never double back over its own straight exits, nor
+        // another edge's. Strict tiers additionally avoid earlier FULLY
+        // CARVED edges' corridors as before; the last-resort relaxed tiers
+        // still drop that constraint (connectivity first) but keep this
+        // edge's own stub blocked via stubTiles.
         int fromTile = stubA.back();
         int toTile = stubB.back();
         std::vector<int> exempt{fromTile, toTile};
@@ -666,8 +715,10 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         stubTiles.insert(stubB.begin(), stubB.end());
         stubTiles.erase(fromTile);
         stubTiles.erase(toTile);
+        // usedRouteTiles already contains this edge's own stub tiles (pass
+        // 1) plus every other edge's stubs/carved routes — a plain copy is
+        // enough, no need to re-insert stubTiles into it.
         std::set<int> usedPlusStubs = usedRouteTiles;
-        usedPlusStubs.insert(stubTiles.begin(), stubTiles.end());
 
         // seed mixed with the edge's own endpoints so each ring edge gets a
         // distinct (but still fully deterministic) wiggle phase, instead of
@@ -683,7 +734,7 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         // Tiered fallback, most-restrictive first. Constraints, relaxed one
         // at a time: resource deposits hard-blocked (2026-07-14 — the +200
         // soft penalty alone still let long routes slice through wood/stone
-        // fields) → earlier ring edges' tiles → other players' starting-base
+        // fields) → other edges' tiles → other players' starting-base
         // rectangles. Guarantees every ring edge ends up connected on
         // cramped maps while making deposit-crossing and route overlap
         // last-resort outcomes rather than routine ones — and NO tier ever
@@ -741,7 +792,7 @@ void MilitaryRoadNetwork::Generate(TileMap& tilemap, const std::map<int, Vec2i>&
         {
             return chamferTileRelaxed(tileId) && tilemap.tilemap[tileId].resourceRichness <= 0;
         };
-        RoundCorners(tilemap, path, kGateStub, chamferTileStrict, chamferTileRelaxed);
+        RoundCorners(tilemap, path, kStubSeedLength, chamferTileStrict, chamferTileRelaxed);
 
         for (int tileId : path)
         {

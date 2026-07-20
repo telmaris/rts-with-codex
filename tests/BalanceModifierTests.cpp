@@ -1,39 +1,8 @@
 #include "economy/BalanceModifiers.h"
-#include "research/StateDevelopment.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
-
-namespace
-{
-    bool LowerIsBetter(BalanceStat stat)
-    {
-        switch (stat)
-        {
-            case BalanceStat::BuildTime:
-            case BalanceStat::ProductionCycleTime:
-            case BalanceStat::TransportTime:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    bool IsPositiveModifier(const BalanceModifier& modifier)
-    {
-        if (LowerIsBetter(modifier.stat))
-            return modifier.additive < 0.0 || modifier.multiplier < 1.0;
-        return modifier.additive > 0.0 || modifier.multiplier > 1.0;
-    }
-
-    bool IsNegativeModifier(const BalanceModifier& modifier)
-    {
-        if (LowerIsBetter(modifier.stat))
-            return modifier.additive > 0.0 || modifier.multiplier > 1.0;
-        return modifier.additive < 0.0 || modifier.multiplier < 1.0;
-    }
-}
 
 TEST(BalanceModifierTests, AppliesOnlyToMatchingStatAndBuilding)
 {
@@ -164,69 +133,4 @@ TEST(BalanceModifierTests, ClearSourcePrefixRemovesTechnologyGroup)
     BalanceModifierContext context{BalanceStat::BuildTime};
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(10.0, context), 12.0);
     EXPECT_EQ(modifiers.GetModifiers().size(), 1u);
-}
-
-TEST(BalanceModifierTests, StateDevelopmentDefinitionsContainBuffsAndNerfs)
-{
-    for (const auto& definition : GetStateDevelopmentDefinitions())
-    {
-        EXPECT_FALSE(definition.modifiers.empty()) << definition.id;
-        EXPECT_NE(std::find_if(definition.modifiers.begin(), definition.modifiers.end(), IsPositiveModifier),
-                  definition.modifiers.end()) << definition.id;
-        EXPECT_NE(std::find_if(definition.modifiers.begin(), definition.modifiers.end(), IsNegativeModifier),
-                  definition.modifiers.end()) << definition.id;
-    }
-}
-
-TEST(BalanceModifierTests, StateDevelopmentRefreshesFromUnlockedGovernmentIds)
-{
-    StateDevelopment state;
-    state.RefreshFromGovernmentIds({});
-    EXPECT_EQ(state.GetDefinition().id, "tribal_society");
-
-    state.RefreshFromGovernmentIds({"chiefdom"});
-    EXPECT_EQ(state.GetDefinition().id, "chiefdom");
-
-    state.RefreshFromGovernmentIds({"chiefdom", "kingdom"});
-    EXPECT_EQ(state.GetDefinition().id, "kingdom");
-
-    state.RefreshFromGovernmentIds({"chiefdom", "kingdom", "aristocratic_state"});
-    EXPECT_EQ(state.GetDefinition().id, "aristocratic_state");
-}
-
-TEST(BalanceModifierTests, StateDevelopmentModifiersApplyExpectedTradeoffs)
-{
-    StateDevelopment state;
-    BalanceModifierSet modifiers;
-
-    state.RefreshFromGovernmentIds({});
-    state.CollectModifiers(modifiers);
-
-    BalanceModifierContext build{BalanceStat::BuildTime};
-    EXPECT_GT(modifiers.ModifyDouble(100.0, build), 100.0);
-
-    BalanceModifierContext manpower{BalanceStat::ManpowerRate, BuildingType::Building};
-    EXPECT_GT(modifiers.ModifyDouble(1.0, manpower), 1.0);
-
-    modifiers.Clear();
-    state.RefreshFromGovernmentIds({"chiefdom", "kingdom", "aristocratic_state"});
-    state.CollectModifiers(modifiers);
-
-    BalanceModifierContext production{BalanceStat::ProductionCycleTime};
-    EXPECT_LT(modifiers.ModifyDouble(100.0, production), 100.0);
-    EXPECT_LT(modifiers.ModifyDouble(1.0, manpower), 1.0);
-}
-
-TEST(BalanceModifierTests, StateDevelopmentManpowerModifiersAreSystemWide)
-{
-    for (const auto& definition : GetStateDevelopmentDefinitions())
-    {
-        for (const auto& modifier : definition.modifiers)
-        {
-            if (modifier.stat == BalanceStat::ManpowerRate)
-            {
-                EXPECT_FALSE(modifier.buildingType.has_value()) << definition.id;
-            }
-        }
-    }
 }

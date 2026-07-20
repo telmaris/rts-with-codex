@@ -2,8 +2,7 @@
 // ResearchTreePanelWidget plus the Focus/Tech interaction systems.
 //
 // Both trees render through one layout + draw pass; the differences (data
-// source, focus-only state side panel, node click command) branch on
-// ResearchTreeKind.
+// source, node click command) branch on ResearchTreeKind.
 
 #include "GuiInternal.h"
 
@@ -11,7 +10,6 @@
 #include "economy/Player.h"
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
-#include "research/StateDevelopment.h"
 #include "warfare/UnitDefinition.h"
 
 #include <algorithm>
@@ -55,9 +53,9 @@ namespace
             Rectangle rect{x, bounds.y, width, bounds.height};
             bool selected = selectedTag == value;
             bool hover = CheckCollisionPointRec(mouse, rect);
-            DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{64, 94, 128, 235} : hover ? Color{45, 55, 69, 235} : Color{31, 37, 47, 220});
-            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? Color{140, 185, 240, 255} : Color{82, 96, 116, 230});
-            UiText::DrawFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? RAYWHITE : Color{188, 198, 212, 255});
+            DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{92, 74, 38, 235} : hover ? Color{69, 55, 42, 235} : Color{40, 29, 21, 220});
+            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? UiTheme::Gold : Color{112, 92, 66, 230});
+            UiText::DrawFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? UiTheme::Parchment : UiTheme::ParchmentDim);
             if (hover && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
             x += width + 8.0f;
@@ -338,13 +336,6 @@ Rectangle ResearchTreePanelWidget::GetTreeArea(Rectangle bounds) const
 {
     float top = bounds.y + 104.0f;
     float bottom = bounds.y + bounds.height - 20.0f;
-    if (kind == ResearchTreeKind::Focus)
-    {
-        // Reserve room for the state overview side panel on the right.
-        float sideW = std::min(260.0f, std::max(218.0f, bounds.width * 0.22f));
-        float sideGap = 18.0f;
-        return Rectangle{bounds.x + 24.0f, top, bounds.width - sideW - sideGap - 48.0f, bottom - top};
-    }
     return Rectangle{bounds.x + 24.0f, top, bounds.width - 48.0f, bottom - top};
 }
 
@@ -362,10 +353,10 @@ void ResearchTreePanelWidget::Update(double dt)
 
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{26, 30, 37, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{92, 102, 118, 255});
+    DrawRectangleRounded(bounds, 0.025f, 8, Color{30, 22, 16, 244});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{150, 108, 58, 255});
     Rectangle title{bounds.x, bounds.y, bounds.width, 52.0f};
-    DrawRectangleRounded(title, 0.025f, 8, Color{42, 50, 62, 255});
+    DrawRectangleRounded(title, 0.025f, 8, Color{50, 38, 27, 255});
     DrawCloseButton(bounds);
 
     bool debugMode = scene->game->GetTileMap().params.debugMode;
@@ -375,7 +366,7 @@ void ResearchTreePanelWidget::Update(double dt)
         bool reloadHov = CheckCollisionPointRec(mouse, reloadBtn);
         DrawRectangleRounded(reloadBtn, 0.18f, 8, reloadHov ? Color{80, 100, 60, 245} : Color{46, 60, 38, 230});
         DrawRectangleRoundedLines(reloadBtn, 0.18f, 8, 1.0f, reloadHov ? Color{160, 220, 100, 255} : Color{100, 148, 72, 230});
-        UiText::DrawFit("[D] Reload", Rectangle{reloadBtn.x + 8.0f, reloadBtn.y + 4.0f, reloadBtn.width - 16.0f, reloadBtn.height - 8.0f}, 17, RAYWHITE);
+        UiText::DrawFit("[D] Reload", Rectangle{reloadBtn.x + 8.0f, reloadBtn.y + 4.0f, reloadBtn.width - 16.0f, reloadBtn.height - 8.0f}, 17, UiTheme::Parchment);
         if (reloadHov && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (isFocus)
@@ -384,11 +375,11 @@ void ResearchTreePanelWidget::Update(double dt)
                 ReloadTechnologyDefinitions();
             player->ResetResearchState();
         }
-        UiText::DrawFit(std::string(panelTitle) + " [DEBUG]", Rectangle{title.x + 18.0f, title.y + 10.0f, title.width - 200.0f, 30.0f}, 26, RAYWHITE);
+        UiText::DrawTitleBar(title, std::string(panelTitle) + " [DEBUG]", PanelTitleCloseReserve(bounds) + reloadBtn.width + 8.0f);
     }
     else
     {
-        UiText::DrawFit(panelTitle, Rectangle{title.x + 18.0f, title.y + 10.0f, title.width - 86.0f, 30.0f}, 28, RAYWHITE);
+        UiText::DrawTitleBar(title, panelTitle, PanelTitleCloseReserve(bounds));
     }
 
     auto nodes = isFocus ? ResearchCatalog::BuildFocusView(*player) : ResearchCatalog::BuildView(*player);
@@ -621,8 +612,8 @@ void ResearchTreePanelWidget::Update(double dt)
     BeginScissorMode(static_cast<int>(treeArea.x), static_cast<int>(treeArea.y), static_cast<int>(treeArea.width), static_cast<int>(treeArea.height));
     for (const auto& [lane, header] : laneHeaders)
     {
-        DrawRectangleRounded(header, 0.14f, 8, Color{36, 43, 54, 215});
-        UiText::DrawFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), Color{208, 220, 238, 255});
+        DrawRectangleRounded(header, 0.14f, 8, Color{44, 33, 23, 215});
+        UiText::DrawFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), Color{224, 204, 168, 255});
     }
 
     for (const auto& node : nodes)
@@ -637,7 +628,7 @@ void ResearchTreePanelWidget::Update(double dt)
             Rectangle parent = parentIt->second;
             Vector2 parentAnchor{parent.x + parent.width * 0.5f, parent.y + parent.height};
             bool highlighted = highlightedPath.contains(node.id) && highlightedPath.contains(prerequisite);
-            Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{74, 86, 104, 150};
+            Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{96, 80, 60, 150};
             float edgeWidth = highlighted ? 4.0f : 1.5f;
             Vector2 midA{parentAnchor.x, parentAnchor.y + rowGap * 0.34f};
             Vector2 midB{childAnchor.x, childAnchor.y - rowGap * 0.34f};
@@ -652,48 +643,35 @@ void ResearchTreePanelWidget::Update(double dt)
         Rectangle rect = nodeRects[node.id];
         bool hover = CheckCollisionPointRec(mouse, rect);
         bool tagMatched = HasNodeTag(node, selectedTagFilter);
-        Color fill = node.researched ? Color{45, 86, 63, 245}
+        Color fill = node.researched ? Color{52, 74, 40, 245}
                    : node.active ? Color{70, 65, 38, 245}
-                   : node.available ? Color{47, 66, 88, 245}
-                   : Color{34, 38, 46, 230};
-        Color line = node.researched ? Color{87, 176, 113, 255}
+                   : node.available ? Color{74, 56, 34, 245}
+                   : Color{34, 26, 19, 230};
+        Color line = node.researched ? Color{140, 176, 96, 255}
                    : node.active ? Color{214, 178, 84, 255}
-                   : node.available ? Color{94, 134, 188, 255}
-                   : Color{78, 86, 100, 220};
+                   : node.available ? Color{176, 132, 68, 255}
+                   : Color{100, 84, 64, 220};
         if (!selectedTagFilter.empty() && !tagMatched)
         {
             fill.a = 110;
             line.a = 120;
         }
         DrawRectangleRounded(rect, 0.06f, 8, fill);
-        DrawRectangleRoundedLines(rect, 0.06f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{112, 208, 172, 255} : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255} : (hover ? Color{190, 215, 255, 255} : line));
-        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 7.0f * zoom, rect.width - 20.0f * zoom, 45.0f * zoom}, std::max(15, static_cast<int>(24 * zoom)), RAYWHITE, 2);
+        DrawRectangleRoundedLines(rect, 0.06f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{150, 210, 130, 255} : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255} : (hover ? UiTheme::AmberBright : line));
+        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 7.0f * zoom, rect.width - 20.0f * zoom, 45.0f * zoom}, std::max(15, static_cast<int>(24 * zoom)), UiTheme::Parchment, 2);
         UiText::DrawFit(node.stateText, Rectangle{rect.x + 12.0f * zoom, rect.y + 53.0f * zoom, rect.width - 24.0f * zoom, 21.0f * zoom}, std::max(11, static_cast<int>(18 * zoom)),
-            node.researched ? Color{145, 230, 160, 255} : node.available ? Color{190, 215, 255, 255} : Color{180, 186, 196, 255});
+            node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{160, 142, 112, 255});
 
-        // Focus nodes can promote the state class; draw the government chip and
-        // shift the time row below it. Tech nodes have no government unlock.
         float timeTextY = 76.0f;
-        if (isFocus)
-        {
-            timeTextY = 94.0f;
-            if (const StateDevelopmentDefinition* unlockedState = StateDevelopment::FindDefinition(node.governmentId))
-            {
-                Color governmentFill = unlockedState->color;
-                governmentFill.a = 210;
-                DrawRectangleRounded(Rectangle{rect.x + 12.0f * zoom, rect.y + 76.0f * zoom, rect.width - 24.0f * zoom, 22.0f * zoom}, 0.16f, 6, governmentFill);
-                UiText::DrawFit("State class: " + unlockedState->name, Rectangle{rect.x + 20.0f * zoom, rect.y + 78.0f * zoom, rect.width - 40.0f * zoom, 18.0f * zoom}, std::max(10, static_cast<int>(16 * zoom)), Color{205, 224, 255, 255});
-            }
-        }
         std::string timeText = node.active ? FormatDuration(node.remainingTime) + " left" : FormatDuration(node.researchTime);
-        UiText::DrawFit(timeText, Rectangle{rect.x + 12.0f * zoom, rect.y + timeTextY * zoom, rect.width - 24.0f * zoom, 16.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)), Color{180, 190, 205, 255});
+        UiText::DrawFit(timeText, Rectangle{rect.x + 12.0f * zoom, rect.y + timeTextY * zoom, rect.width - 24.0f * zoom, 16.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)), Color{190, 172, 140, 255});
         if (node.active || node.researched)
         {
             Rectangle progress{rect.x + 12.0f, rect.y + rect.height - 11.0f, rect.width - 24.0f, 5.0f};
-            DrawRectangleRounded(progress, 0.5f, 4, Color{17, 20, 25, 230});
+            DrawRectangleRounded(progress, 0.5f, 4, Color{22, 16, 12, 230});
             Rectangle fillBar = progress;
             fillBar.width *= static_cast<float>(std::clamp(node.progress, 0.0, 1.0));
-            DrawRectangleRounded(fillBar, 0.5f, 4, node.researched ? Color{95, 190, 116, 255} : Color{214, 178, 84, 255});
+            DrawRectangleRounded(fillBar, 0.5f, 4, node.researched ? Color{140, 176, 96, 255} : Color{214, 178, 84, 255});
         }
         if (hover && node.available && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -712,87 +690,10 @@ void ResearchTreePanelWidget::Update(double dt)
     if (maxScrollOffset > 0.0f)
     {
         Rectangle track{treeArea.x + treeArea.width + 6.0f, treeArea.y, 5.0f, treeArea.height};
-        DrawRectangleRounded(track, 0.5f, 4, Color{18, 22, 28, 190});
+        DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
         float thumbH = std::max(32.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
-        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{116, 132, 154, 230});
-    }
-
-    // ── Focus-only state overview side panel ──────────────────────────────────
-    Rectangle stateClassRow{};
-    const StateDevelopmentDefinition* stateDefinition = nullptr;
-    if (isFocus)
-    {
-        float sideW = std::min(260.0f, std::max(218.0f, bounds.width * 0.22f));
-        Rectangle statePanel{treeArea.x + treeArea.width + 18.0f, treeArea.y, sideW, treeArea.height};
-
-        DrawRectangleRounded(statePanel, 0.04f, 8, Color{31, 36, 44, 236});
-        DrawRectangleRoundedLines(statePanel, 0.04f, 8, 1.0f, Color{88, 100, 118, 235});
-        UiText::DrawFit("State Overview", Rectangle{statePanel.x + 14.0f, statePanel.y + 14.0f, statePanel.width - 28.0f, 26.0f}, 23, RAYWHITE);
-        stateDefinition = &player->stateDevelopment.GetDefinition();
-        std::vector<std::pair<std::string, std::string>> placeholders{
-            {"Class", stateDefinition->name},
-            {"Administration", "TBD"},
-            {"Stability", "TBD"},
-            {"Legitimacy", "TBD"},
-            {"War Support", "TBD"},
-            {"Treasury", "TBD"}};
-        float rowY = statePanel.y + 54.0f;
-        for (const auto& [label, value] : placeholders)
-        {
-            Rectangle row{statePanel.x + 14.0f, rowY, statePanel.width - 28.0f, 30.0f};
-            Color rowFill = Color{24, 29, 36, 225};
-            if (label == "Class")
-            {
-                rowFill = stateDefinition->color;
-                rowFill.a = 210;
-            }
-            DrawRectangleRounded(row, 0.08f, 6, rowFill);
-            if (label == "Class")
-            {
-                stateClassRow = row;
-                UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 5.0f, 52.0f, 20.0f}, 17, Color{184, 196, 214, 255});
-                UiText::DrawFit(value, Rectangle{row.x + 70.0f, row.y + 5.0f, row.width - 80.0f, 20.0f}, 17, RAYWHITE);
-            }
-            else
-            {
-                UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 5.0f, row.width * 0.62f, 20.0f}, 17, Color{184, 196, 214, 255});
-                UiText::DrawFit(value, Rectangle{row.x + row.width - 62.0f, row.y + 5.0f, 52.0f, 20.0f}, 17, Color{138, 151, 170, 255});
-            }
-            rowY += 38.0f;
-        }
-        Rectangle stateDescription{
-            statePanel.x + 14.0f,
-            rowY + 4.0f,
-            statePanel.width - 28.0f,
-            66.0f};
-        DrawRectangleRounded(stateDescription, 0.08f, 6, Color{24, 29, 36, 205});
-        UiText::DrawFit(stateDefinition->description,
-            Rectangle{stateDescription.x + 10.0f, stateDescription.y + 8.0f, stateDescription.width - 20.0f, stateDescription.height - 16.0f},
-            16,
-            Color{172, 184, 202, 255});
-        const std::string& activeId = player->focuses.GetActiveFocusId();
-        const TechnologyDefinition* activeFocus = activeId.empty() ? nullptr : FindFocusDefinition(activeId);
-        Rectangle activeBox{statePanel.x + 14.0f, statePanel.y + statePanel.height - 86.0f, statePanel.width - 28.0f, 68.0f};
-        DrawRectangleRounded(activeBox, 0.08f, 6, Color{25, 31, 39, 230});
-        UiText::DrawFit("Active Focus", Rectangle{activeBox.x + 10.0f, activeBox.y + 8.0f, activeBox.width - 20.0f, 20.0f}, 17, Color{184, 196, 214, 255});
-        UiText::DrawFit(activeFocus != nullptr ? activeFocus->name : "None", Rectangle{activeBox.x + 10.0f, activeBox.y + 32.0f, activeBox.width - 20.0f, 24.0f}, 20, activeFocus != nullptr ? RAYWHITE : Color{138, 151, 170, 255});
-    }
-
-    if (isFocus && stateDefinition != nullptr && CheckCollisionPointRec(mouse, stateClassRow))
-    {
-        std::vector<std::string> lines{stateDefinition->description};
-        lines.push_back(TooltipSeparatorLine());
-        if (stateDefinition->modifiers.empty())
-        {
-            lines.push_back("No fixed effects yet");
-        }
-        else
-        {
-            for (const auto& modifier : stateDefinition->modifiers)
-                lines.push_back(FormatModifierForFocusTooltip(modifier));
-        }
-        Tooltip::Draw(stateDefinition->name, lines, 460.0f);
+        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
     }
 
     if (hovered != nullptr)
@@ -802,13 +703,7 @@ void ResearchTreePanelWidget::Update(double dt)
         lines.push_back("Time: " + FormatDuration(hovered->researchTime) + " | " + hovered->stateText);
         if (hovered->active)
             lines.push_back("Remaining: " + FormatDuration(hovered->remainingTime));
-        if (isFocus)
-        {
-            lines.push_back(TooltipSeparatorLine());
-            if (const auto* unlockedState = StateDevelopment::FindDefinition(hovered->governmentId))
-                lines.push_back("State class change: " + unlockedState->name);
-        }
-        else if (!hovered->available && !hovered->researched && !hovered->active)
+        if (!isFocus && !hovered->available && !hovered->researched && !hovered->active)
         {
             lines.push_back(TooltipSeparatorLine());
             lines.push_back("Prerequisites not met");

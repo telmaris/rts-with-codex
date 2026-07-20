@@ -28,27 +28,51 @@ namespace
     constexpr double MinActionableScore = 0.05;
 
     // Deterministic opening build order that bootstraps the FOOD_PROVISIONS
-    // (manpower) chain and a wood/ore base before telemetry has any
-    // consumption signal to react to. Entries are (type, owned target);
-    // completed-or-queued counts gate each step.
+    // (manpower) chain, a wood base, AND the iron chain before telemetry has
+    // any consumption signal to react to. Each step carries the terrain its
+    // extractor needs (GRASS for plain buildings) and, for the terrain-specific
+    // mines, the RESOURCE that gates it — because a Mine's type alone can't
+    // tell a coal mine from an iron-ore or stone one (2026-07-20 fix: the old
+    // type-count gate let the deficit ladder's STONE mine satisfy the COAL
+    // step, so the iron chain never got its ore).
     struct OpeningStep
     {
         BuildingType type;
-        int target;
+        int target;              // building-type count target (ignored when gateResource is set)
+        TileType preferredTile;  // terrain the extractor needs
+        ResourceType gateResource;  // Null => gate by building-type count; else by a producer of this resource
     };
-    constexpr std::array<OpeningStep, 12> OpeningPlan{{
-        {BuildingType::Woodcutter, 1},
-        {BuildingType::WheatFarm, 1},
-        {BuildingType::Windmill, 1},
-        {BuildingType::Bakery, 1},
-        {BuildingType::Well, 1},
-        {BuildingType::HuntersHut, 1},
-        {BuildingType::Inn, 1},
-        {BuildingType::LumberMill, 1},
-        {BuildingType::Woodcutter, 2},
-        {BuildingType::Mine, 1},
-        {BuildingType::Village, 2},
-        {BuildingType::StorageBuilding, 1},
+    constexpr std::array<OpeningStep, 15> OpeningPlan{{
+        // Basic materials, then the IRON CHAIN, then the (expensive) food chain.
+        // Rationale:
+        //  - BOTH woodcutters before the LumberMill: one Woodcutter (30 WOOD/min)
+        //    exactly feeds one LumberMill (30 WOOD/min) with ZERO surplus for
+        //    construction, so a single one starves the rest for WOOD and the plan
+        //    wedges (2026-07-20). Two give a real surplus.
+        //  - Iron chain (coal + iron-ore mines + Foundry) BEFORE the food chain:
+        //    it's cheap (mines cost no iron; a first Foundry's 10 IRON is covered
+        //    by the HQ's starting 30) and it's the user's actual goal ("AI buduje
+        //    produkcję żelaza/węgla"), so stand it up FAST off the opening stock
+        //    rather than after grinding out the whole PLANKS/STONE-heavy food
+        //    chain (WheatFarm/Windmill/Bakery/Inn ~ 150 PLANKS), which is a
+        //    slower, manpower-oriented investment.
+        {BuildingType::Woodcutter,      1, TileType::WOOD,     ResourceType::Null},
+        {BuildingType::Woodcutter,      2, TileType::WOOD,     ResourceType::Null},
+        {BuildingType::LumberMill,      1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Mine,            1, TileType::STONE,    ResourceType::STONE},
+        {BuildingType::Mine,            1, TileType::COAL,     ResourceType::COAL},
+        {BuildingType::Mine,            1, TileType::IRON_ORE, ResourceType::IRON_ORE},
+        {BuildingType::Foundry,         1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::WheatFarm,       1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Windmill,        1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Bakery,          1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Well,            1, TileType::GRASS,    ResourceType::Null},
+        // HuntersHut makes MEAT on WOOD terrain — it was gated GRASS before and
+        // so could NEVER be placed (silently breaking the MEAT->Inn food link).
+        {BuildingType::HuntersHut,      1, TileType::WOOD,     ResourceType::Null},
+        {BuildingType::Inn,             1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Village,         2, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::StorageBuilding, 1, TileType::GRASS,    ResourceType::Null},
     }};
 
     // Rough per-unit combat weight for track-pressure comparisons: damage
@@ -600,6 +624,26 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
             return true;
     }
 
+    // Keep the smelter on IRON regardless of what else is going on (a fresh
+    // Foundry defaults to the COPPER recipe — index 0 — and the AI never mines
+    // COPPER_ORE, so without this it stalls forever and produces no iron; see
+    // AIActions::TrySwitchRecipeFor). Fires once, as soon as a Foundry stands,
+    // even while the opening plan is still grinding out the food chain — the
+    // recipe switch must NOT wait behind the deficit ladder below.
+    if (AIActions::TrySwitchRecipeFor(world, player, ResourceType::IRON))
+        return true;
+
+    // Opening bootstrap runs FIRST, before the reactive deficit ladder. The
+    // plan front-loads the basic materials and the (cheap) iron chain, so those
+    // get built off the opening stock before anything competes for it — the AI
+    // reliably stands up real coal/iron production instead of leaning on a big
+    // starting grant (user report 2026-07-20: "AI wciąż nie buduje żelaza/
+    // węgla"). When the plan places a step it consumes the cycle; when it's
+    // saving up (unaffordable next step) or complete it returns false and the
+    // deficit ladder below takes over reactive scaling/sustain.
+    if (TryOpeningPlan(world, player))
+        return true;
+
     // Deficit backoff (2026-07-19): a resource that just failed (every
     // producer option unaffordable, not merely a missing anchor — see
     // AIActionState::deficitBackoff) is skipped for a few cycles so a
@@ -628,7 +672,7 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
         actions.deficitBackoff[deficit.resource] = 12.0;
     }
 
-    return TryOpeningPlan(world, player);
+    return false;
 }
 
 bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, ResourceType resource)
@@ -677,6 +721,17 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     // fresh, already-connected ground routes around the stuck one instead of
     // literally being a copy of it. Once two are unhealthy, that path is
     // exhausted too and the hard block resumes.
+    // Cause-D fix (2026-07-20): before building a new producer for `target`,
+    // check whether an EXISTING multi-recipe building can produce it by
+    // switching recipe. A Foundry defaults to COPPER and a Smith to TOOLS
+    // (recipe index 0), so a Foundry the AI built expressly to make IRON sits
+    // on the Copper recipe forever, and CountProducersOfResource(IRON) reads 0
+    // — which would otherwise make this function build ANOTHER Copper Foundry
+    // every cycle. Switching the recipe is the actual fix; it also stops the
+    // redundant-Foundry spam.
+    if (AIActions::TrySwitchRecipeFor(world, player, target))
+        return true;
+
     std::vector<AIActions::AIProducerOption> options = AIActions::FindProducerOptions(target);
     // Counted per-PRODUCT (2026-07-20 fix), not per-BuildingType: a Mine on a
     // COAL tile and a Mine on an IRON_ORE tile are different producers as far
@@ -717,7 +772,15 @@ bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
 {
     for (const OpeningStep& step : OpeningPlan)
     {
-        if (AIActions::CountCompletedOrQueuedBuildings(world, player, step.type) >= step.target)
+        // Terrain-specific mines gate on an actual producer of their resource
+        // (matched by terrain-resolved product, pending builds included) — a
+        // type-count gate can't tell a coal mine from a stone/iron-ore one, so
+        // the deficit ladder's STONE mine used to satisfy the COAL step and the
+        // iron chain never got its ore (2026-07-20 user report).
+        bool satisfied = step.gateResource != ResourceType::Null
+            ? AIActions::HasProducerOrPendingForResource(player, step.gateResource)
+            : AIActions::CountCompletedOrQueuedBuildings(world, player, step.type) >= step.target;
+        if (satisfied)
             continue;
 
         // The plan is strictly ordered: an unaffordable step means "save up",
@@ -726,10 +789,7 @@ bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
         if (!player->CanBuildDefinition(GetBuildingDefinition(step.type)))
             return false;
 
-        TileType preferredTile = step.type == BuildingType::Woodcutter ? TileType::WOOD
-                               : step.type == BuildingType::Mine       ? TileType::COAL
-                                                                       : TileType::GRASS;
-        Vec2i anchor = AIActions::FindBuildAnchor(world, player, step.type, preferredTile, nullptr, actions);
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, step.type, step.preferredTile, nullptr, actions);
         if (anchor.x < 0)
             continue;  // nowhere to put THIS one (terrain gone / search backoff) — don't block the rest
         if (AIActions::TrySubmitBuild(world, player, step.type, anchor, actions))

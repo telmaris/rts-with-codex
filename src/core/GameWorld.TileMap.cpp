@@ -277,7 +277,7 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, B
     // base exit doesn't jam with buildings ("szybko się klinuje"). Roads and
     // Bridges are exempt — logistics must be able to reach the HQ — and so
     // is a Headquarters being placed itself.
-    constexpr int kHqClearanceRadius = 10;
+    constexpr int kHqClearanceRadius = 6;
     if (type != BuildingType::Road && type != BuildingType::Bridge &&
         type != BuildingType::Headquarters &&
         IsWithinHqClearance(anchor, footprint, kHqClearanceRadius))

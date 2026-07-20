@@ -202,9 +202,15 @@ void DrawCloseButton(Rectangle panel)
 {
     Rectangle close = PanelCloseButtonRect(panel);
     bool hover = CheckCollisionPointRec(GetMousePosition(), close);
-    DrawRectangleRounded(close, 0.18f, 8, hover ? Color{110, 58, 64, 245} : Color{54, 42, 48, 230});
-    DrawRectangleRoundedLines(close, 0.18f, 8, 1.0f, hover ? Color{244, 132, 142, 255} : Color{156, 104, 114, 235});
-    UiText::DrawFit("X", Rectangle{close.x + 6.0f, close.y + 4.0f, close.width - 12.0f, close.height - 8.0f}, 20, RAYWHITE);
+    DrawRectangleRounded(close, 0.18f, 8, hover ? Color{132, 58, 42, 245} : Color{46, 30, 24, 230});
+    DrawRectangleRoundedLines(close, 0.18f, 8, 1.0f, hover ? Color{214, 128, 92, 255} : Color{118, 92, 70, 235});
+    UiText::DrawFit("X", Rectangle{close.x + 6.0f, close.y + 4.0f, close.width - 12.0f, close.height - 8.0f}, 20, UiTheme::Parchment);
+}
+
+float PanelTitleCloseReserve(Rectangle panel)
+{
+    Rectangle close = PanelCloseButtonRect(panel);
+    return (panel.x + panel.width) - close.x + 10.0f;
 }
 
 std::string FormatOneDecimal(double value)

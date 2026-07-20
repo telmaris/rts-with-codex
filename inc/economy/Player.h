@@ -8,7 +8,6 @@
 #include "core/GameCommand.h"
 #include "simulation/RoadNetwork.h"
 #include "data/StrategicResource.h"
-#include "research/StateDevelopment.h"
 #include "research/Technology.h"
 #include "economy/PlayerDataTracker.h"
 #include "economy/PlayerEconomy.h"
@@ -252,6 +251,13 @@ public:
     // Rebuilds the modifier set entries emitted by unlocked technologies.
     void RefreshTechnologyModifiers();
 
+    // (Re-)applies the BalanceModifiers for a building's current
+    // UpgradeComponent::level, replacing whatever the previous level had.
+    // Called when an upgrade completes, and once per upgraded building after
+    // loading a save (upgrade level is persisted; the modifiers it implies
+    // are re-derived, the same way tech/focus modifiers are).
+    void ApplyUpgradeLevelModifiers(Building& building);
+
     // Clears all unlocked tech/focuses and cancels in-progress research (debug helper).
     void ResetResearchState();
 
@@ -330,7 +336,6 @@ public:
     StrategicResourcePool strategicResources;
     TechnologyState technologies;
     FocusState focuses;
-    StateDevelopment stateDevelopment;
     BalanceModifierSet balanceModifiers;
     PlayerDataTracker dataTracker;
     ConstructionQueue construction;

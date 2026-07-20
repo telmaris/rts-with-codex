@@ -151,6 +151,59 @@ int CountProducersOfResource(Player* player, ResourceType resource)
     return count;
 }
 
+bool HasProducerOrPendingForResource(Player* player, ResourceType resource)
+{
+    if (player == nullptr || resource == ResourceType::Null)
+        return false;
+    // Same terrain-resolved match as CountProducersOfResource, but a producer
+    // still under construction counts too — its ProductionComponent::products
+    // is fixed the moment it's placed (terrain baked in), so the opening plan
+    // must not re-order a coal mine that's already on its way up.
+    for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
+    {
+        const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+        if (production == nullptr || building->owner != player)
+            continue;
+        if (production->products.contains(resource))
+            return true;
+    }
+    return false;
+}
+
+bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource)
+{
+    if (player == nullptr || resource == ResourceType::Null)
+        return false;
+    // Something already actively smelts/forges this — no switch needed.
+    if (CountProducersOfResource(player, resource) > 0)
+        return false;
+
+    // Simulation-visible (which building changes recipe, and its cleared
+    // buffers) — sort by id, same determinism rule as every other actuator.
+    const auto& tracked = player->GetTrackedBuildingsWithComponent<ProductionComponent>();
+    std::vector<Building*> candidates(tracked.begin(), tracked.end());
+    std::sort(candidates.begin(), candidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+    for (Building* building : candidates)
+    {
+        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+            continue;
+        const auto* recipes = building->GetComponent<RecipeComponent>();
+        if (recipes == nullptr || !recipes->HasSelectableRecipes())
+            continue;
+        for (int i = 0; i < static_cast<int>(recipes->recipes.size()); i++)
+        {
+            if (i == recipes->activeRecipeIndex)
+                continue;
+            auto it = recipes->recipes[i].outputs.find(resource);
+            if (it == recipes->recipes[i].outputs.end() || it->second <= 0)
+                continue;
+            world.SubmitCommand(GameCommand::SetRecipe(player->id, building->positionId, i));
+            return true;
+        }
+    }
+    return false;
+}
+
 int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type)
 {
     auto it = rates.find(type);

@@ -327,6 +327,12 @@ bool Building::HasReceiver(ResourceType type) const
     return log != nullptr && log->HasReceiver(type);
 }
 
+bool Building::AcceptsSupplierFor(ResourceType type, const Building* supplier) const
+{
+    auto* log = GetComponent<LogisticsComponent>();
+    return log == nullptr || log->AcceptsSupplierFor(type, supplier);
+}
+
 bool Building::IsStorageLike() const
 {
     return HasComponent<StorageComponent>();
@@ -480,6 +486,10 @@ Road::Road(int i)
     road.maxCapacity   = def.road.maxCapacity;
     road.speedModifier = def.road.speedModifier;
     RegisterComponent(&road);
+
+    for (const auto& levelDef : def.upgradeLevels)
+        upgrade.maxLevel = std::max(upgrade.maxLevel, levelDef.level);
+    RegisterComponent(&upgrade);
 }
 
 int Road::GetModifiedMaxCapacity() const
@@ -490,6 +500,23 @@ int Road::GetModifiedMaxCapacity() const
 double Road::GetModifiedSpeedModifier() const
 {
     return road.GetModifiedSpeedModifier(*this);
+}
+
+// ─── UpgradeComponent ────────────────────────────────────────────────────────
+
+void UpgradeComponent::Update(Building& self, double dt)
+{
+    if (!isUpgrading || !upgradeActive)
+        return;
+
+    upgradeRemaining = std::max(0.0, upgradeRemaining - dt);
+    if (upgradeRemaining > 0.0)
+        return;
+
+    level++;
+    isUpgrading = false;
+    if (self.owner != nullptr)
+        self.owner->ApplyUpgradeLevelModifiers(self);
 }
 
 // ─── Bridge ──────────────────────────────────────────────────────────────────

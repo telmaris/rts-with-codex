@@ -61,6 +61,11 @@ Rectangle PanelCloseButtonRect(Rectangle panel);
 // Draws the close button for a full-screen panel.
 void DrawCloseButton(Rectangle panel);
 
+// Width (from the panel's right edge) a title bar must reserve so its text
+// never overlaps DrawCloseButton's close button — pass as UiText::DrawTitleBar's
+// closeButtonReserve for any panel using DrawCloseButton.
+float PanelTitleCloseReserve(Rectangle panel);
+
 // Formats a compact fixed-point HUD value with one decimal place.
 std::string FormatOneDecimal(double value);
 

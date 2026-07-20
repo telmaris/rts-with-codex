@@ -144,9 +144,9 @@ void StrategicResourceHudWidget::Update(double dt)
 
     PlayerStatsSnapshot stats = BuildPlayerStatsSnapshot(player);
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{21, 25, 31, 238});
-    DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{38, 46, 57, 230}, Color{18, 22, 28, 238});
-    DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, Color{95, 109, 129, 235});
+    DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{26, 19, 14, 238});
+    DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{52, 40, 28, 230}, Color{22, 16, 12, 238});
+    DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, Color{150, 108, 58, 235});
 
     float iconSize = std::max(26.0f, bounds.height - 20.0f);
     float y = bounds.y + (bounds.height - iconSize) * 0.5f;
@@ -155,18 +155,18 @@ void StrategicResourceHudWidget::Update(double dt)
 
     auto drawManpowerIcon = [&](Rectangle icon)
     {
-        DrawCircle(static_cast<int>(icon.x + icon.width * 0.5f), static_cast<int>(icon.y + icon.height * 0.28f), icon.width * 0.16f, Color{214, 226, 238, 255});
-        DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.46f, icon.width * 0.44f, icon.height * 0.38f}, 0.30f, 8, Color{214, 226, 238, 255});
+        DrawCircle(static_cast<int>(icon.x + icon.width * 0.5f), static_cast<int>(icon.y + icon.height * 0.28f), icon.width * 0.16f, Color{224, 208, 178, 255});
+        DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.46f, icon.width * 0.44f, icon.height * 0.38f}, 0.30f, 8, Color{224, 208, 178, 255});
     };
 
     auto drawStatChip = [&](Rectangle icon, const std::string& text, Color accent, std::function<void(Rectangle)> drawIcon)
     {
         Rectangle chip{icon.x - 6.0f, icon.y - 4.0f, 120.0f, icon.height + 8.0f};
-        DrawRectangleRounded(chip, 0.16f, 8, Color{34, 40, 49, 232});
+        DrawRectangleRounded(chip, 0.16f, 8, Color{44, 33, 23, 232});
         DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{accent.r, accent.g, accent.b, 170});
-        DrawRectangleRounded(icon, 0.16f, 8, Color{42, 49, 60, 238});
+        DrawRectangleRounded(icon, 0.16f, 8, Color{50, 38, 27, 238});
         drawIcon(icon);
-        UiText::DrawFit(text, Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 14.0f, chip.height - 10.0f}, 22, RAYWHITE);
+        UiText::DrawFit(text, Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 14.0f, chip.height - 10.0f}, 22, UiTheme::Parchment);
     };
 
     auto drawResourceChip = [&](ResourceType type, float x)
@@ -178,13 +178,13 @@ void StrategicResourceHudWidget::Update(double dt)
         if (it != stats.storedResources.end())
             amount = it->second;
 
-        DrawRectangleRounded(chip, 0.16f, 8, Color{33, 39, 48, 228});
-        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{83, 95, 114, 220});
+        DrawRectangleRounded(chip, 0.16f, 8, Color{42, 31, 22, 228});
+        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{120, 92, 58, 220});
         GuiPanel::DrawResourceIcon(type, Rectangle{icon.x + 3.0f, icon.y + 3.0f, icon.width - 6.0f, icon.height - 6.0f});
-        UiText::DrawFit(std::to_string(amount), Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 16.0f, chip.height - 10.0f}, 21, Color{229, 235, 242, 255});
+        UiText::DrawFit(std::to_string(amount), Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 16.0f, chip.height - 10.0f}, 21, Color{228, 210, 180, 255});
     };
 
-    drawStatChip(manpowerIcon, std::to_string(stats.freeManpower), Color{157, 190, 225, 255}, drawManpowerIcon);
+    drawStatChip(manpowerIcon, std::to_string(stats.freeManpower), Color{188, 150, 96, 255}, drawManpowerIcon);
 
     drawStatChip(foodIcon, std::to_string(stats.foodSupplyPercent) + "%", Color{145, 198, 118, 255}, [&](Rectangle icon)
     {
@@ -199,7 +199,7 @@ void StrategicResourceHudWidget::Update(double dt)
                  Color{201, 174, 122, 255}, [&](Rectangle icon)
     {
         float cx = icon.x + icon.width * 0.5f;
-        DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.22f, icon.width * 0.46f, icon.height * 0.20f}, 0.35f, 6, Color{214, 226, 238, 255});
+        DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.22f, icon.width * 0.46f, icon.height * 0.20f}, 0.35f, 6, Color{224, 208, 178, 255});
         DrawRectangleRounded(Rectangle{cx - icon.width * 0.06f, icon.y + icon.height * 0.36f, icon.width * 0.12f, icon.height * 0.44f}, 0.40f, 6, Color{201, 174, 122, 255});
     });
 
@@ -263,18 +263,18 @@ void StrategicResourceHudWidget::Update(double dt)
             static_cast<unsigned char>(std::min(255, line.g + 30)),
             static_cast<unsigned char>(std::min(255, line.b + 30)),
             248} : line);
-        UiText::DrawFit(label, Rectangle{rect.x + 10.0f, rect.y + 4.0f, rect.width - 20.0f, rect.height - 8.0f}, 20, RAYWHITE);
+        UiText::DrawFit(label, Rectangle{rect.x + 10.0f, rect.y + 4.0f, rect.width - 20.0f, rect.height - 8.0f}, 20, UiTheme::Parchment);
     };
 
     drawHudButton(buildButton, "Build", buildHovered, Color{43, 60, 52, 238}, Color{92, 151, 118, 230});
-    drawHudButton(roadButton, "Road", roadHovered, Color{44, 55, 68, 238}, Color{94, 134, 174, 230});
+    drawHudButton(roadButton, "Road", roadHovered, Color{54, 46, 34, 238}, Color{140, 112, 74, 230});
     drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
 
     // Roster button — pulses red border when this player's HQ is under siege.
     Color rosterBase = hqUnderAttack
         ? Color{static_cast<unsigned char>(90 + warningPulse * 60.0f), 45, 48, 238}
-        : Color{47, 51, 64, 238};
-    Color rosterLine = hqUnderAttack ? Color{244, 132, 142, 255} : Color{104, 116, 138, 230};
+        : Color{46, 34, 24, 238};
+    Color rosterLine = hqUnderAttack ? Color{244, 132, 142, 255} : Color{128, 108, 80, 230};
     drawHudButton(rosterButton, "Roster (" + std::to_string(rosterCount) + ")", rosterHovered, rosterBase, rosterLine);
     if (hqUnderAttack)
     {
@@ -294,7 +294,7 @@ void StrategicResourceHudWidget::Update(double dt)
     DrawRectangleRoundedLines(focusButton, 0.14f, 8, 1.5f, focusLine);
     if (focusAvailable)
         DrawRectangleRounded(Rectangle{focusButton.x + 4.0f, focusButton.y + 4.0f, focusButton.width - 8.0f, focusButton.height - 8.0f}, 0.14f, 8, Color{255, 221, 120, static_cast<unsigned char>(22 + pulse * 48.0f)});
-    UiText::DrawFit("Focus Tree", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21, RAYWHITE);
+    UiText::DrawFit("Focus Tree", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21, UiTheme::Parchment);
     Rectangle focusBar{focusButton.x + 12.0f, focusButton.y + focusButton.height - 9.0f, focusButton.width - 24.0f, 4.0f};
     DrawRectangleRounded(focusBar, 0.6f, 6, Color{26, 22, 34, 170});
     Rectangle focusFillBar = focusBar;
@@ -303,17 +303,17 @@ void StrategicResourceHudWidget::Update(double dt)
         DrawRectangleRounded(focusFillBar, 0.6f, 6, focusAvailable ? Color{255, 220, 116, 210} : Color{178, 140, 248, 235});
 
     if (techUnlocked)
-        drawHudButton(techButton, "Technology", techHovered, Color{38, 58, 72, 238}, Color{82, 140, 180, 230});
+        drawHudButton(techButton, "Technology", techHovered, Color{46, 40, 30, 238}, Color{130, 100, 66, 230});
     else
     {
-        DrawRectangleRounded(techButton, 0.14f, 8, Color{34, 36, 40, 220});
-        DrawRectangleRoundedLines(techButton, 0.14f, 8, 1.1f, Color{74, 78, 86, 200});
-        UiText::DrawFit("Technology", Rectangle{techButton.x + 10.0f, techButton.y + 4.0f, techButton.width - 20.0f, techButton.height - 8.0f}, 20, Color{140, 144, 152, 230});
+        DrawRectangleRounded(techButton, 0.14f, 8, Color{30, 24, 19, 220});
+        DrawRectangleRoundedLines(techButton, 0.14f, 8, 1.1f, Color{96, 82, 66, 200});
+        UiText::DrawFit("Technology", Rectangle{techButton.x + 10.0f, techButton.y + 4.0f, techButton.width - 20.0f, techButton.height - 8.0f}, 20, Color{150, 132, 108, 230});
     }
 
-    DrawRectangleRounded(statsButton, 0.14f, 8, statsHovered ? Color{69, 83, 103, 245} : Color{43, 51, 64, 238});
-    DrawRectangleRoundedLines(statsButton, 0.14f, 8, 1.2f, statsHovered ? Color{139, 166, 202, 245} : Color{88, 103, 124, 230});
-    UiText::DrawFit("Resources", Rectangle{statsButton.x + 12.0f, statsButton.y + 4.0f, statsButton.width - 24.0f, statsButton.height - 8.0f}, 21, RAYWHITE);
+    DrawRectangleRounded(statsButton, 0.14f, 8, statsHovered ? Color{66, 50, 36, 245} : Color{46, 34, 24, 238});
+    DrawRectangleRoundedLines(statsButton, 0.14f, 8, 1.2f, statsHovered ? Color{176, 138, 82, 245} : Color{112, 88, 58, 230});
+    UiText::DrawFit("Resources", Rectangle{statsButton.x + 12.0f, statsButton.y + 4.0f, statsButton.width - 24.0f, statsButton.height - 8.0f}, 21, UiTheme::Parchment);
 
     Vector2 mouse = GetMousePosition();
     if (CheckCollisionPointRec(mouse, Rectangle{manpowerIcon.x, bounds.y, 125.0f, bounds.height}))
@@ -450,23 +450,23 @@ void StatsPanelWidget::Update(double dt)
     double historyTime = player->economyTelemetry.elapsedTime;
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{20, 24, 30, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{100, 114, 136, 255});
+    DrawRectangleRounded(bounds, 0.025f, 8, Color{30, 22, 16, 244});
+    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{150, 108, 58, 255});
 
     Rectangle title{bounds.x, bounds.y, bounds.width, 54.0f};
-    DrawRectangleRounded(title, 0.025f, 8, Color{38, 48, 62, 255});
-    UiText::DrawFit("Statistics", Rectangle{title.x + 20.0f, title.y + 10.0f, title.width * 0.45f, 34.0f}, 30, RAYWHITE);
+    DrawRectangleRounded(title, 0.025f, 8, Color{50, 38, 27, 255});
+    UiText::DrawTitleBar(title, "Statistics", PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 
     constexpr std::array<int, 3> windows{15, 60, 300};
     const char* windowLabels[] = {"15 sec", "1 min", "5 min"};
     // Right edge is at title.width - 54, giving a 10px gap before the close button (at title.width - 44).
     Rectangle spin = GetWindowSpinnerRect();
-    DrawRectangleRounded(spin, 0.12f, 8, Color{24, 30, 38, 255});
-    DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, Color{90, 106, 128, 255});
-    UiText::DrawFit("<", Rectangle{spin.x + 8.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, RAYWHITE);
-    UiText::DrawFit(windowLabels[selectedWindowIndex], Rectangle{spin.x + 42.0f, spin.y + 5.0f, spin.width - 84.0f, 24.0f}, 22, RAYWHITE);
-    UiText::DrawFit(">", Rectangle{spin.x + spin.width - 32.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, RAYWHITE);
+    DrawRectangleRounded(spin, 0.12f, 8, Color{30, 22, 16, 255});
+    DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, Color{118, 92, 62, 255});
+    UiText::DrawFit("<", Rectangle{spin.x + 8.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, UiTheme::Parchment);
+    UiText::DrawFit(windowLabels[selectedWindowIndex], Rectangle{spin.x + 42.0f, spin.y + 5.0f, spin.width - 84.0f, 24.0f}, 22, UiTheme::Parchment);
+    UiText::DrawFit(">", Rectangle{spin.x + spin.width - 32.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, UiTheme::Parchment);
 
     Rectangle modeToggle = GetFlowModeToggleRect();
     const char* modeLabels[] = {"Production", "Consumption"};
@@ -474,9 +474,9 @@ void StatsPanelWidget::Update(double dt)
     {
         Rectangle half{modeToggle.x + i * modeToggle.width * 0.5f, modeToggle.y, modeToggle.width * 0.5f, modeToggle.height};
         bool selected = selectedFlowMode == i;
-        DrawRectangleRounded(half, 0.10f, 8, selected ? Color{54, 72, 92, 245} : Color{24, 30, 38, 235});
-        DrawRectangleRoundedLines(half, 0.10f, 8, 1.0f, selected ? Color{130, 166, 210, 245} : Color{76, 88, 106, 220});
-        UiText::DrawFit(modeLabels[i], Rectangle{half.x + 8.0f, half.y + 6.0f, half.width - 16.0f, 22.0f}, 18, RAYWHITE);
+        DrawRectangleRounded(half, 0.10f, 8, selected ? Color{66, 60, 32, 245} : Color{30, 22, 16, 235});
+        DrawRectangleRoundedLines(half, 0.10f, 8, 1.0f, selected ? UiTheme::Gold : Color{100, 84, 64, 220});
+        UiText::DrawFit(modeLabels[i], Rectangle{half.x + 8.0f, half.y + 6.0f, half.width - 16.0f, 22.0f}, 18, UiTheme::Parchment);
     }
 
     float top = bounds.y + 78.0f;
@@ -486,15 +486,15 @@ void StatsPanelWidget::Update(double dt)
 
     auto drawColumn = [](Rectangle col, const std::string& titleText)
     {
-        DrawRectangleRounded(col, 0.035f, 8, Color{29, 34, 42, 232});
-        DrawRectangleRoundedLines(col, 0.035f, 8, 1.0f, Color{74, 86, 104, 255});
-        UiText::DrawFit(titleText, Rectangle{col.x + 14.0f, col.y + 12.0f, col.width - 28.0f, 26.0f}, 23, RAYWHITE);
+        DrawRectangleRounded(col, 0.035f, 8, Color{38, 28, 20, 232});
+        DrawRectangleRoundedLines(col, 0.035f, 8, 1.0f, Color{120, 92, 58, 255});
+        UiText::DrawFit(titleText, Rectangle{col.x + 14.0f, col.y + 12.0f, col.width - 28.0f, 26.0f}, 23, UiTheme::Parchment);
     };
 
-    auto drawRow = [](Rectangle col, int index, const std::string& label, const std::string& value, Color valueColor = RAYWHITE)
+    auto drawRow = [](Rectangle col, int index, const std::string& label, const std::string& value, Color valueColor = UiTheme::Parchment)
     {
         float y = col.y + 52.0f + index * 30.0f;
-        UiText::DrawFit(label, Rectangle{col.x + 14.0f, y, col.width * 0.58f, 22.0f}, 20, Color{190, 201, 216, 255});
+        UiText::DrawFit(label, Rectangle{col.x + 14.0f, y, col.width * 0.58f, 22.0f}, 20, UiTheme::ParchmentDim);
         UiText::DrawFit(value, Rectangle{col.x + col.width * 0.58f, y, col.width * 0.38f - 12.0f, 22.0f}, 20, valueColor);
     };
 
@@ -502,8 +502,8 @@ void StatsPanelWidget::Update(double dt)
     drawRow(left, 0, "Free manpower", std::to_string(stats.freeManpower));
     drawRow(left, 1, "Workers", std::to_string(stats.workers));
     drawRow(left, 2, "Total / cap", std::to_string(stats.totalPopulation) + " / " + std::to_string(stats.populationCap));
-    drawRow(left, 3, "Growth", "+" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min", Color{154, 238, 166, 255});
-    drawRow(left, 4, "Food supply", std::to_string(stats.foodSupplyPercent) + "%", stats.foodSupplyPercent < 60 ? Color{248, 126, 126, 255} : Color{154, 238, 166, 255});
+    drawRow(left, 3, "Growth", "+" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min", UiTheme::SageBright);
+    drawRow(left, 4, "Food supply", std::to_string(stats.foodSupplyPercent) + "%", stats.foodSupplyPercent < 60 ? UiTheme::RustBright : UiTheme::SageBright);
     drawRow(left, 5, "Food use", FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min");
     drawRow(left, 6, "Worker productivity", std::to_string(stats.workerProductivityPercent) + "%");
     drawRow(left, 7, "Buildings", std::to_string(stats.buildingCount));
@@ -513,11 +513,11 @@ void StatsPanelWidget::Update(double dt)
 
     drawColumn(chart, showingConsumption ? "Consumption graph" : "Production graph");
     Rectangle plot{chart.x + 46.0f, chart.y + 64.0f, chart.width - 72.0f, chart.height - 142.0f};
-    DrawRectangleRounded(plot, 0.02f, 8, Color{16, 20, 26, 255});
+    DrawRectangleRounded(plot, 0.02f, 8, Color{22, 16, 12, 255});
     for (int i = 1; i <= 4; i++)
     {
         float y = plot.y + plot.height * i / 5.0f;
-        DrawLineEx(Vector2{plot.x, y}, Vector2{plot.x + plot.width, y}, 1.0f, Color{50, 58, 70, 180});
+        DrawLineEx(Vector2{plot.x, y}, Vector2{plot.x + plot.width, y}, 1.0f, Color{74, 58, 42, 180});
     }
 
     double windowSeconds = static_cast<double>(windows[selectedWindowIndex]);
@@ -528,7 +528,7 @@ void StatsPanelWidget::Update(double dt)
     {
         float age = static_cast<float>((historyTime - tick) / windowSeconds);
         float x = plot.x + plot.width - std::clamp(age, 0.0f, 1.0f) * plot.width;
-        Color tickColor = std::fmod(tick, tickSeconds * 5.0) < 0.001 ? Color{76, 88, 106, 185} : Color{42, 50, 62, 150};
+        Color tickColor = std::fmod(tick, tickSeconds * 5.0) < 0.001 ? Color{120, 92, 58, 185} : Color{52, 40, 30, 150};
         DrawLineEx(Vector2{x, plot.y}, Vector2{x, plot.y + plot.height}, 1.0f, tickColor);
     }
 
@@ -604,7 +604,7 @@ void StatsPanelWidget::Update(double dt)
             Vector2 point{x, y};
             if (hasPrevious)
                 DrawLineEx(previous, point, 2.0f, color);
-            DrawCircleV(point, rate > 0 ? 3.0f : 2.0f, rate > 0 ? color : Color{72, 82, 96, 190});
+            DrawCircleV(point, rate > 0 ? 3.0f : 2.0f, rate > 0 ? color : Color{110, 92, 70, 190});
             previous = point;
             lastPoint = point;
             lastRate = rate;
@@ -614,10 +614,10 @@ void StatsPanelWidget::Update(double dt)
             endpoints.push_back({type, lastPoint, lastRate, color});
     }
 
-    UiText::DrawFit("0", Rectangle{plot.x - 28.0f, plot.y + plot.height - 16.0f, 24.0f, 16.0f}, 16, Color{160, 174, 190, 255});
-    UiText::DrawFit(std::to_string(maxObservedRate) + "/m", Rectangle{plot.x - 42.0f, plot.y - 4.0f, 40.0f, 18.0f}, 16, Color{160, 174, 190, 255});
-    UiText::DrawFit("-" + std::string(windowLabels[selectedWindowIndex]), Rectangle{plot.x, plot.y + plot.height + 6.0f, 54.0f, 18.0f}, 16, Color{160, 174, 190, 255});
-    UiText::DrawFit("now", Rectangle{plot.x + plot.width - 36.0f, plot.y + plot.height + 6.0f, 36.0f, 18.0f}, 16, Color{160, 174, 190, 255});
+    UiText::DrawFit("0", Rectangle{plot.x - 28.0f, plot.y + plot.height - 16.0f, 24.0f, 16.0f}, 16, Color{190, 172, 140, 255});
+    UiText::DrawFit(std::to_string(maxObservedRate) + "/m", Rectangle{plot.x - 42.0f, plot.y - 4.0f, 40.0f, 18.0f}, 16, Color{190, 172, 140, 255});
+    UiText::DrawFit("-" + std::string(windowLabels[selectedWindowIndex]), Rectangle{plot.x, plot.y + plot.height + 6.0f, 54.0f, 18.0f}, 16, Color{190, 172, 140, 255});
+    UiText::DrawFit("now", Rectangle{plot.x + plot.width - 36.0f, plot.y + plot.height + 6.0f, 36.0f, 18.0f}, 16, Color{190, 172, 140, 255});
 
     std::sort(endpoints.begin(), endpoints.end(), [](const SeriesEndpoint& a, const SeriesEndpoint& b)
     {
@@ -639,18 +639,18 @@ void StatsPanelWidget::Update(double dt)
         float labelWidth = std::min(104.0f, std::max(58.0f, static_cast<float>(MeasureText(label.c_str(), 13) + 18)));
         Rectangle chip{plot.x + plot.width - labelWidth - 6.0f, labelY, labelWidth, 18.0f};
         DrawLineEx(endpoint.point, Vector2{chip.x, chip.y + chip.height * 0.5f}, 1.0f, Color{endpoint.color.r, endpoint.color.g, endpoint.color.b, 180});
-        DrawRectangleRounded(chip, 0.16f, 8, Color{18, 23, 30, 228});
+        DrawRectangleRounded(chip, 0.16f, 8, Color{26, 19, 14, 228});
         DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, endpoint.color);
         DrawRectangleRounded(Rectangle{chip.x + 5.0f, chip.y + 5.0f, 7.0f, 7.0f}, 0.35f, 4, endpoint.color);
-        UiText::DrawFit(label, Rectangle{chip.x + 15.0f, chip.y + 2.0f, chip.width - 19.0f, 14.0f}, 13, RAYWHITE);
+        UiText::DrawFit(label, Rectangle{chip.x + 15.0f, chip.y + 2.0f, chip.width - 19.0f, 14.0f}, 13, UiTheme::Parchment);
         endpointLabels++;
     }
 
     Rectangle allButton = GetAllFilterButtonRect(chart);
     bool allActive = selectedResources.empty();
-    DrawRectangleRounded(allButton, 0.16f, 8, allActive ? Color{55, 80, 64, 245} : Color{31, 37, 46, 240});
-    DrawRectangleRoundedLines(allButton, 0.16f, 8, 1.0f, allActive ? Color{118, 226, 150, 230} : Color{78, 92, 112, 230});
-    UiText::DrawFit("All", Rectangle{allButton.x + 4.0f, allButton.y + 6.0f, allButton.width - 8.0f, 18.0f}, 18, RAYWHITE);
+    DrawRectangleRounded(allButton, 0.16f, 8, allActive ? Color{55, 80, 64, 245} : Color{40, 29, 21, 240});
+    DrawRectangleRoundedLines(allButton, 0.16f, 8, 1.0f, allActive ? Color{118, 226, 150, 230} : Color{100, 84, 64, 230});
+    UiText::DrawFit("All", Rectangle{allButton.x + 4.0f, allButton.y + 6.0f, allButton.width - 8.0f, 18.0f}, 18, UiTheme::Parchment);
 
     int shown = 0;
     for (ResourceType type : filterResources)
@@ -661,10 +661,10 @@ void StatsPanelWidget::Update(double dt)
         Color color = ResourceChartColor(type);
         bool active = std::find(activeResources.begin(), activeResources.end(), type) != activeResources.end();
         bool selected = selectedResources.empty() || selectedResources.contains(type);
-        DrawRectangleRounded(slot, 0.12f, 8, selected && active ? Color{42, 52, 64, 245} : Color{24, 29, 36, 210});
-        DrawRectangleRoundedLines(slot, 0.12f, 8, 1.0f, selected && active ? color : Color{70, 78, 90, 210});
+        DrawRectangleRounded(slot, 0.12f, 8, selected && active ? Color{54, 44, 28, 245} : Color{30, 22, 16, 210});
+        DrawRectangleRoundedLines(slot, 0.12f, 8, 1.0f, selected && active ? color : Color{100, 84, 64, 210});
         GuiPanel::DrawResourceIcon(type, Rectangle{slot.x + 5.0f, slot.y + 5.0f, 24.0f, 24.0f});
-        DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : Color{70, 78, 90, 210});
+        DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : Color{100, 84, 64, 210});
         if (CheckCollisionPointRec(GetMousePosition(), slot))
             Tooltip::Draw(rt2s(type), {
                 active ? (showingConsumption ? "Consumed in selected window" : "Produced in selected window")
@@ -674,7 +674,7 @@ void StatsPanelWidget::Update(double dt)
         shown++;
     }
     if (visibleResources.empty())
-        UiText::DrawFit(showingConsumption ? "No consumption in selected window" : "No production in selected window", Rectangle{plot.x + 20.0f, plot.y + plot.height * 0.45f, plot.width - 40.0f, 24.0f}, 22, Color{190, 201, 216, 255});
+        UiText::DrawFit(showingConsumption ? "No consumption in selected window" : "No production in selected window", Rectangle{plot.x + 20.0f, plot.y + plot.height * 0.45f, plot.width - 40.0f, 24.0f}, 22, UiTheme::ParchmentDim);
 }
 
 // Handles clicks on the stats panel controls.

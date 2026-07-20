@@ -132,6 +132,15 @@ void StorageComponent::Update(Building& self, double dt)
                 continue;
             if (!receiver->CanAcceptResource(res))
                 continue;
+            // User report (2026-07-20): a receiver that explicitly rewired its
+            // supplier for `res` away from `self` (e.g. a LumberMill switched
+            // from the HQ fallback to a directly-connected Woodcutter) must
+            // stop receiving `res` from `self` — otherwise this ambient scan
+            // keeps feeding it from the old link regardless of the explicit
+            // reassignment, and the new supplier's own deliveries just pile up
+            // as excess since the input buffer never runs empty.
+            if (!receiver->AcceptsSupplierFor(res, &self))
+                continue;
 
             int free = GetReceiveCapacity(receiver, res);
             if (free <= 0)

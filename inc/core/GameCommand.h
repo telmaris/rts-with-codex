@@ -19,7 +19,9 @@ enum class GameCommandType
     StartFocus,
     StartTechnologyResearch,
     RecruitUnit,
-    DeployUnits
+    DeployUnits,
+    UpgradeBuilding,
+    SetRecipe
 };
 
 struct GameCommand
@@ -54,6 +56,32 @@ struct GameCommand
         command.playerId = playerId;
         command.type = GameCommandType::DestroyBuilding;
         command.sourceTileId = tileId;
+        return command;
+    }
+
+    // Reuses sourceTileId (the building to upgrade), same as DestroyBuilding
+    // — cost/duration for the next level are resolved deterministically
+    // server-side from the building's current UpgradeComponent::level, so no
+    // new wire field is needed (WireVersion stays 12).
+    static GameCommand UpgradeBuilding(int playerId, int tileId)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::UpgradeBuilding;
+        command.sourceTileId = tileId;
+        return command;
+    }
+
+    // Reuses sourceTileId (the building whose recipe to switch) and targetTileId
+    // (the recipe index to activate) — resolved deterministically server-side,
+    // no new wire field, WireVersion stays 12 (same trick as UpgradeBuilding).
+    static GameCommand SetRecipe(int playerId, int buildingTileId, int recipeIndex)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::SetRecipe;
+        command.sourceTileId = buildingTileId;
+        command.targetTileId = recipeIndex;
         return command;
     }
 
@@ -221,6 +249,8 @@ struct GameCommand
             case GameCommandType::StartTechnologyResearch:
             case GameCommandType::RecruitUnit:
             case GameCommandType::DeployUnits:
+            case GameCommandType::UpgradeBuilding:
+            case GameCommandType::SetRecipe:
                 return true;
         }
         return false;

@@ -19,7 +19,6 @@ std::vector<ResearchNodeView> ResearchCatalog::BuildView(const Player& player)
         node.name = definition.name;
         node.description = definition.description;
         node.category = definition.category;
-        node.governmentId = definition.governmentId;
         node.researchTime = definition.researchTime;
         node.prerequisites = definition.prerequisites;
         node.costs = definition.costs;
@@ -71,7 +70,6 @@ std::vector<ResearchNodeView> ResearchCatalog::BuildFocusView(const Player& play
         node.name = definition.name;
         node.description = definition.description;
         node.category = definition.category;
-        node.governmentId = definition.governmentId;
         node.researchTime = definition.researchTime;
         node.prerequisites = definition.prerequisites;
         node.costs.clear();

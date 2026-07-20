@@ -77,16 +77,7 @@ TEST(PlayerEconomyTests, AutoAssignWorkersMovesManpowerIntoProductionBuilding)
     EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Workers), 3.0);
 }
 
-TEST(PlayerEconomyTests, NewPlayerStartsWithTribalStateModifiers)
-{
-    TileMap map;
-    Player player{0, map};
-
-    EXPECT_EQ(player.stateDevelopment.GetDefinition().id, "tribal_society");
-    EXPECT_GT(player.ModifyBalance(BalanceStat::ManpowerRate, 1.0, BuildingType::Building), 1.0);
-}
-
-TEST(PlayerEconomyTests, TribalManpowerGrowthAppliesToPopulationComponent)
+TEST(PlayerEconomyTests, ManpowerGrowthAppliesToPopulationComponent)
 {
     TileMap map;
     Player player{0, map};
@@ -96,6 +87,10 @@ TEST(PlayerEconomyTests, TribalManpowerGrowthAppliesToPopulationComponent)
         map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Village>(1)));
     ASSERT_NE(village, nullptr);
     village->population.manpowerRate = 0.2;
+
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::ManpowerRate, 0.0, 1.12, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:manpower_boost"});
 
     EXPECT_NEAR(player.ResolveStat(village->population.manpowerRate, village), 0.224, 0.0001);
 }

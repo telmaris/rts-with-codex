@@ -129,11 +129,9 @@ float ProductionComponent::GetProgress(const Building& self) const
         return 0.0f;
     // Bug fix (2026-07-12): this used to divide by cycleTime.GetBase() (the
     // raw, unmodified cycle time), while Produce() decides the cycle is done
-    // when elapsed >= GetModifiedCycleTime(self) (tech/focus/state-development
-    // adjusted). Any active modifier on ProductionCycleTime — e.g. a
-    // StateDevelopment level bonus, which applies automatically as the
-    // player's civilization progresses, not just a chosen tech — made these
-    // two thresholds different: a speed-up modifier completed the cycle
+    // when elapsed >= GetModifiedCycleTime(self) (tech/focus adjusted). Any
+    // active modifier on ProductionCycleTime made these two thresholds
+    // different: a speed-up modifier completed the cycle
     // before the bar ever visually reached 100% (it jumped from some lower
     // percentage straight to a reset 0%), while a slow-down modifier made the
     // bar hit the 100% clamp and then visibly sit there, stalled, until the

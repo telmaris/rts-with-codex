@@ -25,6 +25,14 @@ bool LogisticsComponent::HasReceiver(ResourceType type) const
     return receivers.contains(type) && receivers.at(type) != nullptr;
 }
 
+bool LogisticsComponent::AcceptsSupplierFor(ResourceType type, const Building* supplier) const
+{
+    auto it = suppliers.find(type);
+    if (it == suppliers.end() || it->second.empty())
+        return true;
+    return std::find(it->second.begin(), it->second.end(), supplier) != it->second.end();
+}
+
 void LogisticsComponent::SetSupplier(ResourceType type, Building* supplier, Building& self)
 {
     if (supplier == nullptr)

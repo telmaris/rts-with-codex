@@ -32,7 +32,6 @@ namespace
                tag == "manpower" ||
                tag == "expansion" ||
                tag == "military" ||
-               tag == "government" ||
                tag == "construction";
     }
 
@@ -87,7 +86,7 @@ technology archery
     cost BRONZE_SWORD 1
     modifier BuildTime multiplier 0.75 building Barracks
     modifier ProductionOutputAmount additive 2 multiplier 1.25 building Woodcutter resource WOOD
-    tags WARFARE military, archers government
+    tags WARFARE military, archers expansion
 end
 technology invalid_only_name
 end
@@ -117,7 +116,7 @@ end
     EXPECT_DOUBLE_EQ(archery.modifiers[1].additive, 2.0);
     EXPECT_DOUBLE_EQ(archery.modifiers[1].multiplier, 1.25);
     EXPECT_TRUE(ContainsTag(archery, "military"));
-    EXPECT_TRUE(ContainsTag(archery, "government"));
+    EXPECT_TRUE(ContainsTag(archery, "expansion"));
     EXPECT_FALSE(ContainsTag(archery, "warfare"));
     EXPECT_FALSE(ContainsTag(archery, "archers"));
     EXPECT_EQ(std::count(archery.tags.begin(), archery.tags.end(), "military"), 1);

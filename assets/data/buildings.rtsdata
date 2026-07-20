@@ -18,7 +18,7 @@ building Headquarters
     storage GOLD_ORE 80 0
     storage GOLD 80 0
     storage WOOD 160 120
-    storage PLANKS 100 40
+    storage PLANKS 100 60
     storage LEATHER 80 0
     storage COAL 80 20
     storage STONE 160 120
@@ -50,7 +50,7 @@ building Village
     build_time 18.0
     footprint 4 4
     texture_id 4
-    village manpower_rate 5.0 population_cap 1000 upkeep_interval 60.0 food_package_upkeep 1.0
+    village manpower_rate 0.7 population_cap 140 upkeep_interval 60.0 food_package_upkeep 1.0
 end
 
 building StorageBuilding
@@ -98,7 +98,7 @@ building Woodcutter
     texture "assets/textures/building/woodcutter.png"
     build_cost WOOD 20
     build_cost STONE 10
-    build_time 8.0
+    build_time 4.0
     footprint 2 2
     texture_id 0
     production
@@ -116,7 +116,7 @@ building HuntersHut
     build_cost WOOD 35
     build_cost STONE 15
     build_cost PLANKS 10
-    build_time 10.0
+    build_time 4.0
     footprint 2 2
     texture_id 9
     terrain_production WOOD
@@ -134,16 +134,16 @@ building LumberMill
     build_cost WOOD 40
     build_cost STONE 25
     build_cost PLANKS 15
-    build_time 16.0
+    build_time 7.0
     footprint 3 3
     texture_id 1
     production
         workers 12
-        cycle_time 12.0
+        cycle_time 6.0
         input WOOD 3
-        output PLANKS 2
+        output PLANKS 4
         input_buffer WOOD 9
-        output_buffer PLANKS 8
+        output_buffer PLANKS 12
     end
 end
 
@@ -154,20 +154,20 @@ building Mine
     build_cost WOOD 40
     build_cost STONE 10
     build_cost PLANKS 15
-    build_time 12.0
+    build_time 5.0
     footprint 2 2
     texture_id 2
 
     terrain_production IRON_ORE
         workers 8
-        cycle_time 12.0
+        cycle_time 6.0
         output IRON_ORE 2
         output_buffer IRON_ORE 10
     end
 
     terrain_production COAL
         workers 8
-        cycle_time 10.0
+        cycle_time 4.0
         output COAL 2
         output_buffer COAL 10
     end
@@ -175,20 +175,20 @@ building Mine
     terrain_production STONE
         workers 8
         cycle_time 5.0
-        output STONE 1
+        output STONE 2
         output_buffer STONE 8
     end
 
     terrain_production COPPER_ORE
         workers 8
-        cycle_time 12.0
+        cycle_time 6.0
         output COPPER_ORE 2
         output_buffer COPPER_ORE 10
     end
 
     terrain_production TIN_ORE
         workers 8
-        cycle_time 14.0
+        cycle_time 6.0
         output TIN_ORE 2
         output_buffer TIN_ORE 10
     end
@@ -237,7 +237,7 @@ building Foundry
     build_cost STONE 40
     build_cost PLANKS 40
     build_cost IRON 10
-    build_time 28.0
+    build_time 10.0
     footprint 3 3
     texture_id 3
     production
@@ -336,7 +336,7 @@ building Well
     texture "assets/textures/building/well.png"
     build_cost WOOD 25
     build_cost STONE 30
-    build_time 8.0
+    build_time 4.0
     footprint 2 2
     texture_id 10
     production
@@ -354,7 +354,7 @@ building WheatFarm
     build_cost WOOD 30
     build_cost STONE 15
     build_cost PLANKS 20
-    build_time 14.0
+    build_time 7.0
     footprint 4 4
     texture_id 11
     production
@@ -374,7 +374,7 @@ building Windmill
     build_cost WOOD 30
     build_cost STONE 35
     build_cost PLANKS 50
-    build_time 24.0
+    build_time 10.0
     footprint 4 4
     texture_id 12
     production
@@ -416,7 +416,7 @@ building Inn
     build_cost WOOD 40
     build_cost STONE 40
     build_cost PLANKS 50
-    build_time 32.0
+    build_time 15.0
     footprint 4 4
     texture_id 14
     production
@@ -441,7 +441,7 @@ building Paperworks
     build_cost STONE 80
     build_cost PLANKS 100
     build_cost IRON 15
-    build_time 34.0
+    build_time 20.0
     footprint 3 3
     texture_id 15
     production
@@ -464,7 +464,7 @@ building Smith
     build_cost STONE 70
     build_cost PLANKS 50
     build_cost IRON 45
-    build_time 38.0
+    build_time 15.0
     footprint 3 3
     texture_id 16
     production
@@ -655,7 +655,7 @@ building University
     build_cost IRON 120
     build_cost TOOLS 30
     requires_focus academic_patronage
-    build_time 80.0
+    build_time 30.0
     footprint 5 5
     texture_id 17
     production
@@ -670,12 +670,12 @@ building Barracks
     name "Barracks"
     tag "[Barracks]"
     texture "assets/textures/building/barracks.png"
-    build_cost WOOD 70
-    build_cost STONE 70
+    build_cost WOOD 50
+    build_cost STONE 40
     build_cost PLANKS 50
     build_cost IRON 20
     build_cost TOOLS 10
-    build_time 42.0
+    build_time 20.0
     footprint 4 4
     texture_id 18
     storage FOOD_PROVISIONS 40 0
@@ -689,12 +689,15 @@ building Road
     name "Road"
     tag "[Road]"
     texture "assets/textures/building/road.png"
-    build_cost STONE 2
-    build_time 1.0
+    build_cost STONE 1
+    build_time 0.2
     footprint 1 1
     texture_id 5
     transport_time 1.0
     road upgrade_level 1 max_capacity 5 speed_modifier 1.0
+    upgrade level 2 cost STONE 2 build_time 5 capacity_additive 2
+    upgrade level 3 cost STONE 3 build_time 8 capacity_additive 4 speed_multiplier 1.1
+    upgrade level 4 cost STONE 4 build_time 12 capacity_additive 6 speed_multiplier 1.2
 end
 
 building Bridge
@@ -703,7 +706,7 @@ building Bridge
     texture "assets/textures/building/road.png"
     build_cost PLANKS 6
     build_cost STONE 6
-    build_time 3.0
+    build_time 1.0
     footprint 1 1
     texture_id 5
     transport_time 1.0
@@ -714,10 +717,10 @@ building DefenseTower
     name "Defense Tower"
     tag "[DefenseTower]"
     texture "assets/textures/building/guard_tower.png"
-    build_cost WOOD 60
-    build_cost STONE 80
-    build_cost PLANKS 20
-    build_time 24.0
+    build_cost WOOD 40
+    build_cost STONE 20
+    build_cost PLANKS 40
+    build_time 10.0
     footprint 2 2
     texture_id 6
     storage ARROWS 20 0

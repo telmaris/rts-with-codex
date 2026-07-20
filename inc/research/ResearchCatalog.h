@@ -17,7 +17,6 @@ struct ResearchNodeView
     std::string description;
     std::string category;
     std::string stateText;
-    std::string governmentId;
     double researchTime{0.0};
     bool researched{false};
     bool prerequisitesMet{false};

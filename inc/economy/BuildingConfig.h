@@ -1,6 +1,7 @@
 #ifndef BUILDING_CONFIG_H
 #define BUILDING_CONFIG_H
 
+#include "economy/BalanceModifiers.h"
 #include "economy/Building.h"
 
 struct ResourceAmountDefinition
@@ -43,6 +44,20 @@ struct RoadDefinition
     int upgradeLevel{1};
     int maxCapacity{5};
     double speedModifier{1.0};
+};
+
+// One upgrade tier's cost + effect, generic across any future upgradeable
+// building type (today only Road registers UpgradeComponent, see
+// Road::Road). `modifiers` are stored with a placeholder Global() scope —
+// Player::ApplyUpgradeLevelModifiers rewrites the scope to this specific
+// building instance (BalanceModifierScope::BuildingAtPosition) when a level
+// is reached, so the same data works for any building without change.
+struct BuildingUpgradeLevelDefinition
+{
+    int level{0};
+    std::vector<ResourceAmountDefinition> cost;
+    double buildTime{0.0};
+    std::vector<BalanceModifier> modifiers;
 };
 
 struct VillageDefinition
@@ -102,6 +117,10 @@ struct BuildingDefinition
     std::vector<ProductionRecipeDefinition> recipes;
     HqDefinition hq;
     TowerDefinition tower;
+    // Appended last: MakeDefaultDefinitions() below uses positional aggregate
+    // init for every entry, none of which set this — a trailing field is
+    // safe to add without touching those (defaults to empty).
+    std::vector<BuildingUpgradeLevelDefinition> upgradeLevels;
 };
 
 // Returns all configured building definitions.

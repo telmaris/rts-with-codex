@@ -14,10 +14,22 @@ int ConstructionQueue::EffectiveBuilders(const Player& player) const
 
 void ConstructionQueue::Refresh(Player& player)
 {
+    // Upgrading buildings share this same builder-limited queue (user
+    // request, 2026-07-20: "ulepszenie drogi trafi do kolejki budowy") — but
+    // an upgrading building is NOT "under construction" (IsUnderConstruction()
+    // gates other things like SetReceiver and must stay false so it keeps
+    // transporting/operating normally), so it's gated by its own
+    // UpgradeComponent::upgradeActive flag instead of constructionActive.
     std::vector<Building*> pending;
     for (Building* building : player.dataTracker.buildings)
-        if (building != nullptr && building->IsUnderConstruction())
+    {
+        if (building == nullptr)
+            continue;
+        if (building->IsUnderConstruction())
             pending.push_back(building);
+        else if (auto* upgrade = building->GetComponent<UpgradeComponent>(); upgrade != nullptr && upgrade->isUpgrading)
+            pending.push_back(building);
+    }
 
     // dataTracker.buildings iterates by pointer address (non-deterministic), so
     // sort by building id to get a stable, cross-machine-identical queue order.
@@ -31,8 +43,13 @@ void ConstructionQueue::Refresh(Player& player)
     order.reserve(pending.size());
     for (std::size_t i = 0; i < pending.size(); ++i)
     {
-        pending[i]->constructionActive = static_cast<int>(i) < builderCount;
-        order.push_back(pending[i]->id);
+        bool active = static_cast<int>(i) < builderCount;
+        Building* building = pending[i];
+        if (building->IsUnderConstruction())
+            building->constructionActive = active;
+        else if (auto* upgrade = building->GetComponent<UpgradeComponent>())
+            upgrade->upgradeActive = active;
+        order.push_back(building->id);
     }
     activeCount = std::min<int>(builderCount, static_cast<int>(pending.size()));
 }

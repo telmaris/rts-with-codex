@@ -85,6 +85,11 @@ namespace AIActions
     // NOT every building of a BuildingType that CAN produce it on some other
     // terrain (e.g. a Mine standing on COAL vs. one standing on IRON_ORE).
     int CountProducersOfResource(Player* player, ResourceType resource);
+    // As above but also counts a producer still UNDER CONSTRUCTION (its
+    // terrain-resolved products are already fixed at placement) — the opening
+    // plan needs this so a coal mine it just ordered isn't re-ordered as
+    // "still missing" while it builds.
+    bool HasProducerOrPendingForResource(Player* player, ResourceType resource);
     int GetResourceRate(const std::map<ResourceType, int>& rates, ResourceType type);
     // A player structurally owns at most one HQ (EliminatePlayer only transfers
     // ProductionComponent buildings), so first-match here is deterministic.
@@ -126,6 +131,15 @@ namespace AIActions
                           TileType preferredTile, const Building* target, AIActionState& state);
     bool TrySubmitBuild(GameWorld& world, Player* player, BuildingType type, Vec2i anchor,
                         AIActionState& state);
+    // Cause-D fix (2026-07-20): a freshly built multi-recipe building defaults
+    // to recipe index 0 (RecipeComponent::SetRecipes) — Foundry -> COPPER,
+    // Smith -> TOOLS — which is NOT what the AI built it for (IRON, a sword).
+    // Nothing in the AI ever switched it, so the whole iron/weapon chain died
+    // at the smelter/forge regardless of ore supply. If the player owns a
+    // completed building whose recipe list can produce `resource` but isn't
+    // currently doing so (and no other building actively produces it), submit
+    // a SetRecipe command to switch it. Deterministic: candidates sorted by id.
+    bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource);
     // BFS road path between two buildings' adjacency, submitted as Road build
     // commands (capped per call); reserves tiles in `state` against re-orders.
     bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,

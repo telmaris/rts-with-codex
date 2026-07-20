@@ -54,9 +54,9 @@ void RosterPanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y),
                      static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.03f, 8, Color{24, 28, 35, 244});
-    DrawRectangleRoundedLines(bounds, 0.03f, 8, 1.5f, Color{92, 104, 124, 230});
-    UiText::DrawFit("Roster & Deploy", Rectangle{bounds.x + 20.0f, bounds.y + 12.0f, bounds.width - 80.0f, 34.0f}, 26, RAYWHITE);
+    DrawRectangleRounded(bounds, 0.03f, 8, Color{30, 22, 16, 244});
+    DrawRectangleRoundedLines(bounds, 0.03f, 8, 1.5f, Color{150, 108, 58, 230});
+    UiText::DrawTitleBar(Rectangle{bounds.x, bounds.y + 12.0f, bounds.width, 34.0f}, "Roster & Deploy", PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 
     // Drop anything no longer a valid InRoster unit (deployed some other way,
@@ -77,8 +77,8 @@ void RosterPanelWidget::Update(double dt)
     Rectangle availableArea{bounds.x + margin, top, columnW, listBottom - top};
     Rectangle groupArea{bounds.x + margin + columnW + columnGap, top, columnW, listBottom - top};
 
-    UiText::Draw("Available", static_cast<int>(availableArea.x), static_cast<int>(availableArea.y), 20, Color{190, 215, 255, 255});
-    UiText::Draw("Attack group (spearhead first)", static_cast<int>(groupArea.x), static_cast<int>(groupArea.y), 20, Color{190, 215, 255, 255});
+    UiText::Draw("Available", static_cast<int>(availableArea.x), static_cast<int>(availableArea.y), 20, UiTheme::AmberBright);
+    UiText::Draw("Attack group (spearhead first)", static_cast<int>(groupArea.x), static_cast<int>(groupArea.y), 20, UiTheme::AmberBright);
 
     std::set<int> inGroup(selectedGroup.begin(), selectedGroup.end());
     const int rowH = 44;
@@ -98,10 +98,10 @@ void RosterPanelWidget::Update(double dt)
 
         Rectangle row{availableArea.x, rowY, availableArea.width, static_cast<float>(rowH - 6)};
         bool hovered = CheckCollisionPointRec(GetMousePosition(), row);
-        DrawRectangleRounded(row, 0.12f, 6, hovered ? Color{48, 66, 56, 240} : Color{36, 41, 49, 230});
+        DrawRectangleRounded(row, 0.12f, 6, hovered ? Color{48, 66, 56, 240} : Color{46, 34, 24, 230});
         DrawRectangleRoundedLines(row, 0.12f, 6, 1.0f, Color{92, 151, 118, 210});
-        UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 4.0f, row.width - 60.0f, row.height - 8.0f}, 17, RAYWHITE);
-        UiText::DrawFit("+ Add", Rectangle{row.x + row.width - 56.0f, row.y + 4.0f, 48.0f, row.height - 8.0f}, 15, Color{154, 238, 166, 255});
+        UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 4.0f, row.width - 60.0f, row.height - 8.0f}, 17, UiTheme::Parchment);
+        UiText::DrawFit("+ Add", Rectangle{row.x + row.width - 56.0f, row.y + 4.0f, 48.0f, row.height - 8.0f}, 15, UiTheme::SageBright);
 
         if (hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             selectedGroup.push_back(instanceId);
@@ -111,7 +111,7 @@ void RosterPanelWidget::Update(double dt)
     if (rowY == availableArea.y + 28.0f)
     {
         UiText::DrawFit("No units ready to deploy — recruit some at a Barracks",
-                        Rectangle{availableArea.x, rowY, availableArea.width, 20.0f}, 15, Color{170, 178, 188, 255});
+                        Rectangle{availableArea.x, rowY, availableArea.width, 20.0f}, 15, UiTheme::ParchmentDim);
     }
 
     // --- Attack group: ordered, with reorder (up) and remove (x) controls ---
@@ -130,9 +130,9 @@ void RosterPanelWidget::Update(double dt)
             label += " (spearhead)";
 
         Rectangle row{groupArea.x, rowY, groupArea.width, static_cast<float>(rowH - 6)};
-        DrawRectangleRounded(row, 0.12f, 6, Color{40, 46, 58, 235});
-        DrawRectangleRoundedLines(row, 0.12f, 6, 1.0f, Color{116, 132, 154, 220});
-        UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 4.0f, row.width - 96.0f, row.height - 8.0f}, 16, RAYWHITE);
+        DrawRectangleRounded(row, 0.12f, 6, Color{46, 34, 24, 235});
+        DrawRectangleRoundedLines(row, 0.12f, 6, 1.0f, Color{120, 92, 58, 220});
+        UiText::DrawFit(label, Rectangle{row.x + 10.0f, row.y + 4.0f, row.width - 96.0f, row.height - 8.0f}, 16, UiTheme::Parchment);
 
         Rectangle upRect{row.x + row.width - 84.0f, row.y + 4.0f, 34.0f, row.height - 8.0f};
         Rectangle removeRect{row.x + row.width - 44.0f, row.y + 4.0f, 34.0f, row.height - 8.0f};
@@ -141,14 +141,14 @@ void RosterPanelWidget::Update(double dt)
 
         if (i > 0)
         {
-            DrawRectangleRounded(upRect, 0.2f, 6, upHovered ? Color{72, 89, 112, 245} : Color{48, 56, 68, 230});
-            UiText::DrawFit("Up", Rectangle{upRect.x + 2.0f, upRect.y + 3.0f, upRect.width - 4.0f, upRect.height - 6.0f}, 13, RAYWHITE);
+            DrawRectangleRounded(upRect, 0.2f, 6, upHovered ? Color{78, 62, 42, 245} : Color{46, 34, 24, 230});
+            UiText::DrawFit("Up", Rectangle{upRect.x + 2.0f, upRect.y + 3.0f, upRect.width - 4.0f, upRect.height - 6.0f}, 13, UiTheme::Parchment);
             if (upHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 std::swap(selectedGroup[i], selectedGroup[i - 1]);
         }
 
-        DrawRectangleRounded(removeRect, 0.2f, 6, removeHovered ? Color{110, 58, 64, 245} : Color{54, 42, 48, 230});
-        UiText::DrawFit("X", Rectangle{removeRect.x + 2.0f, removeRect.y + 3.0f, removeRect.width - 4.0f, removeRect.height - 6.0f}, 14, RAYWHITE);
+        DrawRectangleRounded(removeRect, 0.2f, 6, removeHovered ? Color{132, 58, 42, 245} : Color{46, 30, 24, 230});
+        UiText::DrawFit("X", Rectangle{removeRect.x + 2.0f, removeRect.y + 3.0f, removeRect.width - 4.0f, removeRect.height - 6.0f}, 14, UiTheme::Parchment);
         if (removeHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             selectedGroup.erase(selectedGroup.begin() + static_cast<long>(i));
@@ -160,12 +160,12 @@ void RosterPanelWidget::Update(double dt)
     if (selectedGroup.empty())
     {
         UiText::DrawFit("Click units on the left to add them to the attack group",
-                        Rectangle{groupArea.x, rowY, groupArea.width, 20.0f}, 15, Color{170, 178, 188, 255});
+                        Rectangle{groupArea.x, rowY, groupArea.width, 20.0f}, 15, UiTheme::ParchmentDim);
     }
 
     // --- Target picker + Deploy ---
     float targetY = listBottom + 12.0f;
-    UiText::Draw("Target", static_cast<int>(bounds.x + margin), static_cast<int>(targetY), 18, Color{190, 215, 255, 255});
+    UiText::Draw("Target", static_cast<int>(bounds.x + margin), static_cast<int>(targetY), 18, UiTheme::AmberBright);
     targetY += 24.0f;
 
     std::vector<int> reachable = ReachableEnemyPlayerIds(scene, player->id);
@@ -189,14 +189,14 @@ void RosterPanelWidget::Update(double dt)
         Rectangle chip{targetX, targetY, 150.0f, 30.0f};
         bool selected = targetId == selectedTargetPlayerId;
         bool hovered = CheckCollisionPointRec(GetMousePosition(), chip);
-        Color base = selected ? Color{58, 90, 68, 245} : Color{40, 46, 58, 235};
+        Color base = selected ? Color{58, 90, 68, 245} : Color{46, 34, 24, 235};
         DrawRectangleRounded(chip, 0.16f, 6, hovered ? Color{
             static_cast<unsigned char>(std::min(255, base.r + 20)),
             static_cast<unsigned char>(std::min(255, base.g + 20)),
             static_cast<unsigned char>(std::min(255, base.b + 20)), 250} : base);
         DrawRectangleRoundedLines(chip, 0.16f, 6, selected ? 1.6f : 1.0f,
-                                  selected ? Color{154, 238, 166, 255} : Color{104, 116, 138, 220});
-        UiText::DrawFit(name, Rectangle{chip.x + 8.0f, chip.y + 4.0f, chip.width - 16.0f, chip.height - 8.0f}, 16, RAYWHITE);
+                                  selected ? UiTheme::SageBright : Color{100, 84, 64, 220});
+        UiText::DrawFit(name, Rectangle{chip.x + 8.0f, chip.y + 4.0f, chip.width - 16.0f, chip.height - 8.0f}, 16, UiTheme::Parchment);
         if (hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             selectedTargetPlayerId = targetId;
         targetX += chip.width + 10.0f;
@@ -205,11 +205,11 @@ void RosterPanelWidget::Update(double dt)
     Rectangle deployRect{bounds.x + bounds.width - margin - 160.0f, bounds.y + bounds.height - 56.0f, 160.0f, 40.0f};
     bool canDeploy = !selectedGroup.empty() && selectedTargetPlayerId != -1;
     bool deployHovered = canDeploy && CheckCollisionPointRec(GetMousePosition(), deployRect);
-    DrawRectangleRounded(deployRect, 0.16f, 8, !canDeploy ? Color{40, 44, 50, 220} :
+    DrawRectangleRounded(deployRect, 0.16f, 8, !canDeploy ? Color{34, 26, 19, 220} :
         (deployHovered ? Color{72, 133, 96, 250} : Color{54, 108, 76, 240}));
-    DrawRectangleRoundedLines(deployRect, 0.16f, 8, 1.2f, !canDeploy ? Color{74, 78, 86, 200} : Color{154, 238, 166, 240});
+    DrawRectangleRoundedLines(deployRect, 0.16f, 8, 1.2f, !canDeploy ? Color{96, 82, 66, 200} : Color{154, 238, 166, 240});
     UiText::DrawFit("Deploy", Rectangle{deployRect.x + 10.0f, deployRect.y + 6.0f, deployRect.width - 20.0f, deployRect.height - 12.0f},
-                    20, !canDeploy ? Color{130, 136, 146, 220} : RAYWHITE);
+                    20, !canDeploy ? UiTheme::ParchmentDim : UiTheme::Parchment);
 
     if (deployHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {

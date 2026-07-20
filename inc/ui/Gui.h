@@ -442,6 +442,13 @@ public:
     static void Draw(const std::string& text, float x, float y, int fontSize, Color color);
     // Draws text that shrinks until it fits within bounds.
     static void DrawFit(const std::string& text, Rectangle bounds, int fontSize, Color color);
+    // Centers `text` on `titleBar` (both axes), shrinking the font (down to
+    // 14px) only when it would run into a close button reserving
+    // `closeButtonReserve` px from the right edge — the reserve affects the
+    // shrink threshold, not the centering origin, so text stays centered on
+    // the full bar even when shrunk. Shared by every panel title bar so they
+    // render identically instead of each hand-rolling its own centering.
+    static void DrawTitleBar(Rectangle titleBar, const std::string& text, float closeButtonReserve);
 };
 
 // Shared tooltip renderer used by panels and build/research views.

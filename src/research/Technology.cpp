@@ -17,7 +17,6 @@ namespace
                tag == "manpower" ||
                tag == "expansion" ||
                tag == "military" ||
-               tag == "government" ||
                tag == "construction";
     }
 
@@ -78,8 +77,6 @@ namespace
             AddTag(tags, "military");
         else if (category == "SOCIAL")
             AddTag(tags, "manpower");
-        else if (category == "POLITICS")
-            AddTag(tags, "government");
     }
 
     void AddBuildingTags(std::vector<std::string>& tags, BuildingType type)
@@ -152,8 +149,6 @@ namespace
         for (const auto& tag : explicitTags)
             AddTag(definition.tags, tag);
         AddCategoryTag(definition.tags, definition.category);
-        if (!definition.governmentId.empty())
-            AddTag(definition.tags, "government");
 
         for (const auto& cost : definition.costs)
             AddResourceTags(definition.tags, cost.type);
@@ -293,7 +288,6 @@ namespace
                 "Counting, ratios and measured work create the foundation for every later science.",
                 "SCIENCE",
                 12.0,
-                "",
                 {},
                 {{ResourceType::PAPER, 10}, {ResourceType::WOOD, 30}, {ResourceType::TOOLS, 2}},
                 {
@@ -309,7 +303,6 @@ namespace
                 "Natural philosophy explains force, weight and materials well enough to improve construction and defense.",
                 "SCIENCE",
                 16.0,
-                "",
                 {"forestry"},
                 {{ResourceType::PAPER, 12}, {ResourceType::STONE, 30}},
                 // TD(etap-1): the HitPoints modifiers this tech used to grant HQ/defensive
@@ -325,7 +318,6 @@ namespace
                 "Roads move goods faster and carry more traffic.",
                 "SCIENCE",
                 20.0,
-                "",
                 {"forestry"},
                 {{ResourceType::PAPER, 18}, {ResourceType::PLANKS, 25}},
                 {
@@ -341,7 +333,6 @@ namespace
                 "Population records and social observation turn settlement management into a formal field of study.",
                 "SCIENCE",
                 18.0,
-                "",
                 {"forestry"},
                 {{ResourceType::PAPER, 15}, {ResourceType::FOOD_PROVISIONS, 10}},
                 {
@@ -357,7 +348,6 @@ namespace
                 "Better saws improve plank production.",
                 "SCIENCE",
                 24.0,
-                "",
                 {"forestry"},
                 {{ResourceType::PAPER, 16}, {ResourceType::TOOLS, 6}, {ResourceType::IRON, 12}},
                 {
@@ -373,7 +363,6 @@ namespace
                 "Mines extract ore and stone more efficiently.",
                 "SCIENCE",
                 30.0,
-                "",
                 {"masonry"},
                 {{ResourceType::PAPER, 22}, {ResourceType::TOOLS, 8}, {ResourceType::PLANKS, 20}},
                 {
@@ -396,7 +385,6 @@ namespace
                 "Organize early settlement logistics and unlock civic expansion paths.",
                 "SOCIAL",
                 10.0,
-                "",
                 {},
                 {{ResourceType::PAPER, 5}, {ResourceType::WOOD, 20}},
                 {
@@ -408,7 +396,6 @@ namespace
                 "Formalize local defense and improve early garrison capacity.",
                 "WARFARE",
                 12.0,
-                "",
                 {"frontier_settlement"},
                 {{ResourceType::PAPER, 8}, {ResourceType::FOOD_PROVISIONS, 8}},
                 // TD(etap-1): garrison/recruitment-time modifiers dropped with
@@ -420,7 +407,6 @@ namespace
                 "Prepare state support for formal research institutions.",
                 "SOCIAL",
                 14.0,
-                "",
                 {"frontier_settlement"},
                 {{ResourceType::PAPER, 12}, {ResourceType::COINS, 5}},
                 {
@@ -487,8 +473,6 @@ namespace
                 definition.category = tokens[1];
             else if (command == "research_time" && tokens.size() >= 2)
                 definition.researchTime = std::stod(tokens[1]);
-            else if (command == "set_government" && tokens.size() >= 2)
-                definition.governmentId = tokens[1];
             else if (command == "layout_lane" && tokens.size() >= 2)
                 definition.layoutLane = tokens[1];
             else if (command == "layout_order" && tokens.size() >= 2)

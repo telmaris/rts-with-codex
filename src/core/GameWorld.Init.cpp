@@ -1,5 +1,6 @@
 #include "core/GameWorldInternal.h"
 
+#include <limits>
 #include <set>
 
 using namespace GameWorldInternal;
@@ -129,19 +130,38 @@ namespace
         if (aiPlayer == nullptr)
             return;
 
-        // Hard bumped 80->200 (harness catch 2026-07-19): the road/logistics
-        // network alone can spend 40+ STONE on stub connections before a
-        // stalled producer's own Bridge repair gets a look — see
-        // AIBehaviorHarnessTests, seed 20260716, where 22 roads (44 STONE)
-        // left only 1 STONE in reserve. 130 recovered the connection but too
-        // late in the 5-sim-minute window to also fill a 6-unit wave; 200
-        // gives enough margin to recover early.
-        static constexpr std::array<int, 4> resourceGrant{0, 15, 40, 200};
+        // Starting grant is a LIGHT head start, not a crutch (user 2026-07-20:
+        // "kilka sztuk a nie 200 ironu"). Two tiers, because granting a lot of
+        // the WEAPON-chain goods is exactly what masked the iron chain the AI is
+        // supposed to build: 200 IRON at HQ meant DiagnoseResourceNeed(IRON)
+        // never went urgent, so it never descended to build a Foundry/IRON_ORE+
+        // COAL mine (see AIActions::TryBuildProducerFor).
+        //   - build materials (WOOD, STONE, PLANKS, FOOD_PROVISIONS): a modest
+        //     buffer — on TOP of the ~120/120/60 every HQ already starts with —
+        //     so the opening buildout and first road stubs don't stall before
+        //     the base's own producers ramp. These are raw construction inputs;
+        //     granting them masks nothing the AI ought to be building itself.
+        //   - weapon chain (IRON, TOOLS): a token few — enough to seed a first
+        //     Foundry/Smith, far too little to substitute for actually standing
+        //     up the smelting/forging chain (which is the whole point).
+        static constexpr std::array<int, 4> materialGrant{0, 10, 20, 30};
+        static constexpr std::array<int, 4> weaponGrant{0, 2, 3, 5};
         static constexpr std::array<double, 4> manpowerCapFraction{0.0, 0.10, 0.25, 0.50};
         int level = std::clamp(aiDifficulty, 0, 3);
 
-        int amount = resourceGrant[level];
-        if (amount > 0)
+        auto grantResource = [](StorageComponent* storage, ResourceType type, int amount)
+        {
+            if (amount <= 0)
+                return;
+            auto& buffer = storage->buffers[type];
+            if (buffer.type == ResourceType::Null)
+                buffer = ResourceBuffer{type, amount};
+            buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
+            for (int i = 0; i < amount; i++)
+                buffer.GenerateResource(type);
+        };
+
+        if (materialGrant[level] > 0 || weaponGrant[level] > 0)
         {
             for (auto* building : aiPlayer->GetTrackedBuildingsWithComponent<StorageComponent>())
             {
@@ -150,16 +170,10 @@ namespace
                     continue;
 
                 for (ResourceType type : {ResourceType::WOOD, ResourceType::STONE,
-                                          ResourceType::PLANKS, ResourceType::IRON,
-                                          ResourceType::TOOLS, ResourceType::FOOD_PROVISIONS})
-                {
-                    auto& buffer = storage->buffers[type];
-                    if (buffer.type == ResourceType::Null)
-                        buffer = ResourceBuffer{type, amount};
-                    buffer.bufferSize = std::max(buffer.bufferSize, static_cast<int>(buffer.buffer.size()) + amount);
-                    for (int i = 0; i < amount; i++)
-                        buffer.GenerateResource(type);
-                }
+                                          ResourceType::PLANKS, ResourceType::FOOD_PROVISIONS})
+                    grantResource(storage, type, materialGrant[level]);
+                for (ResourceType type : {ResourceType::IRON, ResourceType::TOOLS})
+                    grantResource(storage, type, weaponGrant[level]);
                 break;  // a player owns at most one HQ
             }
         }
@@ -264,8 +278,19 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
     // impossible regardless of distance.
     int gap = 14;
 
+    // Playtest report (2026-07-20): a straight-line-legal candidate can still
+    // end up much farther than `gap` by actual ROAD path once BuildStartRoad
+    // detours around the military track. Sample a wide pool of candidates (up
+    // from 12) and measure each one's real road length up front — via
+    // FindRoadPathBetweenFootprints, read-only, nothing committed yet — so we
+    // never build a Village the road ends up dragging out past kMaxVillageRoadTiles.
+    // The budget counts only actual Road tiles (perimeter-to-perimeter, not
+    // the HQ/Village footprints themselves) — matches CountOwnedBuildings(Road).
+    constexpr int kMaxVillageRoadTiles = 15;
+    constexpr int kCandidateAttempts = 30;
+
     std::vector<Vec2i> villageCandidates;
-    for (int attempt = 0; attempt < 12; attempt++)
+    for (int attempt = 0; attempt < kCandidateAttempts; attempt++)
     {
         int side = sideDist(startRng);
         int offset = offsetDist(startRng);
@@ -288,19 +313,52 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
     villageCandidates.push_back({hqAnchor.x - gap - villageFootprint.x, hqAnchor.y});
     villageCandidates.push_back({hqAnchor.x + hqFootprint.x + gap, hqAnchor.y});
 
-    Vec2i villageAnchor = villageCandidates.back();
-    Building* village = nullptr;
+    // Two fallback layers, matching the original guarantee that a legally
+    // buildable candidate is always used if one exists: prefer the shortest
+    // ROUTABLE candidate (ideally within budget), but if none of the
+    // buildable candidates can find a road at all (the road-net BFS's own
+    // "shouldn't happen short of fully boxed in" case), fall back to the
+    // first buildable candidate rather than placing nothing.
+    bool haveBuildable = false;
+    Vec2i firstBuildableAnchor{};
+    bool haveRoutable = false;
+    Vec2i bestRoutableAnchor{};
+    std::size_t bestPathLength = std::numeric_limits<std::size_t>::max();
     for (auto candidate : villageCandidates)
     {
         candidate = ClampAnchor(candidate, villageFootprint, tilemap.params);
         if (!tilemap.CanBuildFootprint(candidate, villageFootprint, player))
             continue;
+        if (!haveBuildable)
+        {
+            haveBuildable = true;
+            firstBuildableAnchor = candidate;
+        }
 
-        villageAnchor = candidate;
-        SetFootprintTerrain(tilemap, villageAnchor, villageFootprint, TileType::GRASS, resourceRng, 3);
-        village = player->Build<Village>(villageAnchor, false);
-        break;
+        std::vector<int> path = FindRoadPathBetweenFootprints(tilemap, player, candidate, villageFootprint, hqAnchor, hqFootprint);
+        if (path.empty())
+            continue;
+
+        if (path.size() < bestPathLength)
+        {
+            haveRoutable = true;
+            bestPathLength = path.size();
+            bestRoutableAnchor = candidate;
+        }
+        if (path.size() <= static_cast<std::size_t>(kMaxVillageRoadTiles))
+            break;
     }
+
+    if (!haveBuildable)
+        return;
+    if (haveRoutable && bestPathLength > static_cast<std::size_t>(kMaxVillageRoadTiles))
+        Log::Msg("[MapGenerator]", "Starting village: no candidate found within ",
+                  kMaxVillageRoadTiles, " road tiles of HQ — using shortest found (",
+                  bestPathLength, " tiles)");
+
+    Vec2i villageAnchor = haveRoutable ? bestRoutableAnchor : firstBuildableAnchor;
+    SetFootprintTerrain(tilemap, villageAnchor, villageFootprint, TileType::GRASS, resourceRng, 3);
+    Building* village = player->Build<Village>(villageAnchor, false);
 
     if (village != nullptr)
         BuildStartRoad(player, villageAnchor, villageFootprint, hqAnchor, hqFootprint);
