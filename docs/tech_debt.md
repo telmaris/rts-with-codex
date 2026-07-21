@@ -302,7 +302,9 @@ w fundamentach.
   brak takiego okna nie psuje żadnej mechaniki (wygrywająca jednostka i tak przechodzi do
   `Marching` dopiero po usunięciu przeciwnika w Pass 2).
 - [x] **CI uruchamiał tylko `--gtest_filter=GameCommandTests.*`** — naprawione, `.github/workflows/
-  windows-release.yml` uruchamia dziś pełny `rts_tests.exe` bez filtra (patrz CLAUDE.md sekcja CI).
+  windows-release.yml` uruchamia wszystkie stabilne testy z `rts_tests.exe`. Długotrwały
+  `AIBehaviorHarnessTests.*` pozostaje kompilowany, ale jest wyłączony z przebiegu GitHub Actions
+  i uruchamiany lokalnie podczas strojenia AI.
 - [x] **Brak cache vcpkg w CI** — naprawione, workflow ma krok `actions/cache@v4` na
   `C:\vcpkg\installed`/`C:\Users\runneradmin\AppData\Local\vcpkg`.
 - [ ] **Brak buildu Linux/macOS** mimo ścieżek UNIX w CMake.

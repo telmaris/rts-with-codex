@@ -55,7 +55,7 @@ Szczegółowy design AI w `docs/strategic_ai_design.md`.
 
 Parametry budynków data-driven z `assets/data/buildings.rtsdata`.
 Technologie i focusy z `assets/data/technologies.rtsdata` i `assets/data/focuses.rtsdata`.
-Modyfikatory balance przez `BalanceModifierSet` na `Player` — addytywne + multiplikatywne, z zakresem Global / Building / Area / Territory. Formula: `(base + additive) * multiplier`. Szczegóły w `docs/balance_audit.md`.
+Modyfikatory balance przez `BalanceModifierSet` na `Player` — addytywne + multiplikatywne, z zakresem Global / Building / Area. Formula: `(base + additive) * multiplier`. Pełna lista statów w `inc/economy/BalanceStats.h`.
 
 ### Multiplayer
 
@@ -137,7 +137,7 @@ tests/          ← Google Test, suite: Building, GameCommand, RoadNetwork, Tile
 deps/           ← zależności (raylib-src/, raylib/ gitignored; raygui/ committed)
 cmake/          ← Version.h.in (szablon nagłówka wersji)
 scripts/        ← bump_version.ps1
-docs/           ← tech_debt.md (audyt architektoniczny), balance_audit.md, strategic_ai_design.md
+docs/           ← tech_debt.md (audyt architektoniczny), strategic_ai_design.md
 assets/         ← tekstury, fonty, dane (.rtsdata)
 ```
 
