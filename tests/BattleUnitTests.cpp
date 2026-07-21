@@ -35,7 +35,7 @@ namespace
     }
 
     // Places a fully-constructed, fully-stocked Barracks ready to recruit
-    // "militia" (cost: 5 FOOD_PROVISIONS + 5 manpower per assets/data/units.rtsdata).
+    // "militia" (cost: 3 FOOD_PROVISIONS + 5 manpower per assets/data/units.rtsdata).
     Barracks* PlaceReadyBarracks(TileMap& map, Player& player, Vec2i anchor = {1, 1})
     {
         auto* barracks = dynamic_cast<Barracks*>(
@@ -91,7 +91,7 @@ TEST(BattleUnitTests, RecruitmentEndToEndConsumesResourcesAndManpowerThenAddsToR
     ASSERT_NE(barracks, nullptr);
 
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
-    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 35u);
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 37u);
     EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 95.0);
     EXPECT_TRUE(player.roster.units.empty());
 
@@ -104,7 +104,7 @@ TEST(BattleUnitTests, RecruitmentEndToEndConsumesResourcesAndManpowerThenAddsToR
     EXPECT_EQ(unit.unitDefId, "militia");
     EXPECT_EQ(unit.ownerPlayerId, 0);
     EXPECT_EQ(unit.state, BattleUnitState::InRoster);
-    EXPECT_DOUBLE_EQ(unit.currentHp, 20.0);
+    EXPECT_DOUBLE_EQ(unit.currentHp, 26.0);
 }
 
 TEST(BattleUnitTests, RecruitTimeAndManpowerCostAreModifiableButFloored)
@@ -178,17 +178,17 @@ TEST(BattleUnitTests, TechTreeModifierChangesEffectiveStatsIncludingAlreadyRecru
     BattleUnit& unit = player.roster.units.begin()->second;
 
     double baseHp = unit.GetEffectiveMaxHp(player);
-    EXPECT_DOUBLE_EQ(baseHp, 20.0);
+    EXPECT_DOUBLE_EQ(baseHp, 26.0);
 
     player.balanceModifiers.AddModifier(BalanceModifier{
         BalanceStat::UnitHp, 0.0, 1.5, BalanceModifierScope::Global(),
         std::nullopt, std::nullopt, "test:hp_tech", std::nullopt, std::string("militia")});
 
-    EXPECT_DOUBLE_EQ(unit.GetEffectiveMaxHp(player), 30.0);
+    EXPECT_DOUBLE_EQ(unit.GetEffectiveMaxHp(player), 39.0);
 
     // A different unit definition must be unaffected by the filtered modifier.
     BattleUnit swordsman(999, player.id, "swordsman");
-    EXPECT_DOUBLE_EQ(swordsman.GetEffectiveMaxHp(player), 35.0);
+    EXPECT_DOUBLE_EQ(swordsman.GetEffectiveMaxHp(player), 45.0);
 }
 
 TEST(BattleUnitTests, InstanceIdsAreDeterministicAndUniquePerPlayer)
@@ -252,7 +252,7 @@ TEST(BattleUnitTests, RecruitmentRequestsExactCostWithoutOverRequesting)
     barracks->SetSupplier(ResourceType::FOOD_PROVISIONS, warehouse);
     player.strategicResources.Set(StrategicResourceType::Manpower, 100);
 
-    // 3 militia x 5 FOOD_PROVISIONS, nothing buffered locally yet.
+    // 3 militia x 3 FOOD_PROVISIONS, nothing buffered locally yet.
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
@@ -266,8 +266,8 @@ TEST(BattleUnitTests, RecruitmentRequestsExactCostWithoutOverRequesting)
     }
 
     ASSERT_EQ(player.roster.units.size(), 3u) << "all three queued militia should finish";
-    EXPECT_EQ(warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 35u)
-        << "exactly 3 x 5 FOOD_PROVISIONS may leave the warehouse — anything more is over-requesting";
+    EXPECT_EQ(warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 41u)
+        << "exactly 3 x 3 FOOD_PROVISIONS may leave the warehouse — anything more is over-requesting";
     EXPECT_TRUE(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.empty())
         << "the barracks must not stockpile beyond what the queue consumed";
 }
@@ -290,15 +290,15 @@ TEST(BattleUnitTests, QueuedEntriesFlipResourcesReadyAsDeliveriesArrive)
     EXPECT_FALSE(barracks->recruitment.queue[0].resourcesReady);
     EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady);
 
-    // First delivery (5 FOOD) lands: only the front entry's cost is covered.
-    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(5);
+    // First delivery (3 FOOD) lands: only the front entry's cost is covered.
+    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(3);
     barracks->recruitment.Update(*barracks, 0.01);
     EXPECT_TRUE(barracks->recruitment.queue[0].resourcesReady);
     EXPECT_FALSE(barracks->recruitment.queue[1].resourcesReady);
 
     // Second delivery lands while the front entry is still training — the
     // second entry must flip immediately instead of waiting for the front.
-    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(5);
+    barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].SetStoredAmount(3);
     barracks->recruitment.Update(*barracks, 0.01);
     EXPECT_TRUE(barracks->recruitment.queue[1].resourcesReady);
     EXPECT_GT(barracks->recruitment.queue[0].remaining, 0.0)
@@ -319,7 +319,7 @@ TEST(BattleUnitTests, WaitingEntriesConsumeInFifoOrder)
     ASSERT_NE(barracks, nullptr);
 
     // Swordsman (1 IRON_SWORD + 3 FOOD) queued first with no sword available;
-    // militia (5 FOOD) queued second with its FOOD fully in the buffer.
+    // militia (3 FOOD) queued second with its FOOD fully in the buffer.
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "swordsman"));
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
     ASSERT_EQ(barracks->recruitment.queue.size(), 2u);
@@ -333,14 +333,14 @@ TEST(BattleUnitTests, WaitingEntriesConsumeInFifoOrder)
         << "nothing may be consumed while the front entry is blocked";
 
     // The missing sword arrives: the whole queue unblocks in FIFO order in
-    // one readiness pass (swordsman consumes 1 sword + 3 FOOD, militia 5 FOOD).
+    // one readiness pass (swordsman consumes 1 sword + 3 FOOD, militia 3 FOOD).
     barracks->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 4};
     barracks->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(1);
     barracks->recruitment.Update(*barracks, 0.01);
     EXPECT_TRUE(barracks->recruitment.queue[0].resourcesReady);
     EXPECT_TRUE(barracks->recruitment.queue[1].resourcesReady);
     EXPECT_TRUE(barracks->storage.buffers[ResourceType::IRON_SWORD].buffer.empty());
-    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 32u);
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 34u);
 }
 
 TEST(BattleUnitTests, SaveAndLoadPreservesRosterAndInstanceCounter)

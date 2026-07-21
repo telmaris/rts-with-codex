@@ -255,6 +255,19 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::SetTowerTargetMode)
+    {
+        Building* building = tilemap.GetBuilding(command.sourceTileId);
+        if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+            return false;
+        auto* tower = building->GetComponent<TowerCombatComponent>();
+        if (tower == nullptr || command.targetTileId < static_cast<int>(TowerTargetMode::NearestToHq) ||
+            command.targetTileId > static_cast<int>(TowerTargetMode::StrongestUnit))
+            return false;
+        tower->targetMode = static_cast<TowerTargetMode>(command.targetTileId);
+        return acceptCommand();
+    }
+
     if (command.type == GameCommandType::SetReceiver)
     {
         Building* source = tilemap.GetBuilding(command.sourceTileId);
@@ -323,7 +336,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         if (command.unitInstanceIds.empty() || targetPlayerId == player->id)
             return false;
         auto targetPlayerIt = playerHandler.players.find(targetPlayerId);
-        if (targetPlayerIt == playerHandler.players.end())
+        if (targetPlayerIt == playerHandler.players.end() || targetPlayerIt->second == nullptr || targetPlayerIt->second->defeated)
             return false;
         // TD(etap-6.3): a target need not be a direct ring neighbor as long as
         // every player in between has been eliminated — the route then runs

@@ -153,6 +153,11 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
 
         double resolved = CombatResolver::ResolveDamage(damage, armor, DamageType::Physical, resistances,
                                                          worldSeed, tick, self.instanceId);
+        double applied = std::min(resolved, std::max(0.0, opponent.currentHp));
+        bool lethal = opponent.currentHp - resolved <= 0.0;
+        world.GetCombatTelemetry().RecordUnitDamage(opponent.instanceId, opponent.ownerPlayerId,
+                                                     opponent.unitDefId, CombatDamageSource::Unit,
+                                                     applied, lethal);
         opponent.currentHp -= resolved;
     }
 

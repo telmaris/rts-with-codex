@@ -165,6 +165,50 @@ TEST(TowerAttackSystemTests, TowerHitsMovingEnemyWithinRangeAndConsumesAmmo)
     EXPECT_LT(ammoAfter, ammoBefore) << "firing should have consumed ammo";
 }
 
+TEST(TowerAttackSystemTests, StrongestTargetModePrefersTheMostPowerfulUnit)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(306));
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+
+    std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(1, 0);
+    ASSERT_GT(route.size(), 20u);
+    Building* tower = PlaceTowerNearRouteTile(world, human, route, route.size() / 2, 2, 9006);
+    ASSERT_NE(tower, nullptr);
+    auto* combat = tower->GetComponent<TowerCombatComponent>();
+    auto* storage = tower->GetComponent<StorageComponent>();
+    ASSERT_NE(combat, nullptr);
+    ASSERT_NE(storage, nullptr);
+    combat->targetMode = TowerTargetMode::StrongestUnit;
+    storage->buffers[ResourceType::ARROWS].SetStoredAmount(10);
+
+    int militiaId = AddUnitToRoster(*ai, "militia");
+    int swordsmanId = AddUnitToRoster(*ai, "swordsman");
+    world.SubmitCommand(GameCommand::DeployUnits(ai->id, human->id, {militiaId, swordsmanId}));
+
+    // The swordsman is slower, so make both units simultaneously eligible for
+    // this isolated target-selection check; the normal march test above
+    // already covers movement into tower range.
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+    ASSERT_TRUE(world.GetDeployedUnits().contains(militiaId));
+    ASSERT_TRUE(world.GetDeployedUnits().contains(swordsmanId));
+    for (int id : {militiaId, swordsmanId})
+    {
+        auto& unit = world.GetDeployedUnits().at(id);
+        unit.tileIndex = static_cast<int>(route.size() / 2);
+        unit.tileProgress = 0.5;
+    }
+    EXPECT_EQ(combat->targetMode, TowerTargetMode::StrongestUnit);
+    EXPECT_GT(world.GetDeployedUnits().at(swordsmanId).GetEffectiveMaxHp(*ai),
+              world.GetDeployedUnits().at(militiaId).GetEffectiveMaxHp(*ai));
+    TowerAttackSystem::Update(world, FixedSimulationClock::FixedDt);
+
+    ASSERT_FALSE(world.GetProjectiles().empty()) << "tower should fire when the group reaches its range";
+    EXPECT_EQ(world.GetProjectiles().begin()->second.sourceUnitInstanceId, tower->id);
+    EXPECT_EQ(world.GetProjectiles().begin()->second.targetUnitInstanceId, swordsmanId);
+}
+
 TEST(TowerAttackSystemTests, TowerDoesNotFireAtEnemyBeyondRange)
 {
     GameWorld world;
@@ -347,6 +391,7 @@ TEST(TowerAttackSystemTests, SaveAndLoadPreservesTowerAmmoAndAttackTimer)
     ASSERT_NE(combat, nullptr);
     ASSERT_NE(storage, nullptr);
     combat->attackTimer = 0.42;
+    combat->targetMode = TowerTargetMode::StrongestUnit;
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(7);
 
     const auto path = (std::filesystem::temp_directory_path() / "rts_tower_test.save").string();
@@ -362,6 +407,7 @@ TEST(TowerAttackSystemTests, SaveAndLoadPreservesTowerAmmoAndAttackTimer)
     ASSERT_NE(loadedCombat, nullptr);
     ASSERT_NE(loadedStorage, nullptr);
     EXPECT_DOUBLE_EQ(loadedCombat->attackTimer, 0.42);
+    EXPECT_EQ(loadedCombat->targetMode, TowerTargetMode::StrongestUnit);
     EXPECT_EQ(loadedStorage->buffers.at(ResourceType::ARROWS).buffer.size(), 7u);
 
     std::filesystem::remove(path);

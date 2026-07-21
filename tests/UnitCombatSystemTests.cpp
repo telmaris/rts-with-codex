@@ -206,6 +206,11 @@ TEST(UnitCombatSystemTests, NoZombieAttackAfterDeathInSameTick)
     // "zombie" counter-hit — this test is the regression guard for that bug.
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
 
+    UnitDamageBreakdown damage = world.GetCombatTelemetry().GetUnitDamage(duel.defenderId);
+    EXPECT_GT(damage.fromUnits, 0.0);
+    EXPECT_EQ(damage.deathsToUnits, 1)
+        << "combat telemetry should retain the killer source after the victim is removed";
+
     EXPECT_EQ(world.GetDeployedUnits().count(duel.defenderId), 0u)
         << "the weakened defender should have died this tick";
     ASSERT_EQ(world.GetDeployedUnits().count(duel.attackerId), 1u);

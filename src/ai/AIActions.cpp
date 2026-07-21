@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <deque>
 #include <limits>
 #include <queue>
 #include <set>
@@ -55,7 +54,7 @@ namespace
         {
             if (building == nullptr || building->owner != player || building->IsUnderConstruction())
                 continue;
-            if (building->buildingType != BuildingType::Road && !building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
+            if (!IsRoadLike(building->buildingType) && !AIActions::IsStorageHub(building))
                 continue;
 
             Vec2i buildingPos = tilemap.GetCoordsFromId(building->positionId);
@@ -63,10 +62,71 @@ namespace
         }
         return best;
     }
+
+    int FootprintGap(TileMap& tilemap, Vec2i anchor, Vec2i footprint, const Building* other)
+    {
+        if (other == nullptr)
+            return std::numeric_limits<int>::max() / 4;
+        Vec2i otherAnchor = tilemap.GetCoordsFromId(other->positionId);
+        Vec2i otherFootprint = other->GetFootprint();
+        int left = anchor.x;
+        int right = anchor.x + footprint.x - 1;
+        int top = anchor.y;
+        int bottom = anchor.y + footprint.y - 1;
+        int otherLeft = otherAnchor.x;
+        int otherRight = otherAnchor.x + otherFootprint.x - 1;
+        int otherTop = otherAnchor.y;
+        int otherBottom = otherAnchor.y + otherFootprint.y - 1;
+        int dx = std::max({0, otherLeft - right - 1, left - otherRight - 1});
+        int dy = std::max({0, otherTop - bottom - 1, top - otherBottom - 1});
+        return dx + dy;
+    }
+
+    std::vector<int> RelevantTrackTiles(GameWorld& world, Player* player)
+    {
+        std::set<int> unique;
+        if (player == nullptr)
+            return {};
+        for (const MilitaryRoute& route : world.GetMilitaryRoads().GetRoutes())
+        {
+            if (route.OtherPlayer(player->id) < 0)
+                continue;
+            unique.insert(route.tiles.begin(), route.tiles.end());
+        }
+        return {unique.begin(), unique.end()};
+    }
+
+    int TrackCoverageAt(GameWorld& world, const std::vector<int>& trackTiles,
+                        Vec2i anchor, Vec2i footprint, double range,
+                        const std::set<int>* alreadyCovered = nullptr)
+    {
+        double centerX = anchor.x + footprint.x * 0.5;
+        double centerY = anchor.y + footprint.y * 0.5;
+        double rangeSq = range * range;
+        int covered = 0;
+        for (int tileId : trackTiles)
+        {
+            if (alreadyCovered != nullptr && alreadyCovered->contains(tileId))
+                continue;
+            Vec2i tile = world.GetTileMap().GetCoordsFromId(tileId);
+            double dx = centerX - (tile.x + 0.5);
+            double dy = centerY - (tile.y + 0.5);
+            if (dx * dx + dy * dy <= rangeSq)
+                covered++;
+        }
+        return covered;
+    }
 }
 
 namespace AIActions
 {
+
+bool IsStorageHub(const Building* building)
+{
+    return building != nullptr &&
+           (building->buildingType == BuildingType::Headquarters ||
+            building->buildingType == BuildingType::StorageBuilding);
+}
 
 void AIActionState::Decay(double dt)
 {
@@ -153,21 +213,27 @@ int CountProducersOfResource(Player* player, ResourceType resource)
 
 bool HasProducerOrPendingForResource(Player* player, ResourceType resource)
 {
+    return CountProducersOrPendingForResource(player, resource) > 0;
+}
+
+int CountProducersOrPendingForResource(Player* player, ResourceType resource)
+{
     if (player == nullptr || resource == ResourceType::Null)
-        return false;
+        return 0;
     // Same terrain-resolved match as CountProducersOfResource, but a producer
     // still under construction counts too — its ProductionComponent::products
     // is fixed the moment it's placed (terrain baked in), so the opening plan
     // must not re-order a coal mine that's already on its way up.
+    int count = 0;
     for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
     {
         const auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
         if (production == nullptr || building->owner != player)
             continue;
         if (production->products.contains(resource))
-            return true;
+            count++;
     }
-    return false;
+    return count;
 }
 
 bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource)
@@ -277,20 +343,6 @@ int FindAttackTargetPlayer(GameWorld& world, Player* player)
     return -1;
 }
 
-bool HasAdjacentRoad(GameWorld& world, const Building* building)
-{
-    if (building == nullptr)
-        return false;
-
-    for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
-    {
-        Building* neighbour = world.GetTileMap().GetBuilding(tileId);
-        if (IsRoadLikeBuilding(neighbour))
-            return true;
-    }
-    return false;
-}
-
 bool HasRoadConnection(Player* player, const Building* source, const Building* target)
 {
     if (player == nullptr || source == nullptr || target == nullptr || player->roadNetwork == nullptr)
@@ -315,9 +367,7 @@ Building* FindNearestRoadTarget(GameWorld& world, Player* player, const Building
     auto infrastructure_predicate = [&](const Building* building) -> bool {
         if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
             return false;
-        return building->buildingType == BuildingType::Road ||
-               building->IsStorageLike() ||
-               building->buildingType == BuildingType::Headquarters;
+        return IsRoadLike(building->buildingType) || IsStorageHub(building);
     };
 
     Building* bestInfrastructure = pather->FindNearestBuilding(sourcePos, infrastructure_predicate, Domain::Global());
@@ -348,7 +398,7 @@ Building* FindNearestRoadTarget(GameWorld& world, Player* player, const Building
         auto consumer_predicate = [&](const Building* building) -> bool {
             if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
                 return false;
-            return !building->IsStorageLike() && building->CanAcceptResource(output.type);
+            return !IsStorageHub(building) && building->CanAcceptResource(output.type);
         };
 
         Building* bestConsumer = pather->FindNearestBuilding(sourcePos, consumer_predicate, Domain::Global());
@@ -360,7 +410,7 @@ Building* FindNearestRoadTarget(GameWorld& world, Player* player, const Building
     auto fallback_predicate = [&](const Building* building) -> bool {
         if (building == nullptr || building == source || building->owner != player || building->IsUnderConstruction())
             return false;
-        return building->buildingType == BuildingType::Road || building->IsStorageLike();
+        return IsRoadLike(building->buildingType) || IsStorageHub(building);
     };
 
     return pather->FindNearestBuilding(sourcePos, fallback_predicate, Domain::Global());
@@ -376,7 +426,7 @@ Building* FindNearestStorageConnectedRoad(GameWorld& world, Player* player, cons
     {
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
-        if (building->IsStorageLike() || building->buildingType == BuildingType::Headquarters)
+        if (IsStorageHub(building))
             storageNodes.push_back(building);
     }
     if (storageNodes.empty())
@@ -612,10 +662,29 @@ double ForecastSecondsToAfford(Player* player, const std::vector<ResourceAmountD
     return worst;
 }
 
+int CountTowerTrackCoverage(GameWorld& world, Player* player, const Building* tower)
+{
+    if (player == nullptr || tower == nullptr || tower->owner != player)
+        return 0;
+    const auto* combat = tower->GetComponent<TowerCombatComponent>();
+    if (combat == nullptr)
+        return 0;
+    Vec2i anchor = world.GetTileMap().GetCoordsFromId(tower->positionId);
+    return TrackCoverageAt(world, RelevantTrackTiles(world, player), anchor, tower->GetFootprint(),
+                           combat->GetModifiedRange(*tower));
+}
+
 Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
                       TileType preferredTile, const Building* target, AIActionState& state)
 {
     const auto& definition = GetBuildingDefinition(type);
+    BuildingPlacementCategory placementCategory = definition.placementCategory;
+    // A Mine is data-driven as part of the metal district by default, but a
+    // stone quarry feeds construction rather than smelting. Keep the shared
+    // building definition while letting the actual deposit choose its local
+    // district context.
+    if (type == BuildingType::Mine && preferredTile == TileType::STONE)
+        placementCategory = BuildingPlacementCategory::Construction;
     TileMap& map = world.GetTileMap();
     Vec2i targetPos{};
     bool hasTarget = target != nullptr;
@@ -627,10 +696,85 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
     if (hasHeadquarters)
         headquartersPos = map.GetCoordsFromId(headquarters->positionId);
 
+    // Thematic district context. Same-category buildings define the local
+    // cluster; recipe/storage relationships add a stronger supplier-consumer
+    // pull. Both are soft capped, so a cramped district never makes a legal
+    // site impossible.
+    std::vector<const Building*> sameCategory;
+    std::vector<const Building*> relatedProduction;
+    std::set<ResourceType> candidateInputs;
+    std::set<ResourceType> candidateOutputs;
+    auto collectProduction = [&](const ProductionDefinition& production)
+    {
+        for (const auto& input : production.inputs)
+            candidateInputs.insert(input.type);
+        for (const auto& output : production.outputs)
+            candidateOutputs.insert(output.type);
+    };
+    collectProduction(definition.production);
+    for (const auto& terrain : definition.terrainProductions)
+        collectProduction(terrain.production);
+    for (const auto& recipe : definition.recipes)
+        collectProduction(recipe.production);
+    if (placementCategory == BuildingPlacementCategory::Military)
+        for (const auto& buffer : definition.storageBuffers)
+            candidateInputs.insert(buffer.type);
+
+    for (const Building* building : player->GetTrackedBuildings())
+    {
+        if (building == nullptr || building->owner != player || IsRoadLike(building->buildingType))
+            continue;
+        const auto& otherDefinition = GetBuildingDefinition(building->buildingType);
+        if (placementCategory != BuildingPlacementCategory::None &&
+            otherDefinition.placementCategory == placementCategory)
+            sameCategory.push_back(building);
+
+        bool related = false;
+        if (const auto* production = building->GetComponent<ProductionComponent>(); production != nullptr)
+        {
+            for (const auto& [resource, buffer] : production->products)
+                if (candidateInputs.contains(resource))
+                    related = true;
+        }
+        for (ResourceType output : candidateOutputs)
+            if (building->CanAcceptResource(output))
+                related = true;
+        if (related)
+            relatedProduction.push_back(building);
+    }
+
+    const bool towerPlacement = type == BuildingType::DefenseTower;
+    const std::vector<int> relevantTrackTiles = towerPlacement ? RelevantTrackTiles(world, player) : std::vector<int>{};
+    std::set<int> existingTowerCoverage;
+    if (towerPlacement)
+    {
+        for (const Building* building : player->GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+        {
+            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
+                continue;
+            const auto* combat = building->GetComponent<TowerCombatComponent>();
+            if (combat == nullptr)
+                continue;
+            Vec2i towerAnchor = map.GetCoordsFromId(building->positionId);
+            for (int tileId : relevantTrackTiles)
+            {
+                Vec2i tile = map.GetCoordsFromId(tileId);
+                double centerX = towerAnchor.x + building->GetFootprint().x * 0.5;
+                double centerY = towerAnchor.y + building->GetFootprint().y * 0.5;
+                double dx = centerX - (tile.x + 0.5);
+                double dy = centerY - (tile.y + 0.5);
+                double range = combat->GetModifiedRange(*building);
+                if (dx * dx + dy * dy <= range * range)
+                    existingTowerCoverage.insert(tileId);
+            }
+        }
+    }
+
     // Evaluates one tile; updates best score/anchor. Same filter + scoring as
     // the original whole-map scan.
     Vec2i bestAnchor{-1, -1};
     int bestScore = std::numeric_limits<int>::max();
+    int bestExtractorRichness = 0;
     auto evaluateTile = [&](Vec2i pos)
     {
         const Tile& tile = map[map.GetIdFromCoords(pos)];
@@ -655,20 +799,22 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
         if (!map.CanPlaceBuilding(type, pos, definition.footprint, player))
             return;
 
+        int nonGrassTiles = 0;
         if (preferredTile == TileType::GRASS)
-        {
-            bool terrainMatches = true;
-            for (int y = 0; y < definition.footprint.y && terrainMatches; y++)
-                for (int x = 0; x < definition.footprint.x && terrainMatches; x++)
-                    terrainMatches = map[{pos.x + x, pos.y + y}].tileType == TileType::GRASS;
-
-            if (!terrainMatches)
-                return;
-        }
+            for (int y = 0; y < definition.footprint.y; y++)
+                for (int x = 0; x < definition.footprint.x; x++)
+                    if (map[{pos.x + x, pos.y + y}].tileType != TileType::GRASS)
+                        nonGrassTiles++;
 
         int distanceToTarget = hasTarget ? std::abs(pos.x - targetPos.x) + std::abs(pos.y - targetPos.y) : 0;
         int distanceToHeadquarters = hasHeadquarters ? std::abs(pos.x - headquartersPos.x) + std::abs(pos.y - headquartersPos.y) : 0;
         int infrastructureDistance = DistanceToNearestInfrastructure(map, player, pos);
+        int categoryGap = std::numeric_limits<int>::max() / 4;
+        for (const Building* building : sameCategory)
+            categoryGap = std::min(categoryGap, FootprintGap(map, pos, definition.footprint, building));
+        int relatedGap = std::numeric_limits<int>::max() / 4;
+        for (const Building* building : relatedProduction)
+            relatedGap = std::min(relatedGap, FootprintGap(map, pos, definition.footprint, building));
         int borderPenalty = 0;
         const std::array<Vec2i, 4> neighbours{
             Vec2i{pos.x + 1, pos.y},
@@ -693,13 +839,66 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
         }
 
         bool terrainExtractor = preferredTile != TileType::GRASS;
+        int extractorRichness = 0;
+        if (terrainExtractor)
+            for (int y = 0; y < definition.footprint.y; y++)
+                for (int x = 0; x < definition.footprint.x; x++)
+                {
+                    const Tile& footprintTile = map[{pos.x + x, pos.y + y}];
+                    if (footprintTile.tileType == preferredTile)
+                        extractorRichness += std::max(0, footprintTile.resourceRichness);
+                }
+        int logisticsDistance = terrainExtractor ? infrastructureDistance : std::min(infrastructureDistance, 20);
         int score = hasTarget
             ? distanceToTarget * 9 + distanceToHeadquarters * 2 + std::min(infrastructureDistance, 20) * 5 + borderPenalty * 3
-            : distanceToHeadquarters * (terrainExtractor ? 5 : 9) + std::min(infrastructureDistance, 20) * 7 + borderPenalty * 4;
+            : distanceToHeadquarters * (terrainExtractor ? 5 : 9) + logisticsDistance * (terrainExtractor ? 12 : 7) + borderPenalty * 4;
+        // Extractors are only useful for the richness beneath their whole
+        // footprint. This must dominate a short road or a familiar district:
+        // otherwise a replacement Woodcutter happily takes a depleted remnant
+        // beside the old mill while a healthy forest is one window farther.
+        if (terrainExtractor)
+        {
+            score -= extractorRichness * 20;
+        }
+        // Plain buildings strongly prefer an all-GRASS footprint, but it is
+        // a soft preference. A hard reject here wedged dense/debug maps once
+        // no perfect 3x3/4x4 rectangle remained, even though the normal game
+        // placement rules still exposed legal sites. This is the placement
+        // contract requested by design: cluster when possible, relax rather
+        // than stop progressing when packing gets tight.
+        score += nonGrassTiles * 90;
+        if (!towerPlacement && categoryGap < std::numeric_limits<int>::max() / 8)
+        {
+            // One empty tile between footprints is ideal: enough room for a
+            // shared road without dissolving the district into map-wide sprawl.
+            int categoryPenalty = categoryGap == 0 ? 24 : std::min(12, std::abs(categoryGap - 1)) * 7;
+            score += categoryPenalty;
+        }
+        if (!towerPlacement && relatedGap < std::numeric_limits<int>::max() / 8)
+        {
+            int flowPenalty = relatedGap == 0 ? 18 : std::min(14, std::abs(relatedGap - 1)) * 10;
+            score += flowPenalty;
+        }
+        if (towerPlacement)
+        {
+            double candidateRange = player != nullptr
+                ? player->ModifyBalanceAt(BalanceStat::TowerRange, definition.tower.range, type, pos)
+                : definition.tower.range;
+            int coverage = TrackCoverageAt(world, relevantTrackTiles, pos, definition.footprint,
+                                           candidateRange);
+            if (coverage == 0)
+                return; // a decorative tower must never satisfy Defense
+            int marginalCoverage = TrackCoverageAt(world, relevantTrackTiles, pos, definition.footprint,
+                                                   candidateRange, &existingTowerCoverage);
+            // Marginal lane coverage is the primary objective. Total coverage
+            // remains valuable so some overlapping concentrated fire survives.
+            score -= marginalCoverage * 240 + coverage * 100;
+        }
         if (score < bestScore)
         {
             bestScore = score;
             bestAnchor = pos;
+            bestExtractorRichness = extractorRichness;
         }
     };
 
@@ -738,7 +937,12 @@ Vec2i FindBuildAnchor(GameWorld& world, Player* player, BuildingType type,
             for (int x = minX; x <= maxX; x++)
                 evaluateTile({x, y});
 
-        if (bestAnchor.x >= 0)
+        // Plain buildings can accept the first local optimum. Extractors keep
+        // expanding when that window contains only depleted scraps; two full
+        // fresh tiles are enough to stop, matching the placement minimum.
+        const int healthyExtractorRichness = std::max(1, map.params.resourceRichness) * 2;
+        if (bestAnchor.x >= 0 &&
+            (preferredTile == TileType::GRASS || bestExtractorRichness >= healthyExtractorRichness || margin == fullMargin))
             return bestAnchor;
     }
 
@@ -824,19 +1028,36 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         return world.GetTileMap()[tileId].isMilitaryRoad;
     };
 
-    // 0-1 BFS: stepping onto an existing (or already-ordered, i.e. placed
+    // Dijkstra: stepping onto an existing (or already-ordered, i.e. placed
     // and under construction) road/bridge tile is FREE, carving a fresh tile
     // costs 1 — the planner strongly prefers reusing corridors it already
     // has over digging a parallel one a tile away. Playtest 2026-07-17: with
     // a plain unweighted BFS, incremental re-planning across maintenance
     // cadences kept picking equal-length parallel lines, carpeting the base
     // with redundant roads.
-    auto stepCost = [&](int tileId)
+    auto constructionCost = [&](BuildingType type)
     {
-        return IsRoadLikeBuilding(world.GetTileMap().GetBuilding(tileId)) ? 0 : 1;
+        int total = 0;
+        for (const auto& cost : player->GetEffectiveBuildCosts(GetBuildingDefinition(type)))
+            total += std::max(0, cost.amount);
+        return std::max(1, total);
     };
 
-    std::deque<int> frontier;
+    const int roadConstructionCost = constructionCost(BuildingType::Road);
+    // A bridge consumes a scarce crossing point on the military track. Keep
+    // its game-data cost untouched, but make the route planner avoid it unless
+    // the alternative is materially longer or unavailable.
+    constexpr int bridgeAvoidanceMultiplier = 3;
+    const int bridgeConstructionCost = constructionCost(BuildingType::Bridge) * bridgeAvoidanceMultiplier;
+    auto stepCost = [&](int tileId)
+    {
+        if (IsRoadLikeBuilding(world.GetTileMap().GetBuilding(tileId)))
+            return 0;
+        return world.GetTileMap()[tileId].isMilitaryRoad ? bridgeConstructionCost : roadConstructionCost;
+    };
+
+    using PathQueueEntry = std::pair<int, int>;
+    std::priority_queue<PathQueueEntry, std::vector<PathQueueEntry>, std::greater<PathQueueEntry>> frontier;
     std::map<int, int> parent;
     std::map<int, int> pathCost;
     for (int startId : startIds)
@@ -846,21 +1067,17 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
         parent[startId] = -1;
         pathCost[startId] = stepCost(startId);
-        if (pathCost[startId] == 0)
-            frontier.push_front(startId);
-        else
-            frontier.push_back(startId);
+        frontier.push({pathCost[startId], startId});
     }
 
     int reachedGoal = -1;
-    std::set<int> settled;
     while (!frontier.empty())
     {
-        int current = frontier.front();
-        frontier.pop_front();
-        if (settled.count(current) > 0)
+        const auto [currentCost, current] = frontier.top();
+        frontier.pop();
+        auto currentKnown = pathCost.find(current);
+        if (currentKnown == pathCost.end() || currentKnown->second != currentCost)
             continue;
-        settled.insert(current);
 
         if (std::find(goalIds.begin(), goalIds.end(), current) != goalIds.end())
         {
@@ -882,24 +1099,21 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
                 continue;
 
             int nextId = world.GetTileMap().GetIdFromCoords(nextPos);
-            if (settled.count(nextId) > 0 || !canUseRoadPathTile(nextId))
+            if (!canUseRoadPathTile(nextId))
                 continue;
             // Cross the track, never ride it (see isTrackTile above).
             if (isTrackTile(current) && isTrackTile(nextId))
                 continue;
 
             int weight = stepCost(nextId);
-            int nextCost = pathCost[current] + weight;
+            int nextCost = currentCost + weight;
             auto known = pathCost.find(nextId);
             if (known != pathCost.end() && known->second <= nextCost)
                 continue;
 
             pathCost[nextId] = nextCost;
             parent[nextId] = current;
-            if (weight == 0)
-                frontier.push_front(nextId);
-            else
-                frontier.push_back(nextId);
+            frontier.push({nextCost, nextId});
         }
     }
 
@@ -933,7 +1147,23 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
     bool submitted = false;
     int submittedCount = 0;
-    constexpr int maxRoadCommandsPerCall = 8;
+    constexpr int maxRoadCommandsPerCall = 4;
+
+    // Commands are charged later by ProcessCommands. Keep a local resource
+    // ledger while batching this path so every submitted tile is affordable
+    // together, not merely against the same pre-command stock snapshot.
+    std::map<ResourceType, int> remainingResources;
+    for (const Building* storageBuilding : player->GetTrackedBuildingsWithComponent<StorageComponent>())
+    {
+        if (storageBuilding == nullptr || storageBuilding->owner != player)
+            continue;
+        const auto* storage = storageBuilding->GetComponent<StorageComponent>();
+        if (storage == nullptr)
+            continue;
+        for (const auto& [resourceType, buffer] : storage->buffers)
+            remainingResources[resourceType] += static_cast<int>(buffer.buffer.size());
+    }
+
     for (int tileId : path)
     {
         Building* building = world.GetTileMap().GetBuilding(tileId);
@@ -954,6 +1184,17 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         if (!player->CanBuildDefinition(GetBuildingDefinition(type)))
             break;
 
+        const auto effectiveCosts = player->GetEffectiveBuildCosts(GetBuildingDefinition(type));
+        bool affordableInBatch = true;
+        for (const auto& cost : effectiveCosts)
+            if (remainingResources[cost.type] < cost.amount)
+            {
+                affordableInBatch = false;
+                break;
+            }
+        if (!affordableInBatch)
+            break;
+
         // Validate just before submitting (on the track only Bridge is legal,
         // and e.g. two bridges may not sit orthogonally adjacent). A tile
         // that can't take its type gets reserved — the next BFS skips
@@ -968,6 +1209,8 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         }
 
         world.SubmitCommand(GameCommand::BuildBuilding(player->id, type, pos));
+        for (const auto& cost : effectiveCosts)
+            remainingResources[cost.type] -= cost.amount;
         state.reservedRoadTiles[tileId] = 6.0;
         submitted = true;
         submittedCount++;
@@ -981,6 +1224,15 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 bool TryBuildRoads(GameWorld& world, Player* player, AIActionState& state)
 {
     if (player == nullptr)
+        return false;
+
+    // Roads must not consume the last construction reserve. A one-stone road
+    // otherwise wins every 2 s and can absorb the quarry's entire trickle,
+    // leaving the next Bakery/Inn/Smith permanently at 0 STONE even after the
+    // production bias correctly asks for more. Resume automatically as soon
+    // as extraction lifts stock above the reserve.
+    constexpr int ConstructionStoneReserve = 20;
+    if (CountStoredResource(player, ResourceType::STONE) <= ConstructionStoneReserve)
         return false;
 
     int roads = CountOwnedBuildings(player, BuildingType::Road);
@@ -1018,9 +1270,10 @@ bool TryBuildRoads(GameWorld& world, Player* player, AIActionState& state)
         {
             if (building == nullptr || building->owner != player || building->IsUnderConstruction())
                 continue;
-            if (!building->IsStorageLike() && building->buildingType != BuildingType::Headquarters)
+            if (!IsStorageHub(building))
                 continue;
-            if (HasAdjacentRoad(world, building))
+            if (auto* logistics = building->GetComponent<LogisticsComponent>();
+                logistics != nullptr && logistics->IsConnectedToRoadNetwork(*building))
                 continue;
 
             for (int tileId : world.GetTileMap().GetAdjacentTileIds(building))
@@ -1055,9 +1308,14 @@ bool TryBuildRoads(GameWorld& world, Player* player, AIActionState& state)
     {
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
-        if (building->buildingType == BuildingType::Road || building->IsStorageLike())
+        if (IsRoadLike(building->buildingType) || IsStorageHub(building))
             continue;
-        if (HasAdjacentRoad(world, building))
+        // Adjacency is not connectivity: a building beside an isolated road
+        // stub or the military track still cannot transport to HQ/storage.
+        // The old HasAdjacentRoad shortcut permanently stranded replacement
+        // extractors and made a finite-resource recovery look "complete".
+        if (auto* logistics = building->GetComponent<LogisticsComponent>();
+            logistics != nullptr && logistics->IsConnectedToRoadNetwork(*building))
             continue;
 
         Building* targetRoad = FindNearestStorageConnectedRoad(world, player, building);

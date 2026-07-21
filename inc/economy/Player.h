@@ -147,7 +147,12 @@ public:
     // Returns true when all build unlock requirements and costs are currently satisfied.
     bool CanBuildDefinition(const BuildingDefinition& definition) const
     {
-        return GetBuildRequirementFailures(definition).empty();
+        // This query is also used by AI players. Debug mode makes construction
+        // free only for the local human (GameWorld.Commands.cpp), so the
+        // generic affordability check must never suppress resource failures
+        // merely because the map itself is a debug map. The UI handles the
+        // local player's free-build exception explicitly.
+        return GetBuildRequirementFailures(definition, false).empty();
     }
 
     int GetPopulationCap() const;

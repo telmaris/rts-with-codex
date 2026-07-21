@@ -13,10 +13,10 @@ class GameWorld;
 //   via CombatResolver and removes the projectile; if its target vanished
 //   (died/moved out of the world) or its timeout elapsed, it's removed
 //   without dealing damage.
-// - For every tower with ammo and an expired attack cooldown, picks the
-//   enemy unit within range closest to reaching its own march destination
-//   (same "front fights front" priority UnitCombatSystem's road combat
-//   uses), consumes ammo, and spawns a new projectile at the tower's
+// - For every tower with ammo and an expired attack cooldown, picks either
+//   the enemy closest to the defended HQ along its route or the strongest
+//   in-range unit, according to TowerCombatComponent::targetMode; then
+//   consumes ammo and spawns a new projectile at the tower's
 //   position. No target in range or no ammo -> the tower simply doesn't fire.
 class TowerAttackSystem
 {

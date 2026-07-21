@@ -4,6 +4,7 @@
 building Headquarters
     name "Headquarters"
     tag "[Headquarters]"
+    placement_category core
     texture "assets/textures/building/headquarters.png"
     build_cost "Starting building"
     build_time 0.0
@@ -37,12 +38,13 @@ building Headquarters
     storage BOW 60 0
     storage ARROWS 120 0
     storage HORSE 60 0
-    hq max_hp 500 hard_defense 10 thorns_damage 3 thorns_interval 3.0 capture_stock_fraction 0.2 conquest_ramp_duration 60.0
+    hq max_hp 500 hard_defense 10 thorns_damage 3 thorns_interval 3.0 capture_stock_fraction 0.4 conquest_ramp_duration 600.0
 end
 
 building Village
     name "Village"
     tag "[Village]"
+    placement_category food
     texture "assets/textures/building/cottage.png"
     build_cost WOOD 45
     build_cost STONE 20
@@ -56,6 +58,7 @@ end
 building StorageBuilding
     name "Storage Building"
     tag "[StorageBuilding]"
+    placement_category infrastructure
     texture "assets/textures/building/storage.png"
     build_cost WOOD 65
     build_cost STONE 40
@@ -95,6 +98,7 @@ end
 building Woodcutter
     name "Woodcutter"
     tag "[Woodcutter]"
+    placement_category wood
     texture "assets/textures/building/woodcutter.png"
     build_cost WOOD 20
     build_cost STONE 10
@@ -112,6 +116,7 @@ end
 building HuntersHut
     name "Hunter's Hut"
     tag "[HuntersHut]"
+    placement_category food
     texture "assets/textures/building/hunter.png"
     build_cost WOOD 35
     build_cost STONE 15
@@ -130,6 +135,7 @@ end
 building LumberMill
     name "Lumber Mill"
     tag "[Lumber Mill]"
+    placement_category wood
     texture "assets/textures/building/lumbermill.png"
     build_cost WOOD 40
     build_cost STONE 25
@@ -150,6 +156,7 @@ end
 building Mine
     name "Mine"
     tag "[Mine]"
+    placement_category metal
     texture "assets/textures/building/mine.png"
     build_cost WOOD 40
     build_cost STONE 10
@@ -232,6 +239,7 @@ end
 building Foundry
     name "Foundry"
     tag "[Foundry]"
+    placement_category metal
     texture "assets/textures/building/foundry.png"
     build_cost WOOD 30
     build_cost STONE 40
@@ -333,6 +341,7 @@ end
 building Well
     name "Well"
     tag "[Well]"
+    placement_category food
     texture "assets/textures/building/well.png"
     build_cost WOOD 25
     build_cost STONE 30
@@ -350,6 +359,7 @@ end
 building WheatFarm
     name "Wheat Farm"
     tag "[WheatFarm]"
+    placement_category food
     texture "assets/textures/building/wheat_farm.png"
     build_cost WOOD 30
     build_cost STONE 15
@@ -370,6 +380,7 @@ end
 building Windmill
     name "Windmill"
     tag "[Windmill]"
+    placement_category food
     texture "assets/textures/building/windmill.png"
     build_cost WOOD 30
     build_cost STONE 35
@@ -390,6 +401,7 @@ end
 building Bakery
     name "Bakery"
     tag "[Bakery]"
+    placement_category food
     texture "assets/textures/building/bakery.png"
     build_cost WOOD 35
     build_cost STONE 40
@@ -412,6 +424,7 @@ end
 building Inn
     name "Inn"
     tag "[Inn]"
+    placement_category food
     texture "assets/textures/building/inn.png"
     build_cost WOOD 40
     build_cost STONE 40
@@ -421,11 +434,11 @@ building Inn
     texture_id 14
     production
         workers 8
-        cycle_time 40.0
-        input BREAD 10
-        input MEAT 4
-        input WATER 10
-        output FOOD_PROVISIONS 1
+        cycle_time 20.0
+        input BREAD 4
+        input MEAT 2
+        input WATER 4
+        output FOOD_PROVISIONS 8
         input_buffer BREAD 20
         input_buffer MEAT 12
         input_buffer WATER 20
@@ -436,6 +449,7 @@ end
 building Paperworks
     name "Paperworks"
     tag "[Paperworks]"
+    placement_category wood
     texture "assets/textures/building/paperworks.png"
     build_cost WOOD 50
     build_cost STONE 80
@@ -459,6 +473,7 @@ end
 building Smith
     name "Smith"
     tag "[Smith]"
+    placement_category metal
     texture "assets/textures/building/smith.png"
     build_cost WOOD 50
     build_cost STONE 70
@@ -564,6 +579,7 @@ end
 building Mint
     name "Mint"
     tag "[Mint]"
+    placement_category metal
     texture "assets/textures/building/foundry.png"
     build_cost WOOD 40
     build_cost STONE 60
@@ -601,6 +617,7 @@ end
 building Glassworks
     name "Glassworks"
     tag "[Glassworks]"
+    placement_category construction
     texture "assets/textures/building/smith.png"
     build_cost WOOD 40
     build_cost STONE 50
@@ -623,6 +640,7 @@ end
 building Powderworks
     name "Powderworks"
     tag "[Powderworks]"
+    placement_category military
     texture "assets/textures/building/smith.png"
     build_cost WOOD 50
     build_cost STONE 60
@@ -648,6 +666,7 @@ end
 building University
     name "University"
     tag "[University]"
+    placement_category knowledge
     texture "assets/textures/building/university.png"
     build_cost WOOD 100
     build_cost STONE 320
@@ -669,6 +688,7 @@ end
 building Barracks
     name "Barracks"
     tag "[Barracks]"
+    placement_category military
     texture "assets/textures/building/barracks.png"
     build_cost WOOD 50
     build_cost STONE 40
@@ -688,6 +708,7 @@ end
 building Road
     name "Road"
     tag "[Road]"
+    placement_category infrastructure
     texture "assets/textures/building/road.png"
     build_cost STONE 1
     build_time 0.2
@@ -703,6 +724,7 @@ end
 building Bridge
     name "Bridge"
     tag "[Bridge]"
+    placement_category infrastructure
     texture "assets/textures/building/road.png"
     build_cost PLANKS 6
     build_cost STONE 6
@@ -716,6 +738,7 @@ end
 building DefenseTower
     name "Defense Tower"
     tag "[DefenseTower]"
+    placement_category military
     texture "assets/textures/building/guard_tower.png"
     build_cost WOOD 40
     build_cost STONE 20
@@ -724,5 +747,5 @@ building DefenseTower
     footprint 2 2
     texture_id 6
     storage ARROWS 20 0
-    tower damage 5.0 range 6.0 attack_speed 1.0 ammo_resource ARROWS ammo_per_shot 1 worker_capacity 2
+    tower damage 3.5 range 6.0 attack_speed 1.0 ammo_resource ARROWS ammo_per_shot 1 worker_capacity 2
 end

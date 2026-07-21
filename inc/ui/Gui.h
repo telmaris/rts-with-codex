@@ -524,6 +524,7 @@ class GuiPanel : public UiWidget
         UiButton lockButton;
         UiButton destroyButton;
         UiButton recipeButton;
+        UiButton towerTargetButton;
         bool destroyRequested{false};
         bool dragging{false};
         Vec2i dragOffset{0, 0};

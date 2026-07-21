@@ -70,6 +70,8 @@ void ControlsScene::Update(double dt)
         {"E",           "Headquarters panel"},
         {"S",           "Statistics & economy"},
         {"F",           "Political focus tree"},
+        {"T",           "Technology research"},
+        {"U",           "Unit roster & deployment"},
     });
 
     DrawControlsSection(col1X, y1, "Selection", {
@@ -80,9 +82,9 @@ void ControlsScene::Update(double dt)
 
     float y2 = startY;
     DrawControlsSection(col2X, y2, "Military", {
-        {"LMB military", "Open garrison / division bar"},
-        {"LMB division", "Select division"},
-        {"RMB building", "Assign attack / move order"},
+        {"U",            "Open roster and choose a target"},
+        {"LMB unit",    "Select units for deployment"},
+        {"Deploy",      "Send selected units to an active enemy HQ"},
     });
 
     DrawControlsSection(col2X, y2, "Build panel", {

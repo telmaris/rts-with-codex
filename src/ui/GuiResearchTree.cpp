@@ -163,6 +163,7 @@ namespace
             case BalanceStat::HqMaxHp: return "HQ max HP";
             case BalanceStat::HqDefense: return "HQ hard defense";
             case BalanceStat::HqThorns: return "HQ thorns damage";
+            case BalanceStat::ConquestSpoilsFraction: return "Conquest spoils";
             case BalanceStat::TowerDamage: return "Tower damage";
             case BalanceStat::TowerRange: return "Tower range";
             case BalanceStat::TowerAttackSpeed: return "Tower attack speed";

@@ -9,9 +9,10 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
+    // Save v29: added TowerCombatComponent target priority.
     // Save v28: added the UPG block (UpgradeComponent — generic per-instance
     // building upgrade progression, introduced for Road).
-    out << "RTS_SAVE 28\n";
+    out << "RTS_SAVE 29\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -200,7 +201,8 @@ bool GameWorld::SaveToFile(const std::string& path) const
             // cooldown needs its own field here.
             out << "TOWER " << tower->damage.GetBase() << ' ' << tower->range.GetBase() << ' '
                 << tower->attackSpeed.GetBase() << ' ' << tower->attackTimer << ' '
-                << static_cast<int>(tower->ammoResource) << ' ' << tower->ammoPerShot.GetBase() << '\n';
+                << static_cast<int>(tower->ammoResource) << ' ' << tower->ammoPerShot.GetBase() << ' '
+                << static_cast<int>(tower->targetMode) << '\n';
         }
 
         if (const auto* pop = building->GetComponent<PopulationComponent>())
@@ -261,6 +263,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     if (!in.is_open())
         return false;
 
+    combatTelemetry.Clear();
+
     std::string tag;
     int version = 0;
     in >> tag >> version;
@@ -268,8 +272,9 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
-    if (tag != "RTS_SAVE" || version != 28)
+    if (tag != "RTS_SAVE" || version != 29)
         return false;
 
     render = renderer;
@@ -760,9 +765,14 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 auto* tower = placed->GetComponent<TowerCombatComponent>();
                 if (tower == nullptr) return false;
                 int ammoResource = 0;
+                int targetMode = 0;
                 in >> tower->damage >> tower->range >> tower->attackSpeed >> tower->attackTimer >>
-                      ammoResource >> tower->ammoPerShot;
+                      ammoResource >> tower->ammoPerShot >> targetMode;
                 tower->ammoResource = static_cast<ResourceType>(ammoResource);
+                if (targetMode < static_cast<int>(TowerTargetMode::NearestToHq) ||
+                    targetMode > static_cast<int>(TowerTargetMode::StrongestUnit))
+                    return false;
+                tower->targetMode = static_cast<TowerTargetMode>(targetMode);
             }
             else if (tag == "UPG")
             {

@@ -79,12 +79,20 @@ namespace AIActions
     // ── Read-only queries ────────────────────────────────────────────────────
     int CountOwnedBuildings(Player* player, BuildingType type);
     int CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingType type);
+    // True only for network storage hubs. Barracks and towers also own a
+    // StorageComponent, but theirs is a local consumer buffer and still needs
+    // a complete route to a real hub.
+    bool IsStorageHub(const Building* building);
     int CountStoredResource(Player* player, ResourceType type);
     // Completed producers of `resource` specifically (matched via
     // ProductionComponent::products, the terrain-resolved recipe output) —
     // NOT every building of a BuildingType that CAN produce it on some other
     // terrain (e.g. a Mine standing on COAL vs. one standing on IRON_ORE).
     int CountProducersOfResource(Player* player, ResourceType resource);
+    // Same terrain/recipe-resolved count, including buildings still under
+    // construction. Used by ordered progression targets where a pending
+    // second quarry must satisfy the step immediately and prevent duplicates.
+    int CountProducersOrPendingForResource(Player* player, ResourceType resource);
     // As above but also counts a producer still UNDER CONSTRUCTION (its
     // terrain-resolved products are already fixed at placement) — the opening
     // plan needs this so a coal mine it just ordered isn't re-ordered as
@@ -123,6 +131,9 @@ namespace AIActions
     // Seconds until the player's current production rates cover `costs`
     // (0 = affordable now, 1e9 = no path with the current economy).
     double ForecastSecondsToAfford(Player* player, const std::vector<ResourceAmountDefinition>& costs);
+    // Number of relevant military-route tiles inside this tower's real combat
+    // radius. Zero means the tower can never contribute to this player's lane.
+    int CountTowerTrackCoverage(GameWorld& world, Player* player, const Building* tower);
 
     // ── Actuators (submit real GameCommands) ─────────────────────────────────
     // Expanding-window placement search biased toward target/HQ proximity;

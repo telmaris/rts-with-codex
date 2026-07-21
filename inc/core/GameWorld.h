@@ -12,6 +12,7 @@
 #include "ui/Renderer.h"
 #include "warfare/BattleUnit.h"
 #include "warfare/CombatPipeline.h"
+#include "warfare/CombatTelemetry.h"
 
 class AudioSystem;
 
@@ -114,6 +115,8 @@ class GameWorld
         std::map<int, AttackEmission>& GetProjectiles() { return projectiles; }
         const std::map<int, AttackEmission>& GetProjectiles() const { return projectiles; }
         int AllocateProjectileId() { return nextProjectileId++; }
+        CombatTelemetry& GetCombatTelemetry() { return combatTelemetry; }
+        const CombatTelemetry& GetCombatTelemetry() const { return combatTelemetry; }
         // Mutable escape hatch for tests that construct simulation objects
         // directly (e.g. a standalone Player) — same object as GetTileMap(),
         // named separately so call sites make the intent explicit.
@@ -168,6 +171,7 @@ class GameWorld
         std::map<int, BattleUnit> deployedUnits;
         std::map<std::pair<int, int>, std::deque<int>> spawnQueues;
         std::map<int, AttackEmission> projectiles;
+        CombatTelemetry combatTelemetry;
         int nextProjectileId{1};
         std::deque<GameCommand> pendingCommands;
         std::vector<GameCommandResult> commandResults;

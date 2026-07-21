@@ -257,6 +257,17 @@ technology HqThorns
     modifier HqThorns additive 1
 end
 
+technology ConquestSpoilsFraction
+    name "Conquest Spoils"
+    description "Cheat sheet placeholder for BalanceStat::ConquestSpoilsFraction. Additive values are percentage points of captured storage."
+    category WARFARE
+    tags military expansion
+    layout_order 425
+    research_time 10
+    cost PAPER 10
+    modifier ConquestSpoilsFraction additive 0.10
+end
+
 technology TowerDamage
     name "TowerDamage"
     description "Cheat sheet placeholder for BalanceStat::TowerDamage."

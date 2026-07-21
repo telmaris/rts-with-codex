@@ -101,6 +101,8 @@ void HqCombatSystem::Update(GameWorld& world, double dt)
             double hardDefense = hq->GetModifiedHardDefense(*hqBuilding);
             double resolved = CombatResolver::ResolveDamage(damage, hardDefense, DamageType::Physical, noResistances,
                                                              worldSeed, tick, besieger.instanceId);
+            double applied = std::min(resolved, std::max(0.0, hq->currentHp));
+            world.GetCombatTelemetry().RecordHqDamage(besieger.ownerPlayerId, ownerId, applied);
             hq->currentHp -= resolved;
             hq->recentDamageTimer = kHqDamageIndicatorDuration;
             if (hq->currentHp <= 0.0 && conquerorId == -1)
@@ -148,6 +150,11 @@ void HqCombatSystem::Update(GameWorld& world, double dt)
                         const auto& resistances = def != nullptr ? def->resistances : noResistances;
                         double resolved = CombatResolver::ResolveDamage(thornsDamage, armor, DamageType::Physical,
                                                                          resistances, worldSeed, tick, hqBuilding->id);
+                        double applied = std::min(resolved, std::max(0.0, besieger.currentHp));
+                        bool lethal = besieger.currentHp - resolved <= 0.0;
+                        world.GetCombatTelemetry().RecordUnitDamage(
+                            besieger.instanceId, besieger.ownerPlayerId, besieger.unitDefId,
+                            CombatDamageSource::Headquarters, applied, lethal);
                         besieger.currentHp -= resolved;
                     }
                 }

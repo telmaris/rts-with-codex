@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <set>
 
 namespace
 {
@@ -38,11 +39,11 @@ namespace
     struct OpeningStep
     {
         BuildingType type;
-        int target;              // building-type count target (ignored when gateResource is set)
+        int target;              // required building/terrain-resolved producer count
         TileType preferredTile;  // terrain the extractor needs
         ResourceType gateResource;  // Null => gate by building-type count; else by a producer of this resource
     };
-    constexpr std::array<OpeningStep, 15> OpeningPlan{{
+    constexpr std::array<OpeningStep, 17> OpeningPlan{{
         // Basic materials, then the IRON CHAIN, then the (expensive) food chain.
         // Rationale:
         //  - BOTH woodcutters before the LumberMill: one Woodcutter (30 WOOD/min)
@@ -63,17 +64,89 @@ namespace
         {BuildingType::Mine,            1, TileType::COAL,     ResourceType::COAL},
         {BuildingType::Mine,            1, TileType::IRON_ORE, ResourceType::IRON_ORE},
         {BuildingType::Foundry,         1, TileType::GRASS,    ResourceType::Null},
+        // Water must exist before the farm: otherwise the farm consumes
+        // workers while waiting on an input the opening plan has deliberately
+        // postponed, making the food bootstrap slower and more fragile.
+        {BuildingType::Well,            1, TileType::GRASS,    ResourceType::Null},
         {BuildingType::WheatFarm,       1, TileType::GRASS,    ResourceType::Null},
         {BuildingType::Windmill,        1, TileType::GRASS,    ResourceType::Null},
+        // Capacity reserve before recruitment starts spending manpower.
+        {BuildingType::Village,         2, TileType::GRASS,    ResourceType::Null},
+        // Complete one renewable food line before recruitment can consume
+        // its manpower. This is one deterministic chain, not a food bias:
+        // duplicates remain locked out by the transactional opening plan.
         {BuildingType::Bakery,          1, TileType::GRASS,    ResourceType::Null},
-        {BuildingType::Well,            1, TileType::GRASS,    ResourceType::Null},
         // HuntersHut makes MEAT on WOOD terrain — it was gated GRASS before and
         // so could NEVER be placed (silently breaking the MEAT->Inn food link).
         {BuildingType::HuntersHut,      1, TileType::WOOD,     ResourceType::Null},
         {BuildingType::Inn,             1, TileType::GRASS,    ResourceType::Null},
-        {BuildingType::Village,         2, TileType::GRASS,    ResourceType::Null},
+        // Military foothold is an explicit progression milestone immediately
+        // after the renewable manpower line, not a best-effort utility branch.
+        {BuildingType::Smith,           1, TileType::GRASS,    ResourceType::Null},
+        {BuildingType::Barracks,        1, TileType::GRASS,    ResourceType::Null},
         {BuildingType::StorageBuilding, 1, TileType::GRASS,    ResourceType::Null},
     }};
+
+    bool HasCompletedFoodFoundation(Player* player)
+    {
+        if (player == nullptr)
+            return false;
+        constexpr std::array<BuildingType, 3> FoodFoundation{{
+            BuildingType::Well,
+            BuildingType::WheatFarm,
+            BuildingType::Windmill,
+        }};
+        return player->GetTrackedBuildingCount(BuildingType::Village, true) >= 2 &&
+            std::all_of(FoodFoundation.begin(), FoodFoundation.end(), [&](BuildingType type)
+        {
+            return player->HasTrackedBuilding(type, true);
+        });
+    }
+
+    bool HasCompletedFoodChain(Player* player)
+    {
+        if (player == nullptr)
+            return false;
+        constexpr std::array<BuildingType, 6> FoodChain{{
+            BuildingType::Well,
+            BuildingType::WheatFarm,
+            BuildingType::Windmill,
+            BuildingType::Bakery,
+            BuildingType::HuntersHut,
+            BuildingType::Inn,
+        }};
+        return std::all_of(FoodChain.begin(), FoodChain.end(), [&](BuildingType type)
+        {
+            return player->HasTrackedBuilding(type, true);
+        });
+    }
+
+    int RemainingExtractorRichness(Player* player, ResourceType resource)
+    {
+        if (player == nullptr)
+            return 0;
+        int remaining = 0;
+        for (Building* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
+        {
+            auto* production = building != nullptr ? building->GetComponent<ProductionComponent>() : nullptr;
+            if (production == nullptr || building->owner != player || building->IsUnderConstruction() ||
+                !production->consumesTerrain || production->terrainType == TileType::GRASS ||
+                !production->products.contains(resource))
+                continue;
+            Vec2i anchor = player->tilemap.GetCoordsFromId(building->positionId);
+            for (int y = 0; y < building->GetFootprint().y; y++)
+                for (int x = 0; x < building->GetFootprint().x; x++)
+                {
+                    Vec2i pos{anchor.x + x, anchor.y + y};
+                    if (!player->tilemap.IsInside(pos))
+                        continue;
+                    const Tile& tile = player->tilemap[player->tilemap.GetIdFromCoords(pos)];
+                    if (tile.tileType == production->terrainType)
+                        remaining += std::max(0, tile.resourceRichness);
+                }
+        }
+        return remaining;
+    }
 
     // Rough per-unit combat weight for track-pressure comparisons: damage
     // output plus a slice of staying power. Effective stats so tech buffs
@@ -81,6 +154,12 @@ namespace
     double UnitStrength(const BattleUnit& unit, const Player& owner)
     {
         return unit.GetEffectiveRoadAttack(owner) + unit.currentHp * 0.1;
+    }
+
+    double OffensiveUnitStrength(const BattleUnit& unit, const Player& owner)
+    {
+        return unit.GetEffectiveRoadAttack(owner) + unit.GetEffectiveSiegeAttack(owner) +
+               unit.currentHp * 0.1;
     }
 
     // Deploy the whole roster once it reaches this headcount (etap 4 may
@@ -133,7 +212,22 @@ namespace
     // meantime" once the economy has SOME footing, tunable from the same file).
     int DesiredTowerCount(const AISituation& s)
     {
-        if (s.productionBuildingCount < GetAIEconomyBias().towerReadinessBuildings)
+        // A live attack overrides the peacetime economy gate. Waiting for a
+        // Smith/Barracks while enemies are already on the lane is precisely
+        // the passive failure this guard was meant to avoid.
+        if (s.enemyIncomingCount > 0)
+        {
+            int emergencyDesired = 1;
+            if (s.Threat() > 0.7)
+                emergencyDesired++;
+            if (s.hqHpRatio < 0.7)
+                emergencyDesired++;
+            return std::min(emergencyDesired, 3);
+        }
+        // Static defense must not consume the Smith/Barracks reserve before
+        // the AI has unlocked its primary objective: sending units.
+        if (s.barracksCount == 0 || s.smithCount == 0 ||
+            s.productionBuildingCount < GetAIEconomyBias().towerReadinessBuildings)
             return 0;
         int desired = 2;
         if (s.Threat() > 0.5)
@@ -193,6 +287,8 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
 
         noiseSeeded = true;
     }
+
+    UpdateWaveEvaluation(world, player);
 
     senseTimer -= dt;
     decisionTimer -= dt;
@@ -263,6 +359,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
 
     // Track state: deployed units, split mine vs. heading-at-me. std::map
     // iteration — deterministic.
+    std::set<int> incomingOpponents;
     for (const auto& [instanceId, unit] : world.GetDeployedUnits())
     {
         if (unit.state == BattleUnitState::Dying)
@@ -271,16 +368,21 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         if (ownerIt == world.GetPlayerHandler().players.end() || ownerIt->second == nullptr)
             continue;
 
-        if (unit.ownerPlayerId == player->id)
-        {
-            s.myDeployedCount++;
-            s.myDeployedStrength += UnitStrength(unit, *ownerIt->second);
-        }
-        else if (unit.routeToPlayerId == player->id)
+        if (unit.ownerPlayerId != player->id && unit.routeToPlayerId == player->id)
         {
             s.enemyIncomingCount++;
             s.enemyIncomingStrength += UnitStrength(unit, *ownerIt->second);
+            incomingOpponents.insert(unit.ownerPlayerId);
         }
+    }
+
+    for (const auto& [instanceId, unit] : world.GetDeployedUnits())
+    {
+        if (unit.state == BattleUnitState::Dying || unit.ownerPlayerId != player->id ||
+            !incomingOpponents.contains(unit.routeToPlayerId))
+            continue;
+        s.myDeployedCount++;
+        s.myDeployedStrength += UnitStrength(unit, *player);
     }
 
     Building* hq = AIActions::FindOwnedHeadquarters(player);
@@ -299,6 +401,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         s.rosterByDef[unit.unitDefId]++;
     s.towerCount = AIActions::CountOwnedBuildings(player, BuildingType::DefenseTower);
     s.barracksCount = AIActions::CountOwnedBuildings(player, BuildingType::Barracks);
+    s.smithCount = AIActions::CountOwnedBuildings(player, BuildingType::Smith);
     s.villageCount = AIActions::CountOwnedBuildings(player, BuildingType::Village);
     s.manpower = player->strategicResources.Get(StrategicResourceType::Manpower);
 
@@ -309,7 +412,12 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
             continue;
         const auto* combat = building->GetComponent<TowerCombatComponent>();
         if (combat != nullptr)
-            s.towerStrength += combat->GetModifiedDamage(*building) * combat->GetModifiedAttackSpeed(*building);
+        {
+            int coverage = AIActions::CountTowerTrackCoverage(world, player, building);
+            double coverageFactor = std::clamp(coverage / 6.0, 0.0, 1.0);
+            s.towerStrength += combat->GetModifiedDamage(*building) *
+                               combat->GetModifiedAttackSpeed(*building) * coverageFactor;
+        }
     }
     s.arrowsStored = AIActions::CountStoredResource(player, ResourceType::ARROWS);
     s.arrowsRate = AIActions::GetResourceRate(player->economyTelemetry.current.productionRatesPerMinute,
@@ -340,6 +448,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
                                    ResourceType::FOOD_PROVISIONS) > 0 ||
         (foodDiagnosis.hasProducerBuilding && !foodDiagnosis.logisticsProblem &&
          !foodDiagnosis.storageProblem && !foodDiagnosis.manpowerProblem);
+    s.foodProvisionsStored = AIActions::CountStoredResource(player, ResourceType::FOOD_PROVISIONS);
     s.populationCap = player->GetPopulationCap();
     s.totalPopulation = player->GetTotalPopulation();
 
@@ -366,6 +475,11 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
     // stretch (see ExecuteRecruitDeploy's comment for what that fragility was).
     s.economyEstablished = s.foodProductionAlive &&
         s.productionBuildingCount >= GetAIEconomyBias().towerReadinessBuildings;
+    s.basicEconomyEstablished =
+        s.productionBuildingCount >= GetAIEconomyBias().towerReadinessBuildings;
+    s.offensiveTowerDamageShare = lastOffensiveTowerDamageShare;
+    s.offensiveUnitDamageShare = lastOffensiveUnitDamageShare;
+    s.offensiveHqDamageShare = lastOffensiveHqDamageShare;
     const std::map<ResourceType, double>* effectiveWeights = s.economyEstablished ? nullptr : &priorityWeights;
 
     // Resource deficits. Candidate list is deterministic: the manpower
@@ -465,9 +579,7 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
         {
             if (building == nullptr || building->owner != player)
                 continue;
-            if (building->buildingType == BuildingType::Road ||
-                building->buildingType == BuildingType::Headquarters ||
-                building->IsStorageLike())
+            if (IsRoadLike(building->buildingType) || AIActions::IsStorageHub(building))
                 continue;
             const auto* logistics = building->GetComponent<LogisticsComponent>();
             if (logistics == nullptr)
@@ -492,6 +604,8 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
             double score = s.towerCount < DesiredTowerCount(s) ? 0.3 : 0.0;
             if (s.towerCount > 0 && s.arrowsStored == 0 && s.arrowsRate == 0)
                 score = std::max(score, 0.45);  // towers without ammo are decoration
+            if (s.enemyIncomingCount > 0 && s.towerCount < DesiredTowerCount(s))
+                score = std::max(score, 0.98);  // immediate, buildable defense wins this decision
             double pressure = std::clamp(0.5 * s.Threat() + 0.5 * (1.0 - s.hqHpRatio), 0.0, 1.0);
             return std::max(score, pressure);
         }
@@ -615,7 +729,8 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
     // Village — converting food into manpower — is the immediate fix. Same
     // condition ScoreNeed uses to escalate above the 0.75 cap, so the two
     // can never disagree about whether this is live.
-    if (ManpowerEmergency(s, GetAIEconomyBias().manpowerReserve) &&
+    const bool manpowerEmergency = ManpowerEmergency(s, GetAIEconomyBias().manpowerReserve);
+    if (manpowerEmergency &&
         player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Village)))
     {
         Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Village,
@@ -623,6 +738,11 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
         if (anchor.x >= 0 && AIActions::TrySubmitBuild(world, player, BuildingType::Village, anchor, actions))
             return true;
     }
+    // Save the stock being accumulated for the capacity fix. A finite food
+    // reserve is enough to make the new Village useful even before the
+    // renewable Inn chain has been completed.
+    if (manpowerEmergency)
+        return false;
 
     // Keep the smelter on IRON regardless of what else is going on (a fresh
     // Foundry defaults to the COPPER recipe — index 0 — and the AI never mines
@@ -643,6 +763,44 @@ bool UtilityAIModel::ExecuteEconomy(GameWorld& world, Player* player, const AISi
     // deficit ladder below takes over reactive scaling/sustain.
     if (TryOpeningPlan(world, player))
         return true;
+
+    // An incomplete opening plan that could not afford its next step is a
+    // SAVING state. Falling through to the reactive deficit ladder here used
+    // the reserved WOOD/PLANKS on duplicate farms, wells and mills, pushing
+    // the Inn farther away every cycle. Keep the bootstrap transactional:
+    // one of each required building first, scaling only after the chain is
+    // structurally complete.
+    bool openingComplete = true;
+    for (const OpeningStep& step : OpeningPlan)
+    {
+        bool satisfied = step.gateResource != ResourceType::Null
+            ? AIActions::CountProducersOrPendingForResource(player, step.gateResource) >= step.target
+            : AIActions::CountCompletedOrQueuedBuildings(world, player, step.type) >= step.target;
+        if (!satisfied)
+        {
+            openingComplete = false;
+            break;
+        }
+    }
+    if (!openingComplete)
+        return false;
+
+    // Finite extractors must be replaced BEFORE their own output reaches
+    // zero, but never at the expense of the one-time progression bootstrap.
+    // Both Woodcutter and Mine require materials derived from their own
+    // output, so this maintenance runs immediately AFTER the opening becomes
+    // structurally complete and before ordinary scaling deficits.
+    if (s.basicEconomyEstablished)
+    {
+        constexpr int WoodRenewalReserve = 160;
+        constexpr int StoneRenewalReserve = 80;
+        if (RemainingExtractorRichness(player, ResourceType::WOOD) <= WoodRenewalReserve &&
+            TryBuildProducerFor(world, player, ResourceType::WOOD))
+            return true;
+        if (RemainingExtractorRichness(player, ResourceType::STONE) <= StoneRenewalReserve &&
+            TryBuildProducerFor(world, player, ResourceType::STONE))
+            return true;
+    }
 
     // Deficit backoff (2026-07-19): a resource that just failed (every
     // producer option unaffordable, not merely a missing anchor — see
@@ -738,6 +896,12 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
     // as this guard (and the diversify-sort below) are concerned — see
     // CountProducersOfResource.
     int ownedProducers = AIActions::CountProducersOfResource(player, target);
+    // During bootstrap, four identical producers are already a strong signal
+    // that the bottleneck is elsewhere. This prevents one noisy deficit from
+    // dissolving the thematic base into an extractor carpet before the wider
+    // economy has come online; mature economies may scale past it.
+    if (!situation.economyEstablished && ownedProducers >= 4)
+        return false;
 
     AIActions::AIResourceDiagnosis targetDiagnosis =
         AIActions::DiagnoseResourceNeed(player, target, 0, &consumptionBias, effectiveWeights);
@@ -756,6 +920,15 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
 
     for (const auto& option : options)
     {
+        // One multi-recipe workshop is enough before the first raid. A second
+        // Smith used to consume more WOOD/STONE/PLANKS than the missing Inn,
+        // delaying both food and offense so it could specialize in a recipe
+        // the army was not yet able to use. Additional Smiths become valid
+        // after the first real launch, when parallel tools/weapons/ammunition
+        // lines are an actual throughput need.
+        if (option.buildingType == BuildingType::Smith && !hasLaunchedWave &&
+            AIActions::CountOwnedBuildings(player, BuildingType::Smith) >= 1)
+            continue;
         if (!player->CanBuildDefinition(GetBuildingDefinition(option.buildingType)))
             continue;
         Vec2i anchor = AIActions::FindBuildAnchor(world, player, option.buildingType,
@@ -770,6 +943,37 @@ bool UtilityAIModel::TryBuildProducerFor(GameWorld& world, Player* player, Resou
 
 bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
 {
+    // Never spend the last self-recovery reserve while the finite opening
+    // forest is almost exhausted. Woodcutter itself costs WOOD, so waiting
+    // until the next opening step is literally unaffordable can make recovery
+    // impossible. One just-in-time replacement is enough; once completed its
+    // fresh footprint raises RemainingExtractorRichness and this guard turns
+    // itself off instead of creating an extractor loop.
+    constexpr int WoodRecoveryStock = 60;
+    constexpr int WoodRecoveryRichness = 80;
+    bool woodcutterPending = false;
+    for (Building* building : player->GetTrackedBuildings())
+        if (building != nullptr && building->buildingType == BuildingType::Woodcutter &&
+            building->IsUnderConstruction())
+        {
+            woodcutterPending = true;
+            break;
+        }
+    if (!woodcutterPending &&
+        AIActions::CountStoredResource(player, ResourceType::WOOD) <= WoodRecoveryStock &&
+        RemainingExtractorRichness(player, ResourceType::WOOD) <= WoodRecoveryRichness)
+    {
+        const auto& woodcutter = GetBuildingDefinition(BuildingType::Woodcutter);
+        if (player->CanBuildDefinition(woodcutter))
+        {
+            Vec2i anchor = AIActions::FindBuildAnchor(
+                world, player, BuildingType::Woodcutter, TileType::WOOD, nullptr, actions);
+            if (anchor.x >= 0 &&
+                AIActions::TrySubmitBuild(world, player, BuildingType::Woodcutter, anchor, actions))
+                return true;
+        }
+    }
+
     for (const OpeningStep& step : OpeningPlan)
     {
         // Terrain-specific mines gate on an actual producer of their resource
@@ -778,10 +982,33 @@ bool UtilityAIModel::TryOpeningPlan(GameWorld& world, Player* player)
         // the deficit ladder's STONE mine used to satisfy the COAL step and the
         // iron chain never got its ore (2026-07-20 user report).
         bool satisfied = step.gateResource != ResourceType::Null
-            ? AIActions::HasProducerOrPendingForResource(player, step.gateResource)
+            ? AIActions::CountProducersOrPendingForResource(player, step.gateResource) >= step.target
             : AIActions::CountCompletedOrQueuedBuildings(world, player, step.type) >= step.target;
         if (satisfied)
             continue;
+
+        // Build and connect the first woodcutter before placing the second.
+        // Otherwise the two opening orders can independently route to the
+        // same nearby forest and lay parallel road corridors before either
+        // sees the other's infrastructure.
+        if (step.type == BuildingType::Woodcutter && step.target > 1)
+        {
+            bool firstWoodcutterConnected = false;
+            for (Building* building : player->GetTrackedBuildings())
+            {
+                if (building == nullptr || building->owner != player ||
+                    building->buildingType != BuildingType::Woodcutter || building->IsUnderConstruction())
+                    continue;
+                const auto* logistics = building->GetComponent<LogisticsComponent>();
+                if (logistics != nullptr && logistics->IsConnectedToRoadNetwork(*building))
+                {
+                    firstWoodcutterConnected = true;
+                    break;
+                }
+            }
+            if (!firstWoodcutterConnected)
+                return false;
+        }
 
         // The plan is strictly ordered: an unaffordable step means "save up",
         // not "skip ahead and spend on something later" — deterministic
@@ -803,17 +1030,221 @@ bool UtilityAIModel::ManpowerEmergency(const AISituation& s, double manpowerRese
 {
     // Villages already near capacity won't grow manpower any further on
     // their own — a low reserve there means "build another Village now",
-    // not "wait, it'll recover" (user design 2026-07-19). A dead food chain
-    // stays the higher-priority problem: a new Village without food can't
-    // produce manpower either, so it's not a fix while foodProductionAlive
-    // is false — the existing "food is dead" escalation (0.75) wins instead.
-    if (!s.foodProductionAlive)
+    // not "wait, it'll recover" (user design 2026-07-19). A finite stored
+    // food reserve can bootstrap that Village; with neither stock nor a live
+    // chain, the existing "food is dead" escalation remains the real fix.
+    if (!s.foodProductionAlive && s.foodProvisionsStored <= 0)
         return false;
     if (s.manpower >= manpowerReserve)
         return false;
     if (s.populationCap <= 0.0)
         return false;  // no village to be "full" yet — not this emergency
     return s.totalPopulation >= s.populationCap * 0.95;
+}
+
+double UtilityAIModel::FailedWaveStrengthThreshold(double currentThreshold, double launchedStrength)
+{
+    return std::max(currentThreshold, launchedStrength * 1.08);
+}
+
+double UtilityAIModel::RosterOffensiveStrength(Player* player, const std::vector<int>* selectedIds) const
+{
+    if (player == nullptr)
+        return 0.0;
+    double strength = 0.0;
+    if (selectedIds != nullptr)
+    {
+        for (int id : *selectedIds)
+        {
+            const BattleUnit* unit = player->roster.FindUnit(id);
+            if (unit != nullptr)
+                strength += OffensiveUnitStrength(*unit, *player);
+        }
+        return strength;
+    }
+    for (const auto& [id, unit] : player->roster.units)
+        strength += OffensiveUnitStrength(unit, *player);
+    return strength;
+}
+
+void UtilityAIModel::StartWaveEvaluation(GameWorld& world, Player* player, int targetPlayerId,
+                                         const std::vector<int>& unitIds, double waveStrength)
+{
+    if (player == nullptr)
+        return;
+    ActiveWaveEvaluation evaluation;
+    evaluation.targetPlayerId = targetPlayerId;
+    evaluation.unitIds = unitIds;
+    evaluation.hqDamageBaseline = world.GetCombatTelemetry().GetHqDamage(player->id, targetPlayerId);
+    evaluation.launchedStrength = waveStrength;
+    for (int id : unitIds)
+        evaluation.damageBaseline[id] = world.GetCombatTelemetry().GetUnitDamage(id);
+    activeWave = std::move(evaluation);
+    hasLaunchedWave = true;
+}
+
+void UtilityAIModel::UpdateWaveEvaluation(GameWorld& world, Player* player)
+{
+    if (player == nullptr || !activeWave.has_value())
+        return;
+
+    const ActiveWaveEvaluation& wave = *activeWave;
+    double hqDamage = world.GetCombatTelemetry().GetHqDamage(player->id, wave.targetPlayerId) -
+                      wave.hqDamageBaseline;
+    bool targetDefeated = world.IsPlayerDefeated(wave.targetPlayerId);
+    bool anyUnitActive = false;
+    for (int id : wave.unitIds)
+        if (world.GetDeployedUnits().contains(id))
+        {
+            anyUnitActive = true;
+            break;
+        }
+
+    bool succeeded = targetDefeated || hqDamage > 0.001;
+    if (!succeeded && anyUnitActive)
+        return; // the verdict is not known yet
+
+    UnitDamageBreakdown waveDamage;
+    for (int id : wave.unitIds)
+        waveDamage += world.GetCombatTelemetry().GetUnitDamage(id) - wave.damageBaseline.at(id);
+    double totalDamage = waveDamage.TotalDamage();
+    if (totalDamage > 0.001)
+    {
+        lastOffensiveTowerDamageShare = waveDamage.fromTowers / totalDamage;
+        lastOffensiveUnitDamageShare = waveDamage.fromUnits / totalDamage;
+        lastOffensiveHqDamageShare = waveDamage.fromHeadquarters / totalDamage;
+    }
+
+    if (succeeded)
+    {
+        adaptiveMinimumWaveStrength = 0.0;
+    }
+    else
+    {
+        // A zero-HQ-damage wave was too weak. The next launch must exceed its
+        // measured combat strength by 8%; discrete roster sizes may turn that
+        // into one extra unit, while upgraded compositions can satisfy it with
+        // the same headcount.
+        adaptiveMinimumWaveStrength =
+            FailedWaveStrengthThreshold(adaptiveMinimumWaveStrength, wave.launchedStrength);
+    }
+    activeWave.reset();
+}
+
+bool UtilityAIModel::TryUnlockBarracks(GameWorld& world, Player* player, const AISituation& s)
+{
+    if (player == nullptr || !s.basicEconomyEstablished)
+        return false;
+
+    // Smith may rise in parallel and accumulate tools while the food
+    // bootstrap is being completed. Barracks/recruitment themselves remain
+    // gated below: a token first raid must not consume the last manpower and
+    // leave that renewable chain unfinished.
+    const bool foodBootstrapComplete = HasCompletedFoodFoundation(player);
+
+    // Three militia need 15 manpower. A Barracks placed after every citizen
+    // has already become a worker is only a visual milestone: it cannot train
+    // the opening wave. Preserve its materials and let EconomySustain add
+    // population capacity (or finish the food bootstrap) first. Lower
+    // difficulties reach this state because they do not get Hard's manpower
+    // head start.
+    constexpr double firstRaidManpowerReserve = 15.0;
+    const bool populationCapacityBlocked =
+        s.populationCap > 0.0 && s.totalPopulation >= s.populationCap * 0.95 &&
+        s.manpower < firstRaidManpowerReserve;
+    if (s.barracksCount == 0 && populationCapacityBlocked)
+        return false;
+
+    const auto& barracksDefinition = GetBuildingDefinition(BuildingType::Barracks);
+    if (foodBootstrapComplete && s.barracksCount == 0 && player->CanBuildDefinition(barracksDefinition))
+    {
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Barracks,
+                                                  TileType::GRASS, nullptr, actions);
+        return anchor.x >= 0 &&
+               AIActions::TrySubmitBuild(world, player, BuildingType::Barracks, anchor, actions);
+    }
+
+    if (s.barracksCount == 0)
+    {
+        auto costs = player->GetEffectiveBuildCosts(barracksDefinition);
+        auto tools = std::find_if(costs.begin(), costs.end(), [](const ResourceAmountDefinition& cost)
+        {
+            return cost.type == ResourceType::TOOLS;
+        });
+        if (foodBootstrapComplete && tools != costs.end() &&
+            AIActions::CountStoredResource(player, ResourceType::TOOLS) >= tools->amount)
+            return false; // military tools are ready; reserve the remaining materials
+    }
+
+    const auto& smithDefinition = GetBuildingDefinition(BuildingType::Smith);
+    int smithCount = AIActions::CountCompletedOrQueuedBuildings(world, player, BuildingType::Smith);
+    if (smithCount == 0)
+    {
+        // Do not sink the opening iron reserve into a forge before the smelter
+        // has renewable inputs. Otherwise Smith construction plus its first
+        // tool batch consumes every unit of IRON that Barracks itself needs,
+        // and both buildings wait on a chain the progression planner never
+        // explicitly finished.
+        for (ResourceType raw : {ResourceType::IRON_ORE, ResourceType::COAL})
+        {
+            if (s.barracksCount > 0)
+                break; // early Barracks already creates pressure; Smith may use the current iron reserve
+            if (AIActions::HasProducerOrPendingForResource(player, raw))
+                continue;
+            if (TryBuildProducerFor(world, player, raw))
+                return true;
+            return false;
+        }
+
+        if (!player->CanBuildDefinition(smithDefinition))
+        {
+            for (const auto& cost : player->GetEffectiveBuildCosts(smithDefinition))
+            {
+                if (AIActions::CountStoredResource(player, cost.type) >= cost.amount)
+                    continue;
+                int rate = AIActions::GetResourceRate(
+                    player->economyTelemetry.current.productionRatesPerMinute, cost.type);
+                // An existing producer is not proof of a working chain: a
+                // Foundry without ore/coal reports zero flow. Let the chain
+                // walker diagnose its missing inputs instead of waiting
+                // forever beside a structurally present but stalled building.
+                if (rate <= 0 && TryBuildProducerFor(world, player, cost.type))
+                    return true;
+                return false; // save the military reserve while production catches up
+            }
+            return false;
+        }
+        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Smith,
+                                                  TileType::GRASS, nullptr, actions);
+        return anchor.x >= 0 && AIActions::TrySubmitBuild(world, player, BuildingType::Smith, anchor, actions);
+    }
+
+    // Smith defaults to Tools, but this repairs a player- or save-selected
+    // recipe before concluding the Barracks prerequisite is unavailable.
+    if (AIActions::TrySwitchRecipeFor(world, player, ResourceType::TOOLS))
+        return true;
+
+    if (!foodBootstrapComplete)
+        return false;
+
+    if (!player->CanBuildDefinition(barracksDefinition))
+    {
+        for (const auto& cost : player->GetEffectiveBuildCosts(barracksDefinition))
+        {
+            if (AIActions::CountStoredResource(player, cost.type) >= cost.amount)
+                continue;
+            int rate = AIActions::GetResourceRate(
+                player->economyTelemetry.current.productionRatesPerMinute, cost.type);
+            if (rate <= 0 && TryBuildProducerFor(world, player, cost.type))
+                return true;
+            return false;
+        }
+        return false;
+    }
+
+    Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Barracks,
+                                              TileType::GRASS, nullptr, actions);
+    return anchor.x >= 0 && AIActions::TrySubmitBuild(world, player, BuildingType::Barracks, anchor, actions);
 }
 
 std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISituation& s)
@@ -846,9 +1277,32 @@ std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISitua
         else
         {
             // Push: fill whichever class the 2:1 mix is short on; rank
-            // within the class by what that class is for.
+            // within the class by what that class is for. The last evaluated
+            // wave then bends the roster toward the obstacle that actually
+            // stopped it, rather than guessing from enemy presence alone.
             bool preferredClass = IsSiegeUnit(def) == wantSiege;
             double classValue = IsSiegeUnit(def) ? def.siegeAttack : def.moveSpeed * def.roadAttack;
+            if (s.offensiveTowerDamageShare > 0.55)
+            {
+                // Towers punish time spent in range. Effective staying power
+                // times movement speed rewards both armor/HP and exposure
+                // reduction without hard-coding a particular unit id.
+                double towerSurvival = (def.maxHp + def.armor * 6.0) * def.moveSpeed /
+                                       std::max(1.0, def.manpowerCost + TotalResourceCost(def));
+                classValue += towerSurvival * 4.0;
+            }
+            else if (s.offensiveUnitDamageShare > 0.55)
+            {
+                // Enemy columns are beaten by lane damage and enough armor to
+                // win repeated front-vs-front trades.
+                classValue += def.roadAttack * 5.0 + def.armor * 2.0 + def.maxHp * 0.1;
+            }
+            else if (s.offensiveHqDamageShare > 0.55)
+            {
+                // Reaching the gate but dying to thorns calls for siege damage
+                // and health, not more lane-clearing specialization.
+                classValue += def.siegeAttack * 3.0 + def.maxHp * 0.15;
+            }
             score = (preferredClass ? 1000.0 : 0.0) + classValue;
         }
         scored.emplace_back(&def, score);
@@ -866,6 +1320,12 @@ std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISitua
 
 bool UtilityAIModel::ExecuteDefense(GameWorld& world, Player* player, const AISituation& s)
 {
+    // Do not let a speculative tower programme steal the only Smith's recipe
+    // from TOOLS/weapons before the AI has launched anything. Live incoming
+    // pressure is the exception: survival may legitimately pre-empt offense.
+    if (!hasLaunchedWave && s.enemyIncomingCount == 0)
+        return false;
+
     // 1. Missing towers — anchor near the HQ (the lane's endpoint).
     if (s.towerCount < DesiredTowerCount(s) &&
         player->CanBuildDefinition(GetBuildingDefinition(BuildingType::DefenseTower)))
@@ -890,13 +1350,21 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     // No recruiting without a Barracks — that IS the recruit-deploy action
     // until one stands.
     if (s.barracksCount == 0)
+        return TryUnlockBarracks(world, player, s);
+
+    bool smithMissing =
+        AIActions::CountCompletedOrQueuedBuildings(world, player, BuildingType::Smith) == 0;
+    const bool foodChainComplete = HasCompletedFoodChain(player);
+
+    // Barracks creates early pressure; Smith is the immediate follow-up that
+    // turns that militia foothold into a real weapon economy. Keep it inside
+    // RecruitDeploy's high-priority lane instead of hoping a generic deficit
+    // eventually selects it while cheap extractors keep winning ties.
+    if (smithMissing && recruitEconomyBuildTimer <= 0.0)
     {
-        if (!player->CanBuildDefinition(GetBuildingDefinition(BuildingType::Barracks)))
-            return false;
-        Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::Barracks,
-                                                  TileType::GRASS, nullptr, actions);
-        return anchor.x >= 0 &&
-               AIActions::TrySubmitBuild(world, player, BuildingType::Barracks, anchor, actions);
+        recruitEconomyBuildTimer = RecruitEconomyBuildInterval;
+        if (TryUnlockBarracks(world, player, s))
+            return true;
     }
 
     // Wave ready (or the lane is being lost and anything helps) — deploy the
@@ -907,7 +1375,19 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     // (5..8) so two AIs on the same map don't deploy in visually identical
     // lockstep.
     int effectiveWaveSize = WaveSize + personalityWaveBias;
-    if (s.rosterCount >= effectiveWaveSize || emergency)
+    // The first raid deliberately leaves earlier: it makes the match active
+    // while the economy is still scaling. Later waves use the normal
+    // personality threshold, unless the previous wave failed to touch the HQ
+    // and its measured +8% strength target is reached first.
+    // Opening raids must concentrate enough force to survive a defended lane:
+    // hold the first five units and deploy them together. Emergency pressure
+    // remains the deliberate exception below.
+    int desiredWaveSize = hasLaunchedWave ? std::max(5, effectiveWaveSize) : 5;
+    double rosterStrength = RosterOffensiveStrength(player);
+    bool adaptiveWaveReady = adaptiveMinimumWaveStrength > 0.0 &&
+                             rosterStrength >= adaptiveMinimumWaveStrength;
+    bool waveReady = s.rosterCount >= desiredWaveSize || adaptiveWaveReady || emergency;
+    if (!activeWave.has_value() && waveReady)
     {
         int target = GetCachedAttackTargetPlayer(world, player);
         if (target >= 0)
@@ -918,6 +1398,8 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
                 orderedIds.push_back(instanceId);
             if (!orderedIds.empty())
             {
+                double launchedStrength = RosterOffensiveStrength(player, &orderedIds);
+                StartWaveEvaluation(world, player, target, orderedIds, launchedStrength);
                 world.SubmitCommand(GameCommand::DeployUnits(player->id, target, std::move(orderedIds)));
                 return true;
             }
@@ -954,7 +1436,8 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     // could take many minutes and left this need permanently dead in
     // practice).
     std::vector<const UnitDefinition*> ranked = RankUnitChoices(s);
-    if (s.economyEstablished && recruitEconomyBuildTimer <= 0.0 && !ranked.empty() && ranked.front() != nullptr)
+    if (foodChainComplete && !smithMissing && s.basicEconomyEstablished && recruitEconomyBuildTimer <= 0.0 &&
+        !ranked.empty() && ranked.front() != nullptr)
     {
         for (const auto& cost : ranked.front()->cost)
         {
@@ -1025,6 +1508,10 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
     {
         if (def == nullptr)
             continue;
+        if (!foodChainComplete && def->id != "militia")
+            continue; // finish the lifeline before investing in weapon recipes
+        if (smithMissing && def->id != "militia")
+            continue; // preserve construction materials while keeping early pressure alive
         if (!connected && !CostLocallyBuffered(*barracks, *def))
             continue;
         if (!recruitment->DiagnoseRecruitmentBlock(*barracks, def->id).empty())

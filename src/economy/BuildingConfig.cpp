@@ -243,7 +243,7 @@ namespace
                 {{ResourceType::ARROWS, 20, 0}},
                 {}, {}, {}, {}, {},
                 {},
-                TowerDefinition{5.0, 6.0, 1.0, ResourceType::ARROWS, 1, 2}}
+                TowerDefinition{3.5, 6.0, 1.0, ResourceType::ARROWS, 1, 2}}
         };
     }
 
@@ -284,6 +284,19 @@ namespace
         if (value == "DefenseTower") return BuildingType::DefenseTower;
         if (value == "Bridge") return BuildingType::Bridge;
         return BuildingType::Building;
+    }
+
+    BuildingPlacementCategory ParsePlacementCategory(const std::string& value)
+    {
+        if (value == "core") return BuildingPlacementCategory::Core;
+        if (value == "wood") return BuildingPlacementCategory::Wood;
+        if (value == "metal") return BuildingPlacementCategory::Metal;
+        if (value == "food") return BuildingPlacementCategory::Food;
+        if (value == "military") return BuildingPlacementCategory::Military;
+        if (value == "knowledge") return BuildingPlacementCategory::Knowledge;
+        if (value == "construction") return BuildingPlacementCategory::Construction;
+        if (value == "infrastructure") return BuildingPlacementCategory::Infrastructure;
+        return BuildingPlacementCategory::None;
     }
 
     // Initializes ParseResourceType.
@@ -471,6 +484,8 @@ namespace
                 definition.tag = tokens[1];
             else if (command == "texture" && tokens.size() >= 2)
                 definition.texturePath = tokens[1];
+            else if (command == "placement_category" && tokens.size() >= 2)
+                definition.placementCategory = ParsePlacementCategory(tokens[1]);
             else if (command == "build_cost" && tokens.size() >= 2)
             {
                 if (tokens.size() >= 3)

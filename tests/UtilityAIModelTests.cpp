@@ -40,6 +40,55 @@ namespace
     }
 }
 
+TEST(UtilityAIModelTests, StorageHubClassificationExcludesMilitaryConsumerBuffers)
+{
+    Headquarters headquarters(1);
+    StorageBuilding storage(2);
+    Barracks barracks(3);
+    DefenseTower tower(4);
+
+    EXPECT_TRUE(AIActions::IsStorageHub(&headquarters));
+    EXPECT_TRUE(AIActions::IsStorageHub(&storage));
+    EXPECT_FALSE(AIActions::IsStorageHub(&barracks));
+    EXPECT_FALSE(AIActions::IsStorageHub(&tower));
+}
+
+TEST(UtilityAIModelTests, StoredFoodCanBootstrapPopulationCapacityRecovery)
+{
+    AISituation situation;
+    situation.populationCap = 140.0;
+    situation.totalPopulation = 140.0;
+    situation.manpower = 0.0;
+    situation.foodProductionAlive = false;
+
+    situation.foodProvisionsStored = 10;
+    EXPECT_TRUE(UtilityAIModel::ManpowerEmergency(situation, 20.0));
+
+    situation.foodProvisionsStored = 0;
+    EXPECT_FALSE(UtilityAIModel::ManpowerEmergency(situation, 20.0));
+}
+
+TEST(UtilityAIModelTests, DebugMapDoesNotHideAIBuildCosts)
+{
+    MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
+    params.aiOpponentCount = 1;
+    params.aiDifficulty = 0;
+    params.debugMode = true;
+    params.seed = 20260716;
+
+    GameWorld world;
+    world.InitWorld("debug-affordability", nullptr, nullptr, params);
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+
+    const auto& barracks = GetBuildingDefinition(BuildingType::Barracks);
+    EXPECT_LT(AIActions::CountStoredResource(ai, ResourceType::TOOLS), 10);
+    EXPECT_FALSE(ai->CanBuildDefinition(barracks))
+        << "debug free-build belongs to the local human, not to AI opponents";
+}
+
 TEST(UtilityAIModelTests, IsConnectedToRoadNetworkDetectsRoadPathToStorage)
 {
     TileMap map;
@@ -188,6 +237,32 @@ TEST(UtilityAIModelTests, AIBuildsEconomyAndConnectsIt)
     EXPECT_GE(newRoads, 1) << "the AI should be wiring its base into the road network";
 }
 
+TEST(UtilityAIModelTests, DefenseTowerPlacementAlwaysCoversTheMilitaryTrack)
+{
+    MapParameters params;
+    params.sizeX = 301;
+    params.sizeY = 301;
+    params.aiOpponentCount = 1;
+    params.seed = 314159;
+
+    GameWorld world;
+    world.InitWorld("utility-ai-tower-placement", nullptr, nullptr, params);
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+    Building* hq = AIActions::FindOwnedHeadquarters(ai);
+    ASSERT_NE(hq, nullptr);
+
+    AIActions::AIActionState state;
+    Vec2i anchor = AIActions::FindBuildAnchor(world, ai, BuildingType::DefenseTower,
+                                              TileType::GRASS, hq, state);
+    ASSERT_GE(anchor.x, 0);
+    ASSERT_GE(anchor.y, 0);
+    auto* tower = ai->Build<DefenseTower>(anchor, false);
+    ASSERT_NE(tower, nullptr);
+    EXPECT_GT(AIActions::CountTowerTrackCoverage(world, ai, tower), 0)
+        << "AI tower sites must contribute real fire coverage to a military route";
+}
+
 // Etap 3: composition rule, pure and world-free. Under attack the pick
 // maximizes staying power per cost (assets/data/units.rtsdata: knight);
 // on the offensive an empty roster starts with a siege unit (ram), then
@@ -226,6 +301,12 @@ TEST(UtilityAIModelTests, RosterCompositionKeepsSiegeInTheOffensiveMix)
     EXPECT_EQ(ranked.front()->id, "knight") << "at 1 siege per 2 fighters, back to lane-clearers";
 }
 
+TEST(UtilityAIModelTests, FailedWaveRaisesButNeverLowersTheStrengthThreshold)
+{
+    EXPECT_DOUBLE_EQ(UtilityAIModel::FailedWaveStrengthThreshold(0.0, 100.0), 108.0);
+    EXPECT_DOUBLE_EQ(UtilityAIModel::FailedWaveStrengthThreshold(120.0, 100.0), 120.0);
+}
+
 // Etap 3 acceptance (successor of the removed AIMilitaryPipelineTests):
 // given a Barracks, stocked unit costs and manpower, the AI recruits real
 // units and deploys a wave — a real GameCommand::DeployUnits reaching
@@ -241,6 +322,7 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     params.sizeY = 301;
     params.aiOpponentCount = 1;
     params.seed = 777;
+    params.aiDifficulty = 2; // Normal keeps the three-unit opening threshold
 
     GameWorld world;
     world.InitWorld("utility-ai-military", nullptr, nullptr, params);
@@ -302,8 +384,9 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
         }
     }
 
-    // Pre-seed most of the wave (threshold is the model's WaveSize, 6).
-    for (int i = 0; i < 5; i++)
+    // The new opening raid threshold is 3: seed two so this acceptance still
+    // proves both a real recruitment and the subsequent deployment.
+    for (int i = 0; i < 2; i++)
     {
         int instanceId = ai->id * 100000 + ai->nextUnitInstanceId++;
         BattleUnit unit(instanceId, ai->id, "militia");
@@ -384,7 +467,7 @@ TEST(UtilityAIModelTests, ConsumptionBiasCreatesADeficitWithoutRealConsumption)
 // validation refuses on track tiles (only Bridge is legal there), and its BFS
 // treated existing bridges as obstacles. Crossing the track must produce a
 // real Bridge order and a working road connection.
-TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
+TEST(UtilityAIModelTests, SubmitRoadPathAvoidsBridgeWhenDetourIsCheaper)
 {
     MapParameters params;
     params.sizeX = 81;
@@ -461,9 +544,15 @@ TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
     // completion path in GameWorld.TileMap.cpp registers them) — so give the
     // builder queue real sim time.
     bool connected = false;
-    for (int tick = 0; tick < 6000 && !connected; tick++)
+    for (int tick = 0; tick < 12000 && !connected; tick++)
     {
         world.UpdateSimulation(0.01);
+        state.Decay(0.01);
+        // A long economical detour is intentionally issued in several small
+        // batches. Wait for the reservation to expire before planning the
+        // next segment, exactly as UtilityAIModel does in live play.
+        if (tick > 0 && tick % 650 == 0)
+            AIActions::SubmitRoadPath(world, human, sideA, sideB, state);
         if (tick % 25 == 24)
             connected = !human->roadNetwork->CalculatePath(sideA, sideB).empty();
     }
@@ -479,9 +568,9 @@ TEST(UtilityAIModelTests, SubmitRoadPathCrossesTheTrackWithABridge)
             break;
         }
     }
-    EXPECT_TRUE(bridgeOnTrack) << "crossing the track must be done with a Bridge, not a refused Road";
+    EXPECT_FALSE(bridgeOnTrack) << "the AI should prefer the cheaper road detour over a new Bridge";
     EXPECT_TRUE(connected)
-        << "the two sides of the track should end up road-connected through the bridge";
+        << "the two fixtures should still end up road-connected through the detour";
 }
 
 // AI economy tuning plan (2026-07-18, Task 1): a road-tile reservation used

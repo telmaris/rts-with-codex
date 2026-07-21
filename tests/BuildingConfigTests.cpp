@@ -109,6 +109,7 @@ building Woodcutter
     name "Fast Woodcutter"
     tag "[Fast]"
     texture "assets/fast.png"
+    placement_category wood
     build_cost WOOD 11
     build_cost STONE 4
     build_time 6
@@ -155,6 +156,7 @@ end
     EXPECT_EQ(hq.storageBuffers[1].initialAmount, 0);
 
     const auto& woodcutter = definitions[1];
+    EXPECT_EQ(woodcutter.placementCategory, BuildingPlacementCategory::Wood);
     EXPECT_EQ(woodcutter.buildCostText, "WOOD 11, STONE 4");
     ASSERT_EQ(woodcutter.buildCosts.size(), 2u);
     EXPECT_EQ(woodcutter.production.workerCapacity, 4);
@@ -180,6 +182,26 @@ end
     EXPECT_DOUBLE_EQ(village.village.manpowerRate, 0.4);
     EXPECT_EQ(village.village.populationCap, 120);
     EXPECT_DOUBLE_EQ(village.village.foodPackageUpkeep, 2.0);
+}
+
+TEST(BuildingConfigTests, ProductionChainsHaveThematicPlacementCategories)
+{
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::Woodcutter).placementCategory,
+              BuildingPlacementCategory::Wood);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::LumberMill).placementCategory,
+              BuildingPlacementCategory::Wood);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::Mine).placementCategory,
+              BuildingPlacementCategory::Metal);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::Foundry).placementCategory,
+              BuildingPlacementCategory::Metal);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::WheatFarm).placementCategory,
+              BuildingPlacementCategory::Food);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::Bakery).placementCategory,
+              BuildingPlacementCategory::Food);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::Barracks).placementCategory,
+              BuildingPlacementCategory::Military);
+    EXPECT_EQ(GetBuildingDefinition(BuildingType::DefenseTower).placementCategory,
+              BuildingPlacementCategory::Military);
 }
 
 TEST(BuildingConfigTests, MissingBuildingDataUsesBuiltInDefaults)

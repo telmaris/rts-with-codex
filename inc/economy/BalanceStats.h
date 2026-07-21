@@ -41,6 +41,9 @@ enum class BalanceStat
     HqMaxHp,
     HqDefense,
     HqThorns,
+    // Fraction of a defeated player's stored resources captured on conquest.
+    // Resolved for the conqueror, so focuses/technologies can improve spoils.
+    ConquestSpoilsFraction,
     TowerDamage,
     TowerRange,
     TowerAttackSpeed,

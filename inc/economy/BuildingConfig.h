@@ -75,8 +75,8 @@ struct HqDefinition
     double hardDefense{0.0};
     double thornsDamage{0.0};
     double thornsInterval{3.0};
-    double captureStockFraction{0.2};
-    double conquestRampDuration{60.0};
+    double captureStockFraction{0.4};
+    double conquestRampDuration{600.0};
 };
 
 // TD(etap-7): DefenseTower combat/ammo/crew parameters. One class handles
@@ -93,6 +93,22 @@ struct TowerDefinition
     ResourceType ammoResource{ResourceType::ARROWS};
     int ammoPerShot{1};
     int workerCapacity{2};
+};
+
+// Soft, data-driven production district used by the AI placement scorer.
+// Terrain and build validity remain hard constraints; this category only
+// makes related buildings prefer the same neighborhood when space permits.
+enum class BuildingPlacementCategory
+{
+    None,
+    Core,
+    Wood,
+    Metal,
+    Food,
+    Military,
+    Knowledge,
+    Construction,
+    Infrastructure
 };
 
 struct BuildingDefinition
@@ -121,6 +137,7 @@ struct BuildingDefinition
     // init for every entry, none of which set this — a trailing field is
     // safe to add without touching those (defaults to empty).
     std::vector<BuildingUpgradeLevelDefinition> upgradeLevels;
+    BuildingPlacementCategory placementCategory{BuildingPlacementCategory::None};
 };
 
 // Returns all configured building definitions.

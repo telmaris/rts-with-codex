@@ -45,6 +45,20 @@ TEST(GameCommandTests, SerializesAndDeserializesFocusAndResearchIds)
     EXPECT_EQ(parsedResearch.sourceTileId, 99);
 }
 
+TEST(GameCommandTests, SerializesAndDeserializesTowerTargetMode)
+{
+    GameCommand original = GameCommand::SetTowerTargetMode(
+        2, 123, static_cast<int>(TowerTargetMode::StrongestUnit));
+
+    GameCommand parsed;
+    ASSERT_TRUE(GameCommand::TryDeserialize(original.Serialize(), parsed));
+
+    EXPECT_EQ(parsed.type, GameCommandType::SetTowerTargetMode);
+    EXPECT_EQ(parsed.playerId, 2);
+    EXPECT_EQ(parsed.sourceTileId, 123);
+    EXPECT_EQ(parsed.targetTileId, static_cast<int>(TowerTargetMode::StrongestUnit));
+}
+
 TEST(GameCommandTests, RejectsMalformedPayload)
 {
     GameCommand parsed;

@@ -1,6 +1,8 @@
 #include "core/GameWorldInternal.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <limits>
 #include <vector>
 
 using namespace GameWorldInternal;
@@ -624,7 +626,9 @@ void TileMap::AutoConnectBuilding(Building* building)
     if (building == nullptr || building->owner == nullptr)
         return;
 
-    if (building->IsStorageLike())
+    const bool isStorageHub = building->buildingType == BuildingType::Headquarters ||
+                              building->buildingType == BuildingType::StorageBuilding;
+    if (isStorageHub)
     {
         // OPTIMIZATION: tracked buildings (ETAP 10 registry) instead of a full
         // tilemap scan, same pattern as StorageComponent::Update. Sorted by
@@ -677,7 +681,49 @@ void TileMap::AutoConnectBuilding(Building* building)
 
     for (const auto& input : building->GetInputBufferViews())
     {
-        if (!building->HasSupplier(input.type))
+        if (building->HasSupplier(input.type))
+            continue;
+
+        // Prefer a direct producer-consumer link. Previously every newly
+        // built consumer (Bakery, Inn, Barracks...) only requested from the
+        // nearest storage, even when its thematic supplier stood next door.
+        // That forced every item through HQ, saturated long shared roads and
+        // could leave a complete chain permanently idle (Hunter's Hut buffer
+        // full of MEAT while Inn waited forever). Deterministic nearest/id
+        // tie-break keeps lockstep stable.
+        Building* bestProducer = nullptr;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (Building* candidate : building->owner->GetTrackedBuildingsWithComponent<ProductionComponent>())
+        {
+            auto* production = candidate != nullptr ? candidate->GetComponent<ProductionComponent>() : nullptr;
+            if (production == nullptr || candidate == building || candidate->owner != building->owner ||
+                candidate->IsUnderConstruction() || !production->products.contains(input.type))
+                continue;
+            Vec2i a = GetCoordsFromId(building->positionId);
+            Vec2i b = GetCoordsFromId(candidate->positionId);
+            int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
+            if (distance < bestDistance ||
+                (distance == bestDistance && (bestProducer == nullptr || candidate->id < bestProducer->id)))
+            {
+                bestDistance = distance;
+                bestProducer = candidate;
+            }
+        }
+
+        if (bestProducer != nullptr)
+        {
+            bestProducer->SetAlternativeReceiver(input.type, building);
+            building->SetSupplier(input.type, bestProducer);
+        }
+        // Keep the nearest storage/HQ as a fallback even when a thematic
+        // producer is wired directly. Extractors are finite and a producer
+        // can be stalled or have its output committed elsewhere; without the
+        // fallback a consumer can deadlock forever beside a full HQ buffer
+        // (observed with Smith: 12/12 IRON, 0/8 WOOD, HQ holding 103 WOOD).
+        // SetSupplier deliberately permits adding a storage after a direct
+        // supplier, while a later direct reassignment still removes stale
+        // storage-only links.
+        if (storage != building && building->CanAcceptResource(input.type))
             building->SetSupplier(input.type, storage);
     }
 }

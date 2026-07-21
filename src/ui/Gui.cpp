@@ -1758,6 +1758,14 @@ void GuiPanel::Update(double dt)
         }
         y += margin / 2;
 
+        towerTargetButton.pos = Vec2i{contentX, y};
+        towerTargetButton.size = Vec2i{contentW, std::max(30, lockButton.size.y)};
+        towerTargetButton.ChangeText(tower->targetMode == TowerTargetMode::NearestToHq
+            ? "Target: nearest to HQ"
+            : "Target: strongest unit");
+        towerTargetButton.Update(dt);
+        y += towerTargetButton.size.y + margin;
+
         UiText::Draw("Ammunition", contentX, y, 20, Color{224, 204, 168, 255});
         y += 26;
         Rectangle grid{
@@ -2235,6 +2243,17 @@ GuiPanel::GuiPanel()
         if (building != nullptr && production != nullptr && logistics != nullptr && workers != nullptr && recipes != nullptr)
             recipes->CycleRecipe(*building, *production, *logistics, *workers);
     };
+    towerTargetButton.func = [this]()
+    {
+        auto* tower = building != nullptr ? building->GetComponent<TowerCombatComponent>() : nullptr;
+        if (building == nullptr || tower == nullptr || scene == nullptr || scene->game == nullptr)
+            return;
+        TowerTargetMode next = tower->targetMode == TowerTargetMode::NearestToHq
+            ? TowerTargetMode::StrongestUnit
+            : TowerTargetMode::NearestToHq;
+        scene->SubmitLocalCommand(GameCommand::SetTowerTargetMode(
+            scene->game->GetLocalPlayerId(), building->positionId, static_cast<int>(next)));
+    };
     destroyButton.func = [this]()
     {
         if (building != nullptr)
@@ -2259,6 +2278,8 @@ void GuiPanel::UpdateSize(Vec2i windowSize)
     lockButton.size = Vec2i{size.x - margin * 2, buttonH};
     recipeButton.pos = Vec2i{pos.x + margin, pos.y + size.y - buttonH * 2 - margin * 2};
     recipeButton.size = Vec2i{size.x - margin * 2, buttonH};
+    towerTargetButton.pos = Vec2i{pos.x + margin, pos.y + size.y - buttonH * 2 - margin * 2};
+    towerTargetButton.size = Vec2i{size.x - margin * 2, buttonH};
     destroyButton.pos = Vec2i{pos.x + margin, pos.y + size.y - buttonH - margin};
     destroyButton.size = Vec2i{size.x - margin * 2, buttonH};
 }

@@ -342,8 +342,8 @@ struct HqComponent : IBuildingComponent
     double thornsInterval{3.0};
     double thornsTimer{0.0};
     // Conquest spoils (TD etap-6.3), read once at elimination time.
-    double captureStockFraction{0.2};
-    double conquestRampDuration{60.0};
+    double captureStockFraction{0.4};
+    double conquestRampDuration{600.0};
 
     // Render-only "under attack" indicator (ticked in HqCombatSystem::Update,
     // set whenever siege damage lands) — deliberately NOT persisted/saved,
@@ -362,13 +362,17 @@ struct HqComponent : IBuildingComponent
 // lives in the building's own StorageComponent buffer (one entry, keyed by
 // `ammoResource`) — reusing the same road-network delivery path as any
 // production building's inputs, not a separate ammo-tracking mechanism.
-// Target selection is never stored here (mirrors UnitCombatSystem/
-// HqCombatSystem's "always re-resolve" philosophy — TowerAttackSystem picks
-// a fresh target every time the cooldown expires, so a dead/out-of-range
-// target is never an issue).
+// The chosen priority is stored; the concrete target is still resolved fresh
+// for every shot, so dead or out-of-range units are never retained.
+enum class TowerTargetMode
+{
+    NearestToHq,
+    StrongestUnit
+};
+
 struct TowerCombatComponent : IBuildingComponent
 {
-    Stat<double> damage{BalanceStat::TowerDamage, 5.0};
+    Stat<double> damage{BalanceStat::TowerDamage, 3.5};
     Stat<double> range{BalanceStat::TowerRange, 6.0};
     Stat<double> attackSpeed{BalanceStat::TowerAttackSpeed, 1.0};
     double attackTimer{0.0};
@@ -376,6 +380,7 @@ struct TowerCombatComponent : IBuildingComponent
     // Ammo consumed per shot, reduced (floored at 0 — a strong enough bonus
     // makes shots free) by BalanceStat::TowerAmmoEfficiency.
     Stat<int> ammoPerShot{BalanceStat::TowerAmmoEfficiency, 1};
+    TowerTargetMode targetMode{TowerTargetMode::NearestToHq};
 
     BuildingCapability GetCapability() const override { return BuildingCapability::TowerCombat; }
     // Tops up the ammo buffer via the road network every tick (the

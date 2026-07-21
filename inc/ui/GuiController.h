@@ -349,12 +349,6 @@ public:
 
     bool isBuildingSelected{false};
 
-    // Drag-box selection state (box-select divisions on the map).
-    bool pendingBox{false};   // LMB pressed on open ground, may become a box drag
-    bool boxActive{false};    // dragged far enough to be a box selection
-    Vec2i boxStart{0, 0};
-    Vec2i boxEnd{0, 0};
-
 private:
     // Returns the research panel when it holds a building, else the info panel.
     GuiPanel* ActivePanel();

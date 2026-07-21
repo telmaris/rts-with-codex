@@ -4,6 +4,7 @@
 #include "economy/ProductionBuildings.h"
 #include "simulation/MapGenerator.h"
 #include "simulation/PathingService.h"
+#include "warfare/UnitMarchSystem.h"
 
 #include <gtest/gtest.h>
 
@@ -110,6 +111,56 @@ TEST(EliminationTests, EliminationTransfersProductionBuildingWithUntouchedBuffer
     EXPECT_TRUE(hasRamp) << "the conqueror should start a productivity ramp on the captured building";
 }
 
+TEST(EliminationTests, EliminationTransfersInfrastructureAndCancelsRecruitment)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeRingParams(41, 1));
+    Player* p0 = world.GetPlayerHandler().players.at(0).get();
+    Player* p1 = world.GetPlayerHandler().players.at(1).get();
+    TileMap& map = world.GetTileMap();
+
+    Building* road = map.PlaceLoadedBuilding(map.GetIdFromCoords({5, 5}), p1, std::make_unique<Road>(4101));
+    Building* barracks = map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 5}), p1, std::make_unique<Barracks>(4102));
+    ASSERT_NE(road, nullptr);
+    ASSERT_NE(barracks, nullptr);
+    auto* recruitment = barracks->GetComponent<RecruitmentComponent>();
+    ASSERT_NE(recruitment, nullptr);
+    recruitment->queue.push_back({"militia", 10.0, 10.0, false});
+    ASSERT_FALSE(recruitment->queue.empty());
+
+    world.EliminatePlayer(1, 0);
+
+    EXPECT_EQ(road->owner, p0);
+    EXPECT_EQ(barracks->owner, p0);
+    EXPECT_TRUE(recruitment->queue.empty());
+    EXPECT_TRUE(p1->GetTrackedBuildings().count(road) == 0);
+    EXPECT_TRUE(p0->GetTrackedBuildings().count(road) == 1);
+}
+
+TEST(EliminationTests, UnitsMarchingToFallenHqReturnToRosterOnArrival)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeRingParams(42, 1));
+    Player* p0 = world.GetPlayerHandler().players.at(0).get();
+
+    const int unitId = 4201;
+    BattleUnit unit(unitId, p0->id, "militia");
+    unit.currentHp = unit.GetEffectiveMaxHp(*p0);
+    unit.state = BattleUnitState::Marching;
+    unit.routeFromPlayerId = 0;
+    unit.routeToPlayerId = 1;
+    unit.tileIndex = 0;
+    world.GetDeployedUnits()[unitId] = unit;
+
+    world.EliminatePlayer(1, 0);
+    ASSERT_TRUE(world.GetDeployedUnits().contains(unitId));
+
+    UnitMarchSystem::Update(world, 100000.0);
+    EXPECT_FALSE(world.GetDeployedUnits().contains(unitId));
+    ASSERT_TRUE(p0->roster.units.contains(unitId));
+    EXPECT_EQ(p0->roster.units.at(unitId).state, BattleUnitState::InRoster);
+}
+
 TEST(EliminationTests, CapturedBuildingRejoinsConquerorsRoadNetworkAfterElimination)
 {
     // T12 (docs/post_pivot_audit_2026-07-12.md): each Player owns an
@@ -170,6 +221,7 @@ TEST(EliminationTests, EliminationDrainsDefeatedStorageAndCreditsFractionToConqu
         p0Hq = b;
     ASSERT_NE(p1Hq, nullptr);
     ASSERT_NE(p0Hq, nullptr);
+    int p1HqPositionId = p1Hq->positionId;
 
     auto* p1Storage = p1Hq->GetComponent<StorageComponent>();
     auto* p0Storage = p0Hq->GetComponent<StorageComponent>();
@@ -183,14 +235,46 @@ TEST(EliminationTests, EliminationDrainsDefeatedStorageAndCreditsFractionToConqu
 
     auto* p1HqComponent = p1Hq->GetComponent<HqComponent>();
     ASSERT_NE(p1HqComponent, nullptr);
-    EXPECT_DOUBLE_EQ(p1HqComponent->captureStockFraction, 0.2);
+    EXPECT_DOUBLE_EQ(p1HqComponent->captureStockFraction, 0.4);
 
     world.EliminatePlayer(1, 0);
 
-    EXPECT_EQ(p1Storage->buffers[ResourceType::WOOD].buffer.size(), 0u)
-        << "the defeated player's storage must be drained to (near) zero";
+    Building* capturedDepot = world.GetTileMap().GetBuilding(p1HqPositionId);
+    ASSERT_NE(capturedDepot, nullptr);
+    EXPECT_EQ(capturedDepot->buildingType, BuildingType::StorageBuilding);
+    EXPECT_EQ(capturedDepot->owner, p0);
+    const auto* capturedStorage = capturedDepot->GetComponent<StorageComponent>();
+    ASSERT_NE(capturedStorage, nullptr);
+    EXPECT_EQ(capturedStorage->buffers.at(ResourceType::WOOD).buffer.size(), 0u)
+        << "the captured depot starts empty after spoils are transferred";
     int conquerorAfter = static_cast<int>(p0Storage->buffers[ResourceType::WOOD].buffer.size());
-    EXPECT_EQ(conquerorAfter - conquerorBefore, 20) << "conqueror should gain floor(100 * 0.2) = 20";
+    EXPECT_EQ(conquerorAfter - conquerorBefore, 40) << "conqueror should gain floor(100 * 0.4) = 40";
+}
+
+TEST(EliminationTests, ConquestSpoilsFractionCanBeModifiedByResearchOrFocus)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeRingParams(51, 1));
+    Player* conqueror = world.GetPlayerHandler().players.at(0).get();
+    Player* defeated = world.GetPlayerHandler().players.at(1).get();
+
+    Building* defeatedHq = *defeated->GetTrackedBuildingsWithComponent<HqComponent>().begin();
+    Building* conquerorHq = *conqueror->GetTrackedBuildingsWithComponent<HqComponent>().begin();
+    auto* defeatedStorage = defeatedHq->GetComponent<StorageComponent>();
+    auto* conquerorStorage = conquerorHq->GetComponent<StorageComponent>();
+    ASSERT_NE(defeatedStorage, nullptr);
+    ASSERT_NE(conquerorStorage, nullptr);
+    defeatedStorage->buffers[ResourceType::WOOD].SetStoredAmount(100);
+    conquerorStorage->buffers[ResourceType::WOOD].Clear();
+    int before = static_cast<int>(conquerorStorage->buffers[ResourceType::WOOD].buffer.size());
+
+    conqueror->balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::ConquestSpoilsFraction, 0.2, 1.0, BalanceModifierScope::Global(),
+        std::nullopt, std::nullopt, "test:conquest_spoils"});
+    world.EliminatePlayer(defeated->id, conqueror->id);
+
+    int after = static_cast<int>(conquerorStorage->buffers[ResourceType::WOOD].buffer.size());
+    EXPECT_EQ(after - before, 60) << "base 40% plus 20 percentage points should capture 60%";
 }
 
 TEST(EliminationTests, ConqueredEconomyRampRisesLinearlyThenClearsAtCompletion)

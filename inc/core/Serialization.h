@@ -14,11 +14,11 @@ struct SerializationVersion
 {
     // Unified serialization versions. Bump when format changes (add new field, reorder, etc).
     // Keep in sync with original WireVersion/SaveVersion constants in source types.
-    static constexpr int GameCommandVersion = 9;  // WireVersion from GameCommand::WireVersion
+    static constexpr int GameCommandVersion = 13;  // WireVersion from GameCommand::WireVersion
     static constexpr int GameCommandResultVersion = 3;  // WireVersion from GameCommandResult::WireVersion
     static constexpr int GameServerFrameVersion = 1;  // WireVersion from GameServerFrame::WireVersion
     static constexpr int GameSnapshotVersion = 6;  // Assigned during Archive design (no prior WireVersion)
-    static constexpr int GameWorldSaveVersion = 19;  // SaveVersion from GameWorld (file format "RTS_SAVE 19")
+    static constexpr int GameWorldSaveVersion = 29;  // SaveVersion from GameWorld (file format "RTS_SAVE 29")
 };
 
 // Archive: bidirectional serialization (write to string, read from string)

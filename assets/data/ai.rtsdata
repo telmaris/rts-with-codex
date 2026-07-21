@@ -25,7 +25,7 @@
 ai_economy_bias
     difficulty_scale 0.4 0.6 0.8 1.0
     consumption WOOD 20
-    consumption STONE 15
+    consumption STONE 25
     consumption PLANKS 12
     consumption IRON 6
     consumption TOOLS 3

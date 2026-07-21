@@ -16,6 +16,22 @@ namespace
         HashValue(hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(value)));
     }
 
+    void HashDouble(std::uint64_t& hash, double value)
+    {
+        HashInt(hash, static_cast<int>(value * 1000.0));
+    }
+
+    void HashResourceBuffers(std::uint64_t& hash, const std::map<ResourceType, ResourceBuffer>& buffers)
+    {
+        HashValue(hash, static_cast<std::uint64_t>(buffers.size()));
+        for (const auto& [type, buffer] : buffers)
+        {
+            HashInt(hash, static_cast<int>(type));
+            HashInt(hash, buffer.bufferSize);
+            HashInt(hash, static_cast<int>(buffer.buffer.size()));
+        }
+    }
+
     // Character-by-character rather than std::hash<std::string>, which is not
     // guaranteed stable across STL versions/architectures — this checksum is
     // compared between host and client processes.
@@ -62,6 +78,18 @@ std::uint64_t GameWorld::BuildChecksum() const
         // must diverge into a checksum mismatch immediately if host/client
         // ever disagree on who's defeated.
         HashInt(hash, player->defeated ? 1 : 0);
+        HashInt(hash, player->nextUnitInstanceId);
+        for (const auto& [resourceType, amount] : player->strategicResources.values)
+        {
+            HashInt(hash, static_cast<int>(resourceType));
+            HashDouble(hash, amount);
+        }
+        for (const auto& technologyId : player->technologies.GetUnlocked())
+            HashString(hash, technologyId);
+        for (const auto& focusId : player->focuses.GetUnlocked())
+            HashString(hash, focusId);
+        HashString(hash, player->focuses.GetActiveFocusId());
+        HashDouble(hash, player->focuses.GetActiveFocusRemaining());
 
         HashInt(hash, player->dataTracker.CountBuildings(BuildingType::Headquarters));
         HashValue(hash, static_cast<std::uint64_t>(player->dataTracker.buildings.size()));
@@ -90,6 +118,48 @@ std::uint64_t GameWorld::BuildChecksum() const
             HashInt(hash, building->GetTotalProduced());
             HashInt(hash, building->IsProductionBlocked() ? 1 : 0);
 
+            if (const auto* production = building->GetComponent<ProductionComponent>(); production != nullptr)
+            {
+                HashDouble(hash, production->elapsed);
+                HashInt(hash, production->started ? 1 : 0);
+                HashInt(hash, production->totalProduced);
+                HashResourceBuffers(hash, production->inputBuffers);
+                HashResourceBuffers(hash, production->outputBuffers);
+            }
+            if (const auto* workers = building->GetComponent<WorkerComponent>(); workers != nullptr)
+                HashInt(hash, workers->assigned);
+            if (const auto* research = building->GetComponent<ResearchComponent>(); research != nullptr)
+            {
+                HashString(hash, research->technologyId);
+                HashDouble(hash, research->remaining);
+                HashDouble(hash, research->total);
+            }
+            if (const auto* storage = building->GetComponent<StorageComponent>(); storage != nullptr)
+                HashResourceBuffers(hash, storage->buffers);
+            if (const auto* population = building->GetComponent<PopulationComponent>(); population != nullptr)
+            {
+                HashDouble(hash, population->upkeepTimer);
+                HashInt(hash, population->hasFood ? 1 : 0);
+                HashDouble(hash, population->foodSupplyLevel);
+                HashInt(hash, static_cast<int>(population->foodBuffer.buffer.size()));
+            }
+            if (const auto* recruitment = building->GetComponent<RecruitmentComponent>(); recruitment != nullptr)
+            {
+                HashValue(hash, static_cast<std::uint64_t>(recruitment->queue.size()));
+                for (const auto& entry : recruitment->queue)
+                {
+                    HashString(hash, entry.unitDefId);
+                    HashDouble(hash, entry.remaining);
+                    HashInt(hash, entry.resourcesReady ? 1 : 0);
+                }
+            }
+            if (const auto* upgrade = building->GetComponent<UpgradeComponent>(); upgrade != nullptr)
+            {
+                HashInt(hash, upgrade->level);
+                HashInt(hash, upgrade->isUpgrading ? 1 : 0);
+                HashDouble(hash, upgrade->upgradeRemaining);
+            }
+
             // TD(etap-6): HQ HP/thorns cadence — mutated every tick under siege.
             if (const auto* hq = building->GetComponent<HqComponent>(); hq != nullptr)
             {
@@ -102,6 +172,7 @@ std::uint64_t GameWorld::BuildChecksum() const
             if (const auto* tower = building->GetComponent<TowerCombatComponent>(); tower != nullptr)
             {
                 HashInt(hash, static_cast<int>(tower->attackTimer * 1000.0));
+                HashInt(hash, static_cast<int>(tower->targetMode));
                 if (const auto* storage = building->GetComponent<StorageComponent>(); storage != nullptr)
                 {
                     auto ammoIt = storage->buffers.find(tower->ammoResource);

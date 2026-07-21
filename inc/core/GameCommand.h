@@ -21,7 +21,8 @@ enum class GameCommandType
     RecruitUnit,
     DeployUnits,
     UpgradeBuilding,
-    SetRecipe
+    SetRecipe,
+    SetTowerTargetMode
 };
 
 struct GameCommand
@@ -37,7 +38,7 @@ struct GameCommand
     // (deploy has no tile target of its own) and adds the one genuinely new
     // field this command needs — a variable-length unit instance id list,
     // which nothing existing could be repurposed for.
-    static constexpr int WireVersion = 12;
+    static constexpr int WireVersion = 13;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -82,6 +83,16 @@ struct GameCommand
         command.type = GameCommandType::SetRecipe;
         command.sourceTileId = buildingTileId;
         command.targetTileId = recipeIndex;
+        return command;
+    }
+
+    static GameCommand SetTowerTargetMode(int playerId, int buildingTileId, int mode)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::SetTowerTargetMode;
+        command.sourceTileId = buildingTileId;
+        command.targetTileId = mode;
         return command;
     }
 
@@ -251,6 +262,7 @@ struct GameCommand
             case GameCommandType::DeployUnits:
             case GameCommandType::UpgradeBuilding:
             case GameCommandType::SetRecipe:
+            case GameCommandType::SetTowerTargetMode:
                 return true;
         }
         return false;

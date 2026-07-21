@@ -1,4 +1,5 @@
 #include "warfare/CombatPipeline.h"
+#include "warfare/CombatTelemetry.h"
 
 #include <gtest/gtest.h>
 
@@ -79,4 +80,24 @@ TEST(CombatPipelineTests, ResolveDamageVarianceStaysWithinDocumentedRange)
         EXPECT_GE(result, 9.0) << "tick=" << tick;
         EXPECT_LE(result, 11.0) << "tick=" << tick;
     }
+}
+
+TEST(CombatPipelineTests, TelemetrySeparatesDamageSourcesPerUnitAndArchetype)
+{
+    CombatTelemetry telemetry;
+    telemetry.RecordUnitDamage(100001, 1, "swordsman", CombatDamageSource::Tower, 7.5, false);
+    telemetry.RecordUnitDamage(100001, 1, "swordsman", CombatDamageSource::Unit, 4.0, true);
+    telemetry.RecordUnitDamage(100002, 1, "swordsman", CombatDamageSource::Headquarters, 3.0, false);
+    telemetry.RecordHqDamage(1, 0, 12.0);
+
+    UnitDamageBreakdown instance = telemetry.GetUnitDamage(100001);
+    EXPECT_DOUBLE_EQ(instance.fromTowers, 7.5);
+    EXPECT_DOUBLE_EQ(instance.fromUnits, 4.0);
+    EXPECT_EQ(instance.deathsToUnits, 1);
+
+    UnitDamageBreakdown archetype = telemetry.GetUnitTypeDamage(1, "swordsman");
+    EXPECT_DOUBLE_EQ(archetype.fromTowers, 7.5);
+    EXPECT_DOUBLE_EQ(archetype.fromUnits, 4.0);
+    EXPECT_DOUBLE_EQ(archetype.fromHeadquarters, 3.0);
+    EXPECT_DOUBLE_EQ(telemetry.GetHqDamage(1, 0), 12.0);
 }

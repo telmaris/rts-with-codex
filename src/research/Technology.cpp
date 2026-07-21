@@ -46,6 +46,7 @@ namespace
         if (value == "HqMaxHp") return BalanceStat::HqMaxHp;
         if (value == "HqDefense") return BalanceStat::HqDefense;
         if (value == "HqThorns") return BalanceStat::HqThorns;
+        if (value == "ConquestSpoilsFraction") return BalanceStat::ConquestSpoilsFraction;
         if (value == "TowerDamage") return BalanceStat::TowerDamage;
         if (value == "TowerRange") return BalanceStat::TowerRange;
         if (value == "TowerAttackSpeed") return BalanceStat::TowerAttackSpeed;

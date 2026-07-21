@@ -141,11 +141,19 @@ namespace
         //     so the opening buildout and first road stubs don't stall before
         //     the base's own producers ramp. These are raw construction inputs;
         //     granting them masks nothing the AI ought to be building itself.
-        //   - weapon chain (IRON, TOOLS): a token few — enough to seed a first
-        //     Foundry/Smith, far too little to substitute for actually standing
-        //     up the smelting/forging chain (which is the whole point).
+        //   - IRON: enough on Hard for Smith plus the first siege unit, still
+        //     far below a self-sustaining weapon economy;
+        //   - TOOLS: up to exactly one Barracks cost on Hard. This unlocks an
+        //     early militia foothold but grants no weapons, so stronger unit
+        //     profiles still require the real smelting/forging chain.
         static constexpr std::array<int, 4> materialGrant{0, 10, 20, 30};
-        static constexpr std::array<int, 4> weaponGrant{0, 2, 3, 5};
+        static constexpr std::array<int, 4> militaryStoneReserve{0, 0, 10, 20};
+        static constexpr std::array<int, 4> militaryPlankReserve{0, 0, 5, 10};
+        static constexpr std::array<int, 4> ironGrant{0, 3, 10, 30};
+        // Hard starts with exactly one Barracks' worth of tools. This creates
+        // an early military foothold without gifting weapons or replacing the
+        // Smith chain needed for stronger units.
+        static constexpr std::array<int, 4> toolsGrant{0, 3, 6, 10};
         static constexpr std::array<double, 4> manpowerCapFraction{0.0, 0.10, 0.25, 0.50};
         int level = std::clamp(aiDifficulty, 0, 3);
 
@@ -161,7 +169,7 @@ namespace
                 buffer.GenerateResource(type);
         };
 
-        if (materialGrant[level] > 0 || weaponGrant[level] > 0)
+        if (materialGrant[level] > 0 || ironGrant[level] > 0 || toolsGrant[level] > 0)
         {
             for (auto* building : aiPlayer->GetTrackedBuildingsWithComponent<StorageComponent>())
             {
@@ -172,8 +180,10 @@ namespace
                 for (ResourceType type : {ResourceType::WOOD, ResourceType::STONE,
                                           ResourceType::PLANKS, ResourceType::FOOD_PROVISIONS})
                     grantResource(storage, type, materialGrant[level]);
-                for (ResourceType type : {ResourceType::IRON, ResourceType::TOOLS})
-                    grantResource(storage, type, weaponGrant[level]);
+                grantResource(storage, ResourceType::STONE, militaryStoneReserve[level]);
+                grantResource(storage, ResourceType::PLANKS, militaryPlankReserve[level]);
+                grantResource(storage, ResourceType::IRON, ironGrant[level]);
+                grantResource(storage, ResourceType::TOOLS, toolsGrant[level]);
                 break;  // a player owns at most one HQ
             }
         }
@@ -399,6 +409,7 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
 // village or a resource-patch access road placed near that rectangle's edge.
 void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapParameters params)
 {
+    combatTelemetry.Clear();
     worldName = name;
     render = r;
     audio  = a;
@@ -471,6 +482,7 @@ void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapPara
 // Initializes deterministic multiplayer runtime state with server-assigned slots.
 void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem* a, MapParameters params, int localId, bool authoritativeHost)
 {
+    combatTelemetry.Clear();
     worldName = name;
     render = r;
     audio  = a;

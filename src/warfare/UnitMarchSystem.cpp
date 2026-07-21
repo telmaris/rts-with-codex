@@ -41,6 +41,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
     auto& spawnQueues = world.GetSpawnQueues();
     const MilitaryRoadNetwork& militaryRoads = world.GetMilitaryRoads();
     PlayerHandler& playerHandler = world.GetPlayerHandler();
+    std::vector<int> unitsReturningToRoster;
 
     // Group marching/arrived units by direction, front-to-back, so followers
     // react to the leader's already-updated position within this same tick.
@@ -105,6 +106,17 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
             {
                 unit.tileIndex = lastTileIndex;
                 unit.tileProgress = 0.0;
+                auto targetIt = playerHandler.players.find(unit.routeToPlayerId);
+                if (targetIt != playerHandler.players.end() && targetIt->second != nullptr && targetIt->second->defeated)
+                {
+                    // The target fell while this unit was marching. It has
+                    // reached the captured HQ and is available for a newly
+                    // unlocked enemy instead of attacking a defeated player.
+                    unitsReturningToRoster.push_back(id);
+                    precedingTileIndex = unit.tileIndex;
+                    continue;
+                }
+
                 unit.state = BattleUnitState::AttackingHq;
                 // Full attack cooldown on arrival (TD etap-6.2) — no free
                 // first hit against the HQ, mirroring road combat's
@@ -117,6 +129,26 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
 
             precedingTileIndex = unit.tileIndex;
         }
+    }
+
+    for (int id : unitsReturningToRoster)
+    {
+        auto it = deployedUnits.find(id);
+        if (it == deployedUnits.end())
+            continue;
+        auto ownerIt = playerHandler.players.find(it->second.ownerPlayerId);
+        if (ownerIt == playerHandler.players.end() || ownerIt->second == nullptr || ownerIt->second->defeated)
+            continue;
+
+        BattleUnit unit = std::move(it->second);
+        unit.state = BattleUnitState::InRoster;
+        unit.routeFromPlayerId = -1;
+        unit.routeToPlayerId = -1;
+        unit.tileIndex = 0;
+        unit.tileProgress = 0.0;
+        unit.attackTimer = 0.0;
+        ownerIt->second->roster.AddUnit(std::move(unit));
+        deployedUnits.erase(it);
     }
 
     // Spawn the next queued unit once its column's gate tile (index 0) is free.

@@ -193,11 +193,22 @@ void LogisticsComponent::DispatchOutputs(Building& self, ProductionComponent& pr
         }
 
         std::vector<Building*> targets;
-        if (recv != nullptr)
+        auto isStorageHub = [](const Building* target)
+        {
+            return target != nullptr &&
+                (target->buildingType == BuildingType::Headquarters ||
+                 target->buildingType == BuildingType::StorageBuilding);
+        };
+        // Direct consumers go first; HQ/storage is overflow. Otherwise the
+        // hub can reserve every freshly produced item before an alternative
+        // thematic receiver gets a chance to consume it.
+        if (recv != nullptr && !isStorageHub(recv))
             targets.push_back(recv);
         auto alt = altReceivers.find(res);
         if (alt != altReceivers.end() && alt->second != nullptr && alt->second != recv)
             targets.push_back(alt->second);
+        if (recv != nullptr && isStorageHub(recv))
+            targets.push_back(recv);
         if (self.owner != nullptr)
         {
             Building* storage = self.owner->tilemap.FindNearestStorage(&self, self.owner);

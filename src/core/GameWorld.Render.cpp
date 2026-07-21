@@ -61,7 +61,7 @@ void GameWorld::UpdateSimulation(double dt)
     simulationTick++;
     UpdateControllers(dt);
     for (auto& [id, player] : playerHandler.players)
-        if (player != nullptr)
+        if (player != nullptr && !player->defeated)
         {
             player->UpdateFocus(dt);
             player->UpdateResearch(dt);
@@ -70,7 +70,7 @@ void GameWorld::UpdateSimulation(double dt)
     // Assign each player's builders to the front of their construction queue
     // before ticking buildings, so only funded builder slots progress this tick.
     for (auto& [id, player] : playerHandler.players)
-        if (player != nullptr)
+        if (player != nullptr && !player->defeated)
             player->construction.Refresh(*player);
     // Update buildings by iterating through Player registries instead of tilemap scan.
     // Avoids O(1M) tilemap iteration every tick; now O(n_buildings) which is typically ~100-1000.
@@ -92,7 +92,7 @@ void GameWorld::UpdateSimulation(double dt)
     std::vector<Building*> orderedBuildings;
     for (auto& [id, player] : playerHandler.players)
     {
-        if (player == nullptr) continue;
+        if (player == nullptr || player->defeated) continue;
         orderedBuildings.insert(orderedBuildings.end(), player->GetTrackedBuildings().begin(), player->GetTrackedBuildings().end());
     }
     std::sort(orderedBuildings.begin(), orderedBuildings.end(), [](Building* a, Building* b) { return a->id < b->id; });
@@ -117,7 +117,7 @@ void GameWorld::UpdateSimulation(double dt)
     }
 
     for (auto& [id, player] : playerHandler.players)
-        if (player != nullptr)
+        if (player != nullptr && !player->defeated)
         {
             player->UpdateEconomyTelemetry(dt);
             player->UpdateConqueredEconomy(dt);

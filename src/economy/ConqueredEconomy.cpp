@@ -42,6 +42,12 @@ void ConqueredEconomy::Tick(Player& owner, double dt)
         owner.balanceModifiers.AddModifier(BalanceModifier{
             BalanceStat::ProductionCycleTime, 0.0, cycleMultiplier,
             BalanceModifierScope::Building(it->buildingId), std::nullopt, std::nullopt, source});
+        owner.balanceModifiers.AddModifier(BalanceModifier{
+            BalanceStat::ManpowerRate, 0.0, productivity,
+            BalanceModifierScope::Building(it->buildingId), std::nullopt, std::nullopt, source});
+        owner.balanceModifiers.AddModifier(BalanceModifier{
+            BalanceStat::TowerAttackSpeed, 0.0, productivity,
+            BalanceModifierScope::Building(it->buildingId), std::nullopt, std::nullopt, source});
         ++it;
     }
 }

@@ -30,12 +30,14 @@ namespace
     // `towerOwnerId` within `rangeTiles` of `towerCenter`. ComputeWorldPosition/
     // ComputeBuildingCenter return pixel-space positions (scaled by
     // TILE_SIZE), so rangeTiles is converted explicitly before comparing.
-    int FindBestTarget(GameWorld& world, int towerOwnerId, double rangeTiles, Vec2f towerCenter)
+    int FindBestTarget(GameWorld& world, int towerOwnerId, double rangeTiles, Vec2f towerCenter,
+                       TowerTargetMode targetMode)
     {
         double rangePixels = rangeTiles * TILE_SIZE;
         int bestId = -1;
         int bestTileIndex = -1;
         double bestProgress = -1.0;
+        double bestStrength = -1.0;
         for (const auto& [id, unit] : world.GetDeployedUnits())
         {
             if (unit.ownerPlayerId == towerOwnerId || unit.tileIndex < 0 || unit.currentHp <= 0.0)
@@ -45,10 +47,28 @@ namespace
             if (DistanceBetween(towerCenter, pos) > rangePixels)
                 continue;
 
-            bool better = unit.tileIndex > bestTileIndex ||
-                          (unit.tileIndex == bestTileIndex && unit.tileProgress > bestProgress) ||
-                          (unit.tileIndex == bestTileIndex && unit.tileProgress == bestProgress &&
-                           (bestId == -1 || id < bestId));
+            bool better = false;
+            if (targetMode == TowerTargetMode::StrongestUnit)
+            {
+                auto ownerIt = world.GetPlayerHandler().players.find(unit.ownerPlayerId);
+                if (ownerIt == world.GetPlayerHandler().players.end() || ownerIt->second == nullptr)
+                    continue;
+                const Player& owner = *ownerIt->second;
+                double strength = unit.GetEffectiveMaxHp(owner) +
+                                  unit.GetEffectiveRoadAttack(owner) * 3.0 +
+                                  unit.GetEffectiveSiegeAttack(owner) * 2.0 +
+                                  unit.GetEffectiveArmor(owner) * 2.0;
+                better = strength > bestStrength || (strength == bestStrength && (bestId == -1 || id < bestId));
+                if (better)
+                    bestStrength = strength;
+            }
+            else
+            {
+                better = unit.tileIndex > bestTileIndex ||
+                         (unit.tileIndex == bestTileIndex && unit.tileProgress > bestProgress) ||
+                         (unit.tileIndex == bestTileIndex && unit.tileProgress == bestProgress &&
+                          (bestId == -1 || id < bestId));
+            }
             if (better)
             {
                 bestId = id;
@@ -111,6 +131,11 @@ void TowerAttackSystem::Update(GameWorld& world, double dt)
                 double resolved = CombatResolver::ResolveDamage(projectile.damage, armor, projectile.damageType,
                                                                  resistances, worldSeed, tick,
                                                                  projectile.sourceUnitInstanceId);
+                double applied = std::min(resolved, std::max(0.0, target.currentHp));
+                bool lethal = target.currentHp - resolved <= 0.0;
+                world.GetCombatTelemetry().RecordUnitDamage(target.instanceId, target.ownerPlayerId,
+                                                             target.unitDefId, CombatDamageSource::Tower,
+                                                             applied, lethal);
                 target.currentHp -= resolved;
             }
             projectiles.erase(it);
@@ -173,7 +198,7 @@ void TowerAttackSystem::Update(GameWorld& world, double dt)
 
             double range = combat->GetModifiedRange(*towerBuilding);
             Vec2f towerCenter = ComputeBuildingCenter(tilemap, *towerBuilding);
-            int targetId = FindBestTarget(world, playerId, range, towerCenter);
+            int targetId = FindBestTarget(world, playerId, range, towerCenter, combat->targetMode);
             if (targetId == -1)
                 continue; // nothing in range — doesn't fire, cooldown re-checked next tick
 

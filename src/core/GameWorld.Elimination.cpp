@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <vector>
 
 using namespace GameWorldInternal;
@@ -24,21 +25,48 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
 
     defeated->defeated = true;
 
-    // 1. The defeated player's deployed units and roster vanish immediately.
+    // 1. The defeated player's deployed units, roster and recruitment orders
+    // vanish immediately. The conqueror's units already at the fallen HQ have
+    // completed their deployment and return to the roster; units still on the
+    // road keep marching to that HQ and return when they arrive.
     // Any surviving road-combat opponent left mid-FightingUnit self-heals
     // back to Marching on UnitCombatSystem's next tick (it re-resolves its
     // opponent dynamically rather than holding a stale reference).
+    auto returnUnitToConqueror = [&](std::map<int, BattleUnit>::iterator it)
+    {
+        BattleUnit unit = std::move(it->second);
+        unit.state = BattleUnitState::InRoster;
+        unit.routeFromPlayerId = -1;
+        unit.routeToPlayerId = -1;
+        unit.tileIndex = 0;
+        unit.tileProgress = 0.0;
+        unit.attackTimer = 0.0;
+        conqueror->roster.AddUnit(std::move(unit));
+        return deployedUnits.erase(it);
+    };
     for (auto it = deployedUnits.begin(); it != deployedUnits.end();)
     {
         if (it->second.ownerPlayerId == defeatedPlayerId)
             it = deployedUnits.erase(it);
+        else if (it->second.ownerPlayerId == conquerorPlayerId &&
+                 it->second.routeToPlayerId == defeatedPlayerId &&
+                 (it->second.state == BattleUnitState::AttackingHq || it->second.tileIndex < 0))
+            it = returnUnitToConqueror(it);
+        else if (it->second.ownerPlayerId == conquerorPlayerId &&
+                 it->second.routeToPlayerId == defeatedPlayerId &&
+                 it->second.state == BattleUnitState::FightingUnit)
+        {
+            it->second.state = BattleUnitState::Marching;
+            ++it;
+        }
         else
             ++it;
     }
     defeated->roster.units.clear();
     for (auto it = spawnQueues.begin(); it != spawnQueues.end();)
     {
-        if (it->first.first == defeatedPlayerId)
+        if (it->first.first == defeatedPlayerId ||
+            (it->first.first == conquerorPlayerId && it->first.second == defeatedPlayerId))
             it = spawnQueues.erase(it);
         else
             ++it;
@@ -58,10 +86,12 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
     // conqueror's own HQ with capturedStockFraction of the total (floored),
     // then zero out every one of the defeated's buffers.
     HqComponent* defeatedHq = nullptr;
+    Building* defeatedHqBuilding = nullptr;
     for (Building* building : defeatedBuildings)
         if (auto* hq = building->GetComponent<HqComponent>(); hq != nullptr)
         {
             defeatedHq = hq;
+            defeatedHqBuilding = building;
             break;
         }
 
@@ -79,8 +109,10 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
             break;
         }
 
-    double captureStockFraction = defeatedHq != nullptr ? defeatedHq->captureStockFraction : 0.2;
-    double conquestRampDuration = defeatedHq != nullptr ? defeatedHq->conquestRampDuration : 60.0;
+    double baseCaptureStockFraction = defeatedHq != nullptr ? defeatedHq->captureStockFraction : 0.4;
+    double captureStockFraction = std::clamp(
+        conqueror->ModifyBalance(BalanceStat::ConquestSpoilsFraction, baseCaptureStockFraction), 0.0, 1.0);
+    double conquestRampDuration = defeatedHq != nullptr ? defeatedHq->conquestRampDuration : 600.0;
 
     if (conquerorHq != nullptr && conquerorHqBuilding != nullptr)
     {
@@ -120,16 +152,40 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
         }
     }
 
-    // 3. Production buildings change hands and start a productivity ramp.
+    // 3. Replace the fallen HQ with a ready StorageBuilding. This preserves
+    // its useful logistics location without giving the conqueror a second HQ
+    // (and therefore a second combat target). The spoils were already moved
+    // above, so this new depot deliberately starts empty.
+    if (defeatedHqBuilding != nullptr)
+    {
+        int hqPositionId = defeatedHqBuilding->positionId;
+        tilemap.DestroyBuildingAt(hqPositionId);
+        auto capturedStorage = std::make_unique<StorageBuilding>(
+            conqueror->id * 100000 + conqueror->build.buildingId++);
+        capturedStorage->constructionRemaining = 0.0;
+        Building* placedStorage = tilemap.PlaceLoadedBuilding(hqPositionId, conqueror, std::move(capturedStorage));
+        if (placedStorage != nullptr && conqueror->roadNetwork != nullptr)
+            for (int occupiedTileId : tilemap.GetBuildingTileIds(placedStorage))
+                conqueror->roadNetwork->UpdateNavMap(occupiedTileId, placedStorage);
+    }
+
+    // 4. All surviving infrastructure changes hands. Production buildings
+    // receive the 30% -> 100% compliance ramp; non-production infrastructure
+    // is immediately usable by its new owner.
     for (Building* building : defeatedBuildings)
     {
-        if (!building->HasComponent<ProductionComponent>())
+        if (building == nullptr || building == defeatedHqBuilding || building->HasComponent<HqComponent>())
             continue;
+
+        if (auto* recruitment = building->GetComponent<RecruitmentComponent>(); recruitment != nullptr)
+            recruitment->queue.clear();
 
         defeated->UnregisterBuilding(building);
         building->owner = conqueror;
         conqueror->RegisterBuilding(building);
-        conqueror->conqueredEconomy.AddRamp(building->id, conquestRampDuration);
+        if (building->HasComponent<ProductionComponent>() || building->HasComponent<PopulationComponent>() ||
+            building->HasComponent<TowerCombatComponent>())
+            conqueror->conqueredEconomy.AddRamp(building->id, conquestRampDuration);
 
         // T12 (docs/post_pivot_audit_2026-07-12.md): each Player owns an
         // independent RoadNetwork/NavigationMap — reassigning `owner` above
@@ -145,6 +201,6 @@ void GameWorld::EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId)
         }
     }
 
-    // 4. Victory is derived on demand from Player::defeated (GetVictorPlayerId)
+    // 5. Victory is derived on demand from Player::defeated (GetVictorPlayerId)
     // — nothing further to record here.
 }

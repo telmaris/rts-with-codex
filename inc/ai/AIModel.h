@@ -2,8 +2,10 @@
 #define AI_MODEL_H
 
 #include "ai/AIActions.h"
+#include "warfare/CombatTelemetry.h"
 
 #include <array>
+#include <optional>
 #include <random>
 
 class GameWorld;
@@ -52,11 +54,15 @@ struct AISituation
     int arrowsStored{0};
     int arrowsRate{0};
     int barracksCount{0};
+    int smithCount{0};
 
-    // enemyIncomingStrength vs. (deployed + towers): >1 = losing the lane.
+    // Enemy pressure vs. units committed to this lane and the HQ's towers:
+    // units marching offensively elsewhere are not defensive strength.
     double Threat() const
     {
-        double defense = myDeployedStrength + towerStrength;
+        // A tower attacks every hostile unit in range without occupying the
+        // marching column, so raw DPS understates its defensive value.
+        double defense = myDeployedStrength + towerStrength * 1.75;
         return enemyIncomingStrength / (defense > 1.0 ? defense : 1.0);
     }
     // Posture for roster composition: under attack -> defensive picks.
@@ -79,6 +85,10 @@ struct AISituation
     // FOOD_PROVISIONS is the manpower lifeline — "alive" = positive
     // production rate in current telemetry.
     bool foodProductionAlive{false};
+    // A finite reserve can still bootstrap one more Village before the
+    // renewable Inn chain exists. This matters when every citizen has already
+    // become a worker: the old food-alive-only check made that state permanent.
+    int foodProvisionsStored{0};
     // Some production footing (>= ai.rtsdata's tower_readiness_buildings
     // producers) + food alive (user design 2026-07-20): once true, ai.rtsdata's
     // tier-2 `priority` discount (IRON/TOOLS/swords) stops being applied — the
@@ -95,6 +105,16 @@ struct AISituation
     // evidence the fragile tick-1 bootstrap stretch has passed (see
     // ExecuteRecruitDeploy for what going in too early wedged).
     bool economyEstablished{false};
+    // Lighter military-unlock gate: enough production footing to start
+    // reserving resources for Smith/Barracks, without waiting for the entire
+    // FOOD_PROVISIONS chain to come alive.
+    bool basicEconomyEstablished{false};
+    // What stopped the most recently evaluated offensive wave. These shares
+    // feed RankUnitChoices so tower attrition favors durable/mobile units,
+    // while enemy-unit attrition favors lane fighters.
+    double offensiveTowerDamageShare{0.0};
+    double offensiveUnitDamageShare{0.0};
+    double offensiveHqDamageShare{0.0};
 
     // Resource shortfalls, worst first (urgency desc, then enum asc) —
     // deterministic ordering.
@@ -130,13 +150,15 @@ public:
 
     // Manpower-reserve emergency (user design 2026-07-19): manpower below
     // ai.rtsdata's `manpower_reserve` AND existing villages already at
-    // capacity (so manpower won't recover on its own) AND the food chain is
-    // actually alive (a new Village without food can't produce manpower
-    // either — the existing "food is dead" escalation stays the higher
-    // priority in that case). Used by both ScoreNeed and ExecuteEconomy, so
+    // capacity (so manpower won't recover on its own) AND either the food
+    // chain is alive or a finite FOOD_PROVISIONS reserve can bootstrap the
+    // next Village. Used by both ScoreNeed and ExecuteEconomy, so
     // they can never disagree about whether the emergency is live. Public +
     // static (same reasoning as RankUnitChoices) for direct unit testing.
     static bool ManpowerEmergency(const AISituation& s, double manpowerReserve);
+    // Failed waves must not be repeated at identical strength. Kept pure for
+    // direct regression testing of the escalation rule.
+    static double FailedWaveStrengthThreshold(double currentThreshold, double launchedStrength);
 
     // Test seam (2026-07-20): read-only access to the seeded personality bias
     // — only populated after the first Update() call (that's where seeding
@@ -164,6 +186,11 @@ private:
     // Fixed, deterministic opening build order that bootstraps the food/
     // manpower chain before telemetry has any consumption signal to react to.
     bool TryOpeningPlan(GameWorld& world, Player* player);
+    bool TryUnlockBarracks(GameWorld& world, Player* player, const AISituation& s);
+    void UpdateWaveEvaluation(GameWorld& world, Player* player);
+    void StartWaveEvaluation(GameWorld& world, Player* player, int targetPlayerId,
+                             const std::vector<int>& unitIds, double waveStrength);
+    double RosterOffensiveStrength(Player* player, const std::vector<int>* selectedIds = nullptr) const;
 
     int playerId{0};
     AIActions::AIActionState actions;
@@ -218,6 +245,24 @@ private:
     // holds.
     std::array<double, static_cast<int>(AINeed::Count)> personalityNeedBias{};
     int personalityWaveBias{0};
+
+    struct ActiveWaveEvaluation
+    {
+        int targetPlayerId{-1};
+        std::vector<int> unitIds;
+        std::map<int, UnitDamageBreakdown> damageBaseline;
+        double hqDamageBaseline{0.0};
+        double launchedStrength{0.0};
+    };
+    std::optional<ActiveWaveEvaluation> activeWave;
+    bool hasLaunchedWave{false};
+    // A failed zero-HQ-damage wave raises the next launch threshold by 8%
+    // relative to the real strength that was sent, capped by natural roster
+    // composition rather than an arbitrary extra-unit count.
+    double adaptiveMinimumWaveStrength{0.0};
+    double lastOffensiveTowerDamageShare{0.0};
+    double lastOffensiveUnitDamageShare{0.0};
+    double lastOffensiveHqDamageShare{0.0};
 };
 
 #endif
