@@ -54,6 +54,7 @@ namespace AIActions
     struct AIActionState
     {
         std::map<int, double> reservedRoadTiles;
+        std::map<int, double> blockedRoadTiles;
         std::map<BuildingType, double> recentBuildOrders;
         // Keyed by (type, preferredTile) — not type alone (2026-07-19 fix):
         // a failed search for one terrain (e.g. Mine hunting COAL) used to

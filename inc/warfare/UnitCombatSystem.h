@@ -17,8 +17,8 @@ class GameWorld;
 //   the exact bug class the old war system had) and frees the survivor back
 //   to Marching so it engages the next unit in the queue next tick.
 // Only the front-most unit of each side ever fights; the rest of each
-// column queues up behind its own spearhead via UnitMarchSystem's existing
-// single-file spacing.
+// column queues up behind that stopped battle line. While the line is moving,
+// UnitMarchSystem permits a faster unit to overtake a slower one.
 class UnitCombatSystem
 {
 public:

@@ -113,6 +113,68 @@ void TileMap::DestroyBuildingAt(int id)
     }
 
     bool wasRoad = building->HasComponent<RoadComponent>();
+
+    // Detach every live logistics link before the object is released.  A
+    // destroyed HQ is replaced with a storage building during conquest, but
+    // the transferred producers may still point at the old HQ as their
+    // receiver/supplier.  Those raw pointers otherwise become a release-only
+    // use-after-free on the next production tick.
+    for (auto& tile : tilemap)
+    {
+        Building* other = tile.building.get();
+        if (other == nullptr || other == building)
+            continue;
+
+        if (auto* logistics = other->GetComponent<LogisticsComponent>())
+        {
+            for (auto it = logistics->suppliers.begin(); it != logistics->suppliers.end();)
+            {
+                auto& suppliers = it->second;
+                suppliers.erase(std::remove(suppliers.begin(), suppliers.end(), building), suppliers.end());
+                if (suppliers.empty())
+                {
+                    logistics->pendingRequests.erase(it->first);
+                    it = logistics->suppliers.erase(it);
+                }
+                else
+                    ++it;
+            }
+
+            for (auto it = logistics->receivers.begin(); it != logistics->receivers.end();)
+                it = it->second == building ? logistics->receivers.erase(it) : std::next(it);
+            for (auto it = logistics->altReceivers.begin(); it != logistics->altReceivers.end();)
+                it = it->second == building ? logistics->altReceivers.erase(it) : std::next(it);
+        }
+
+        // A delivery whose destination disappears must be cancelled while
+        // both endpoint pointers are still valid.  Deliveries originating at
+        // the destroyed building may finish, but must no longer retain its
+        // address for a possible return path.
+        for (auto it = other->transportables.begin(); it != other->transportables.end();)
+        {
+            Transportable* transport = *it;
+            if (transport == nullptr)
+            {
+                it = other->transportables.erase(it);
+                continue;
+            }
+            if (transport->targetBuilding == building)
+            {
+                if (auto* resource = dynamic_cast<Resource*>(transport))
+                {
+                    building->CancelRequestedResource(resource->type);
+                    if (transport->sourceBuilding != nullptr && transport->sourceBuilding != building)
+                        transport->sourceBuilding->ReturnOutgoingResource(resource);
+                }
+                it = other->transportables.erase(it);
+                continue;
+            }
+            if (transport->sourceBuilding == building)
+                transport->sourceBuilding = nullptr;
+            ++it;
+        }
+    }
+
     if (owner != nullptr)
         owner->UnregisterBuilding(building);
     if (auto* workers = building->GetComponent<WorkerComponent>())

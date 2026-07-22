@@ -240,16 +240,18 @@ void StrategicResourceHudWidget::Update(double dt)
     // itself the instant the siege actually ends.
     bool rosterHovered = CheckCollisionPointRec(GetMousePosition(), rosterButton);
     int rosterCount = static_cast<int>(player->roster.units.size());
+    bool incomingAttack = false;
     bool hqUnderAttack = false;
     for (const auto& [unitId, unit] : scene->game->GetDeployedUnits())
     {
-        if (unit.state == BattleUnitState::AttackingHq && unit.routeToPlayerId == player->id)
-        {
+        if (unit.ownerPlayerId == player->id || unit.routeToPlayerId != player->id ||
+            unit.state == BattleUnitState::Dying)
+            continue;
+        incomingAttack = true;
+        if (unit.state == BattleUnitState::AttackingHq)
             hqUnderAttack = true;
-            break;
-        }
     }
-    float warningPulse = hqUnderAttack ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 6.0f)) : 0.0f;
+    float warningPulse = incomingAttack ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 6.0f)) : 0.0f;
 
     auto drawHudButton = [&](Rectangle rect, const std::string& label, bool hovered, Color base, Color line)
     {
@@ -271,14 +273,15 @@ void StrategicResourceHudWidget::Update(double dt)
     drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
 
     // Roster button — pulses red border when this player's HQ is under siege.
-    Color rosterBase = hqUnderAttack
+    Color rosterBase = incomingAttack
         ? Color{static_cast<unsigned char>(90 + warningPulse * 60.0f), 45, 48, 238}
         : Color{46, 34, 24, 238};
-    Color rosterLine = hqUnderAttack ? Color{244, 132, 142, 255} : Color{128, 108, 80, 230};
+    Color rosterLine = incomingAttack ? Color{244, 132, 142, 255} : Color{128, 108, 80, 230};
     drawHudButton(rosterButton, "Roster (" + std::to_string(rosterCount) + ")", rosterHovered, rosterBase, rosterLine);
-    if (hqUnderAttack)
+    if (incomingAttack)
     {
-        UiText::DrawFit("HQ UNDER ATTACK", Rectangle{rosterButton.x, rosterButton.y - 18.0f, rosterButton.width, 15.0f},
+        UiText::DrawFit(hqUnderAttack ? "HQ UNDER ATTACK" : "INCOMING ATTACK",
+                        Rectangle{rosterButton.x, rosterButton.y - 18.0f, rosterButton.width, 15.0f},
                         13, Color{255, 140, 140, 255});
     }
 
@@ -381,7 +384,8 @@ void StrategicResourceHudWidget::Update(double dt)
         Tooltip::Draw("Roster", {
             "[U] Open roster and deploy",
             "Ready to deploy: " + std::to_string(rosterCount),
-            hqUnderAttack ? "Your HQ is under attack!" : "No units are currently besieging your HQ"
+            hqUnderAttack ? "Your HQ is under attack!" :
+            incomingAttack ? "Enemy units are marching toward your HQ!" : "No incoming enemy units"
         }, 260.0f);
     }
 }

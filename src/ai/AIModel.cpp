@@ -1327,14 +1327,35 @@ bool UtilityAIModel::ExecuteDefense(GameWorld& world, Player* player, const AISi
         return false;
 
     // 1. Missing towers — anchor near the HQ (the lane's endpoint).
-    if (s.towerCount < DesiredTowerCount(s) &&
-        player->CanBuildDefinition(GetBuildingDefinition(BuildingType::DefenseTower)))
+    if (s.towerCount < DesiredTowerCount(s))
     {
         Building* hq = AIActions::FindOwnedHeadquarters(player);
         Vec2i anchor = AIActions::FindBuildAnchor(world, player, BuildingType::DefenseTower,
                                                   TileType::GRASS, hq, actions);
-        if (anchor.x >= 0 && AIActions::TrySubmitBuild(world, player, BuildingType::DefenseTower, anchor, actions))
-            return true;
+        if (anchor.x >= 0)
+        {
+            const auto& towerDefinition = GetBuildingDefinition(BuildingType::DefenseTower);
+            if (player->CanBuildDefinition(towerDefinition) &&
+                AIActions::TrySubmitBuild(world, player, BuildingType::DefenseTower, anchor, actions))
+                return true;
+
+            // A detected attack is an emergency reservation: establish a
+            // missing input producer, otherwise wait for existing production
+            // instead of spending tower stock on a lower-priority build.
+            if (s.enemyIncomingCount > 0)
+            {
+                for (const auto& cost : player->GetEffectiveBuildCosts(towerDefinition))
+                {
+                    if (AIActions::CountStoredResource(player, cost.type) >= cost.amount)
+                        continue;
+                    int rate = AIActions::GetResourceRate(
+                        player->economyTelemetry.current.productionRatesPerMinute, cost.type);
+                    if (rate <= 0 && TryBuildProducerFor(world, player, cost.type))
+                        return true;
+                }
+                return true;
+            }
+        }
     }
 
     // 2. Towers standing but nothing feeds them — build toward the ARROWS

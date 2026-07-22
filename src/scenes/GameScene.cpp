@@ -332,6 +332,23 @@ void GameScene::Update(double dt)
             prevUnlockedTechCount  = techCount;
             prevUnlockedFocusCount = focusCount;
         }
+
+        std::set<int> incomingUnitIds;
+        for (const auto& [instanceId, unit] : game->GetDeployedUnits())
+        {
+            if (unit.ownerPlayerId != localId && unit.routeToPlayerId == localId &&
+                unit.state != BattleUnitState::Dying)
+                incomingUnitIds.insert(instanceId);
+        }
+        for (int instanceId : incomingUnitIds)
+        {
+            if (!knownIncomingUnitIds.contains(instanceId))
+            {
+                audioSystem->PlaySound("notification");
+                break;
+            }
+        }
+        knownIncomingUnitIds = std::move(incomingUnitIds);
     }
 
     commandResults.clear();
@@ -423,6 +440,7 @@ void GameScene::StartNewGame(std::string name, MapParameters params)
     runtimeLoop = std::make_unique<HostRuntimeLoop>(std::make_unique<HostSession>(*game));
     prevUnlockedTechCount  = 0;
     prevUnlockedFocusCount = 0;
+    knownIncomingUnitIds.clear();
     if (audioSystem != nullptr)
         audioSystem->PlayMusic("gameplay");
 }
@@ -434,6 +452,7 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
     game->InitMultiplayerWorld(worldName, &render, audioSystem, params, 0, true);
+    knownIncomingUnitIds.clear();
     if (transport == nullptr)
         transport = TcpGameTransport::CreateHost(port);
     bool requireRemoteSync = transport != nullptr && transport->IsConnected();
@@ -451,6 +470,7 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
     game = std::make_unique<GameWorld>();
     std::string worldName = SanitizeSaveName(name);
     game->InitMultiplayerWorld(worldName, &render, audioSystem, params, 1, false);
+    knownIncomingUnitIds.clear();
     if (transport == nullptr)
         transport = TcpGameTransport::CreateClient(address, port);
     Log::Msg("GameScene", "Starting multiplayer client world '", worldName, "' connecting to ", address, ":", port);
@@ -469,6 +489,7 @@ bool GameScene::LoadGame(std::string name)
     std::string filename{"saves/" + saveName + ".save"};
     if (game->LoadFromFile(filename, &render, audioSystem))
     {
+        knownIncomingUnitIds.clear();
         runtimeLoop = std::make_unique<HostRuntimeLoop>(std::make_unique<HostSession>(*game));
         {
             auto pit = game->GetPlayerHandler().players.find(game->GetLocalPlayerId());
@@ -538,6 +559,7 @@ void GameScene::ShutdownActiveGame()
     game.reset();
     latestSnapshot = GameSnapshot{};
     commandResults.clear();
+    knownIncomingUnitIds.clear();
     render.ClearLayers();
     Log::Msg("GameScene", "Active game session shut down");
 }

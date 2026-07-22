@@ -153,6 +153,31 @@ TEST(UnitMarchSystemTests, FollowerGroupsUpWithArrivedLeaderAtFinalTile)
     EXPECT_EQ(follower.tileIndex, lastTileIndex);
 }
 
+TEST(UnitMarchSystemTests, FasterMarchingUnitOvertakesSlowerUnit)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(8));
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+
+    int slowId = AddUnitToRoster(*human, "knight");
+    int fastId = AddUnitToRoster(*human, "militia");
+    world.SubmitCommand(GameCommand::DeployUnits(0, 1, {slowId, fastId}));
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+
+    bool overtook = false;
+    for (int i = 0; i < 3000 && !overtook; i++)
+    {
+        UnitMarchSystem::Update(world, 0.01);
+        const BattleUnit& slow = world.GetDeployedUnits().at(slowId);
+        const BattleUnit& fast = world.GetDeployedUnits().at(fastId);
+        double slowPosition = slow.tileIndex + slow.tileProgress;
+        double fastPosition = fast.tileIndex + fast.tileProgress;
+        overtook = fast.tileIndex >= 0 && fastPosition > slowPosition;
+    }
+
+    EXPECT_TRUE(overtook) << "a faster unit should be able to pass a slower marching column member";
+}
+
 TEST(UnitMarchSystemTests, SaveAndLoadPreservesMarchingStateAndSpawnQueue)
 {
     GameWorld world;

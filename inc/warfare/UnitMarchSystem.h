@@ -8,9 +8,9 @@ class BattleUnit;
 
 // Advances every deployed BattleUnit one fixed tick along its military-road
 // route (TD etap-4): spawns the next queued unit onto a free gate tile,
-// marches column members forward at their effective moveSpeed, and enforces
-// single-file column spacing so a stopped spearhead queues up the units
-// behind it. A unit that reaches the far end transitions to AttackingHq and
+// marches column members forward at their effective moveSpeed. Slower moving
+// units may be overtaken; stopped/fighting spearheads still queue the column
+// behind them. A unit that reaches the far end transitions to AttackingHq and
 // stops there — actually resolving that state (damage, elimination) is
 // ETAP 6's job; this system only gets units to the door. Units in
 // FightingUnit or Dying state (TD etap-5) are frozen in place — combat

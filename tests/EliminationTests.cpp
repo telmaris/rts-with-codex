@@ -394,7 +394,7 @@ TEST(EliminationTests, DeployUnitsAcceptsTargetThroughConqueredHq)
     EXPECT_TRUE(results.back().accepted);
 }
 
-TEST(EliminationTests, SaveAndLoadPreservesHqDefeatedAndConqueredState)
+TEST(EliminationTests, SaveAndLoadPreservesDefeatedAndCapturedStorageState)
 {
     GameWorld world;
     world.InitWorld("test", nullptr, nullptr, MakeRingParams(9, 1));
@@ -409,12 +409,17 @@ TEST(EliminationTests, SaveAndLoadPreservesHqDefeatedAndConqueredState)
     for (Building* b : p1->GetTrackedBuildingsWithComponent<HqComponent>())
         p1Hq = b;
     ASSERT_NE(p1Hq, nullptr);
+    const int p1HqPositionId = p1Hq->positionId;
     p1Hq->GetComponent<HqComponent>()->currentHp = 123.0;
     p1Hq->GetComponent<HqComponent>()->thornsTimer = 1.5;
 
     world.EliminatePlayer(1, 0);
     ASSERT_EQ(woodcutter->owner, p0);
     ASSERT_FALSE(p0->conqueredEconomy.GetRamps().empty());
+    Building* capturedStorage = world.GetTileMap().GetBuilding(p1HqPositionId);
+    ASSERT_NE(capturedStorage, nullptr);
+    EXPECT_EQ(capturedStorage->buildingType, BuildingType::StorageBuilding);
+    EXPECT_EQ(capturedStorage->owner, p0);
 
     const auto path = (std::filesystem::temp_directory_path() / "rts_elimination_test.save").string();
     ASSERT_TRUE(world.SaveToFile(path));
@@ -437,14 +442,11 @@ TEST(EliminationTests, SaveAndLoadPreservesHqDefeatedAndConqueredState)
             hasRamp = true;
     EXPECT_TRUE(hasRamp);
 
-    Building* loadedP1Hq = nullptr;
-    for (Building* b : loadedP1->GetTrackedBuildingsWithComponent<HqComponent>())
-        loadedP1Hq = b;
-    ASSERT_NE(loadedP1Hq, nullptr);
-    const auto* loadedHqComponent = loadedP1Hq->GetComponent<HqComponent>();
-    ASSERT_NE(loadedHqComponent, nullptr);
-    EXPECT_DOUBLE_EQ(loadedHqComponent->currentHp, 123.0);
-    EXPECT_DOUBLE_EQ(loadedHqComponent->thornsTimer, 1.5);
+    EXPECT_TRUE(loadedP1->GetTrackedBuildingsWithComponent<HqComponent>().empty());
+    Building* loadedCapturedStorage = loaded.GetTileMap().GetBuilding(p1HqPositionId);
+    ASSERT_NE(loadedCapturedStorage, nullptr);
+    EXPECT_EQ(loadedCapturedStorage->buildingType, BuildingType::StorageBuilding);
+    EXPECT_EQ(loadedCapturedStorage->owner, loadedP0);
 
     std::filesystem::remove(path);
 }

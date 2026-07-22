@@ -263,6 +263,39 @@ TEST(UtilityAIModelTests, DefenseTowerPlacementAlwaysCoversTheMilitaryTrack)
         << "AI tower sites must contribute real fire coverage to a military route";
 }
 
+TEST(UtilityAIModelTests, AIOrdersDefenseTowerWhenEnemyWaveIsDeployed)
+{
+    MapParameters params;
+    params.sizeX = 301;
+    params.sizeY = 301;
+    params.aiOpponentCount = 1;
+    params.aiDifficulty = 3;
+    params.seed = 271828;
+
+    GameWorld world;
+    world.InitWorld("utility-ai-defense-alert", nullptr, nullptr, params);
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(human, nullptr);
+    ASSERT_NE(ai, nullptr);
+
+    int instanceId = human->id * 100000 + human->nextUnitInstanceId++;
+    BattleUnit attacker(instanceId, human->id, "militia");
+    attacker.currentHp = attacker.GetEffectiveMaxHp(*human);
+    human->roster.AddUnit(std::move(attacker));
+    world.SubmitCommand(GameCommand::DeployUnits(human->id, ai->id, {instanceId}));
+
+    bool towerOrdered = false;
+    for (int tick = 0; tick < 3000 && !towerOrdered; tick++)
+    {
+        world.UpdateSimulation(0.01);
+        towerOrdered = AIActions::CountCompletedOrQueuedBuildings(
+            world, ai, BuildingType::DefenseTower) > 0;
+    }
+
+    EXPECT_TRUE(towerOrdered) << "AI detected the incoming wave but never ordered a defense tower";
+}
+
 // Etap 3: composition rule, pure and world-free. Under attack the pick
 // maximizes staying power per cost (assets/data/units.rtsdata: knight);
 // on the offensive an empty roster starts with a siege unit (ram), then

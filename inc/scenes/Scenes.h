@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -341,6 +342,7 @@ class GameScene : public Scene, public IGuiHandler
         std::vector<GameCommandResult> commandResults;
         std::size_t prevUnlockedTechCount{0};
         std::size_t prevUnlockedFocusCount{0};
+        std::set<int> knownIncomingUnitIds;
 };
 
 // Static controls reference scene shown from the main menu.

@@ -12,9 +12,10 @@ namespace
 {
     using RouteKey = std::pair<int, int>;
 
-    // Units march single-file: a unit cannot advance onto (or past) whatever
-    // tile the unit directly ahead of it in the same column currently
-    // occupies. The final tile (the target's gate) is the one exception
+    // Units normally march single-file, but a strictly faster marching unit
+    // may pass a slower marcher after catching it. A stopped/fighting unit
+    // remains a hard battle line. The final tile (the target's gate) is also
+    // an exception
     // (TD etap-6.2): any number of units may stack there and independently
     // besiege the HQ in parallel — see the `nextTileIndex != lastTileIndex`
     // carve-out below.
@@ -72,6 +73,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
         });
 
         int precedingTileIndex = -1; // nothing ahead of the front-most unit
+        int precedingUnitId = -1;
         for (int id : ids)
         {
             BattleUnit& unit = deployedUnits.at(id);
@@ -79,6 +81,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
                 unit.state == BattleUnitState::FightingUnit)
             {
                 precedingTileIndex = unit.tileIndex;
+                precedingUnitId = id;
                 continue; // arrived, dead, or locked in melee — UnitCombatSystem's concern
             }
 
@@ -91,8 +94,19 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
             while (unit.tileProgress >= 1.0 && unit.tileIndex < lastTileIndex)
             {
                 int nextTileIndex = unit.tileIndex + 1;
+                bool canOvertake = false;
+                if (precedingUnitId >= 0)
+                {
+                    const BattleUnit& preceding = deployedUnits.at(precedingUnitId);
+                    auto precedingOwnerIt = playerHandler.players.find(preceding.ownerPlayerId);
+                    double precedingSpeed = precedingOwnerIt != playerHandler.players.end() && precedingOwnerIt->second != nullptr
+                        ? preceding.GetEffectiveMoveSpeed(*precedingOwnerIt->second)
+                        : 0.0;
+                    canOvertake = preceding.state == BattleUnitState::Marching &&
+                                  moveSpeed > precedingSpeed + 1e-9;
+                }
                 bool blocked = precedingTileIndex >= 0 && nextTileIndex >= precedingTileIndex &&
-                               nextTileIndex != lastTileIndex;
+                               nextTileIndex != lastTileIndex && !canOvertake;
                 if (blocked)
                 {
                     unit.tileProgress = kBlockedProgress;
@@ -114,6 +128,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
                     // unlocked enemy instead of attacking a defeated player.
                     unitsReturningToRoster.push_back(id);
                     precedingTileIndex = unit.tileIndex;
+                    precedingUnitId = id;
                     continue;
                 }
 
@@ -128,6 +143,7 @@ void UnitMarchSystem::Update(GameWorld& world, double dt)
             }
 
             precedingTileIndex = unit.tileIndex;
+            precedingUnitId = id;
         }
     }
 

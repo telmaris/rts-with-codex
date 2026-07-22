@@ -142,6 +142,7 @@ void AIActionState::Decay(double dt)
         }
     };
     decay(reservedRoadTiles);
+    decay(blockedRoadTiles);
     decay(recentBuildOrders);
     decay(expensiveAnchorSearchCooldown);
     decay(deficitBackoff);
@@ -971,8 +972,44 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
 
     std::vector<int> startIds = world.GetTileMap().GetAdjacentTileIds(source);
     std::vector<int> goalIds = world.GetTileMap().GetAdjacentTileIds(target);
-    if (target->buildingType == BuildingType::Road)
-        goalIds.push_back(target->positionId);
+    if (IsRoadLikeBuilding(target))
+    {
+        // The target returned by FindNearestStorageConnectedRoad is only an
+        // entry point into a whole corridor. Treat every physically connected
+        // owned road/bridge as a goal, including segments still under
+        // construction. Targeting one specific tile made a second producer
+        // ignore a nearer pending branch and carve a parallel road toward the
+        // same forest while the first branch was finishing.
+        goalIds.clear();
+        std::queue<int> corridor;
+        std::set<int> visited;
+        corridor.push(target->positionId);
+        visited.insert(target->positionId);
+        while (!corridor.empty())
+        {
+            int current = corridor.front();
+            corridor.pop();
+            goalIds.push_back(current);
+
+            Vec2i pos = world.GetTileMap().GetCoordsFromId(current);
+            const std::array<Vec2i, 4> neighbours{
+                Vec2i{pos.x + 1, pos.y}, Vec2i{pos.x - 1, pos.y},
+                Vec2i{pos.x, pos.y + 1}, Vec2i{pos.x, pos.y - 1}
+            };
+            for (Vec2i neighbour : neighbours)
+            {
+                if (!world.GetTileMap().IsInside(neighbour))
+                    continue;
+                int neighbourId = world.GetTileMap().GetIdFromCoords(neighbour);
+                Building* road = world.GetTileMap().GetBuilding(neighbourId);
+                if (road == nullptr || road->owner != player || !IsRoadLikeBuilding(road) ||
+                    visited.contains(neighbourId))
+                    continue;
+                visited.insert(neighbourId);
+                corridor.push(neighbourId);
+            }
+        }
+    }
 
     auto canUseRoadPathTile = [&](int tileId)
     {
@@ -990,7 +1027,7 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         // connection in the same direction dug a full parallel row instead
         // of joining the existing one (playtest 2026-07-17: "carpets" of
         // 2-3 redundant roads side by side).
-        if (building == nullptr && state.reservedRoadTiles.contains(tileId))
+        if (building == nullptr && state.blockedRoadTiles.contains(tileId))
             return false;
         // An empty track tile next to an existing Bridge can never take a
         // second Bridge (edge-to-edge crossings are rejected by
@@ -1051,7 +1088,8 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
     const int bridgeConstructionCost = constructionCost(BuildingType::Bridge) * bridgeAvoidanceMultiplier;
     auto stepCost = [&](int tileId)
     {
-        if (IsRoadLikeBuilding(world.GetTileMap().GetBuilding(tileId)))
+        if (IsRoadLikeBuilding(world.GetTileMap().GetBuilding(tileId)) ||
+            state.reservedRoadTiles.contains(tileId))
             return 0;
         return world.GetTileMap()[tileId].isMilitaryRoad ? bridgeConstructionCost : roadConstructionCost;
     };
@@ -1204,7 +1242,7 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
         Vec2i pos = world.GetTileMap().GetCoordsFromId(tileId);
         if (!world.GetTileMap().CanPlaceBuilding(type, pos, GetBuildingDefinition(type).footprint, player))
         {
-            state.reservedRoadTiles[tileId] = 6.0;
+            state.blockedRoadTiles[tileId] = 6.0;
             break;
         }
 
