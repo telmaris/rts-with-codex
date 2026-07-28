@@ -143,10 +143,12 @@ TEST(BattleUnitTests, RecruitTimeAndManpowerCostAreModifiableButFloored)
         std::nullopt, std::nullopt, "test:cheap_recruit"});
 
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
-    // militia: recruit_time 8 -> 4.0, manpower_cost 5 -> 2.5.
+    const UnitDefinition* militia = FindUnitDefinition("militia");
+    ASSERT_NE(militia, nullptr);
     ASSERT_FALSE(barracks->recruitment.queue.empty());
-    EXPECT_DOUBLE_EQ(barracks->recruitment.queue.front().total, 4.0);
-    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower), 97.5);
+    EXPECT_DOUBLE_EQ(barracks->recruitment.queue.front().total, militia->recruitTime * 0.5);
+    EXPECT_DOUBLE_EQ(player.strategicResources.Get(StrategicResourceType::Manpower),
+                     100.0 - militia->manpowerCost * 0.5);
 
     barracks->recruitment.queue.clear();
     player.balanceModifiers.AddModifier(BalanceModifier{
@@ -208,7 +210,9 @@ TEST(BattleUnitTests, TechTreeModifierChangesEffectiveStatsIncludingAlreadyRecru
 
     // A different unit definition must be unaffected by the filtered modifier.
     BattleUnit swordsman(999, player.id, "swordsman");
-    EXPECT_DOUBLE_EQ(swordsman.GetEffectiveMaxHp(player), 45.0);
+    const UnitDefinition* swordsmanDefinition = FindUnitDefinition("swordsman");
+    ASSERT_NE(swordsmanDefinition, nullptr);
+    EXPECT_DOUBLE_EQ(swordsman.GetEffectiveMaxHp(player), swordsmanDefinition->maxHp);
 }
 
 TEST(BattleUnitTests, InstanceIdsAreDeterministicAndUniquePerPlayer)

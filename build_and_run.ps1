@@ -34,7 +34,7 @@ cmake -S $RepoRoot -B (Join-Path $RepoRoot "build") `
     "-Draygui_INCLUDE_DIR=$RayguiInclude"
 Assert-LastCommandSucceeded "CMake configure"
 
-cmake --build (Join-Path $RepoRoot "build") --config $Config
+cmake --build (Join-Path $RepoRoot "build") --parallel --config $Config
 Assert-LastCommandSucceeded "CMake build"
 
 $Exe = Join-Path $RepoRoot "build\$Config\rts.exe"

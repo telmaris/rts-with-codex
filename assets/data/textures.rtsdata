@@ -27,6 +27,12 @@ atlas 20 guard_tower "assets/textures/building/guard_tower.png" 64 64
 atlas 21 tannery_idle "assets/textures/building/generated/tannery_idle/tannery_idle_sheet_2x1.png" 96 96
 atlas 22 tailor_idle "assets/textures/building/generated/tailor_idle/tailor_idle_sheet_2x1.png" 96 96
 atlas 23 armorer_idle "assets/textures/building/generated/armorer_idle/armorer_idle_sheet_2x1.png" 96 96
+atlas 24 kiln_idle "assets/textures/building/generated/kiln_idle/kiln_idle_sheet_2x1.png" 96 96
+atlas 25 household_workshop_idle "assets/textures/building/generated/household_workshop_idle/household_workshop_idle_sheet_2x1.png" 96 96
+atlas 26 soapworks_idle "assets/textures/building/generated/soapworks_idle/soapworks_idle_sheet_2x1.png" 96 96
+atlas 27 inkworks_idle "assets/textures/building/generated/inkworks_idle/inkworks_idle_sheet_2x1.png" 96 96
+atlas 28 scriptorium_idle "assets/textures/building/generated/scriptorium_idle/scriptorium_idle_sheet_2x1.png" 96 96
+atlas 29 copperworks_idle "assets/textures/building/generated/copperworks_idle/copperworks_idle_sheet_2x1.png" 96 96
 
 terrain GRASS
     variant atlas 0 texture 9 weight 1
@@ -165,6 +171,36 @@ end
 
 building Armorer
     sprite atlas 23 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Kiln
+    sprite atlas 24 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building HouseholdWorkshop
+    sprite atlas 25 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Soapworks
+    sprite atlas 26 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Inkworks
+    sprite atlas 27 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Scriptorium
+    sprite atlas 28 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Copperworks
+    sprite atlas 29 texture 0
     animation frames 2 frame_time 0.30 loop
 end
 

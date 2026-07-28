@@ -852,15 +852,8 @@ TEST(BuildingDomainTests, BarracksRequestsAndReceivesUnitCostsOnDemandThroughRoa
     EXPECT_TRUE(resourcesArrived) << "swordsman costs (IRON_SWORD 1, FOOD_PROVISIONS 3) never arrived at Barracks";
 }
 
-// Regression test: user report — only militia/swordsman were recruitable, not
-// knight or ram. Root cause was in the DATA, not the code: buildings.rtsdata's
-// Barracks block only declared storage buffers for FOOD_PROVISIONS and
-// IRON_SWORD (swordsman's cost) — knight needs STEEL_SWORD and ram needs
-// PLANKS+IRON, neither of which had a buffer at all, so
-// RecruitmentComponent::QueueRecruitment's `storage->buffers.find(cost.type)`
-// always came up empty and recruitment silently failed regardless of how much
-// of those resources the player had. Fixed by adding the missing `storage`
-// lines to buildings.rtsdata's Barracks block.
+// Regression: each advanced unit must have its current definition's storage
+// and technology prerequisites satisfied before it can join the queue.
 TEST(BuildingDomainTests, BarracksCanRecruitKnightAndRamNotJustSwordsman)
 {
     TileMap map;
@@ -874,23 +867,26 @@ TEST(BuildingDomainTests, BarracksCanRecruitKnightAndRamNotJustSwordsman)
     // RegisterBuilding — Player::Build<T> does this implicitly, but a
     // manually-constructed Barracks needs it done explicitly here.
     player.RegisterBuilding(&barracks);
-    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::STEEL_SWORD))
-        << "knight costs STEEL_SWORD but Barracks has no buffer for it";
-    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::PLANKS))
-        << "ram costs PLANKS but Barracks has no buffer for it";
-    EXPECT_TRUE(barracks.storage.buffers.contains(ResourceType::IRON))
-        << "ram costs IRON but Barracks has no buffer for it";
+    player.technologies.RestoreTechnology("furnace_and_casting_geometry");
+    player.technologies.RestoreTechnology("torsion_engines");
 
-    barracks.storage.buffers[ResourceType::STEEL_SWORD].GenerateResource(ResourceType::STEEL_SWORD);
-    barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
-    for (int i = 0; i < 4; i++)
-        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    auto stockCosts = [&](const char* unitId)
+    {
+        const UnitDefinition* definition = FindUnitDefinition(unitId);
+        ASSERT_NE(definition, nullptr);
+        for (const auto& cost : definition->cost)
+        {
+            ASSERT_TRUE(barracks.storage.buffers.contains(cost.type))
+                << unitId << " costs " << rt2s(cost.type) << " but Barracks has no buffer for it";
+            for (int i = 0; i < cost.amount; i++)
+                barracks.storage.buffers[cost.type].GenerateResource(cost.type);
+        }
+    };
+
+    stockCosts("knight");
     EXPECT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "knight"));
 
-    barracks.storage.buffers[ResourceType::PLANKS].SetStoredAmount(20);
-    barracks.storage.buffers[ResourceType::IRON].SetStoredAmount(10);
-    for (int i = 0; i < 4; i++)
-        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    stockCosts("ram");
     EXPECT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "ram"));
 }
 

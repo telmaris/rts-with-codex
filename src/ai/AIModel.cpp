@@ -1432,9 +1432,14 @@ std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISitua
         double score = 0.0;
         if (defensive)
         {
-            // Hold the lane: staying power + lane damage per cost.
-            score = (def.roadAttack + def.armor + 0.5 * def.maxHp) /
+            // Siege engines cannot protect a road column, no matter how much
+            // raw HP they have. Prefer actual lane fighters, then rank their
+            // staying power, road damage and ability to reinforce a breach
+            // per cost.
+            score = (def.roadAttack + def.armor + 0.5 * def.maxHp + 5.0 * def.moveSpeed) /
                     std::max(1.0, def.manpowerCost + TotalResourceCost(def));
+            if (IsSiegeUnit(def))
+                score -= 1000.0;
         }
         else
         {
@@ -1443,7 +1448,12 @@ std::vector<const UnitDefinition*> UtilityAIModel::RankUnitChoices(const AISitua
             // wave then bends the roster toward the obstacle that actually
             // stopped it, rather than guessing from enemy presence alone.
             bool preferredClass = IsSiegeUnit(def) == wantSiege;
-            double classValue = IsSiegeUnit(def) ? def.siegeAttack : def.moveSpeed * def.roadAttack;
+            // A ram's durability lets it keep damaging the HQ under fire;
+            // raw siege damage alone incorrectly promoted fragile artillery
+            // ahead of the first useful breach engine.
+            double classValue = IsSiegeUnit(def)
+                ? def.siegeAttack + 0.25 * def.maxHp + def.armor
+                : def.moveSpeed * def.roadAttack;
             if (s.offensiveTowerDamageShare > 0.55)
             {
                 // Towers punish time spent in range. Effective staying power

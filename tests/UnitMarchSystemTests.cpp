@@ -172,7 +172,7 @@ TEST(UnitMarchSystemTests, FasterMarchingUnitOvertakesSlowerUnit)
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(8));
     Player* human = world.GetPlayerHandler().players.at(0).get();
 
-    int slowId = AddUnitToRoster(*human, "knight");
+    int slowId = AddUnitToRoster(*human, "heavy_infantry");
     int fastId = AddUnitToRoster(*human, "militia");
     world.SubmitCommand(GameCommand::DeployUnits(0, 1, {slowId, fastId}));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);

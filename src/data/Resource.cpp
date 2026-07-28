@@ -114,6 +114,7 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
         case ResourceType::COPPER_VESSEL:
         case ResourceType::COPPER_PIPE:
         case ResourceType::MECHANICAL_PARTS:
+        case ResourceType::LIGHT_WEAPON:
         case ResourceType::BRICKS:
         case ResourceType::BALLISTA:
         case ResourceType::BATTERING_RAM:
