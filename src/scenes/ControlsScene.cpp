@@ -68,8 +68,9 @@ void ControlsScene::Update(double dt)
         {"R",           "Road build mode"},
         {"D",           "Destroy mode"},
         {"E",           "Headquarters panel"},
+        {"L",           "Toggle road load overlay"},
         {"S",           "Statistics & economy"},
-        {"F",           "Political focus tree"},
+        {"F",           "Decisions"},
         {"T",           "Technology research"},
         {"U",           "Unit roster & deployment"},
     });
@@ -94,9 +95,9 @@ void ControlsScene::Update(double dt)
         {"ESC / Q",      "Cancel build mode"},
     });
 
-    DrawControlsSection(col2X, y2, "Research & focus", {
-        {"LMB node",     "Research technology / take focus"},
-        {"RMB drag",     "Pan technology / focus tree"},
+    DrawControlsSection(col2X, y2, "Research & decisions", {
+        {"LMB node",     "Research technology / choose decision"},
+        {"RMB drag",     "Pan technology / decisions view"},
         {"Scroll",       "Zoom tree view"},
     });
 

@@ -77,6 +77,41 @@ endif()
 include_directories(inc)
 add_subdirectory(src)
 
+option(ENABLE_BUILD_ACCELERATION "Enable parallel MSVC compilation and precompiled standard-library headers" ON)
+if (ENABLE_BUILD_ACCELERATION)
+    target_precompile_headers(game PRIVATE
+        <algorithm>
+        <array>
+        <atomic>
+        <chrono>
+        <cstdint>
+        <deque>
+        <filesystem>
+        <fstream>
+        <functional>
+        <iomanip>
+        <iostream>
+        <limits>
+        <map>
+        <memory>
+        <mutex>
+        <optional>
+        <queue>
+        <random>
+        <set>
+        <sstream>
+        <string>
+        <thread>
+        <type_traits>
+        <utility>
+        <vector>
+    )
+
+    if (MSVC)
+        target_compile_options(game PRIVATE /MP)
+    endif()
+endif()
+
 if (ENABLE_COVERAGE)
     if (MSVC)
         target_compile_options(game PUBLIC /Od /Zi)

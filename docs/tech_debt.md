@@ -192,7 +192,29 @@ w fundamentach.
   (obecny placeholder), ale do rozwiązania przy prawdziwych sprite'ach (ETAP 9): rozrzucić pozycje
   w małym okręgu/gridzie wokół bramy zamiast dokładnie nakładać.
 
-- [ ] **Podejrzenie: HQ i StorageBuilding mogą wpadać w powtarzający się cykl transportu tego
+- [x] **NAPRAWIONE 2026-07-25 — HQ↔StorageBuilding bounce.** Root cause potwierdzony i usunięty:
+  `StorageComponent::Update` robił ambientowy push całego bufora do KAŻDEGO trackowanego budynku,
+  który akceptował dany typ. Dwa magazyny (HQ + StorageBuilding) akceptują wszystko i oba widziały
+  u siebie nawzajem wolne miejsce → wieczne odbijanie. Zgłoszone niezależnie przez usera tego dnia
+  w mocniejszej formie: **postawienie nowego StorageBuildingu powodowało, że HQ próbowało
+  przerzucić do niego całą swoją zawartość.**
+
+  Fix (jedna zmiana architektoniczna, nie łatka): magazyn jest PASYWNY — przyjmuje dostawy i
+  obsługuje żądania, nigdy sam nie inicjuje transportu (`StorageComponent` nie ma już `Update`).
+  Wszyscy konsumenci i tak ciągnęli sami (`LogisticsComponent::MaintainRequests`,
+  `PopulationComponent::RequestFoodSupply`, Tower/Barracks przez własne komponenty), więc push był
+  redundantny. Żeby pasywność nie zamroziła towaru w "nie tym" magazynie, `RequestResource` ma
+  fallback na całą sieć magazynów przez `StockpileIndex::RankSourcesFor` (najbliższy DROGĄ magazyn
+  który faktycznie ma dany zasób; brak drogi = nie jest źródłem w ogóle). Jawne przepięcie
+  dostawcy przez gracza dalej wygrywa — `LogisticsComponent::IsRestrictedToDirectSuppliers`.
+
+  Regresja przypięta testami: `BuildingDomainTests.NewStorageBuildingDoesNotDrainExistingWarehouses`,
+  `.ConsumerPullsFromUnwiredWarehouseThatHoldsTheStock`, `.RankSourcesForSkipsWarehousesWithNoRoadPath`,
+  `.ConsumerStopsPullingFromHqAfterSupplierReassignment`.
+
+  <details><summary>Oryginalny opis (historyczny)</summary>
+
+  **Podejrzenie: HQ i StorageBuilding mogą wpadać w powtarzający się cykl transportu tego
   samego zasobu tam i z powrotem (nie tylko pojedynczy odbicie, ale ciągły, wieloztukowy
   wzorzec).** Odkryte przypadkowo 2026-07-14 przy pisaniu testu akceptacyjnego dla C1
   (`tests/AIMilitaryPipelineTests.cpp`) — po dłuższej (~60 sim-sekund), w pełni normalnej
@@ -225,6 +247,8 @@ w fundamentach.
   robi się nieco bardziej aktywny/kosztowny. Nie naprawione (wciąż poza zakresem A5/C1) —
   odnotowane tylko jako potwierdzenie że problem jest realny i priorytet dedykowanej sesji
   rośnie.
+
+  </details>
 
 ### 🟡 Średnie
 

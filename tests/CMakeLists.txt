@@ -22,7 +22,10 @@ add_executable(rts_tests
     BuildingPlacementTests.cpp
     CombatPipelineTests.cpp
     EliminationTests.cpp
+    EconomyExpansionTests.cpp
+    FogOfWarTests.cpp
     GameCommandTests.cpp
+    GameSnapshotTests.cpp
     HqCombatSystemTests.cpp
     MapGeneratorTests.cpp
     MilitaryRoadNetworkTests.cpp
@@ -39,6 +42,7 @@ add_executable(rts_tests
     SimulationPerfTests.cpp
     UnitCombatSystemTests.cpp
     UnitMarchSystemTests.cpp
+    WorldLightingTests.cpp
 )
 
 target_link_libraries(rts_tests
@@ -55,6 +59,29 @@ target_link_libraries(rts_tests
 target_include_directories(rts_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/inc
 )
+
+if (ENABLE_BUILD_ACCELERATION)
+    target_precompile_headers(rts_tests PRIVATE
+        <gmock/gmock.h>
+        <gtest/gtest.h>
+        <algorithm>
+        <array>
+        <chrono>
+        <cstdint>
+        <filesystem>
+        <map>
+        <memory>
+        <optional>
+        <set>
+        <string>
+        <utility>
+        <vector>
+    )
+
+    if (MSVC)
+        target_compile_options(rts_tests PRIVATE /MP)
+    endif()
+endif()
 
 if (ENABLE_COVERAGE AND MSVC)
     target_compile_options(rts_tests PRIVATE /Od /Zi)
@@ -83,9 +110,10 @@ if (ENABLE_COVERAGE AND MSVC)
                     --export_type html:${COVERAGE_HTML_DIR}
                     --export_type cobertura:${COVERAGE_XML_FILE}
                     -- $<TARGET_FILE:rts_tests>
+                    --gtest_filter=-AIBehaviorHarnessTests.*
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             DEPENDS rts_tests
-            COMMENT "Running unit tests and generating OpenCppCoverage report"
+            COMMENT "Running fast unit tests and generating OpenCppCoverage report"
         )
     else()
         message(WARNING "OpenCppCoverage not found. Install it or pass -DOPENCPPCOVERAGE_EXECUTABLE=path/to/OpenCppCoverage.exe")
@@ -99,7 +127,8 @@ elseif (ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_program(GCOVR_EXECUTABLE gcovr)
     if (GCOVR_EXECUTABLE)
         add_custom_target(coverage
-            COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+            COMMAND $<TARGET_FILE:rts_tests>
+                    --gtest_filter=-AIBehaviorHarnessTests.*
             COMMAND ${GCOVR_EXECUTABLE}
                     --root ${CMAKE_SOURCE_DIR}
                     --filter ${CMAKE_SOURCE_DIR}/src
@@ -110,7 +139,7 @@ elseif (ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                     --xml ${CMAKE_BINARY_DIR}/coverage.xml
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             DEPENDS rts_tests
-            COMMENT "Running unit tests and generating gcov coverage report"
+            COMMENT "Running fast unit tests and generating gcov coverage report"
         )
     else()
         message(WARNING "gcovr not found.")

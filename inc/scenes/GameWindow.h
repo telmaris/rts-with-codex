@@ -57,6 +57,9 @@ class GameWindow : public EventBroker
     // Runs the frame loop until a quit event is received.
     void MainLoop();
 
+    // Releases scene renderers while the OpenGL context is still alive.
+    void ShutdownRenderers();
+
     // Activates a registered scene and records where navigation came from.
     inline void ChangeScene(std::string name, std::string previousSceneName)
     {

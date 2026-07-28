@@ -276,10 +276,10 @@ void RosterGuiSystem::DestroyPressed()
     owner->ChangeSystem("destroy");
 }
 
-void RosterGuiSystem::HeadquartersPressed()
+void RosterGuiSystem::StockpilePressed()
 {
     cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
+    owner->ChangeSystem("stockpile");
 }
 
 void RosterGuiSystem::StatsPressed()

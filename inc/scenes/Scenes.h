@@ -89,8 +89,14 @@ class OptionsScene : public Scene, public IGuiHandler
         CheckBox fullScreenCheckBox;
         SliderBar masterVolume;
         SliderBar musicVolume;
-        SliderBar sfxVolume;
-};
+          SliderBar sfxVolume;
+          CheckBox fogOfWarCheckBox;
+          CheckBox colorGradingCheckBox;
+          CheckBox retroFilterCheckBox;
+          CheckBox localLightBloomCheckBox;
+          CheckBox rainOverlayCheckBox;
+          CheckBox logisticsOverlayCheckBox;
+  };
 
 // New game form scene.
 class NewGameScene : public Scene, public IGuiHandler
@@ -332,6 +338,8 @@ class GameScene : public Scene, public IGuiHandler
         void ShutdownActiveGame();
         // Repositions the small multiplayer diagnostics label.
         void UpdateNetworkStatusWidget(Vec2i windowSize);
+        // Local visual-only shortcuts. They never submit a game command.
+        void HandleRenderDebugInput();
 
         std::unique_ptr<GameWorld> game{nullptr};
         std::unique_ptr<IGameRuntimeLoop> runtimeLoop{nullptr};

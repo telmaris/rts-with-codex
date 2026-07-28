@@ -1,7 +1,9 @@
 #ifndef TRANSPORT_H
 #define TRANSPORT_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
+
+#include <vector>
 
 class Building;
 class Player;

@@ -31,6 +31,18 @@ namespace
         player.roster.AddUnit(std::move(unit));
         return instanceId;
     }
+
+    // AI players submit commands on the same ticks these tests do, so
+    // results.back() is not reliably the command under test — match on the id
+    // SubmitCommand returned instead.
+    const GameCommandResult* FindResult(const std::vector<GameCommandResult>& results, std::uint64_t commandId)
+    {
+        for (const auto& result : results)
+            if (result.commandId == commandId)
+                return &result;
+        return nullptr;
+    }
+
 }
 
 TEST(UnitMarchSystemTests, DeployRemovesFromRosterAndSpawnsColumnInOrder)
@@ -76,18 +88,19 @@ TEST(UnitMarchSystemTests, DeployRejectsUnknownTargetAndNonRosterUnits)
     std::uint64_t badTargetCmd = world.SubmitCommand(GameCommand::DeployUnits(0, 0, {unitId}));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
     auto results = world.ConsumeCommandResults();
-    ASSERT_FALSE(results.empty());
-    EXPECT_FALSE(results.back().accepted);
+    const GameCommandResult* badTarget = FindResult(results, badTargetCmd);
+    ASSERT_NE(badTarget, nullptr);
+    EXPECT_FALSE(badTarget->accepted);
     EXPECT_EQ(human->roster.units.size(), 1u);
 
     // Unknown unit instance id.
-    world.SubmitCommand(GameCommand::DeployUnits(0, 1, {999999}));
+    std::uint64_t badUnitCmd = world.SubmitCommand(GameCommand::DeployUnits(0, 1, {999999}));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
     results = world.ConsumeCommandResults();
-    ASSERT_FALSE(results.empty());
-    EXPECT_FALSE(results.back().accepted);
+    const GameCommandResult* badUnit = FindResult(results, badUnitCmd);
+    ASSERT_NE(badUnit, nullptr);
+    EXPECT_FALSE(badUnit->accepted);
     EXPECT_EQ(human->roster.units.size(), 1u);
-    (void)badTargetCmd;
 }
 
 TEST(UnitMarchSystemTests, MarchIsDeterministicForSameSeed)

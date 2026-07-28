@@ -1,6 +1,6 @@
 #include "simulation/MilitaryRoadNetwork.h"
 #include "simulation/MapGenerator.h"
-#include "core/Utils.h"
+#include "core/Types.h"
 
 #include <algorithm>
 #include <cmath>

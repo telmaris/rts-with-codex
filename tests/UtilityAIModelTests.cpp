@@ -68,6 +68,172 @@ TEST(UtilityAIModelTests, StoredFoodCanBootstrapPopulationCapacityRecovery)
     EXPECT_FALSE(UtilityAIModel::ManpowerEmergency(situation, 20.0));
 }
 
+TEST(UtilityAIModelTests, FocusScoringRecognizesUrgentMobilizationFromModifiers)
+{
+    AISituation situation;
+    situation.enemyIncomingCount = 4;
+    situation.enemyIncomingStrength = 100.0;
+    situation.manpower = 0.0;
+    situation.populationCap = 100.0;
+    situation.totalPopulation = 100.0;
+    situation.barracksCount = 1;
+
+    TechnologyDefinition rapidRecruitment;
+    rapidRecruitment.id = "rapid_recruitment";
+    rapidRecruitment.researchTime = 30.0;
+    BalanceModifier recruitTime;
+    recruitTime.stat = BalanceStat::UnitRecruitTime;
+    recruitTime.multiplier = 0.8;
+    rapidRecruitment.modifiers.push_back(recruitTime);
+
+    TechnologyDefinition constructionDrive;
+    constructionDrive.id = "construction_drive";
+    constructionDrive.researchTime = 10.0;
+    BalanceModifier buildTime;
+    buildTime.stat = BalanceStat::BuildTime;
+    buildTime.multiplier = 0.8;
+    constructionDrive.modifiers.push_back(buildTime);
+
+    EXPECT_GT(UtilityAIModel::ScoreFocusChoice(rapidRecruitment, situation),
+              UtilityAIModel::ScoreFocusChoice(constructionDrive, situation))
+        << "an untagged recruit-time reduction must still win during emergency mobilization";
+}
+
+TEST(UtilityAIModelTests, FocusScoringUsesTagsForCurrentStrategicProblem)
+{
+    AISituation situation;
+    situation.basicEconomyEstablished = true;
+    situation.economyEstablished = true;
+    situation.manpower = 100.0;
+    situation.populationCap = 100.0;
+    situation.totalPopulation = 50.0;
+    situation.unconnectedPositionIds = {10, 20, 30};
+
+    TechnologyDefinition logistics;
+    logistics.id = "repair_supply_lines";
+    logistics.tags = {"logistics"};
+
+    TechnologyDefinition offense;
+    offense.id = "offensive_spirit";
+    offense.tags = {"military", "offense"};
+
+    EXPECT_GT(UtilityAIModel::ScoreFocusChoice(logistics, situation),
+              UtilityAIModel::ScoreFocusChoice(offense, situation))
+        << "a broken road network should steer the current decision toward logistics";
+}
+
+TEST(UtilityAIModelTests, FocusScoringPrefersTheStrongerRelevantModifier)
+{
+    AISituation situation;
+    situation.enemyIncomingCount = 2;
+    situation.manpower = 5.0;
+    situation.barracksCount = 1;
+
+    TechnologyDefinition minorMobilization;
+    minorMobilization.id = "minor_mobilization";
+    BalanceModifier minorRecruitTime;
+    minorRecruitTime.stat = BalanceStat::UnitRecruitTime;
+    minorRecruitTime.multiplier = 0.95;
+    minorMobilization.modifiers.push_back(minorRecruitTime);
+
+    TechnologyDefinition majorMobilization = minorMobilization;
+    majorMobilization.id = "major_mobilization";
+    majorMobilization.modifiers.front().multiplier = 0.75;
+
+    EXPECT_GT(UtilityAIModel::ScoreFocusChoice(majorMobilization, situation),
+              UtilityAIModel::ScoreFocusChoice(minorMobilization, situation));
+}
+
+TEST(UtilityAIModelTests, FocusPlanningSeesStrategicPayoffThreeDecisionsAhead)
+{
+    AISituation situation;
+    situation.enemyIncomingCount = 4;
+    situation.enemyIncomingStrength = 100.0;
+    situation.manpower = 0.0;
+    situation.populationCap = 100.0;
+    situation.totalPopulation = 100.0;
+    situation.barracksCount = 1;
+
+    TechnologyDefinition immediate;
+    immediate.id = "immediate_military_bonus";
+    immediate.tags = {"military"};
+    immediate.researchTime = 10.0;
+
+    TechnologyDefinition strategicRoot;
+    strategicRoot.id = "strategic_root";
+    strategicRoot.researchTime = 10.0;
+
+    TechnologyDefinition preparation;
+    preparation.id = "preparation";
+    preparation.prerequisites = {strategicRoot.id};
+    preparation.researchTime = 10.0;
+
+    TechnologyDefinition organization;
+    organization.id = "organization";
+    organization.prerequisites = {preparation.id};
+    organization.researchTime = 10.0;
+
+    TechnologyDefinition massMobilization;
+    massMobilization.id = "mass_mobilization";
+    massMobilization.prerequisites = {organization.id};
+    massMobilization.tags = {"military", "mobilization", "manpower"};
+    massMobilization.researchTime = 10.0;
+    BalanceModifier recruitTime;
+    recruitTime.stat = BalanceStat::UnitRecruitTime;
+    recruitTime.multiplier = 0.7;
+    massMobilization.modifiers.push_back(recruitTime);
+    BalanceModifier recruitCost;
+    recruitCost.stat = BalanceStat::UnitRecruitManpowerCost;
+    recruitCost.multiplier = 0.7;
+    massMobilization.modifiers.push_back(recruitCost);
+
+    const std::vector<TechnologyDefinition> definitions{
+        immediate, strategicRoot, preparation, organization, massMobilization};
+    const std::set<std::string> completed;
+
+    const double immediatePlan = UtilityAIModel::ScoreFocusPlan(
+        immediate, definitions, completed, situation, 3);
+    const double shallowStrategicPlan = UtilityAIModel::ScoreFocusPlan(
+        strategicRoot, definitions, completed, situation, 2);
+    const double deepStrategicPlan = UtilityAIModel::ScoreFocusPlan(
+        strategicRoot, definitions, completed, situation, 3);
+
+    EXPECT_LT(shallowStrategicPlan, immediatePlan)
+        << "the payoff is deliberately beyond a two-decision horizon";
+    EXPECT_GT(deepStrategicPlan, immediatePlan)
+        << "a strong mobilization payoff three decisions away should justify its setup chain";
+}
+
+TEST(UtilityAIModelTests, FocusPlanningSumsProfitFromEveryBranch)
+{
+    AISituation situation;
+    situation.basicEconomyEstablished = true;
+    situation.economyEstablished = true;
+    situation.manpower = 100.0;
+    situation.unconnectedPositionIds = {10, 20, 30};
+
+    TechnologyDefinition root;
+    root.id = "infrastructure_program";
+
+    TechnologyDefinition roads;
+    roads.id = "roads_branch";
+    roads.prerequisites = {root.id};
+    roads.tags = {"logistics"};
+
+    TechnologyDefinition transport;
+    transport.id = "transport_branch";
+    transport.prerequisites = {root.id};
+    transport.tags = {"logistics"};
+
+    const std::set<std::string> completed;
+    const std::vector<TechnologyDefinition> oneBranch{root, roads};
+    const std::vector<TechnologyDefinition> twoBranches{root, roads, transport};
+
+    EXPECT_GT(UtilityAIModel::ScoreFocusPlan(root, twoBranches, completed, situation, 3),
+              UtilityAIModel::ScoreFocusPlan(root, oneBranch, completed, situation, 3))
+        << "both profitable outgoing routes must contribute to the root decision";
+}
+
 TEST(UtilityAIModelTests, DebugMapDoesNotHideAIBuildCosts)
 {
     MapParameters params;
@@ -792,6 +958,33 @@ TEST(UtilityAIModelTests, AIUsesAnIdleUniversityOrStartsAFocus)
 
     EXPECT_TRUE(researchStarted())
         << "with an idle University standing, the AI should start a focus or a technology";
+}
+
+TEST(UtilityAIModelTests, AIStartsNextFocusOnFirstTickAfterCompletion)
+{
+    MapParameters params;
+    params.sizeX = 301;
+    params.sizeY = 301;
+    params.aiOpponentCount = 1;
+    params.aiDifficulty = 0;
+    params.seed = 20260725;
+
+    GameWorld world;
+    world.InitWorld("immediate-ai-focus", nullptr, nullptr, params);
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+    const std::string firstFocus = ai->focuses.GetActiveFocusId();
+    ASSERT_FALSE(firstFocus.empty()) << "AI should start its first focus on its first controller tick";
+
+    ai->UpdateFocus(100000.0);
+    ASSERT_TRUE(ai->focuses.GetActiveFocusId().empty());
+    ASSERT_TRUE(ai->focuses.HasFocus(firstFocus));
+
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+    EXPECT_FALSE(ai->focuses.GetActiveFocusId().empty())
+        << "focus selection must bypass the ordinary decision interval and difficulty skip";
 }
 
 // Etap 4: the difficulty noise must be seeded, never wall-clock or unseeded —

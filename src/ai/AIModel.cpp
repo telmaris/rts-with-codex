@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <set>
 
 namespace
@@ -27,6 +28,11 @@ namespace
     // fixed priority tie-break: Defense > RecruitDeploy > EconomySustain >
     // LogisticsRepair > Research.
     constexpr double MinActionableScore = 0.05;
+    // Three edges means the selected decision can be justified by a payoff
+    // three later in its chain. Future value is discounted at every edge so
+    // an urgent direct benefit still beats a merely comparable distant one.
+    constexpr int FocusLookAheadDepth = 3;
+    constexpr double FocusFutureDiscount = 0.65;
 
     // Deterministic opening build order that bootstraps the FOOD_PROVISIONS
     // (manpower) chain, a wood base, AND the iron chain before telemetry has
@@ -187,6 +193,160 @@ namespace
         return total;
     }
 
+    struct AIFocusPriorities
+    {
+        double economy{0.0};
+        double logistics{0.0};
+        double manpower{0.0};
+        double mobilization{0.0};
+        double defense{0.0};
+        double offense{0.0};
+        double expansion{0.0};
+    };
+
+    AIFocusPriorities BuildFocusPriorities(const AISituation& s)
+    {
+        AIFocusPriorities priorities;
+        const double threat = std::clamp(std::max(
+            s.Threat(),
+            s.enemyIncomingCount > 0 ? 0.75 : 0.0), 0.0, 1.0);
+        const double hqDanger = std::clamp(1.0 - s.hqHpRatio, 0.0, 1.0);
+        const double reserve = std::max(1.0, GetAIEconomyBias().manpowerReserve);
+        const double manpowerShortfall = std::clamp((reserve - s.manpower) / reserve, 0.0, 1.0);
+        const double capacityPressure = s.populationCap > 0.0
+            ? std::clamp(s.totalPopulation / s.populationCap, 0.0, 1.0)
+            : 0.0;
+
+        priorities.defense = std::max(threat, hqDanger);
+        priorities.manpower = std::max(manpowerShortfall, capacityPressure * 0.65);
+        priorities.mobilization = std::max({
+            threat,
+            priorities.manpower * (s.barracksCount > 0 ? 0.9 : 0.55),
+            s.basicEconomyEstablished && s.rosterCount < WaveSize ? 0.55 : 0.0});
+        if (s.enemyIncomingCount > 0)
+        {
+            // An attack in progress is the short-term plan: make the next
+            // reinforcements both faster and cheaper in manpower.
+            priorities.mobilization = 1.0;
+            priorities.manpower = std::max(priorities.manpower, 0.9);
+        }
+
+        priorities.logistics = s.unconnectedPositionIds.empty()
+            ? 0.15
+            : std::min(1.0, 0.65 + 0.08 * static_cast<double>(s.unconnectedPositionIds.size() - 1));
+
+        const double deficitUrgency = s.deficits.empty()
+            ? 0.0
+            : std::clamp(s.deficits.front().urgency, 0.0, 1.0);
+        if (!s.basicEconomyEstablished)
+            priorities.economy = 1.0;
+        else if (!s.economyEstablished)
+            priorities.economy = 0.8;
+        else
+            priorities.economy = std::max(0.3, deficitUrgency);
+
+        // Once the economic footing exists, the long-term plan shifts toward
+        // building a force and converting it into pressure. Live danger
+        // suppresses this in favor of the short-term defense plan above.
+        priorities.offense = s.economyEstablished && s.enemyIncomingCount == 0
+            ? (s.rosterCount >= WaveSize ? 0.85 : 0.6)
+            : 0.2;
+        priorities.expansion = s.economyEstablished && priorities.defense < 0.5 ? 0.55 : 0.15;
+        return priorities;
+    }
+
+    bool HasTag(const TechnologyDefinition& definition, const char* tag)
+    {
+        return std::find(definition.tags.begin(), definition.tags.end(), tag) != definition.tags.end();
+    }
+
+    bool LowerIsBetter(BalanceStat stat)
+    {
+        switch (stat)
+        {
+            case BalanceStat::BuildTime:
+            case BalanceStat::BuildCost:
+            case BalanceStat::ProductionCycleTime:
+            case BalanceStat::TransportTime:
+            case BalanceStat::UnitRecruitTime:
+            case BalanceStat::UnitRecruitManpowerCost:
+            case BalanceStat::TowerAmmoEfficiency:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool IsHelpful(const BalanceModifier& modifier)
+    {
+        if (LowerIsBetter(modifier.stat))
+            return modifier.additive < 0.0 || modifier.multiplier < 1.0;
+        return modifier.additive > 0.0 || modifier.multiplier > 1.0;
+    }
+
+    double ModifierImpactWeight(const BalanceModifier& modifier)
+    {
+        const double multiplierImpact = LowerIsBetter(modifier.stat)
+            ? std::max(0.0, 1.0 - modifier.multiplier)
+            : std::max(0.0, modifier.multiplier - 1.0);
+        // Additives have stat-specific units, so use them only as a bounded
+        // quality nudge. Strategic relevance remains more important than
+        // comparing incomparable raw values such as +1 armor and +50 HQ HP.
+        const double additiveImpact = std::min(1.0, std::abs(modifier.additive) * 0.03);
+        return 0.75 + std::min(0.75, multiplierImpact * 3.0 + additiveImpact);
+    }
+
+    double ModifierStrategicValue(const BalanceModifier& modifier,
+                                  const AIFocusPriorities& priorities)
+    {
+        if (!IsHelpful(modifier))
+            return 0.0;
+
+        switch (modifier.stat)
+        {
+            case BalanceStat::BuildTime:
+            case BalanceStat::BuildCost:
+            case BalanceStat::BuilderAmount:
+                return 24.0 * priorities.economy;
+            case BalanceStat::ProductionCycleTime:
+            case BalanceStat::ProductionOutputAmount:
+            case BalanceStat::WorkerCapacity:
+                return 30.0 * priorities.economy;
+            case BalanceStat::TransportTime:
+            case BalanceStat::RoadCapacity:
+            case BalanceStat::RoadSpeed:
+                return 36.0 * priorities.logistics;
+            case BalanceStat::ManpowerRate:
+                return 34.0 * priorities.manpower + 12.0 * priorities.mobilization;
+            case BalanceStat::PopulationCap:
+                return 28.0 * priorities.manpower;
+            case BalanceStat::UnitRecruitTime:
+                return 42.0 * priorities.mobilization + 10.0 * priorities.manpower;
+            case BalanceStat::UnitRecruitManpowerCost:
+                return 38.0 * priorities.mobilization + 18.0 * priorities.manpower;
+            case BalanceStat::UnitHp:
+            case BalanceStat::UnitRoadAttack:
+            case BalanceStat::UnitArmor:
+            case BalanceStat::UnitAttackSpeed:
+                return 25.0 * std::max(priorities.defense, priorities.offense);
+            case BalanceStat::UnitSiegeAttack:
+                return 32.0 * priorities.offense;
+            case BalanceStat::UnitMoveSpeed:
+                return 22.0 * std::max(priorities.mobilization, priorities.offense);
+            case BalanceStat::HqMaxHp:
+            case BalanceStat::HqDefense:
+            case BalanceStat::HqThorns:
+            case BalanceStat::TowerDamage:
+            case BalanceStat::TowerRange:
+            case BalanceStat::TowerAttackSpeed:
+            case BalanceStat::TowerAmmoEfficiency:
+                return 34.0 * priorities.defense;
+            case BalanceStat::ConquestSpoilsFraction:
+                return 30.0 * std::max(priorities.offense, priorities.expansion);
+        }
+        return 0.0;
+    }
+
     // Whether a unit's full resource cost already sits in the building's own
     // storage buffer (the only stock a roadless Barracks can ever consume).
     bool CostLocallyBuffered(const Building& barracks, const UnitDefinition& def)
@@ -302,6 +462,12 @@ void UtilityAIModel::Update(GameWorld& world, Player* player, double dt)
         senseTimer = SenseInterval;
         situation = Sense(world, player);
     }
+
+    // Focuses are a parallel, zero-cost strategic track. They must not wait
+    // for decisionTimer, lose a cycle to difficulty SkipChance, or compete
+    // with an urgent road/build/recruit action.
+    if (player->focuses.GetActiveFocusId().empty())
+        TryStartBestFocus(world, player, situation);
 
     if (roadTimer <= 0.0)
     {
@@ -454,8 +620,6 @@ AISituation UtilityAIModel::Sense(GameWorld& world, Player* player)
 
     s.universityCount = AIActions::CountOwnedBuildings(player, BuildingType::University);
     s.hasIdleUniversity = AIActions::FindUniversity(player) != nullptr;
-    s.focusActive = !player->focuses.GetActiveFocusId().empty();
-
     // Tier-2 priority handoff (2026-07-20): ai.rtsdata's `priority` discount
     // exists to win the OPENING build order (tier-1 wood/stone/food ties
     // against tier-2 iron/tools/swords), not to suppress tier-2 forever. But
@@ -688,8 +852,6 @@ double UtilityAIModel::ScoreNeed(AINeed need, const AISituation& s) const
             double score = 0.0;
             if (s.hasIdleUniversity)
                 score = 0.35;  // a standing idle University is sunk cost — use it
-            if (!s.focusActive)
-                score = std::max(score, 0.25);  // focuses cost nothing to start
             // Building a University is an investment — only once the economy
             // demonstrably carries itself.
             if (s.universityCount == 0 && s.foodProductionAlive && s.productionBuildingCount >= 6)
@@ -1545,22 +1707,10 @@ bool UtilityAIModel::ExecuteRecruitDeploy(GameWorld& world, Player* player, cons
 
 bool UtilityAIModel::ExecuteResearch(GameWorld& world, Player* player, const AISituation& s)
 {
-    // 1. Focus first — costs nothing to start, pure strategic modifier.
-    //    First unlockable in catalog order (focuses.rtsdata is today a flat
-    //    stat cheat-sheet pending its own redesign — a deliberately minimal
-    //    heuristic until that lands).
-    if (!s.focusActive)
-    {
-        for (const auto& def : GetFocusDefinitions())
-        {
-            if (!player->CanUnlockFocus(def.id))
-                continue;
-            world.SubmitCommand(GameCommand::StartFocus(player->id, def.id));
-            return true;
-        }
-    }
-
-    // 2. No University yet — building one IS the research action.
+    // Focus decisions have their own every-tick path in Update(). Research
+    // remains throttled because it consumes a University and may require
+    // building/material investment.
+    // 1. No University yet: building one is the research action.
     if (s.universityCount == 0)
     {
         if (!player->CanBuildDefinition(GetBuildingDefinition(BuildingType::University)))
@@ -1571,7 +1721,7 @@ bool UtilityAIModel::ExecuteResearch(GameWorld& world, Player* player, const AIS
                AIActions::TrySubmitBuild(world, player, BuildingType::University, anchor, actions);
     }
 
-    // 3. Idle University — pick a technology: posture-preferred tag first
+    // 2. Idle University: pick a technology using the posture-preferred tag
     //    (military under pressure, production otherwise), then cheapest.
     //    Deterministic: catalog iteration order breaks ties (strict >).
     Building* university = AIActions::FindUniversity(player);
@@ -1597,6 +1747,130 @@ bool UtilityAIModel::ExecuteResearch(GameWorld& world, Player* player, const AIS
     if (best == nullptr)
         return false;
     world.SubmitCommand(GameCommand::StartTechnologyResearch(player->id, best->id, university->positionId));
+    return true;
+}
+
+double UtilityAIModel::ScoreFocusChoice(const TechnologyDefinition& definition,
+                                        const AISituation& s)
+{
+    const AIFocusPriorities priorities = BuildFocusPriorities(s);
+
+    // Every available focus remains selectable. A shorter focus wins a close
+    // strategic tie because it realizes its benefit and opens its child
+    // sooner, but duration never outweighs a genuinely relevant plan.
+    double score = 1.0 - 0.01 * std::max(0.0, definition.researchTime);
+
+    if (HasTag(definition, "military"))
+        score += 18.0 * std::max({priorities.mobilization, priorities.defense, priorities.offense});
+    if (HasTag(definition, "mobilization") || HasTag(definition, "recruitment"))
+        score += 32.0 * priorities.mobilization;
+    if (HasTag(definition, "manpower") || HasTag(definition, "population"))
+        score += 26.0 * priorities.manpower + 10.0 * priorities.mobilization;
+    if (HasTag(definition, "defense") || HasTag(definition, "fortification"))
+        score += 30.0 * priorities.defense;
+    if (HasTag(definition, "offense") || HasTag(definition, "offensive"))
+        score += 28.0 * priorities.offense;
+    if (HasTag(definition, "logistics"))
+        score += 42.0 * priorities.logistics;
+    if (HasTag(definition, "production") || HasTag(definition, "economy"))
+        score += 24.0 * priorities.economy;
+    if (HasTag(definition, "construction"))
+        score += 18.0 * priorities.economy;
+    if (HasTag(definition, "expansion"))
+        score += 22.0 * priorities.expansion;
+
+    for (const auto& modifier : definition.modifiers)
+        score += ModifierStrategicValue(modifier, priorities) * ModifierImpactWeight(modifier);
+    return score;
+}
+
+double UtilityAIModel::ScoreFocusPlan(const TechnologyDefinition& root,
+                                      const std::vector<TechnologyDefinition>& definitions,
+                                      const std::set<std::string>& completed,
+                                      const AISituation& s,
+                                      int lookAheadDepth)
+{
+    const int boundedDepth = std::clamp(lookAheadDepth, 0, 8);
+    std::set<std::string> path;
+
+    auto scoreBranch = [&](auto&& self,
+                           const TechnologyDefinition& node,
+                           int remainingDepth) -> double
+    {
+        if (completed.contains(node.id) || !path.insert(node.id).second)
+            return 0.0;
+
+        double total = ScoreFocusChoice(node, s);
+        if (remainingDepth > 0)
+        {
+            // Sum every outgoing route rather than keeping only the best
+            // child. A root that opens two useful strategic branches is worth
+            // more than one opening only a single equivalent branch.
+            for (const auto& child : definitions)
+            {
+                if (completed.contains(child.id) || path.contains(child.id) ||
+                    std::find(child.prerequisites.begin(), child.prerequisites.end(), node.id) ==
+                        child.prerequisites.end())
+                    continue;
+
+                int missingOtherPrerequisites = 0;
+                for (const auto& prerequisite : child.prerequisites)
+                    if (!completed.contains(prerequisite) && !path.contains(prerequisite))
+                        missingOtherPrerequisites++;
+
+                // For an AND-node requiring several unfinished branches, this
+                // route receives only its share of the future payoff. It can
+                // still see valuable nodes beyond the convergence without
+                // claiming their full value independently for every parent.
+                const double prerequisiteShare =
+                    1.0 / static_cast<double>(1 + missingOtherPrerequisites);
+                const double timeDiscount =
+                    1.0 / (1.0 + std::max(0.0, child.researchTime) / 120.0);
+                total += FocusFutureDiscount * prerequisiteShare * timeDiscount *
+                         self(self, child, remainingDepth - 1);
+            }
+        }
+
+        path.erase(node.id);
+        return total;
+    };
+
+    return scoreBranch(scoreBranch, root, boundedDepth);
+}
+
+bool UtilityAIModel::TryStartBestFocus(GameWorld& world, Player* player, const AISituation& s)
+{
+    if (player == nullptr || !player->focuses.GetActiveFocusId().empty())
+        return false;
+
+    const auto& definitions = GetFocusDefinitions();
+    const TechnologyDefinition* best = nullptr;
+    double bestScore = -1e18;
+
+    for (const auto& definition : definitions)
+    {
+        if (!player->CanUnlockFocus(definition.id))
+            continue;
+
+        double score = ScoreFocusPlan(
+            definition, definitions, player->focuses.GetUnlocked(), s, FocusLookAheadDepth);
+
+        // Strict comparison preserves catalog order as a deterministic final
+        // tie-break for lockstep.
+        if (score > bestScore)
+        {
+            bestScore = score;
+            best = &definition;
+        }
+    }
+
+    if (best == nullptr)
+        return false;
+    // Controllers run before ProcessCommands, so current-tick targeting is
+    // still command-only mutation while avoiding a pending-command gap (and
+    // duplicate submissions on the next tick).
+    world.SubmitCommand(GameCommand::StartFocus(player->id, best->id),
+                        world.GetSimulationTick());
     return true;
 }
 

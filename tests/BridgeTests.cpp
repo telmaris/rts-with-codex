@@ -150,9 +150,12 @@ TEST(BridgeTests, TransportCrossesBridgeOverMilitaryRoadTrack)
     source->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
     ASSERT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
 
-    // Same reasoning as RoadNetworkTests.cpp's equivalent test: deliberately
-    // does not tick `destination` (two plain storage buildings both accept
-    // WOOD; ticking it too would immediately push the resource back).
+    // Warehouses are passive (StorageComponent has no Update) — a transfer is
+    // always initiated by someone, so ask for it explicitly rather than
+    // relying on an ambient push. Everything under test still runs: the
+    // request goes through Player::BeginTransport -> CalculatePath and the
+    // resource is then walked across the bridge by Transportable::Update.
+    ASSERT_EQ(source->HandleTransport(ResourceType::WOOD, 1, destination), 1);
     for (int tick = 0; tick < 10 && destination->storage.buffers[ResourceType::WOOD].buffer.empty(); tick++)
     {
         source->Update(1.0);

@@ -1,5 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "core/Log.h"
 #include "simulation/MapGenerator.h"
 
 #include <algorithm>
@@ -8,6 +9,26 @@
 #include <set>
 
 // ─── ProductionComponent ─────────────────────────────────────────────────────
+
+void RoadComponent::Update(Building& self, double dt)
+{
+    const int capacity = std::max(1, GetModifiedMaxCapacity(self));
+    const double instantUtilization = std::clamp(
+        static_cast<double>(self.transportables.size()) / static_cast<double>(capacity),
+        0.0, 1.0);
+
+    // A ten-second time constant filters individual resource packages while
+    // still reacting to a developing bottleneck within a few seconds.
+    constexpr double TrendTimeConstantSeconds = 10.0;
+    const double alpha = 1.0 - std::exp(-std::max(0.0, dt) / TrendTimeConstantSeconds);
+    trafficUtilizationEma += (instantUtilization - trafficUtilizationEma) * alpha;
+    trafficUtilizationEma = std::clamp(trafficUtilizationEma, 0.0, 1.0);
+
+    if (static_cast<int>(self.transportables.size()) >= capacity)
+        saturationIndicatorRemaining = 1.25;
+    else
+        saturationIndicatorRemaining = std::max(0.0, saturationIndicatorRemaining - dt);
+}
 
 int RoadComponent::GetModifiedMaxCapacity(const Building& self) const
 {
@@ -21,6 +42,16 @@ double RoadComponent::GetModifiedSpeedModifier(const Building& self) const
     return self.owner != nullptr
         ? self.owner->ResolveStat(speedModifier, &self)
         : speedModifier.GetBase();
+}
+
+double RoadComponent::GetTrafficUtilizationTrend() const
+{
+    return std::clamp(trafficUtilizationEma, 0.0, 1.0);
+}
+
+bool RoadComponent::HasRecentSaturation() const
+{
+    return saturationIndicatorRemaining > 0.0;
 }
 
 ProductionComponent::ProductionComponent()
@@ -260,6 +291,27 @@ bool RecipeComponent::HasSelectableRecipes() const
     return recipes.size() > 1;
 }
 
+bool RecipeComponent::IsRecipeAvailable(const Building& self, int index) const
+{
+    if (index < 0 || index >= static_cast<int>(recipes.size()))
+        return false;
+
+    // Configuration can be applied while a building is being restored, before
+    // an owner is attached.  In that narrow case the normal build/research
+    // validation will still prevent play from reaching an invalid state.
+    if (self.owner == nullptr)
+        return true;
+
+    const auto& recipe = recipes[index];
+    for (const auto& technology : recipe.requiredTechnologies)
+        if (!self.owner->technologies.HasTechnology(technology))
+            return false;
+    for (const auto& focus : recipe.requiredFocuses)
+        if (!self.owner->focuses.HasFocus(focus))
+            return false;
+    return true;
+}
+
 std::string RecipeComponent::GetActiveRecipeName() const
 {
     if (activeRecipeIndex < 0 || activeRecipeIndex >= static_cast<int>(recipes.size()))
@@ -275,17 +327,22 @@ void RecipeComponent::SetRecipes(std::vector<ProductionRecipeRuntime> newRecipes
 {
     recipes = std::move(newRecipes);
     activeRecipeIndex = 0;
-    if (!recipes.empty())
-        SetActiveRecipe(0, self, production, logistics, workers);
+    for (int index = 0; index < static_cast<int>(recipes.size()); index++)
+    {
+        if (SetActiveRecipe(index, self, production, logistics, workers))
+            return;
+    }
 }
 
 bool RecipeComponent::SetActiveRecipe(int index,
-                                      Building&,
+                                      Building& self,
                                       ProductionComponent& production,
                                       LogisticsComponent& logistics,
                                       WorkerComponent& workers)
 {
     if (index < 0 || index >= static_cast<int>(recipes.size()))
+        return false;
+    if (!IsRecipeAvailable(self, index))
         return false;
 
     for (auto& [res, buf] : production.inputBuffers)  buf.Clear();
@@ -324,8 +381,13 @@ bool RecipeComponent::CycleRecipe(Building& self,
 {
     if (recipes.size() <= 1)
         return false;
-    int next = (activeRecipeIndex + 1) % static_cast<int>(recipes.size());
-    return SetActiveRecipe(next, self, production, logistics, workers);
+    for (int offset = 1; offset < static_cast<int>(recipes.size()); offset++)
+    {
+        int next = (activeRecipeIndex + offset) % static_cast<int>(recipes.size());
+        if (SetActiveRecipe(next, self, production, logistics, workers))
+            return true;
+    }
+    return false;
 }
 
 // ─── ResearchComponent ───────────────────────────────────────────────────────

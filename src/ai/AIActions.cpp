@@ -1,5 +1,6 @@
 #include "ai/AIActions.h"
 #include "core/GameWorld.h"
+#include "economy/StockpileIndex.h"
 #include "simulation/PathingService.h"
 
 #include <algorithm>
@@ -169,21 +170,7 @@ int CountCompletedOrQueuedBuildings(GameWorld& world, Player* player, BuildingTy
 
 int CountStoredResource(Player* player, ResourceType type)
 {
-    int amount = 0;
-    if (player == nullptr)
-        return amount;
-
-    for (const auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
-    {
-        const auto* storage = building->GetComponent<StorageComponent>();
-        if (storage == nullptr || building->owner != player)
-            continue;
-
-        auto it = storage->buffers.find(type);
-        if (it != storage->buffers.end())
-            amount += static_cast<int>(it->second.buffer.size());
-    }
-    return amount;
+    return player != nullptr ? StockpileIndex::GetTotal(*player, type) : 0;
 }
 
 int CountProducersOfResource(Player* player, ResourceType resource)
@@ -469,6 +456,7 @@ Building* FindNearestStorageConnectedRoad(GameWorld& world, Player* player, cons
 std::vector<AIProducerOption> FindProducerOptions(ResourceType resource)
 {
     std::vector<AIProducerOption> options;
+    const auto& buildableTypes = GetBuildableBuildingTypes();
     auto inspectProduction = [&](BuildingType buildingType, TileType terrain, const ProductionDefinition& production)
     {
         if (production.cycleTime <= 0.0)
@@ -488,6 +476,10 @@ std::vector<AIProducerOption> FindProducerOptions(ResourceType resource)
 
     for (const auto& definition : GetBuildingDefinitions())
     {
+        if (std::find(buildableTypes.begin(), buildableTypes.end(), definition.type) ==
+            buildableTypes.end())
+            continue;
+
         TileType baseTerrain = definition.type == BuildingType::Woodcutter ? TileType::WOOD : TileType::GRASS;
         inspectProduction(definition.type, baseTerrain, definition.production);
         for (const auto& terrainProduction : definition.terrainProductions)
@@ -1191,16 +1183,8 @@ bool SubmitRoadPath(GameWorld& world, Player* player, const Building* source,
     // ledger while batching this path so every submitted tile is affordable
     // together, not merely against the same pre-command stock snapshot.
     std::map<ResourceType, int> remainingResources;
-    for (const Building* storageBuilding : player->GetTrackedBuildingsWithComponent<StorageComponent>())
-    {
-        if (storageBuilding == nullptr || storageBuilding->owner != player)
-            continue;
-        const auto* storage = storageBuilding->GetComponent<StorageComponent>();
-        if (storage == nullptr)
-            continue;
-        for (const auto& [resourceType, buffer] : storage->buffers)
-            remainingResources[resourceType] += static_cast<int>(buffer.buffer.size());
-    }
+    for (const auto& [resourceType, totals] : StockpileIndex::Snapshot(*player))
+        remainingResources[resourceType] = totals.amount;
 
     for (int tileId : path)
     {

@@ -2,6 +2,7 @@
 #define GAMEWORLD_INTERNAL_H
 
 #include "core/GameWorld.h"
+#include "core/Log.h"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,27 @@ namespace GameWorldInternal
             case BuildingType::Road: return std::make_unique<Road>(id);
             case BuildingType::DefenseTower: return std::make_unique<DefenseTower>(id);
             case BuildingType::Bridge: return std::make_unique<Bridge>(id);
+            case BuildingType::AnimalFarm:
+            case BuildingType::Butcher:
+            case BuildingType::Tannery:
+            case BuildingType::Tailor:
+            case BuildingType::Armorer:
+            case BuildingType::HorseStable:
+            case BuildingType::Kiln:
+            case BuildingType::HouseholdWorkshop:
+            case BuildingType::Soapworks:
+            case BuildingType::Inkworks:
+            case BuildingType::Scriptorium:
+            case BuildingType::Copperworks:
+            case BuildingType::UrbanWorkshop:
+            case BuildingType::HempFarm:
+            case BuildingType::Ropery:
+            case BuildingType::Weaver:
+            case BuildingType::Bowyer:
+            case BuildingType::Fletchery:
+            case BuildingType::SpearWorkshop:
+            case BuildingType::SiegeWorkshop:
+                return std::make_unique<ConfiguredProductionBuilding>(id, type);
             default: return nullptr;
         }
     }
@@ -110,6 +132,54 @@ namespace GameWorldInternal
                a.y + aSize.y + padding > b.y - padding;
     }
 
+    // Builds a compact, rounded rectangle with a gently uneven outline.
+    // The old radius-4 circle occupied 49 tiles. These masks contain 52-53
+    // tiles (+6-8%), remain 4-connected, and may be rotated so the four
+    // starting deposits do not all share the same silhouette.
+    inline std::vector<Vec2i> BuildStartingResourcePatchOffsets(std::mt19937& rng)
+    {
+        constexpr std::array<int, 7> halfWidths{2, 3, 4, 4, 4, 3, 2};
+        std::uniform_int_distribution<int> shiftDist(-1, 1);
+        std::uniform_int_distribution<int> extraTileDist(1, 2);
+        std::uniform_int_distribution<int> rotationDist(0, 1);
+
+        const int upperShift = shiftDist(rng);
+        const int lowerShift = shiftDist(rng);
+        const bool rotate = rotationDist(rng) != 0;
+
+        std::vector<Vec2i> offsets;
+        offsets.reserve(53);
+        for (int row = 0; row < static_cast<int>(halfWidths.size()); row++)
+        {
+            const int y = row - 3;
+            const int rowShift = y < -1 ? upperShift : (y > 1 ? lowerShift : 0);
+            for (int x = -halfWidths[row]; x <= halfWidths[row]; x++)
+                offsets.push_back({x + rowShift, y});
+        }
+
+        // Add one or two small shoulder bulges. Restricting them away from
+        // the top/bottom tips keeps the edge rounded instead of spiky.
+        std::vector<Vec2i> shoulderCandidates;
+        for (int row = 1; row <= 5; row++)
+        {
+            const int y = row - 3;
+            const int rowShift = y < -1 ? upperShift : (y > 1 ? lowerShift : 0);
+            shoulderCandidates.push_back({rowShift - halfWidths[row] - 1, y});
+            shoulderCandidates.push_back({rowShift + halfWidths[row] + 1, y});
+        }
+        std::shuffle(shoulderCandidates.begin(), shoulderCandidates.end(), rng);
+        const int extraTiles = extraTileDist(rng);
+        offsets.insert(offsets.end(), shoulderCandidates.begin(),
+                       shoulderCandidates.begin() + extraTiles);
+
+        if (rotate)
+        {
+            for (Vec2i& offset : offsets)
+                std::swap(offset.x, offset.y);
+        }
+        return offsets;
+    }
+
     // `minCenterDist`/`maxCenterDist`: ring the patch center must fall in
     // (tiles from HQ center). `preferredDir`: unit-ish direction vector the
     // search biases toward within that ring, so multiple patches (WOOD/
@@ -121,16 +191,27 @@ namespace GameWorldInternal
                                     int minCenterDist, int maxCenterDist, Vec2i preferredDir)
     {
         Vec2i center{hqAnchor.x + hqFootprint.x / 2, hqAnchor.y + hqFootprint.y / 2};
-        int radius = 4;
+        const std::vector<Vec2i> patchOffsets = BuildStartingResourcePatchOffsets(rng);
+        Vec2i minOffset = patchOffsets.front();
+        Vec2i maxOffset = patchOffsets.front();
+        int maxExtent = 0;
+        for (Vec2i offset : patchOffsets)
+        {
+            minOffset.x = std::min(minOffset.x, offset.x);
+            minOffset.y = std::min(minOffset.y, offset.y);
+            maxOffset.x = std::max(maxOffset.x, offset.x);
+            maxOffset.y = std::max(maxOffset.y, offset.y);
+            maxExtent = std::max({maxExtent, std::abs(offset.x), std::abs(offset.y)});
+        }
         // User request (2026-07-17): patch centers live in a ring around the
-        // HQ center (radius 4 patch stays clear of the 10-tile HQ build apron
-        // once minCenterDist is 17+) while staying inside the starting zone.
+        // HQ center (the patch stays clear of the 10-tile HQ build apron once
+        // minCenterDist is 17+) while staying inside the starting zone.
         // COAL/IRON_ORE (user request 2026-07-19: iron is often missing near
         // spawn) use a wider ring than WOOD/STONE so all four patches fit
         // around the HQ without collisions.
         int kMinPatchCenterDist = minCenterDist;
         int kMaxPatchCenterDist = maxCenterDist;
-        int preferredMagnitude = kMaxPatchCenterDist - radius;
+        int preferredMagnitude = kMaxPatchCenterDist - maxExtent;
         Vec2i preferredOffset{preferredDir.x * preferredMagnitude, preferredDir.y * preferredMagnitude};
 
         // Track-side reachability (user report 2026-07-19, AIBehaviorHarnessTests
@@ -194,8 +275,10 @@ namespace GameWorldInternal
                 if (!tilemap.IsInside(patchCenter) || !sameSideAsHq[tilemap.GetIdFromCoords(patchCenter)])
                     continue;
 
-                Vec2i patchAnchor{patchCenter.x - radius, patchCenter.y - radius};
-                Vec2i patchSize{radius * 2 + 1, radius * 2 + 1};
+                Vec2i patchAnchor{patchCenter.x + minOffset.x, patchCenter.y + minOffset.y};
+                Vec2i patchSize{
+                    maxOffset.x - minOffset.x + 1,
+                    maxOffset.y - minOffset.y + 1};
                 if (!tilemap.IsInsideFootprint(patchAnchor, patchSize))
                     continue;
                 if (FootprintsOverlap(patchAnchor, patchSize, hqAnchor, hqFootprint, 1) ||
@@ -203,21 +286,15 @@ namespace GameWorldInternal
                     continue;
 
                 int paintableTiles = 0;
-                for (int py = -radius; py <= radius; py++)
+                for (Vec2i offset : patchOffsets)
                 {
-                    for (int px = -radius; px <= radius; px++)
-                    {
-                        if (px * px + py * py > radius * radius)
-                            continue;
+                    Vec2i pos{patchCenter.x + offset.x, patchCenter.y + offset.y};
+                    if (!tilemap.IsInside(pos))
+                        continue;
 
-                        Vec2i pos{patchCenter.x + px, patchCenter.y + py};
-                        if (!tilemap.IsInside(pos))
-                            continue;
-
-                        const Tile& tile = tilemap[pos];
-                        if (tile.tileType == TileType::GRASS && !tile.HasBuilding() && !tile.isMilitaryRoad)
-                            paintableTiles++;
-                    }
+                    const Tile& tile = tilemap[pos];
+                    if (tile.tileType == TileType::GRASS && !tile.HasBuilding() && !tile.isMilitaryRoad)
+                        paintableTiles++;
                 }
 
                 if (paintableTiles <= 0)
@@ -254,38 +331,32 @@ namespace GameWorldInternal
             return;
 
         int painted = 0;
-        for (int y = -radius; y <= radius; y++)
+        for (Vec2i offset : patchOffsets)
         {
-            for (int x = -radius; x <= radius; x++)
-            {
-                if (x * x + y * y > radius * radius)
-                    continue;
+            Vec2i pos{bestCenter.x + offset.x, bestCenter.y + offset.y};
+            if (!tilemap.IsInside(pos))
+                continue;
 
-                Vec2i pos{bestCenter.x + x, bestCenter.y + y};
-                if (!tilemap.IsInside(pos))
-                    continue;
+            auto* building = tilemap.GetBuilding(pos);
+            if (building != nullptr)
+                continue;
 
-                auto* building = tilemap.GetBuilding(pos);
-                if (building != nullptr)
-                    continue;
+            Tile& tile = tilemap[pos];
+            if (tile.tileType != TileType::GRASS)
+                continue;
+            // Since the 2026-07-12 generation reorder these starting
+            // patches run AFTER the military road is baked — a road tile
+            // still has tileType GRASS (only isMilitaryRoad + richness=0
+            // are set), so without this check the patch painted WOOD/
+            // STONE straight over the unit track (user report 2026-07-14:
+            // "tor jednostek na poletku kamienia czy drewna").
+            if (tile.isMilitaryRoad)
+                continue;
 
-                Tile& tile = tilemap[pos];
-                if (tile.tileType != TileType::GRASS)
-                    continue;
-                // Since the 2026-07-12 generation reorder these starting
-                // patches run AFTER the military road is baked — a road tile
-                // still has tileType GRASS (only isMilitaryRoad + richness=0
-                // are set), so without this check the patch painted WOOD/
-                // STONE straight over the unit track (user report 2026-07-14:
-                // "tor jednostek na poletku kamienia czy drewna").
-                if (tile.isMilitaryRoad)
-                    continue;
-
-                tile.tileType = type;
-                tile.terrainTextureId = tilemap.PickTerrainTexture(type, rng);
-                tile.resourceRichness = std::max(1, tilemap.params.resourceRichness);
-                painted++;
-            }
+            tile.tileType = type;
+            tile.terrainTextureId = tilemap.PickTerrainTexture(type, rng);
+            tile.resourceRichness = std::max(1, tilemap.params.resourceRichness);
+            painted++;
         }
         if (painted == 0)
             Log::Msg("[MapGenerator]", "Starting resource patch failed for tile type ", static_cast<int>(type));
@@ -320,14 +391,36 @@ namespace GameWorldInternal
     // building's footprint (same pattern AIActions::SubmitRoadPath uses),
     // treating every isMilitaryRoad-avoiding, buildable tile as passable.
     // Read-only — places nothing. Returns an empty path if no route exists.
+    inline bool HasMilitaryRoadClearance(TileMap& tilemap, Vec2i anchor, Vec2i footprint, int clearance)
+    {
+        for (int y = anchor.y; y < anchor.y + footprint.y; y++)
+        {
+            for (int x = anchor.x; x < anchor.x + footprint.x; x++)
+            {
+                for (int offsetY = -clearance; offsetY <= clearance; offsetY++)
+                {
+                    for (int offsetX = -clearance; offsetX <= clearance; offsetX++)
+                    {
+                        Vec2i nearby{x + offsetX, y + offsetY};
+                        if (tilemap.IsInside(nearby) && tilemap[nearby].isMilitaryRoad)
+                            return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     inline std::vector<int> FindRoadPathBetweenFootprints(TileMap& tilemap, Player* player,
-        Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
+        Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint,
+        int militaryRoadClearance = 0)
     {
         const auto& roadDefinition = GetBuildingDefinition(BuildingType::Road);
         auto passable = [&](int tileId)
         {
             Vec2i pos = tilemap.GetCoordsFromId(tileId);
-            return tilemap.CanBuildFootprint(pos, roadDefinition.footprint, player, BuildingType::Road);
+            return tilemap.CanBuildFootprint(pos, roadDefinition.footprint, player, BuildingType::Road) &&
+                   HasMilitaryRoadClearance(tilemap, pos, roadDefinition.footprint, militaryRoadClearance);
         };
 
         std::vector<int> fromAdjacent = tilemap.GetAdjacentTileIds(fromAnchor, fromFootprint);
@@ -420,13 +513,15 @@ namespace GameWorldInternal
     // lives in FindRoadPathBetweenFootprints above so callers can measure a
     // route's length before committing to build it (village-too-far re-roll,
     // GameWorld.Init.cpp).
-    inline void BuildStartRoad(Player* player, Vec2i fromAnchor, Vec2i fromFootprint, Vec2i toAnchor, Vec2i toFootprint)
+    inline void BuildStartRoad(Player* player, Vec2i fromAnchor, Vec2i fromFootprint,
+        Vec2i toAnchor, Vec2i toFootprint, int militaryRoadClearance = 0)
     {
         if (player == nullptr)
             return;
 
         TileMap& tilemap = player->tilemap;
-        std::vector<int> path = FindRoadPathBetweenFootprints(tilemap, player, fromAnchor, fromFootprint, toAnchor, toFootprint);
+        std::vector<int> path = FindRoadPathBetweenFootprints(
+            tilemap, player, fromAnchor, fromFootprint, toAnchor, toFootprint, militaryRoadClearance);
 
         // No track-avoiding route exists — leave the village unconnected
         // rather than place a Road the placement rules would refuse anyway

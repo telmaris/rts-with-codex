@@ -1,5 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "core/Log.h"
 #include "simulation/MapGenerator.h"
 #include "BuildingComponentsInternal.h"
 
@@ -80,78 +81,23 @@ int StorageComponent::HandleTransport(ResourceType type, int amount, Building* r
     return sent;
 }
 
-void StorageComponent::Update(Building& self, double dt)
-{
-    if (self.owner == nullptr)
-        return;
-
-    // T3 fix (docs/post_pivot_audit_2026-07-12.md): a tower's ammo buffer and
-    // Barracks' unit-cost buffers exist purely as demand sinks for this
-    // building's own consumption (TowerCombatComponent/RecruitmentComponent),
-    // not a general warehouse to redistribute from. Without this guard, the
-    // moment ammo/costs arrive they get auto-pushed straight back out to the
-    // nearest other building that also accepts the type (e.g. the warehouse
-    // they just came from) — a real, reproducible bounce that never lets
-    // ammo/costs actually accumulate for use.
-    if (self.HasComponent<TowerCombatComponent>() || self.HasComponent<RecruitmentComponent>())
-        return;
-
-    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): with 2+
-    // valid receivers competing for a finite buffer, whichever one is visited
-    // first drains it — so iteration order is simulation-visible and must not
-    // depend on Building* heap addresses (same bug class as the main
-    // per-tick building loop / PrimitiveAIModel::TryBuildRoads). Sort once
-    // per Update() call rather than per-resource-type.
-    std::vector<Building*> sortedReceivers(self.owner->GetTrackedBuildings().begin(), self.owner->GetTrackedBuildings().end());
-    std::sort(sortedReceivers.begin(), sortedReceivers.end(), [](Building* a, Building* b) { return a->id < b->id; });
-
-    std::vector<Building*> visitedReceivers;
-    for (auto& [res, buf] : buffers)
-    {
-        if (buf.buffer.empty())
-            continue;
-
-        visitedReceivers.clear();
-        // OPTIMIZATION: Iterate tracked buildings instead of full tilemap (~100 vs 1M tiles).
-        for (Building* receiver : sortedReceivers)
-        {
-            if (receiver == nullptr || receiver == &self)
-                continue;
-            if (std::find(visitedReceivers.begin(), visitedReceivers.end(), receiver) != visitedReceivers.end())
-                continue;
-            visitedReceivers.push_back(receiver);
-            // User report (docs/work_plan_2026-07-13.md, 2026-07-15): a Barracks
-            // has buffer room from the moment it's built, so this ambient
-            // "push to anyone who'll accept" scan was delivering unit-cost
-            // resources to it starting turn one, regardless of whether the
-            // player had ever ordered a unit. Recruitment costs now move only
-            // via RecruitmentComponent's own explicit RequestResource call
-            // (RecruitmentComponent::QueueRecruitment) — never via this
-            // ambient distribution.
-            if (receiver->HasComponent<RecruitmentComponent>())
-                continue;
-            if (!receiver->CanAcceptResource(res))
-                continue;
-            // User report (2026-07-20): a receiver that explicitly rewired its
-            // supplier for `res` away from `self` (e.g. a LumberMill switched
-            // from the HQ fallback to a directly-connected Woodcutter) must
-            // stop receiving `res` from `self` — otherwise this ambient scan
-            // keeps feeding it from the old link regardless of the explicit
-            // reassignment, and the new supplier's own deliveries just pile up
-            // as excess since the input buffer never runs empty.
-            if (!receiver->AcceptsSupplierFor(res, &self))
-                continue;
-
-            int free = GetReceiveCapacity(receiver, res);
-            if (free <= 0)
-                continue;
-
-            HandleTransport(res, free, receiver, self);
-            if (buf.buffer.empty())
-                break;
-        }
-    }
-}
+// Storage is deliberately passive: it accepts deliveries and serves requests,
+// and never initiates a transfer of its own.
+//
+// User report (2026-07-25): this used to be an ambient "push my whole buffer
+// to anything that will accept it" scan over every tracked building. A newly
+// built StorageBuilding accepts EVERY resource type and starts empty, so the
+// moment one went up the HQ began emptying itself into it — and the new
+// warehouse pushed straight back, which is the HQ<->StorageBuilding bounce
+// recorded in docs/tech_debt.md. The scan was also redundant: every consumer
+// already pulls what it needs (ProductionComponent via
+// LogisticsComponent::MaintainRequests, Village via
+// PopulationComponent::RequestFoodSupply, DefenseTower/Barracks via their own
+// components' RequestResource), and those pulls now reach the whole warehouse
+// network through StockpileIndex::RankSourcesFor, so nothing is stranded by
+// dropping the push.
+//
+// Update() is intentionally not overridden anymore — see the header.
 
 std::vector<ResourceBufferView> StorageComponent::GetBufferViews() const
 {

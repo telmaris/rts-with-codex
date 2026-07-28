@@ -1,7 +1,8 @@
 #ifndef GAMEWORLD_H
 #define GAMEWORLD_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
+#include "core/FogOfWar.h"
 #include "ai/Controller.h"
 #include "core/GameCommand.h"
 #include "core/GameSnapshot.h"
@@ -69,6 +70,10 @@ class GameWorld
         // Id of the sole surviving player once every other has been eliminated
         // (a decided game); -1 while two or more players remain. Deterministic.
         int GetVictorPlayerId() const;
+        // Returns whether every tile of a proposed footprint is currently
+        // revealed to this player by deterministic gameplay fog sources.
+        // The renderer's soft mask is deliberately not consulted here.
+        bool IsBuildFootprintVisibleToPlayer(int playerId, Vec2i anchor, Vec2i footprint) const;
         // TD(etap-6.3): eliminates a player whose HQ has fallen — flags them
         // defeated, clears their deployed units/roster/spawn queues,
         // transfers their production buildings to the conqueror with a
@@ -157,6 +162,10 @@ class GameWorld
         // Advances deployed BattleUnit marching/spawning (TD etap-4). Thin
         // delegator (GameWorld.Units.cpp) to UnitMarchSystem::Update.
         void UpdateUnits(double dt);
+        // Recomputes current visibility from owned buildings and deployed units.
+        // Derived state is intentionally rebuilt after load/snapshot rather than
+        // serialized as a visual texture or GPU resource.
+        void UpdateFogOfWar();
     
     public:
         Renderer*     render{nullptr};
@@ -171,6 +180,7 @@ class GameWorld
         std::map<int, BattleUnit> deployedUnits;
         std::map<std::pair<int, int>, std::deque<int>> spawnQueues;
         std::map<int, AttackEmission> projectiles;
+        std::map<int, FogOfWarState> fogOfWarByPlayer;
         CombatTelemetry combatTelemetry;
         int nextProjectileId{1};
         std::deque<GameCommand> pendingCommands;

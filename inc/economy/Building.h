@@ -5,7 +5,7 @@
 #include <array>
 #include <memory>
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "data/Resource.h"
 #include "simulation/Transport.h"
 #include "core/Stat.h"
@@ -53,7 +53,28 @@ enum class BuildingType : int
     // REQUIRES that ground instead of refusing it (see TileMap::
     // CanBuildFootprint). Appended at the end so old save files (which
     // serialize this enum as a plain int) keep loading unchanged.
-    Bridge = 41
+    Bridge = 41,
+
+    AnimalFarm = 42,
+    Butcher = 43,
+    Tannery = 44,
+    Tailor = 45,
+    Armorer = 46,
+    HorseStable = 47,
+    Kiln = 48,
+    HouseholdWorkshop = 49,
+    Soapworks = 50,
+    Inkworks = 51,
+    Scriptorium = 52,
+    Copperworks = 53,
+    UrbanWorkshop = 54,
+    HempFarm = 55,
+    Ropery = 56,
+    Weaver = 57,
+    Bowyer = 58,
+    Fletchery = 59,
+    SpearWorkshop = 60,
+    SiegeWorkshop = 61
 };
 
 // True for every building type the resource-road network (RoadNetwork/
@@ -80,7 +101,8 @@ enum class TileType : int
     GOLD_ORE = 8,
     SAND = 9,
     SULFUR = 10,
-    SALTPETER = 11
+    SALTPETER = 11,
+    CLAY = 12
 };
 
 // Coarse terrain region driving resource placement (and, later, ground visuals).
@@ -359,6 +381,7 @@ public:
 
     // --- Component member ---
     PopulationComponent population;
+    UpgradeComponent upgrade;
 };
 
 // Recruitment factory. Holds a StorageComponent buffer for delivered unit

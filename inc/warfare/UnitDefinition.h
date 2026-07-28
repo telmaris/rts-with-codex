@@ -19,7 +19,8 @@ enum class DamageType
 
 enum class MovementType
 {
-    Ground
+    Ground,
+    Flying
 };
 
 struct UnitCostEntry
@@ -52,10 +53,17 @@ struct UnitDefinition
     DamageType damageType{DamageType::Physical};
     std::map<DamageType, float> resistances;
     MovementType movementType{MovementType::Ground};
+    bool canTargetFlying{false};
+    bool cavalry{false};
+    double antiCavalryMultiplier{1.0};
+    int areaTargets{1};
     double colliderRadius{0.4};
     std::vector<std::string> abilities; // accepted, ignored until an ability system exists
 
     BuildingType recruitBuilding{BuildingType::Barracks};
+    // Empty means available from the start; otherwise recruitment is gated by
+    // a completed technology id from technologies.rtsdata.
+    std::string requiredTechnology;
     double recruitTime{10.0};
     std::vector<UnitCostEntry> cost;
     double manpowerCost{0.0};

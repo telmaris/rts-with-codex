@@ -37,6 +37,11 @@ struct ProductionRecipeDefinition
 {
     std::string name;
     ProductionDefinition production;
+    // A building may exist before all of its production methods do.  These
+    // gates keep late products data-driven instead of requiring a second
+    // building type for every historical refinement.
+    std::vector<std::string> requiredTechnologies;
+    std::vector<std::string> requiredFocuses;
 };
 
 struct RoadDefinition

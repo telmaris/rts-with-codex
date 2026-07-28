@@ -1,5 +1,6 @@
 #include "scenes/Scenes.h"
 #include "scenes/SceneUtils.h"
+#include "core/Log.h"
 #include "multiplayer/TcpGameTransport.h"
 
 #include <array>

@@ -16,6 +16,7 @@
 #endif
 
 #include "multiplayer/TcpGameTransport.h"
+#include "core/Log.h"
 
 #include <algorithm>
 #include <chrono>

@@ -211,6 +211,24 @@ private:
     std::vector<ResourceType> filterResources;
 };
 
+// Full-screen stockpile overview: everything the player's warehouse network
+// holds, aggregated. A building's own panel deliberately shows only that
+// building's contents (user request, 2026-07-25) — this is the global view,
+// and hovering a resource breaks the total down per warehouse.
+class StockpilePanelWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+    float scrollOffset{0.0f};
+    float maxScrollOffset{0.0f};
+
+private:
+    // Grid geometry shared by drawing and hover hit-testing.
+    Rectangle GetGridRect() const;
+};
+
 // Which research tree a ResearchTreePanelWidget renders.
 enum class ResearchTreeKind
 {
@@ -309,13 +327,12 @@ public:
     // Enters road placement mode.
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
     void RosterPressed();
     void CenterOnHeadquartersPressed();
-    void OpenHeadquartersPanel();
 
     // Handles map selection and panel interactions.
     void LmbPressed();
@@ -380,7 +397,7 @@ public:
     // Toggles road build mode.
     virtual void RoadBuildPressed();
     virtual void DestroyPressed();
-    virtual void HeadquartersPressed();
+    virtual void StockpilePressed();
     virtual void StatsPressed();
     virtual void FocusPressed();
     virtual void TechPressed();
@@ -399,7 +416,6 @@ public:
 protected:
     // Switches controller back to default map view.
     void ReturnToMapView();
-    void OpenHeadquartersAndReturn();
     // Returns map tile currently under cursor.
     Vec2i GetHoveredTile() const;
     // Returns true when selected building can be placed at tile.
@@ -471,7 +487,7 @@ public:
     void BuildPressed();
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
@@ -510,7 +526,7 @@ public:
     void BuildPressed();
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
@@ -544,7 +560,7 @@ public:
     void BuildPressed();
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
@@ -582,7 +598,7 @@ public:
     void BuildPressed();
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
@@ -619,7 +635,7 @@ public:
     void BuildPressed();
     void RoadBuildPressed();
     void DestroyPressed();
-    void HeadquartersPressed();
+    void StockpilePressed();
     void StatsPressed();
     void FocusPressed();
     void TechPressed();
@@ -633,6 +649,42 @@ public:
 private:
     CameraMovement cameraMovement;
     RosterPanelWidget rosterPanel;
+    StrategicResourceHudWidget strategicHudWidget;
+};
+
+// Stockpile full-screen mode — opened with E, following the same recipe as
+// StatsGuiSystem/RosterGuiSystem.
+class StockpileGuiSystem : public GuiSystem
+{
+public:
+    explicit StockpileGuiSystem(GuiController* con);
+    StockpileGuiSystem() = delete;
+
+    // Shadows GuiSystem::scene (A4, docs/work_plan_2026-07-13.md) — public so
+    // the free WireCommonSystemActions template (GuiInternal.h) can read it.
+    GameScene* scene{nullptr};
+
+    void UpdateUiWidgets(Vec2i) override;
+    void Update(double dt) override;
+
+    void EscPressed();
+    void BuildPressed();
+    void RoadBuildPressed();
+    void DestroyPressed();
+    void StockpilePressed();
+    void StatsPressed();
+    void FocusPressed();
+    void TechPressed();
+    void RosterPressed();
+    void LmbPressed();
+    void LmbReleased();
+    void RmbPressed();
+    void RmbReleased();
+    void Scroll();
+
+private:
+    CameraMovement cameraMovement;
+    StockpilePanelWidget stockpilePanel;
     StrategicResourceHudWidget strategicHudWidget;
 };
 

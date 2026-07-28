@@ -1,34 +1,28 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "simulation/MapGenerator.h"
 #include "BuildingComponentsInternal.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
-#include <set>
-#include <vector>
-
-// ─── PopulationComponent ─────────────────────────────────────────────────────
 
 void PopulationComponent::Update(Building& self, double dt)
 {
     if (self.owner == nullptr)
         return;
 
-    // T6 (docs/post_pivot_audit_2026-07-12.md): actively pull FOOD_PROVISIONS
-    // from the owner's storage every tick — same pattern as DefenseTower's
-    // ammo / Barracks' unit costs (T3). Before this fix a village only ever
-    // received food pushed by a supplier's own StorageComponent::Update
-    // (via AutoConnectBuilding's auto-wiring), with nothing to actively
-    // request it if no producer happened to auto-connect nearby.
-    RequestFoodSupply(self);
+    RequestSupply(self, ResourceType::FOOD_PROVISIONS);
+    if (settlementLevel >= 2)
+        RequestSupply(self, ResourceType::HOUSEHOLD_GOODS);
+    if (settlementLevel >= 3)
+        RequestSupply(self, ResourceType::URBAN_GOODS);
 
     bool hasBufferedFood = !foodBuffer.buffer.empty();
     bool hasIncomingFood = CountIncomingResources(&self, ResourceType::FOOD_PROVISIONS) > 0;
     if (!hasBufferedFood && !hasIncomingFood)
     {
-        double dropRate = 0.08 / std::max(0.45, foodSupplyLevel);  // No food → rapid productivity drop
+        double dropRate = 0.08 / std::max(0.45, foodSupplyLevel);
         foodSupplyLevel = std::max(0.0, foodSupplyLevel - dropRate * dt);
     }
 
@@ -36,25 +30,44 @@ void PopulationComponent::Update(Building& self, double dt)
     if (upkeepTimer >= upkeepInterval)
     {
         upkeepTimer = 0.0;
-        int needed = std::max(1, static_cast<int>(std::ceil(foodPackageUpkeep)));
-        if (static_cast<int>(foodBuffer.buffer.size()) >= needed)
+        auto consumeSupply = [&](ResourceType type, double& supplyLevel)
         {
-            for (int i = 0; i < needed; i++)
+            if (!RequiresSupply(type))
+                return;
+
+            ResourceBuffer* buffer = GetSupplyBuffer(type);
+            int needed = GetSupplyUpkeep(type);
+            if (buffer != nullptr && static_cast<int>(buffer->buffer.size()) >= needed)
             {
-                foodBuffer.FreeResource();
-                self.owner->economyTelemetry.RecordConsumption(ResourceType::FOOD_PROVISIONS);
+                for (int i = 0; i < needed; i++)
+                {
+                    buffer->FreeResource();
+                    self.owner->economyTelemetry.RecordConsumption(type);
+                }
+                supplyLevel = std::min(1.0, supplyLevel + 0.45);
             }
-            foodSupplyLevel = std::min(1.0, foodSupplyLevel + 0.45);
-        }
-        else
-        {
-            foodSupplyLevel = std::max(0.0, foodSupplyLevel - foodSupplyDropPerMissedUpkeep);
-        }
+            else
+            {
+                supplyLevel = std::max(0.0, supplyLevel - foodSupplyDropPerMissedUpkeep);
+            }
+        };
+
+        consumeSupply(ResourceType::FOOD_PROVISIONS, foodSupplyLevel);
+        consumeSupply(ResourceType::HOUSEHOLD_GOODS, householdSupplyLevel);
+        consumeSupply(ResourceType::URBAN_GOODS, urbanSupplyLevel);
         hasFood = foodSupplyLevel > 0.0;
     }
 
-    double efficiency  = GetManpowerProductivity();
-    double modRate     = self.owner->ResolveStat(manpowerRate, &self);
+    if (settlementLevel > 1)
+    {
+        populationCap = GetActivePopulationCap();
+        int effectiveLevel = populationCap.GetBase() >= levelPopulationCaps[3] ? 3 :
+                             populationCap.GetBase() >= levelPopulationCaps[2] ? 2 : 1;
+        manpowerRate = levelManpowerRates[effectiveLevel];
+    }
+
+    double efficiency = GetManpowerProductivity();
+    double modRate = self.owner->ResolveStat(manpowerRate, &self);
     self.owner->AddManpower(modRate * efficiency * dt);
     self.activeTime += dt * efficiency;
 }
@@ -76,34 +89,27 @@ double PopulationComponent::GetWorkerProductivity() const
 
 int PopulationComponent::RequestFoodSupply(Building& self)
 {
-    if (self.owner == nullptr || static_cast<int>(foodBuffer.buffer.size()) >= foodBuffer.bufferSize)
+    return RequestSupply(self, ResourceType::FOOD_PROVISIONS);
+}
+
+int PopulationComponent::RequestSupply(Building& self, ResourceType type)
+{
+    ResourceBuffer* buffer = GetSupplyBuffer(type);
+    if (self.owner == nullptr || buffer == nullptr || !RequiresSupply(type) ||
+        static_cast<int>(buffer->buffer.size()) >= buffer->bufferSize)
         return 0;
 
-    int stored   = static_cast<int>(foodBuffer.buffer.size());
-    int incoming = CountIncomingResources(&self, ResourceType::FOOD_PROVISIONS);
-    int missing  = foodBuffer.bufferSize - stored - incoming;
+    int stored = static_cast<int>(buffer->buffer.size());
+    int incoming = CountIncomingResources(&self, type);
+    int missing = buffer->bufferSize - stored - incoming;
     if (missing <= 0)
         return 0;
 
-    // T6 (docs/post_pivot_audit_2026-07-12.md): tracked-buildings registry
-    // instead of a full tilemap scan (same perf-follow-up pattern already
-    // applied to CountIncomingResources/AutoConnectBuilding/TryBuildRoads).
-    // Sorted by id — "first matching storage wins the delivery" is order-
-    // sensitive, and GetTrackedBuildings() is a std::set<Building*> ordered
-    // by heap address, not by anything deterministic across separately-
-    // constructed GameWorld instances (see the lockstep-determinism bug this
-    // exact mistake caused in AutoConnectBuilding/TryBuildRoads, same doc).
-    std::vector<Building*> candidates(self.owner->GetTrackedBuildings().begin(),
-                                       self.owner->GetTrackedBuildings().end());
-    std::sort(candidates.begin(), candidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
-
-    for (Building* storage : candidates)
+    for (Building* warehouse : StockpileIndex::RankSourcesFor(type, self))
     {
-        if (storage == nullptr || !storage->HasComponent<StorageComponent>())
-            continue;
-
-        missing -= storage->HandleTransport(ResourceType::FOOD_PROVISIONS, missing, &self);
-        if (missing <= 0) break;
+        missing -= warehouse->HandleTransport(type, missing, &self);
+        if (missing <= 0)
+            break;
     }
     return std::max(0, missing);
 }
@@ -113,3 +119,57 @@ int PopulationComponent::GetFoodDemand() const
     return std::max(0, foodBuffer.bufferSize - static_cast<int>(foodBuffer.buffer.size()));
 }
 
+void PopulationComponent::SetSettlementLevel(int level)
+{
+    settlementLevel = std::clamp(level, 1, 3);
+    populationCap = levelPopulationCaps[settlementLevel];
+    manpowerRate = levelManpowerRates[settlementLevel];
+}
+
+int PopulationComponent::GetActivePopulationCap() const
+{
+    int activeLevel = settlementLevel;
+    if (activeLevel >= 2 && householdSupplyLevel < 0.5)
+        activeLevel = 1;
+    else if (activeLevel >= 3 && urbanSupplyLevel < 0.5)
+        activeLevel = 2;
+    return levelPopulationCaps[activeLevel];
+}
+
+bool PopulationComponent::RequiresSupply(ResourceType type) const
+{
+    if (type == ResourceType::FOOD_PROVISIONS)
+        return true;
+    if (type == ResourceType::HOUSEHOLD_GOODS)
+        return settlementLevel >= 2;
+    if (type == ResourceType::URBAN_GOODS)
+        return settlementLevel >= 3;
+    return false;
+}
+
+int PopulationComponent::GetSupplyUpkeep(ResourceType type) const
+{
+    if (type == ResourceType::FOOD_PROVISIONS)
+        return settlementLevel == 1 ? 1 : settlementLevel == 2 ? 3 : 10;
+    if (type == ResourceType::HOUSEHOLD_GOODS)
+        return settlementLevel == 2 ? 1 : settlementLevel >= 3 ? 3 : 0;
+    if (type == ResourceType::URBAN_GOODS)
+        return settlementLevel >= 3 ? 1 : 0;
+    return 0;
+}
+
+ResourceBuffer* PopulationComponent::GetSupplyBuffer(ResourceType type)
+{
+    if (type == ResourceType::FOOD_PROVISIONS) return &foodBuffer;
+    if (type == ResourceType::HOUSEHOLD_GOODS) return &householdGoodsBuffer;
+    if (type == ResourceType::URBAN_GOODS) return &urbanGoodsBuffer;
+    return nullptr;
+}
+
+const ResourceBuffer* PopulationComponent::GetSupplyBuffer(ResourceType type) const
+{
+    if (type == ResourceType::FOOD_PROVISIONS) return &foodBuffer;
+    if (type == ResourceType::HOUSEHOLD_GOODS) return &householdGoodsBuffer;
+    if (type == ResourceType::URBAN_GOODS) return &urbanGoodsBuffer;
+    return nullptr;
+}

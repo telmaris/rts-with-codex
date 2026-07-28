@@ -1,5 +1,6 @@
 #include "simulation/MapGenerator.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "economy/ProductionBuildings.h"
 #include "simulation/RoadNetwork.h"
 #include "core/GameWorld.h"
@@ -96,6 +97,27 @@ TEST(BuildingDomainTests, BuildingCapabilitiesExposeAttachedComponents)
     Headquarters headquarters{3};
     EXPECT_TRUE(headquarters.HasComponent<StorageComponent>());
     EXPECT_EQ(headquarters.GetComponent<StorageComponent>(), &headquarters.storage);
+}
+
+TEST(BuildingDomainTests, RoadTrafficTelemetryAveragesLoadAndHoldsSaturationWarning)
+{
+    Road road{7};
+    road.road.maxCapacity.SetBase(4);
+    road.transportables.resize(4, nullptr);
+
+    for (int i = 0; i < 100; ++i)
+        road.road.Update(road, 0.1);
+
+    EXPECT_NEAR(road.road.GetTrafficUtilizationTrend(), 1.0 - std::exp(-1.0), 0.01);
+    EXPECT_TRUE(road.road.HasRecentSaturation());
+
+    road.transportables.clear();
+    for (int i = 0; i < 13; ++i)
+        road.road.Update(road, 0.1);
+
+    EXPECT_FALSE(road.road.HasRecentSaturation());
+    EXPECT_GT(road.road.GetTrafficUtilizationTrend(), 0.0)
+        << "trend should decay gradually instead of mirroring the current frame";
 }
 
 TEST(BuildingDomainTests, ProductionBuildingReportsBuffersConnectionsAndStalledState)
@@ -985,7 +1007,7 @@ TEST(BuildingDomainTests, ReproSwitchingSupplierAwayFromHqFallback)
     EXPECT_FALSE(stillPullingFromHq) << "LumberMill should have dropped the HQ fallback supplier";
 }
 
-TEST(BuildingDomainTests, StorageAmbientPushStopsFeedingReceiverAfterSupplierReassignment)
+TEST(BuildingDomainTests, ConsumerStopsPullingFromHqAfterSupplierReassignment)
 {
     TileMap map;
     Player player{0, map};
@@ -993,6 +1015,9 @@ TEST(BuildingDomainTests, StorageAmbientPushStopsFeedingReceiverAfterSupplierRea
     auto network = std::make_unique<RoadNetwork>(map);
     RoadNetwork* networkPtr = network.get();
     player.roadNetwork = std::move(network);
+    // Production buildings only request inputs once they are staffed
+    // (ProductionComponent::Update), and workers come out of manpower.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 200);
 
     auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
     auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {6, 1}, 2);
@@ -1000,12 +1025,6 @@ TEST(BuildingDomainTests, StorageAmbientPushStopsFeedingReceiverAfterSupplierRea
     ASSERT_NE(headquarters, nullptr);
     ASSERT_NE(lumberMill, nullptr);
     ASSERT_NE(woodcutter, nullptr);
-    player.storages.push_back(headquarters);
-
-    // StorageComponent::Update's ambient redistribution scan walks the
-    // player's dataTracker registry (ETAP 10), not tilemap/road proximity —
-    // register both ends directly, same as GameWorld's normal placement path
-    // would via PlayerDataTracker::RegisterBuilding.
     player.dataTracker.RegisterBuilding(headquarters);
     player.dataTracker.RegisterBuilding(lumberMill);
 
@@ -1020,25 +1039,240 @@ TEST(BuildingDomainTests, StorageAmbientPushStopsFeedingReceiverAfterSupplierRea
     map.AutoConnectBuilding(lumberMill);
     ASSERT_TRUE(lumberMill->HasSupplier(ResourceType::WOOD));
 
-    // Baseline: with HQ as the only wired supplier, its ambient scan does
-    // feed LumberMill's WOOD input. Delivery takes several ticks to travel
-    // the road, same as ProducerWithNoReceiverPushesFullOutputToNearestHeadquarters.
+    // Baseline: with HQ as the wired supplier, LumberMill's own request pulls
+    // WOOD out of it. Delivery takes several ticks to travel the road, same as
+    // ProducerWithNoReceiverPushesFullOutputToNearestHeadquarters.
     headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
     for (int i = 0; i < 8; i++)
         map.UpdateBuildings(1.1);
     EXPECT_GT(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 0u)
-        << "sanity check: HQ ambient push should reach an unassigned/HQ-supplied receiver";
+        << "sanity check: a consumer wired to HQ should pull WOOD from it";
 
     // Player rewires LumberMill's WOOD supplier away from HQ (mirrors
-    // BasicMapViewSystem::RmbReleased connecting Woodcutter directly).
+    // BasicMapViewSystem::RmbReleased connecting Woodcutter directly). That
+    // strips the warehouse supplier, which is the signature
+    // LogisticsComponent::IsRestrictedToDirectSuppliers reads as "the player
+    // chose where this comes from" — the warehouse-network fallback in
+    // RequestResource must not quietly undo it.
     lumberMill->production.inputBuffers[ResourceType::WOOD].Clear();
     map.ConnectReceiver(woodcutter, lumberMill, false);
-    ASSERT_FALSE(lumberMill->AcceptsSupplierFor(ResourceType::WOOD, headquarters));
+    ASSERT_TRUE(lumberMill->logistics.IsRestrictedToDirectSuppliers(ResourceType::WOOD));
 
     headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
     for (int i = 0; i < 8; i++)
         map.UpdateBuildings(1.1);
     EXPECT_EQ(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 0u)
-        << "HQ must stop ambiently pushing WOOD once LumberMill's supplier was explicitly reassigned";
+        << "LumberMill must stop pulling WOOD from HQ once its supplier was explicitly reassigned";
 }
 
+// User report (2026-07-25): building a StorageBuilding made the whole resource
+// system go haywire — the HQ tried to move its entire contents into the new
+// depot. Root cause was StorageComponent::Update's ambient push; this pins the
+// fixed contract: a new warehouse changes nothing about stock that exists.
+TEST(BuildingDomainTests, NewStorageBuildingDoesNotDrainExistingWarehouses)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 20, 8);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+    // Production buildings only request inputs once they are staffed
+    // (ProductionComponent::Update), and workers come out of manpower.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 200);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    ASSERT_NE(headquarters, nullptr);
+    player.dataTracker.RegisterBuilding(headquarters);
+
+    // A Headquarters starts with a stock from buildings.rtsdata; clear it so
+    // the assertions below are about exactly the 12 units placed here.
+    headquarters->storage.buffers[ResourceType::WOOD].Clear();
+    for (int i = 0; i < 12; i++)
+        headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    ASSERT_EQ(StockpileIndex::GetTotal(player, ResourceType::WOOD), 12);
+
+    // A depot near the HQ, fully road-connected — the worst case for the old
+    // ambient push, which needed only "accepts WOOD and has room".
+    auto* depot = PlaceAndRegister<StorageBuilding>(map, *networkPtr, &player, {8, 1}, 2);
+    ASSERT_NE(depot, nullptr);
+    player.dataTracker.RegisterBuilding(depot);
+    for (int x = 3; x <= 7; x++)
+    {
+        auto* road = PlaceAndRegister<Road>(map, *networkPtr, &player, {x, 2}, 100 + x);
+        ASSERT_NE(road, nullptr);
+        road->road.maxCapacity.SetBase(16);
+    }
+    map.AutoConnectBuilding(depot);
+    ASSERT_FALSE(networkPtr->CalculatePath(headquarters, depot).empty())
+        << "sanity check: the warehouses must be road-connected for this to be a real test";
+
+    for (int i = 0; i < 40; i++)
+        map.UpdateBuildings(1.1);
+
+    EXPECT_EQ(headquarters->storage.buffers[ResourceType::WOOD].buffer.size(), 12u)
+        << "HQ must keep its own stock when a new warehouse appears";
+    EXPECT_TRUE(depot->storage.buffers[ResourceType::WOOD].buffer.empty())
+        << "a new warehouse starts empty and fills only from what producers deliver to it";
+    EXPECT_EQ(StockpileIndex::GetTotal(player, ResourceType::WOOD), 12)
+        << "nothing may be created or lost by adding a warehouse";
+}
+
+// The other half of the same contract: passive warehouses must not strand
+// stock. A consumer wired to an empty HQ still gets served from the depot that
+// actually holds the goods, as long as a road connects them.
+TEST(BuildingDomainTests, ConsumerPullsFromUnwiredWarehouseThatHoldsTheStock)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 24, 8);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+    // Production buildings only request inputs once they are staffed
+    // (ProductionComponent::Update), and workers come out of manpower.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 200);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {6, 1}, 2);
+    auto* depot = PlaceAndRegister<StorageBuilding>(map, *networkPtr, &player, {12, 1}, 3);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(lumberMill, nullptr);
+    ASSERT_NE(depot, nullptr);
+    player.dataTracker.RegisterBuilding(headquarters);
+    player.dataTracker.RegisterBuilding(lumberMill);
+    player.dataTracker.RegisterBuilding(depot);
+
+    // All three buildings are 3x3 (assets/data/buildings.rtsdata), so the
+    // road line skips x:[6,8] — that span is the LumberMill's own footprint.
+    for (int x : {3, 4, 5, 9, 10, 11})
+    {
+        auto* road = PlaceAndRegister<Road>(map, *networkPtr, &player, {x, 2}, 100 + x);
+        ASSERT_NE(road, nullptr);
+        road->road.maxCapacity.SetBase(16);
+    }
+
+    map.AutoConnectBuilding(headquarters);
+    map.AutoConnectBuilding(lumberMill);
+
+    // All the wood is in the depot; HQ (the wired supplier) is emptied of its
+    // buildings.rtsdata starting stock so it has nothing to serve.
+    headquarters->storage.buffers[ResourceType::WOOD].Clear();
+    for (int i = 0; i < 4; i++)
+        depot->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    ASSERT_TRUE(headquarters->storage.buffers[ResourceType::WOOD].buffer.empty());
+
+    auto sources = StockpileIndex::RankSourcesFor(ResourceType::WOOD, *lumberMill);
+    ASSERT_EQ(sources.size(), 1u) << "only the depot holds WOOD, so only it is a source";
+    EXPECT_EQ(sources.front(), depot);
+
+    // Sampled per tick rather than asserted at the end: LumberMill consumes
+    // WOOD as fast as it arrives, so a single check afterwards can miss the
+    // delivery entirely (same reason as
+    // BarracksRequestsAndReceivesUnitCostsOnDemandThroughRoadNetwork).
+    bool woodArrived = false;
+    for (int i = 0; i < 20 && !woodArrived; i++)
+    {
+        map.UpdateBuildings(1.1);
+        woodArrived = !lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.empty();
+    }
+
+    EXPECT_TRUE(woodArrived)
+        << "a consumer must reach stock held by a warehouse it is not wired to";
+    EXPECT_LT(depot->storage.buffers[ResourceType::WOOD].buffer.size(), 4u)
+        << "the depot is where the wood actually came from";
+}
+
+// Road connectivity is a hard requirement, not a ranking preference: a
+// warehouse with no path to the requester can never deliver, so it must not
+// appear as a source at all.
+TEST(BuildingDomainTests, RankSourcesForSkipsWarehousesWithNoRoadPath)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 24, 8);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+    // Production buildings only request inputs once they are staffed
+    // (ProductionComponent::Update), and workers come out of manpower.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 200);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {6, 1}, 2);
+    auto* strandedDepot = PlaceAndRegister<StorageBuilding>(map, *networkPtr, &player, {18, 5}, 3);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(lumberMill, nullptr);
+    ASSERT_NE(strandedDepot, nullptr);
+    player.dataTracker.RegisterBuilding(headquarters);
+    player.dataTracker.RegisterBuilding(lumberMill);
+    player.dataTracker.RegisterBuilding(strandedDepot);
+
+    // Roads reach the HQ only; the far depot has none.
+    for (int x = 3; x <= 5; x++)
+    {
+        auto* road = PlaceAndRegister<Road>(map, *networkPtr, &player, {x, 2}, 100 + x);
+        ASSERT_NE(road, nullptr);
+        road->road.maxCapacity.SetBase(16);
+    }
+
+    headquarters->storage.buffers[ResourceType::WOOD].Clear();
+    for (int i = 0; i < 4; i++)
+    {
+        headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+        strandedDepot->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
+    }
+
+    // Both hold WOOD and both count as stock the player owns...
+    EXPECT_EQ(StockpileIndex::GetTotal(player, ResourceType::WOOD), 8);
+    EXPECT_EQ(StockpileIndex::GetHoldings(player, ResourceType::WOOD).size(), 2u);
+
+    // ...but only the connected one can actually serve a request.
+    auto sources = StockpileIndex::RankSourcesFor(ResourceType::WOOD, *lumberMill);
+    ASSERT_EQ(sources.size(), 1u);
+    EXPECT_EQ(sources.front(), headquarters);
+}
+
+// StockpileIndex is the single answer to "how much do I have", and it counts
+// warehouses only — a tower's ammo and a Barracks' queued unit costs are that
+// building's own consumption buffer, not stock anything else can spend.
+TEST(BuildingDomainTests, StockpileIndexCountsWarehousesOnly)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 20, 8);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+    // Production buildings only request inputs once they are staffed
+    // (ProductionComponent::Update), and workers come out of manpower.
+    player.strategicResources.Set(StrategicResourceType::Manpower, 200);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    auto* depot = PlaceAndRegister<StorageBuilding>(map, *networkPtr, &player, {6, 1}, 2);
+    auto* tower = PlaceAndRegister<DefenseTower>(map, *networkPtr, &player, {12, 1}, 3);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(depot, nullptr);
+    ASSERT_NE(tower, nullptr);
+
+    for (int i = 0; i < 3; i++)
+        headquarters->storage.buffers[ResourceType::ARROWS].GenerateResource(ResourceType::ARROWS);
+    for (int i = 0; i < 2; i++)
+        depot->storage.buffers[ResourceType::ARROWS].GenerateResource(ResourceType::ARROWS);
+    for (int i = 0; i < 7; i++)
+        tower->storage.buffers[ResourceType::ARROWS].GenerateResource(ResourceType::ARROWS);
+
+    EXPECT_EQ(StockpileIndex::GetTotal(player, ResourceType::ARROWS), 5)
+        << "the tower's 7 loaded arrows are its own ammo, not shared stock";
+
+    auto holdings = StockpileIndex::GetHoldings(player, ResourceType::ARROWS);
+    ASSERT_EQ(holdings.size(), 2u) << "holdings name the warehouses, by building id";
+    EXPECT_EQ(holdings[0].buildingId, headquarters->id);
+    EXPECT_EQ(holdings[0].amount, 3);
+    EXPECT_EQ(holdings[1].buildingId, depot->id);
+    EXPECT_EQ(holdings[1].amount, 2);
+
+    EXPECT_FALSE(StockpileIndex::IsWarehouse(tower));
+    EXPECT_TRUE(StockpileIndex::IsWarehouse(headquarters));
+    EXPECT_TRUE(StockpileIndex::IsWarehouse(depot));
+}

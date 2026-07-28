@@ -326,13 +326,13 @@ TEST(RoadNetworkTests, ProductionPlacementFindsPathWithoutTileOwnership)
     EXPECT_TRUE(player.roadNetwork->BeginTransport(source, destination, &wood));
 }
 
-// End-to-end companion to the test above: drives the full production dispatch
-// pipeline (StorageComponent::Update -> Player::BeginTransport ->
-// RoadNetwork::CalculatePath/Transportable::Update) by ticking the real
-// buildings, and asserts the resource actually arrives — catching both the
-// CalculatePath bug and the Transportable::Update self-cancel bug that a
-// path-only assertion would miss.
-TEST(RoadNetworkTests, StorageComponentPushDeliversResourceOverRealPlacementPath)
+// End-to-end companion to the test above: drives the full transport pipeline
+// (Building::HandleTransport -> Player::BeginTransport ->
+// RoadNetwork::CalculatePath/Transportable::Update) over a real placement and
+// asserts the resource actually arrives — catching both the CalculatePath bug
+// and the Transportable::Update self-cancel bug that a path-only assertion
+// would miss.
+TEST(RoadNetworkTests, StorageTransportDeliversResourceOverRealPlacementPath)
 {
     TileMap map;
     FillUnownedMap(map);
@@ -350,16 +350,12 @@ TEST(RoadNetworkTests, StorageComponentPushDeliversResourceOverRealPlacementPath
     source->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
     ASSERT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
 
-    // Deliberately does not tick `destination` itself: StorageComponent::Update
-    // auto-pushes a storage building's own buffers to ANY tracked building that
-    // still accepts the resource, with no notion of "just arrived here" — with
-    // two plain storage buildings both accepting WOOD, ticking the destination
-    // too would immediately push the resource straight back toward `source`
-    // (a separate, pre-existing quirk of the unconditional auto-push, out of
-    // scope for this regression test). Delivery itself happens synchronously
-    // inside Transportable::Update -> Building::ReceptTransport -> AddResource
-    // as roadB advances the resource, so ticking source/roadA/roadB is enough
-    // to observe it land in destination's buffer.
+    // Warehouses are passive (StorageComponent has no Update): a transfer only
+    // happens when someone asks for it, so request it explicitly. Delivery
+    // then happens inside Transportable::Update -> Building::ReceptTransport
+    // -> AddResource as the roads advance the resource, so ticking roadA/roadB
+    // is enough to observe it land in destination's buffer.
+    ASSERT_EQ(source->HandleTransport(ResourceType::WOOD, 1, destination), 1);
     for (int tick = 0; tick < 10 && destination->storage.buffers[ResourceType::WOOD].buffer.empty(); tick++)
     {
         source->Update(1.0);

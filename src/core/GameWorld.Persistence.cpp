@@ -9,10 +9,11 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
+    // Save v30: settlement tiers and their household/urban supply buffers.
     // Save v29: added TowerCombatComponent target priority.
     // Save v28: added the UPG block (UpgradeComponent — generic per-instance
     // building upgrade progression, introduced for Road).
-    out << "RTS_SAVE 29\n";
+    out << "RTS_SAVE 30\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -211,7 +212,10 @@ bool GameWorld::SaveToFile(const std::string& path) const
                 << pop->upkeepInterval << ' ' << pop->foodPackageUpkeep << ' '
                 << pop->hasFood << ' ' << pop->populationCap.GetBase() << ' '
                 << pop->foodSupplyLevel << ' ' << pop->foodBuffer.bufferSize << ' '
-                << pop->foodBuffer.buffer.size() << '\n';
+                << pop->foodBuffer.buffer.size() << ' ' << pop->settlementLevel << ' '
+                << pop->householdSupplyLevel << ' ' << pop->householdGoodsBuffer.bufferSize << ' '
+                << pop->householdGoodsBuffer.buffer.size() << ' ' << pop->urbanSupplyLevel << ' '
+                << pop->urbanGoodsBuffer.bufferSize << ' ' << pop->urbanGoodsBuffer.buffer.size() << '\n';
         }
 
         if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
@@ -272,9 +276,10 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v30: settlement tiers and advanced supply buffers.
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
-    if (tag != "RTS_SAVE" || version != 29)
+    if (tag != "RTS_SAVE" || version != 30)
         return false;
 
     render = renderer;
@@ -733,6 +738,20 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                     pop.foodBuffer.SetStoredAmount(foodSupplyAmount);
                     pop.hasFood = pop.foodSupplyLevel > 0.0;
                 }
+                int householdAmount = 0;
+                int urbanAmount = 0;
+                in >> pop.settlementLevel
+                   >> pop.householdSupplyLevel >> pop.householdGoodsBuffer.bufferSize >> householdAmount
+                   >> pop.urbanSupplyLevel >> pop.urbanGoodsBuffer.bufferSize >> urbanAmount;
+                pop.householdGoodsBuffer.Clear();
+                pop.householdGoodsBuffer = ResourceBuffer{
+                    ResourceType::HOUSEHOLD_GOODS, pop.householdGoodsBuffer.bufferSize};
+                pop.householdGoodsBuffer.SetStoredAmount(householdAmount);
+                pop.urbanGoodsBuffer.Clear();
+                pop.urbanGoodsBuffer = ResourceBuffer{
+                    ResourceType::URBAN_GOODS, pop.urbanGoodsBuffer.bufferSize};
+                pop.urbanGoodsBuffer.SetStoredAmount(urbanAmount);
+                pop.SetSettlementLevel(pop.settlementLevel);
             }
             else if (tag == "RECRUIT")
             {
@@ -781,6 +800,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
                 int isUpgrading = 0;
                 in >> upgrade->level >> isUpgrading >> upgrade->upgradeRemaining;
                 upgrade->isUpgrading = isUpgrading != 0;
+                if (auto* population = placed->GetComponent<PopulationComponent>())
+                    population->SetSettlementLevel(upgrade->level);
                 // Modifiers themselves aren't persisted (same as tech/focus) —
                 // re-derive them from the loaded level right away; owner and
                 // positionId are already valid at this point.
@@ -889,6 +910,7 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         spawnQueues[{fromPlayerId, toPlayerId}] = std::move(queue);
     }
 
+    UpdateFogOfWar();
     return true;
 }
 

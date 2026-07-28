@@ -5,7 +5,7 @@ building Headquarters
     name "Headquarters"
     tag "[Headquarters]"
     placement_category core
-    texture "assets/textures/building/headquarters.png"
+    texture "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png"
     build_cost "Starting building"
     build_time 0.0
     footprint 3 3
@@ -14,10 +14,6 @@ building Headquarters
     storage IRON_ORE 100 40
     storage COPPER_ORE 80 0
     storage COPPER 80 0
-    storage SILVER_ORE 80 0
-    storage SILVER 80 0
-    storage GOLD_ORE 80 0
-    storage GOLD 80 0
     storage WOOD 160 120
     storage PLANKS 100 60
     storage LEATHER 80 0
@@ -30,14 +26,39 @@ building Headquarters
     storage BREAD 80 0
     storage FOOD_PROVISIONS 100 20
     storage PAPER 80 0
-    storage COINS 80 10
     storage TOOLS 60 0
-    storage COPPER_SWORD 60 0
     storage IRON_SWORD 60 0
-    storage STEEL_SWORD 60 0
     storage BOW 60 0
     storage ARROWS 120 0
     storage HORSE 60 0
+    storage CLAY 100 0
+    storage CATTLE 60 0
+    storage RAW_HIDE 80 0
+    storage TALLOW 80 0
+    storage CLOTHES 80 0
+    storage POTTERY 80 0
+    storage HOUSEHOLD_GOODS 100 0
+    storage SOAP 80 0
+    storage INK 60 0
+    storage BOOKS 80 0
+    storage COPPERWARE 80 0
+    storage URBAN_GOODS 100 0
+    storage HEMP 100 0
+    storage FIBRE 100 0
+    storage ROPE 80 0
+    storage COPPER_VESSEL 60 0
+    storage COPPER_PIPE 80 0
+    storage MECHANICAL_PARTS 80 0
+    storage HEAVY_BOW 60 0
+    storage LIGHT_WEAPON 60 0
+    storage HEAVY_ARMOR 60 0
+    storage BRICKS 120 0
+    storage CLOTH 100 0
+    storage BALLISTA 20 0
+    storage BATTERING_RAM 20 0
+    storage CATAPULT 20 0
+    storage SAND 100 0
+    storage GLASS 80 0
     hq max_hp 500 hard_defense 10 thorns_damage 3 thorns_interval 3.0 capture_stock_fraction 0.4 conquest_ramp_duration 600.0
 end
 
@@ -53,6 +74,8 @@ building Village
     footprint 4 4
     texture_id 4
     village manpower_rate 0.7 population_cap 140 upkeep_interval 60.0 food_package_upkeep 1.0
+    upgrade level 2 cost PLANKS 80 cost STONE 60 cost TOOLS 12 cost CLOTHES 20 build_time 45
+    upgrade level 3 cost BRICKS 180 cost PLANKS 140 cost TOOLS 30 cost COPPERWARE 40 cost GLASS 30 cost COPPER_PIPE 8 cost COPPER_VESSEL 3 build_time 90
 end
 
 building StorageBuilding
@@ -70,10 +93,6 @@ building StorageBuilding
     storage IRON_ORE 80
     storage COPPER_ORE 80
     storage COPPER 80
-    storage SILVER_ORE 80
-    storage SILVER 80
-    storage GOLD_ORE 80
-    storage GOLD 80
     storage WOOD 160
     storage PLANKS 100
     storage LEATHER 80
@@ -87,12 +106,38 @@ building StorageBuilding
     storage FOOD_PROVISIONS 100
     storage PAPER 80
     storage TOOLS 60
-    storage COPPER_SWORD 60
     storage IRON_SWORD 60
-    storage STEEL_SWORD 60
     storage BOW 60
     storage ARROWS 120
     storage HORSE 60
+    storage CLAY 100
+    storage CATTLE 60
+    storage RAW_HIDE 80
+    storage TALLOW 80
+    storage CLOTHES 80
+    storage POTTERY 80
+    storage HOUSEHOLD_GOODS 100
+    storage SOAP 80
+    storage INK 60
+    storage BOOKS 80
+    storage COPPERWARE 80
+    storage URBAN_GOODS 100
+    storage HEMP 100
+    storage FIBRE 100
+    storage ROPE 80
+    storage COPPER_VESSEL 60
+    storage COPPER_PIPE 80
+    storage MECHANICAL_PARTS 80
+    storage HEAVY_BOW 60
+    storage LIGHT_WEAPON 60
+    storage HEAVY_ARMOR 60
+    storage BRICKS 120
+    storage CLOTH 100
+    storage BALLISTA 20
+    storage BATTERING_RAM 20
+    storage CATAPULT 20
+    storage SAND 100
+    storage GLASS 80
 end
 
 building Woodcutter
@@ -193,25 +238,11 @@ building Mine
         output_buffer COPPER_ORE 10
     end
 
-    terrain_production TIN_ORE
-        workers 8
-        cycle_time 6.0
-        output TIN_ORE 2
-        output_buffer TIN_ORE 10
-    end
-
-    terrain_production SILVER_ORE
-        workers 8
-        cycle_time 16.0
-        output SILVER_ORE 1
-        output_buffer SILVER_ORE 8
-    end
-
-    terrain_production GOLD_ORE
-        workers 8
-        cycle_time 20.0
-        output GOLD_ORE 1
-        output_buffer GOLD_ORE 8
+    terrain_production CLAY
+        workers 6
+        cycle_time 5.0
+        output CLAY 2
+        output_buffer CLAY 12
     end
 
     terrain_production SAND
@@ -221,19 +252,6 @@ building Mine
         output_buffer SAND 12
     end
 
-    terrain_production SULFUR
-        workers 8
-        cycle_time 14.0
-        output SULFUR 1
-        output_buffer SULFUR 8
-    end
-
-    terrain_production SALTPETER
-        workers 8
-        cycle_time 14.0
-        output SALTPETER 1
-        output_buffer SALTPETER 8
-    end
 end
 
 building Foundry
@@ -277,64 +295,6 @@ building Foundry
         input_buffer IRON_ORE 8
         input_buffer COAL 8
         output_buffer IRON 16
-    end
-    recipe "Silver"
-        workers 12
-        cycle_time 2.5
-        input SILVER_ORE 1
-        input COAL 1
-        output SILVER 2
-        input_buffer SILVER_ORE 8
-        input_buffer COAL 8
-        output_buffer SILVER 16
-    end
-    recipe "Gold"
-        workers 12
-        cycle_time 3.0
-        input GOLD_ORE 1
-        input COAL 1
-        output GOLD 2
-        input_buffer GOLD_ORE 8
-        input_buffer COAL 8
-        output_buffer GOLD 16
-    end
-    recipe "Tin"
-        workers 12
-        cycle_time 2.2
-        input TIN_ORE 1
-        input COAL 1
-        output TIN 2
-        input_buffer TIN_ORE 8
-        input_buffer COAL 8
-        output_buffer TIN 16
-    end
-    recipe "Coke"
-        workers 10
-        cycle_time 3.0
-        input COAL 2
-        output COKE 1
-        input_buffer COAL 12
-        output_buffer COKE 12
-    end
-    recipe "Bronze"
-        workers 12
-        cycle_time 2.5
-        input COPPER 2
-        input TIN 1
-        output BRONZE 3
-        input_buffer COPPER 12
-        input_buffer TIN 8
-        output_buffer BRONZE 16
-    end
-    recipe "Steel"
-        workers 12
-        cycle_time 4.0
-        input IRON 2
-        input COKE 1
-        output STEEL 2
-        input_buffer IRON 12
-        input_buffer COKE 8
-        output_buffer STEEL 16
     end
 end
 
@@ -468,6 +428,26 @@ building Paperworks
         input_buffer WATER 8
         output_buffer PAPER 18
     end
+    recipe "Wood Pulp Paper"
+        workers 8
+        cycle_time 10.0
+        input WOOD 2
+        input WATER 1
+        output PAPER 3
+        input_buffer WOOD 14
+        input_buffer WATER 8
+        output_buffer PAPER 18
+    end
+    recipe "Hemp Paper"
+        workers 8
+        cycle_time 9.0
+        input FIBRE 2
+        input WATER 1
+        output PAPER 4
+        input_buffer FIBRE 14
+        input_buffer WATER 8
+        output_buffer PAPER 20
+    end
 end
 
 building Smith
@@ -502,16 +482,6 @@ building Smith
         input_buffer WOOD 8
         output_buffer TOOLS 10
     end
-    recipe "Copper Sword"
-        workers 10
-        cycle_time 14.0
-        input COPPER 2
-        input WOOD 1
-        output COPPER_SWORD 1
-        input_buffer COPPER 12
-        input_buffer WOOD 8
-        output_buffer COPPER_SWORD 8
-    end
     recipe "Iron Sword"
         workers 10
         cycle_time 16.0
@@ -521,58 +491,6 @@ building Smith
         input_buffer IRON 12
         input_buffer WOOD 8
         output_buffer IRON_SWORD 8
-    end
-    recipe "Bronze Sword"
-        workers 10
-        cycle_time 11.0
-        input BRONZE 2
-        input WOOD 1
-        output BRONZE_SWORD 2
-        input_buffer BRONZE 12
-        input_buffer WOOD 8
-        output_buffer BRONZE_SWORD 8
-    end
-    recipe "Steel Sword"
-        workers 10
-        cycle_time 20.0
-        input STEEL 3
-        input WOOD 1
-        output STEEL_SWORD 1
-        input_buffer STEEL 12
-        input_buffer WOOD 8
-        output_buffer STEEL_SWORD 8
-    end
-    recipe "Musket"
-        workers 10
-        cycle_time 24.0
-        input STEEL 2
-        input GUNPOWDER 1
-        input WOOD 1
-        output MUSKET 1
-        input_buffer STEEL 12
-        input_buffer GUNPOWDER 8
-        input_buffer WOOD 8
-        output_buffer MUSKET 8
-    end
-    recipe "Cartridge"
-        workers 8
-        cycle_time 8.0
-        input GUNPOWDER 1
-        input PAPER 1
-        output CARTRIDGE 4
-        input_buffer GUNPOWDER 10
-        input_buffer PAPER 10
-        output_buffer CARTRIDGE 20
-    end
-    recipe "Arrows"
-        workers 6
-        cycle_time 6.0
-        input WOOD 1
-        input IRON 1
-        output ARROWS 4
-        input_buffer WOOD 10
-        input_buffer IRON 10
-        output_buffer ARROWS 20
     end
 end
 
@@ -585,6 +503,8 @@ building Mint
     build_cost STONE 60
     build_cost PLANKS 40
     build_cost IRON 20
+    requires_focus chartered_coinage
+    requires_tech standard_coinage
     build_time 26.0
     footprint 2 2
     texture_id 3
@@ -605,6 +525,7 @@ building Mint
         output_buffer COINS 40
     end
     recipe "Gold Coins"
+        requires_tech standard_coinage
         workers 8
         cycle_time 5.0
         input GOLD 1
@@ -622,6 +543,7 @@ building Glassworks
     build_cost WOOD 40
     build_cost STONE 50
     build_cost PLANKS 35
+    requires_tech clear_glassmaking
     build_time 22.0
     footprint 3 3
     texture_id 16
@@ -646,6 +568,7 @@ building Powderworks
     build_cost STONE 60
     build_cost PLANKS 40
     build_cost IRON 15
+    requires_tech gunpowder_compounding
     build_time 30.0
     footprint 3 3
     texture_id 16
@@ -703,6 +626,18 @@ building Barracks
     storage STEEL_SWORD 40 0
     storage PLANKS 40 0
     storage IRON 40 0
+    storage LIGHT_WEAPON 40 0
+    storage LEATHER_ARMOR 40 0
+    storage IRON_ARMOR 40 0
+    storage HEAVY_ARMOR 40 0
+    storage BOW 40 0
+    storage HEAVY_BOW 40 0
+    storage ARROWS 120 0
+    storage SPEAR 40 0
+    storage HORSE 40 0
+    storage BALLISTA 10 0
+    storage BATTERING_RAM 10 0
+    storage CATAPULT 10 0
 end
 
 building Road
@@ -717,8 +652,8 @@ building Road
     transport_time 1.0
     road upgrade_level 1 max_capacity 5 speed_modifier 1.0
     upgrade level 2 cost STONE 2 build_time 5 capacity_additive 2
-    upgrade level 3 cost STONE 3 build_time 8 capacity_additive 4 speed_multiplier 1.1
-    upgrade level 4 cost STONE 4 build_time 12 capacity_additive 6 speed_multiplier 1.2
+    upgrade level 3 cost STONE 3 cost HORSE 1 build_time 8 capacity_additive 4 speed_multiplier 1.1
+    upgrade level 4 cost STONE 4 cost HORSE 1 cost MECHANICAL_PARTS 2 build_time 12 capacity_additive 6 speed_multiplier 1.2
 end
 
 building Bridge
@@ -728,6 +663,7 @@ building Bridge
     texture "assets/textures/building/road.png"
     build_cost PLANKS 6
     build_cost STONE 6
+    requires_tech land_surveying
     build_time 1.0
     footprint 1 1
     texture_id 5
@@ -748,4 +684,670 @@ building DefenseTower
     texture_id 6
     storage ARROWS 20 0
     tower damage 3.5 range 6.0 attack_speed 1.0 ammo_resource ARROWS ammo_per_shot 1 worker_capacity 2
+end
+
+building AnimalFarm
+    name "Animal Farm"
+    tag "[AnimalFarm]"
+    placement_category food
+    texture "assets/textures/building/wheat_farm.png"
+    build_cost WOOD 45
+    build_cost PLANKS 25
+    build_cost STONE 15
+    requires_tech agricultural_improvement
+    build_time 12.0
+    footprint 4 4
+    texture_id 11
+    production
+        workers 10
+        cycle_time 24.0
+        input WHEAT 4
+        input WATER 4
+        output CATTLE 2
+        input_buffer WHEAT 16
+        input_buffer WATER 16
+        output_buffer CATTLE 8
+    end
+end
+
+building Butcher
+    name "Butcher"
+    tag "[Butcher]"
+    placement_category food
+    texture "assets/textures/building/hunter.png"
+    build_cost WOOD 35
+    build_cost PLANKS 20
+    build_cost STONE 25
+    requires_tech agricultural_improvement
+    build_time 9.0
+    footprint 2 2
+    texture_id 9
+    production
+        workers 8
+        cycle_time 10.0
+        input CATTLE 1
+        output MEAT 4
+        output RAW_HIDE 2
+        output TALLOW 2
+        input_buffer CATTLE 6
+        output_buffer MEAT 20
+        output_buffer RAW_HIDE 12
+        output_buffer TALLOW 12
+    end
+end
+
+building Tannery
+    name "Tannery"
+    tag "[Tannery]"
+    placement_category construction
+    texture "assets/textures/building/smith.png"
+    build_cost WOOD 40
+    build_cost PLANKS 25
+    build_cost STONE 25
+    build_time 11.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 8
+        cycle_time 12.0
+        input RAW_HIDE 2
+        input WATER 2
+        output LEATHER 2
+        input_buffer RAW_HIDE 12
+        input_buffer WATER 12
+        output_buffer LEATHER 12
+    end
+end
+
+building Tailor
+    name "Tailor"
+    tag "[Tailor]"
+    placement_category construction
+    texture "assets/textures/building/cottage.png"
+    build_cost WOOD 35
+    build_cost PLANKS 30
+    build_cost STONE 15
+    build_time 10.0
+    footprint 2 2
+    texture_id 4
+    production
+        workers 8
+        cycle_time 10.0
+        input LEATHER 2
+        output CLOTHES 2
+        input_buffer LEATHER 12
+        output_buffer CLOTHES 12
+    end
+    recipe "Leather Clothes"
+        workers 8
+        cycle_time 10.0
+        input LEATHER 2
+        output CLOTHES 2
+        input_buffer LEATHER 12
+        output_buffer CLOTHES 12
+    end
+    recipe "Cloth Clothes"
+        requires_tech guild_apprenticeship
+        workers 8
+        cycle_time 8.0
+        input CLOTH 2
+        output CLOTHES 3
+        input_buffer CLOTH 12
+        output_buffer CLOTHES 16
+    end
+end
+
+building Armorer
+    name "Armorer"
+    tag "[Armorer]"
+    placement_category military
+    texture "assets/textures/building/smith.png"
+    build_cost PLANKS 45
+    build_cost STONE 50
+    build_cost IRON 25
+    build_cost TOOLS 8
+    requires_focus household_arms_inspection
+    build_time 16.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 10
+        cycle_time 14.0
+        input LEATHER 3
+        input IRON 1
+        output LEATHER_ARMOR 1
+        input_buffer LEATHER 15
+        input_buffer IRON 8
+        output_buffer LEATHER_ARMOR 8
+    end
+    recipe "Leather Armor"
+        workers 10
+        cycle_time 14.0
+        input LEATHER 3
+        input IRON 1
+        output LEATHER_ARMOR 1
+        input_buffer LEATHER 15
+        input_buffer IRON 8
+        output_buffer LEATHER_ARMOR 8
+    end
+    recipe "Iron Armor"
+        requires_tech furnace_and_casting_geometry
+        workers 12
+        cycle_time 20.0
+        input IRON 5
+        input LEATHER 2
+        output IRON_ARMOR 1
+        input_buffer IRON 20
+        input_buffer LEATHER 10
+        output_buffer IRON_ARMOR 8
+    end
+    recipe "Heavy Armor"
+        requires_tech cannon_founding
+        workers 16
+        cycle_time 28.0
+        input IRON 8
+        input LEATHER 3
+        output HEAVY_ARMOR 1
+        input_buffer IRON 24
+        input_buffer LEATHER 12
+        output_buffer HEAVY_ARMOR 6
+    end
+end
+
+building HorseStable
+    name "Horse Stable"
+    tag "[HorseStable]"
+    placement_category food
+    texture "assets/textures/building/wheat_farm.png"
+    build_cost WOOD 55
+    build_cost PLANKS 45
+    build_cost STONE 20
+    requires_tech selective_breeding
+    build_time 18.0
+    footprint 4 4
+    texture_id 11
+    production
+        workers 12
+        cycle_time 30.0
+        input WHEAT 5
+        input WATER 5
+        output HORSE 1
+        input_buffer WHEAT 20
+        input_buffer WATER 20
+        output_buffer HORSE 6
+    end
+end
+
+building Kiln
+    name "Kiln"
+    tag "[Kiln]"
+    placement_category construction
+    texture "assets/textures/building/foundry.png"
+    build_cost WOOD 30
+    build_cost STONE 45
+    build_cost PLANKS 20
+    build_time 12.0
+    footprint 3 3
+    texture_id 3
+    production
+        workers 8
+        cycle_time 8.0
+        input CLAY 2
+        input WOOD 1
+        output POTTERY 2
+        input_buffer CLAY 14
+        input_buffer WOOD 8
+        output_buffer POTTERY 14
+    end
+    recipe "Pottery"
+        workers 8
+        cycle_time 8.0
+        input CLAY 2
+        input WOOD 1
+        output POTTERY 2
+        input_buffer CLAY 14
+        input_buffer WOOD 8
+        output_buffer POTTERY 14
+    end
+    recipe "Bricks"
+        workers 10
+        cycle_time 9.0
+        input CLAY 3
+        input WOOD 1
+        output BRICKS 4
+        input_buffer CLAY 18
+        input_buffer WOOD 8
+        output_buffer BRICKS 24
+    end
+    recipe "Glass"
+        requires_tech clear_glassmaking
+        workers 10
+        cycle_time 10.0
+        input SAND 3
+        input WOOD 2
+        output GLASS 2
+        input_buffer SAND 18
+        input_buffer WOOD 12
+        output_buffer GLASS 14
+    end
+end
+
+building HouseholdWorkshop
+    name "Household Workshop"
+    tag "[HouseholdWorkshop]"
+    placement_category construction
+    texture "assets/textures/building/storage.png"
+    build_cost WOOD 35
+    build_cost PLANKS 35
+    build_cost STONE 25
+    requires_focus written_custom
+    build_time 12.0
+    footprint 3 3
+    texture_id 4
+    production
+        workers 10
+        cycle_time 12.0
+        input PLANKS 1
+        input CLOTHES 1
+        input POTTERY 1
+        output HOUSEHOLD_GOODS 3
+        input_buffer PLANKS 10
+        input_buffer CLOTHES 10
+        input_buffer POTTERY 10
+        output_buffer HOUSEHOLD_GOODS 15
+    end
+end
+
+building Soapworks
+    name "Soapworks"
+    tag "[Soapworks]"
+    placement_category construction
+    texture "assets/textures/building/bakery.png"
+    build_cost PLANKS 35
+    build_cost STONE 35
+    build_cost COPPER_VESSEL 1
+    build_time 11.0
+    footprint 2 2
+    texture_id 13
+    production
+        workers 7
+        cycle_time 9.0
+        input WOOD 1
+        input TALLOW 2
+        output SOAP 2
+        input_buffer WOOD 8
+        input_buffer TALLOW 12
+        output_buffer SOAP 12
+    end
+end
+
+building Inkworks
+    name "Inkworks"
+    tag "[Inkworks]"
+    placement_category knowledge
+    texture "assets/textures/building/paperworks.png"
+    build_cost PLANKS 30
+    build_cost STONE 25
+    requires_tech writing_and_recordkeeping
+    build_time 10.0
+    footprint 2 2
+    texture_id 15
+    production
+        workers 6
+        cycle_time 8.0
+        input WOOD 1
+        input WATER 1
+        output INK 2
+        input_buffer WOOD 8
+        input_buffer WATER 8
+        output_buffer INK 12
+    end
+end
+
+building Scriptorium
+    name "Scriptorium"
+    tag "[Scriptorium]"
+    placement_category knowledge
+    texture "assets/textures/building/paperworks.png"
+    build_cost PLANKS 60
+    build_cost STONE 50
+    build_cost TOOLS 5
+    requires_focus academic_patronage
+    build_time 18.0
+    footprint 3 3
+    texture_id 15
+    production
+        workers 14
+        cycle_time 16.0
+        input PAPER 2
+        input INK 1
+        output BOOKS 2
+        input_buffer PAPER 14
+        input_buffer INK 8
+        output_buffer BOOKS 12
+    end
+end
+
+building Copperworks
+    name "Copperworks"
+    tag "[Copperworks]"
+    placement_category metal
+    texture "assets/textures/building/smith.png"
+    build_cost PLANKS 50
+    build_cost STONE 55
+    build_cost COPPER 20
+    build_cost TOOLS 6
+    build_time 18.0
+    footprint 3 3
+    texture_id 16
+    production
+        workers 10
+        cycle_time 10.0
+        input COPPER 2
+        output COPPERWARE 2
+        input_buffer COPPER 14
+        output_buffer COPPERWARE 12
+    end
+    recipe "Copperware"
+        workers 10
+        cycle_time 10.0
+        input COPPER 2
+        output COPPERWARE 2
+        input_buffer COPPER 14
+        output_buffer COPPERWARE 12
+    end
+    recipe "Copper Vessel"
+        workers 12
+        cycle_time 14.0
+        input COPPER 4
+        output COPPER_VESSEL 1
+        input_buffer COPPER 18
+        output_buffer COPPER_VESSEL 8
+    end
+    recipe "Copper Pipe"
+        requires_tech pump_engineering
+        workers 10
+        cycle_time 10.0
+        input COPPER 3
+        output COPPER_PIPE 2
+        input_buffer COPPER 16
+        output_buffer COPPER_PIPE 12
+    end
+    recipe "Mechanical Parts"
+        requires_tech waterwheel_gearing
+        workers 14
+        cycle_time 14.0
+        input COPPER 3
+        input TOOLS 1
+        output MECHANICAL_PARTS 2
+        input_buffer COPPER 16
+        input_buffer TOOLS 6
+        output_buffer MECHANICAL_PARTS 12
+    end
+end
+
+building UrbanWorkshop
+    name "Urban Workshop"
+    tag "[UrbanWorkshop]"
+    placement_category construction
+    texture "assets/textures/building/storage.png"
+    build_cost PLANKS 65
+    build_cost STONE 65
+    build_cost TOOLS 8
+    build_cost COPPER_PIPE 4
+    requires_focus crown_manufactories
+    build_time 20.0
+    footprint 3 3
+    texture_id 4
+    production
+        workers 16
+        cycle_time 16.0
+        input SOAP 1
+        input BOOKS 1
+        input COPPERWARE 1
+        output URBAN_GOODS 3
+        input_buffer SOAP 10
+        input_buffer BOOKS 10
+        input_buffer COPPERWARE 10
+        output_buffer URBAN_GOODS 15
+    end
+end
+
+building HempFarm
+    name "Hemp Farm"
+    tag "[HempFarm]"
+    placement_category food
+    texture "assets/textures/building/wheat_farm.png"
+    build_cost WOOD 25
+    build_cost PLANKS 20
+    build_cost STONE 10
+    requires_tech three_field_rotation
+    build_time 8.0
+    footprint 4 4
+    texture_id 11
+    production
+        workers 7
+        cycle_time 10.0
+        input WATER 3
+        output HEMP 4
+        input_buffer WATER 12
+        output_buffer HEMP 16
+    end
+end
+
+building Ropery
+    name "Ropery"
+    tag "[Ropery]"
+    placement_category construction
+    texture "assets/textures/building/lumbermill.png"
+    build_cost WOOD 35
+    build_cost PLANKS 35
+    requires_tech guild_apprenticeship
+    build_time 9.0
+    footprint 3 3
+    texture_id 1
+    production
+        workers 7
+        cycle_time 8.0
+        input HEMP 2
+        output FIBRE 3
+        input_buffer HEMP 12
+        output_buffer FIBRE 16
+    end
+    recipe "Fibre"
+        workers 7
+        cycle_time 8.0
+        input HEMP 2
+        output FIBRE 3
+        input_buffer HEMP 12
+        output_buffer FIBRE 16
+    end
+    recipe "Rope"
+        workers 9
+        cycle_time 10.0
+        input FIBRE 3
+        output ROPE 2
+        input_buffer FIBRE 16
+        output_buffer ROPE 12
+    end
+end
+
+building Weaver
+    name "Weaver"
+    tag "[Weaver]"
+    placement_category construction
+    texture "assets/textures/building/cottage.png"
+    build_cost WOOD 35
+    build_cost PLANKS 30
+    requires_tech guild_apprenticeship
+    build_time 10.0
+    footprint 2 2
+    texture_id 4
+    production
+        workers 8
+        cycle_time 9.0
+        input FIBRE 3
+        output CLOTH 2
+        input_buffer FIBRE 16
+        output_buffer CLOTH 12
+    end
+end
+
+building Bowyer
+    name "Bowyer"
+    tag "[Bowyer]"
+    placement_category military
+    texture "assets/textures/building/smith.png"
+    build_cost PLANKS 40
+    build_cost STONE 25
+    build_cost TOOLS 4
+    requires_focus fletchers_quota
+    build_time 11.0
+    footprint 2 2
+    texture_id 16
+    production
+        workers 8
+        cycle_time 10.0
+        input WOOD 2
+        input ROPE 1
+        output BOW 1
+        input_buffer WOOD 12
+        input_buffer ROPE 8
+        output_buffer BOW 8
+    end
+    recipe "Bow"
+        workers 8
+        cycle_time 10.0
+        input WOOD 2
+        input ROPE 1
+        output BOW 1
+        input_buffer WOOD 12
+        input_buffer ROPE 8
+        output_buffer BOW 8
+    end
+    recipe "Heavy Bow"
+        requires_tech guild_apprenticeship
+        workers 10
+        cycle_time 14.0
+        input PLANKS 3
+        input ROPE 2
+        output HEAVY_BOW 1
+        input_buffer PLANKS 14
+        input_buffer ROPE 10
+        output_buffer HEAVY_BOW 8
+    end
+end
+
+building Fletchery
+    name "Fletchery"
+    tag "[Fletchery]"
+    placement_category military
+    texture "assets/textures/building/lumbermill.png"
+    build_cost WOOD 30
+    build_cost PLANKS 30
+    build_cost STONE 15
+    requires_focus fletchers_quota
+    build_time 9.0
+    footprint 2 2
+    texture_id 1
+    production
+        workers 7
+        cycle_time 6.0
+        input WOOD 1
+        input IRON 1
+        output ARROWS 6
+        input_buffer WOOD 10
+        input_buffer IRON 10
+        output_buffer ARROWS 30
+    end
+end
+
+building SpearWorkshop
+    name "Spear Workshop"
+    tag "[SpearWorkshop]"
+    placement_category military
+    texture "assets/textures/building/smith.png"
+    build_cost PLANKS 35
+    build_cost STONE 25
+    build_cost TOOLS 4
+    build_time 10.0
+    footprint 2 2
+    texture_id 16
+    production
+        workers 8
+        cycle_time 9.0
+        input WOOD 2
+        input IRON 1
+        output SPEAR 1
+        input_buffer WOOD 12
+        input_buffer IRON 8
+        output_buffer SPEAR 10
+    end
+end
+
+building SiegeWorkshop
+    name "Engineers' Workshop"
+    tag "[SiegeWorkshop]"
+    placement_category military
+    texture "assets/textures/building/barracks.png"
+    build_cost PLANKS 90
+    build_cost STONE 70
+    build_cost IRON 30
+    build_cost TOOLS 10
+    requires_focus engineers_of_the_host
+    requires_tech ballistics
+    build_time 24.0
+    footprint 4 4
+    texture_id 18
+    production
+        workers 18
+        cycle_time 28.0
+        input PLANKS 8
+        input ROPE 3
+        input IRON 2
+        output BALLISTA 1
+        input_buffer PLANKS 32
+        input_buffer ROPE 16
+        input_buffer IRON 12
+        output_buffer BALLISTA 4
+    end
+    recipe "Ballista"
+        requires_tech ballista_construction
+        workers 18
+        cycle_time 28.0
+        input PLANKS 8
+        input ROPE 3
+        input IRON 2
+        output BALLISTA 1
+        input_buffer PLANKS 32
+        input_buffer ROPE 16
+        input_buffer IRON 12
+        output_buffer BALLISTA 4
+    end
+    recipe "Battering Ram"
+        requires_tech torsion_engines
+        workers 16
+        cycle_time 24.0
+        input PLANKS 10
+        input IRON 3
+        output BATTERING_RAM 1
+        input_buffer PLANKS 36
+        input_buffer IRON 14
+        output_buffer BATTERING_RAM 4
+    end
+    recipe "Catapult"
+        requires_tech catapult_construction
+        workers 22
+        cycle_time 36.0
+        input PLANKS 12
+        input ROPE 4
+        input IRON 4
+        input MECHANICAL_PARTS 2
+        output CATAPULT 1
+        input_buffer PLANKS 40
+        input_buffer ROPE 18
+        input_buffer IRON 16
+        input_buffer MECHANICAL_PARTS 10
+        output_buffer CATAPULT 4
+    end
 end

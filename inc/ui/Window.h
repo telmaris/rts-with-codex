@@ -2,7 +2,7 @@
 #define WINDOW_H
 
 
-#include "core/Utils.h"
+#include "core/Types.h"
 
 // Placeholder for a future Raylib window abstraction.
 class Window

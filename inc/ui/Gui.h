@@ -1,9 +1,10 @@
 #ifndef GUI_H
 #define GUI_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "data/Resource.h"
 #include "ui/InputManager.h"
+#include "ui/UiText.h"
 #include "raylib.h"
 
 #include <algorithm>
@@ -432,32 +433,8 @@ struct ResourceIconAtlas
     bool loaded{false};
 };
 
-// Shared UI text rendering helpers backed by the configured UI font.
-class UiText
-{
-public:
-    // Measures text width using the shared UI font.
-    static int Measure(const std::string& text, int fontSize);
-    // Draws text using the shared UI font.
-    static void Draw(const std::string& text, float x, float y, int fontSize, Color color);
-    // Draws text that shrinks until it fits within bounds.
-    static void DrawFit(const std::string& text, Rectangle bounds, int fontSize, Color color);
-    // Centers `text` on `titleBar` (both axes), shrinking the font (down to
-    // 14px) only when it would run into a close button reserving
-    // `closeButtonReserve` px from the right edge — the reserve affects the
-    // shrink threshold, not the centering origin, so text stays centered on
-    // the full bar even when shrunk. Shared by every panel title bar so they
-    // render identically instead of each hand-rolling its own centering.
-    static void DrawTitleBar(Rectangle titleBar, const std::string& text, float closeButtonReserve);
-};
-
-// Shared tooltip renderer used by panels and build/research views.
-class Tooltip
-{
-public:
-    // Renders a tooltip near the mouse using the shared UI style.
-    static void Draw(const std::string& title, const std::vector<std::string>& lines, float preferredWidth = 0.0f);
-};
+// UiText / Tooltip moved to inc/ui/UiText.h so tools/ can link them without the
+// rest of the GUI. Included above; nothing else had to change.
 
 // Building information panel shown after selecting map objects.
 class GuiPanel : public UiWidget

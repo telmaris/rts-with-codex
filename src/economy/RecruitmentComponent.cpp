@@ -1,5 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "warfare/BattleUnit.h"
 #include "warfare/UnitDefinition.h"
 #include "BuildingComponentsInternal.h"
@@ -54,6 +55,8 @@ bool RecruitmentComponent::QueueRecruitment(Building& self, const std::string& u
     const UnitDefinition* def = FindUnitDefinition(unitDefId);
     if (def == nullptr || def->recruitBuilding != self.buildingType)
         return false;
+    if (!def->requiredTechnology.empty() && !self.owner->technologies.HasTechnology(def->requiredTechnology))
+        return false;
 
     auto* storage = self.GetComponent<StorageComponent>();
     auto* logistics = self.GetComponent<LogisticsComponent>();
@@ -98,22 +101,25 @@ std::string RecruitmentComponent::DiagnoseRecruitmentBlock(const Building& self,
     const UnitDefinition* def = FindUnitDefinition(unitDefId);
     if (def == nullptr || def->recruitBuilding != self.buildingType)
         return "Not recruitable here";
+    if (!def->requiredTechnology.empty() && !self.owner->technologies.HasTechnology(def->requiredTechnology))
+        return "Requires tech: " + def->requiredTechnology;
 
-    // Deliberately a GLOBAL scan, unlike QueueRecruitment's own local-buffer
-    // check (see BuildingComponents.h for why) — sums each cost across every
-    // storage-like building the player owns, same shape as
-    // Player::HasBuildResources.
+    // Deliberately a GLOBAL check, unlike QueueRecruitment's own local-buffer
+    // check (see BuildingComponents.h for why): the warehouse network (same
+    // source as Player::HasBuildResources and the HUD, so the button and the
+    // stockpile panel can never disagree) PLUS whatever already sits in this
+    // building's own buffer — a cost that has physically arrived here is the
+    // most available it can possibly be, and StockpileIndex deliberately does
+    // not count a Barracks' local buffer as shared stock.
+    const auto* localStorage = self.GetComponent<StorageComponent>();
     std::vector<std::string> reasons;
     for (const auto& cost : def->cost)
     {
-        int have = 0;
-        for (const auto* building : self.owner->GetTrackedBuildingsWithComponent<StorageComponent>())
+        int have = StockpileIndex::GetTotal(*self.owner, cost.type);
+        if (localStorage != nullptr)
         {
-            const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
-            if (storage == nullptr || building->owner != self.owner)
-                continue;
-            auto it = storage->buffers.find(cost.type);
-            if (it != storage->buffers.end())
+            auto it = localStorage->buffers.find(cost.type);
+            if (it != localStorage->buffers.end())
                 have += static_cast<int>(it->second.buffer.size());
         }
         if (have < cost.amount)

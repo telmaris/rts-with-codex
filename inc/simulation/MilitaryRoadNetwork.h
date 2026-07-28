@@ -1,7 +1,7 @@
 #ifndef MILITARY_ROAD_NETWORK_H
 #define MILITARY_ROAD_NETWORK_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 
 #include <map>
 #include <vector>

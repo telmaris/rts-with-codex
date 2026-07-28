@@ -204,6 +204,31 @@ TEST(BuildingConfigTests, ProductionChainsHaveThematicPlacementCategories)
               BuildingPlacementCategory::Military);
 }
 
+TEST(BuildingConfigTests, RecipeTechnologyAndFocusRequirementsAreLoaded)
+{
+    const auto path = WriteBuildingFixture(R"DATA(
+building Smith
+    recipe "Refined Tools"
+        requires_tech waterwheel_gearing
+        requires_focus crown_manufactories
+        workers 6
+        cycle_time 8
+        input IRON 1
+        output TOOLS 2
+    end
+end
+)DATA");
+
+    const auto definitions = LoadBuildingDefinitionsFromFile(path.string());
+    ASSERT_EQ(definitions.size(), 1u);
+    ASSERT_EQ(definitions.front().recipes.size(), 1u);
+    const auto& recipe = definitions.front().recipes.front();
+    ASSERT_EQ(recipe.requiredTechnologies.size(), 1u);
+    EXPECT_EQ(recipe.requiredTechnologies.front(), "waterwheel_gearing");
+    ASSERT_EQ(recipe.requiredFocuses.size(), 1u);
+    EXPECT_EQ(recipe.requiredFocuses.front(), "crown_manufactories");
+}
+
 TEST(BuildingConfigTests, MissingBuildingDataUsesBuiltInDefaults)
 {
     const auto definitions = LoadBuildingDefinitionsFromFile("missing_building_fixture.rtsdata");

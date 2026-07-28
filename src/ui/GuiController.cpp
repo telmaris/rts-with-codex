@@ -5,6 +5,7 @@
 #include "GuiInternal.h"
 
 #include "scenes/Scenes.h"
+#include "core/Log.h"
 #include "economy/Player.h"
 
 #include <algorithm>
@@ -254,22 +255,15 @@ void BasicMapViewSystem::DestroyPressed()
     Log::Msg("[Input]", "D pressed");
 }
 
-// Toggles the local headquarters storage panel.
-void BasicMapViewSystem::HeadquartersPressed()
+// Opens the player-wide stockpile panel. A single building's panel shows only
+// what that building physically holds (user request, 2026-07-25) — this is
+// where the totals across the whole warehouse network live.
+void BasicMapViewSystem::StockpilePressed()
 {
-    Building* headquarters = FindLocalHeadquarters(scene);
-    if (headquarters == nullptr)
-        return;
-
-    if (isBuildingSelected && ActivePanel()->GetBuilding() == headquarters)
-    {
-        ClearBuildingSelection();
-        selectedBuildingWidget.building = nullptr;
-        Log::Msg("[Input]", "E pressed - headquarters panel closed");
-        return;
-    }
-
-    OpenHeadquartersPanel();
+    ClearBuildingSelection();
+    selectedBuildingWidget.building = nullptr;
+    owner->ChangeSystem("stockpile");
+    Log::Msg("[Input]", "E pressed - stockpile panel opened");
 }
 
 // Opens the full-screen statistics panel.
@@ -305,19 +299,6 @@ void BasicMapViewSystem::RosterPressed()
     selectedBuildingWidget.building = nullptr;
     owner->ChangeSystem("roster");
     Log::Msg("[Input]", "U pressed - roster panel opened");
-}
-
-// Opens the local headquarters panel without toggling it closed.
-void BasicMapViewSystem::OpenHeadquartersPanel()
-{
-    Building* headquarters = FindLocalHeadquarters(scene);
-    if (headquarters == nullptr)
-        return;
-
-    isBuildingSelected = true;
-    researchPanel.SetBuilding(nullptr);
-    buildingInfoPanel.SetBuilding(headquarters);
-    Log::Msg("[Input]", "E pressed - headquarters panel opened");
 }
 
 // Centers the camera on the local headquarters.

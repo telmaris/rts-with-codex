@@ -5,6 +5,7 @@
 
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "economy/BuildingConfig.h"
 #include "economy/ProductionBuildings.h"
 
@@ -13,25 +14,11 @@
 
 namespace
 {
-    // Counts a resource across owned storage-like buildings.
+    // Counts a resource across the local player's warehouse network.
     int CountStoredResource(GameScene* scene, ResourceType type)
     {
         Player* player = GuiLocalPlayer(scene);
-        if (player == nullptr)
-            return 0;
-
-        int amount = 0;
-        for (auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
-        {
-            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
-            if (storage == nullptr || building->owner != player)
-                continue;
-
-            auto it = storage->buffers.find(type);
-            if (it != storage->buffers.end())
-                amount += static_cast<int>(it->second.buffer.size());
-        }
-        return amount;
+        return player != nullptr ? StockpileIndex::GetTotal(*player, type) : 0;
     }
 
     // Returns a compact label for terrain requirements.
@@ -43,6 +30,9 @@ namespace
             case TileType::COAL: return "COAL";
             case TileType::IRON_ORE: return "IRON";
             case TileType::STONE: return "STONE";
+            case TileType::COPPER_ORE: return "COPPER";
+            case TileType::SAND: return "SAND";
+            case TileType::CLAY: return "CLAY";
             case TileType::GRASS:
             default: return "GRASS";
         }
@@ -133,6 +123,7 @@ namespace
             case BuildingType::Mine:
             case BuildingType::Foundry:
             case BuildingType::Smith:
+            case BuildingType::Copperworks:
                 return "METALS";
             case BuildingType::HuntersHut:
             case BuildingType::Well:
@@ -140,8 +131,28 @@ namespace
             case BuildingType::Windmill:
             case BuildingType::Bakery:
             case BuildingType::Inn:
+            case BuildingType::AnimalFarm:
+            case BuildingType::Butcher:
+            case BuildingType::HorseStable:
+            case BuildingType::HempFarm:
                 return "FOOD";
+            case BuildingType::Tannery:
+            case BuildingType::Tailor:
+            case BuildingType::Kiln:
+            case BuildingType::HouseholdWorkshop:
+            case BuildingType::Soapworks:
+            case BuildingType::Inkworks:
+            case BuildingType::Scriptorium:
+            case BuildingType::UrbanWorkshop:
+            case BuildingType::Ropery:
+            case BuildingType::Weaver:
+                return "CRAFTS";
             case BuildingType::Barracks:
+            case BuildingType::Armorer:
+            case BuildingType::Bowyer:
+            case BuildingType::Fletchery:
+            case BuildingType::SpearWorkshop:
+            case BuildingType::SiegeWorkshop:
                 return "MILITARY";
             case BuildingType::DefenseTower:
                 return "DEFENSE";
@@ -161,7 +172,7 @@ namespace
     // Returns category display order for build panel grouping.
     int BuildCategoryOrder(const std::string& category)
     {
-        static const std::vector<std::string> order{"WOOD", "METALS", "FOOD", "LOGISTICS", "MILITARY", "DEFENSE", "SCIENCE", "ROADS", "OTHER"};
+        static const std::vector<std::string> order{"WOOD", "METALS", "FOOD", "CRAFTS", "LOGISTICS", "MILITARY", "DEFENSE", "SCIENCE", "ROADS", "OTHER"};
         auto it = std::find(order.begin(), order.end(), category);
         return it != order.end() ? static_cast<int>(std::distance(order.begin(), it)) : static_cast<int>(order.size());
     }
@@ -206,7 +217,7 @@ namespace
             {
                 int stored = CountStoredResource(scene, cost.type);
                 Color color = stored >= cost.amount ? ok : missing;
-                rows.push_back({rt2s(cost.type) + ": " + std::to_string(stored) + "/" + std::to_string(cost.amount), color});
+                rows.push_back({ResourceDisplayName(cost.type) + ": " + std::to_string(stored) + "/" + std::to_string(cost.amount), color});
             }
         }
 
@@ -320,6 +331,45 @@ namespace
             case BuildingType::DefenseTower: return MakeBuildOption<DefenseTower>(scene, definition);
             case BuildingType::Road: return MakeBuildOption<Road>(scene, definition);
             case BuildingType::Bridge: return MakeBuildOption<Bridge>(scene, definition);
+            case BuildingType::AnimalFarm:
+            case BuildingType::Butcher:
+            case BuildingType::Tannery:
+            case BuildingType::Tailor:
+            case BuildingType::Armorer:
+            case BuildingType::HorseStable:
+            case BuildingType::Kiln:
+            case BuildingType::HouseholdWorkshop:
+            case BuildingType::Soapworks:
+            case BuildingType::Inkworks:
+            case BuildingType::Scriptorium:
+            case BuildingType::Copperworks:
+            case BuildingType::UrbanWorkshop:
+            case BuildingType::HempFarm:
+            case BuildingType::Ropery:
+            case BuildingType::Weaver:
+            case BuildingType::Bowyer:
+            case BuildingType::Fletchery:
+            case BuildingType::SpearWorkshop:
+            case BuildingType::SiegeWorkshop:
+            {
+                BuildOption option;
+                option.name = definition.name;
+                option.costText = definition.buildCostText;
+                option.buildCosts = definition.buildCosts;
+                option.buildingType = type;
+                option.footprint = definition.footprint;
+                option.buildTime = definition.buildTime;
+                option.category = BuildCategory(type);
+                option.previewFactory = [type]()
+                {
+                    return std::make_unique<ConfiguredProductionBuilding>(0, type);
+                };
+                option.buildAt = [scene, type](Vec2i tilePos)
+                {
+                    scene->SubmitLocalCommand(GameCommand::BuildBuilding(scene->game->GetLocalPlayerId(), type, tilePos));
+                };
+                return option;
+            }
             default: return {};
         }
     }
@@ -607,9 +657,15 @@ void BuildGhostWidget::Update(double dt)
         screenBottomRight.x - screenTopLeft.x,
         screenBottomRight.y - screenTopLeft.y};
 
+    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 5.0f);
     Color tint = canBuild ? Color{88, 196, 124, 62} : Color{220, 80, 80, 70};
+    Color outline = canBuild ? Color{112, 230, 150, 180} : Color{240, 110, 110, 190};
+    outline.a = static_cast<unsigned char>(150.0f + pulse * 105.0f);
     DrawRectangleRounded(dest, 0.04f, 8, tint);
-    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, canBuild ? Color{112, 230, 150, 180} : Color{240, 110, 110, 190});
+    Color halo = outline;
+    halo.a = static_cast<unsigned char>(45.0f + pulse * 60.0f);
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 3.0f, halo);
+    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.25f, outline);
 
     auto textureIt = scene->render.buildingTextures.find(selectedOption->buildingType);
     if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
@@ -693,10 +749,11 @@ void BuildGuiSystem::DestroyPressed()
     owner->ChangeSystem("destroy");
 }
 
-// Opens the headquarters panel from build mode.
-void BuildGuiSystem::HeadquartersPressed()
+// Opens the player-wide stockpile panel from build mode.
+void BuildGuiSystem::StockpilePressed()
 {
-    OpenHeadquartersAndReturn();
+    cameraMovement.isMoving = false;
+    owner->ChangeSystem("stockpile");
 }
 
 // Opens the statistics panel from build mode.
@@ -791,13 +848,6 @@ void BuildGuiSystem::ReturnToMapView()
     owner->ChangeSystem("default");
 }
 
-// Switches to map view and opens the headquarters panel.
-void BuildGuiSystem::OpenHeadquartersAndReturn()
-{
-    cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
-}
-
 // Returns the tile currently targeted by the build cursor.
 Vec2i BuildGuiSystem::GetHoveredTile() const
 {
@@ -829,7 +879,10 @@ bool BuildGuiSystem::CanPlaceSelected(Vec2i tilePos) const
 
     const auto& definition = GetBuildingDefinition(selectedPreview->buildingType);
     bool debugFreeBuild = scene->game->GetTileMap().params.debugMode;
-    return scene->game->GetTileMap().CanPlaceBuilding(selectedPreview->buildingType, tilePos, selectedPreview->GetFootprint(), player) &&
+    const bool fogAllowsPlacement = !IsFogOfWarPreferenceEnabled() ||
+        scene->game->IsBuildFootprintVisibleToPlayer(player->id, tilePos, selectedPreview->GetFootprint());
+    return fogAllowsPlacement &&
+           scene->game->GetTileMap().CanPlaceBuilding(selectedPreview->buildingType, tilePos, selectedPreview->GetFootprint(), player) &&
            (debugFreeBuild || player->CanBuildDefinition(definition));
 }
 
@@ -1065,12 +1118,12 @@ void DestroyGuiSystem::DestroyPressed()
     ReturnToMapView();
 }
 
-// Opens the headquarters panel from destroy mode.
-void DestroyGuiSystem::HeadquartersPressed()
+// Opens the player-wide stockpile panel from destroy mode.
+void DestroyGuiSystem::StockpilePressed()
 {
     ClearHoverTarget();
     cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
+    owner->ChangeSystem("stockpile");
 }
 
 // Opens the statistics panel from destroy mode.
@@ -1147,4 +1200,3 @@ void DestroyGuiSystem::ReturnToMapView()
     ClearHoverTarget();
     owner->ChangeSystem("default");
 }
-

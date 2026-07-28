@@ -142,6 +142,11 @@ std::uint64_t GameWorld::BuildChecksum() const
                 HashInt(hash, population->hasFood ? 1 : 0);
                 HashDouble(hash, population->foodSupplyLevel);
                 HashInt(hash, static_cast<int>(population->foodBuffer.buffer.size()));
+                HashInt(hash, population->settlementLevel);
+                HashDouble(hash, population->householdSupplyLevel);
+                HashInt(hash, static_cast<int>(population->householdGoodsBuffer.buffer.size()));
+                HashDouble(hash, population->urbanSupplyLevel);
+                HashInt(hash, static_cast<int>(population->urbanGoodsBuffer.buffer.size()));
             }
             if (const auto* recruitment = building->GetComponent<RecruitmentComponent>(); recruitment != nullptr)
             {

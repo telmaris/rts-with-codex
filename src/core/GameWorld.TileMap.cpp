@@ -1,4 +1,5 @@
 #include "core/GameWorldInternal.h"
+#include "core/Log.h"
 
 #include <algorithm>
 #include <cstdlib>

@@ -7,6 +7,8 @@
 #include "GuiInternal.h"
 
 #include "scenes/Scenes.h"
+#include "economy/BalanceStatDisplay.h"
+#include "economy/BuildingConfig.h"
 #include "economy/Player.h"
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
@@ -15,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -134,74 +137,8 @@ namespace
         return nullptr;
     }
 
-    const char* FocusStatLabel(BalanceStat stat)
-    {
-        switch (stat)
-        {
-            case BalanceStat::BuildTime: return "Build time";
-            case BalanceStat::BuildCost: return "Build cost";
-            case BalanceStat::ProductionCycleTime: return "Production cycle time";
-            case BalanceStat::ProductionOutputAmount: return "Production output";
-            case BalanceStat::WorkerCapacity: return "Worker capacity";
-            case BalanceStat::TransportTime: return "Transport time";
-            case BalanceStat::RoadCapacity: return "Road capacity";
-            case BalanceStat::RoadSpeed: return "Road speed";
-            case BalanceStat::ManpowerRate: return "Manpower growth";
-            case BalanceStat::PopulationCap: return "Population cap";
-            case BalanceStat::BuilderAmount: return "Builders";
-            // T5 (docs/post_pivot_audit_2026-07-12.md): the rest of the enum
-            // was silently falling through to "Effect" — every focus/tech
-            // modifier touching a unit/HQ/tower stat showed no real label.
-            case BalanceStat::UnitHp: return "Unit HP";
-            case BalanceStat::UnitRoadAttack: return "Unit road attack";
-            case BalanceStat::UnitSiegeAttack: return "Unit siege attack";
-            case BalanceStat::UnitArmor: return "Unit armor";
-            case BalanceStat::UnitMoveSpeed: return "Unit move speed";
-            case BalanceStat::UnitAttackSpeed: return "Unit attack speed";
-            case BalanceStat::UnitRecruitTime: return "Unit recruit time";
-            case BalanceStat::UnitRecruitManpowerCost: return "Unit manpower cost";
-            case BalanceStat::HqMaxHp: return "HQ max HP";
-            case BalanceStat::HqDefense: return "HQ hard defense";
-            case BalanceStat::HqThorns: return "HQ thorns damage";
-            case BalanceStat::ConquestSpoilsFraction: return "Conquest spoils";
-            case BalanceStat::TowerDamage: return "Tower damage";
-            case BalanceStat::TowerRange: return "Tower range";
-            case BalanceStat::TowerAttackSpeed: return "Tower attack speed";
-            case BalanceStat::TowerAmmoEfficiency: return "Tower ammo per shot";
-            default: return "Effect";
-        }
-    }
 
-    bool LowerValueIsBetter(BalanceStat stat)
-    {
-        switch (stat)
-        {
-            case BalanceStat::BuildTime:
-            case BalanceStat::BuildCost:
-            case BalanceStat::ProductionCycleTime:
-            case BalanceStat::TransportTime:
-            // T5: "less" is the improvement for these three, same reasoning
-            // as the build/production timers above — a lower recruit time,
-            // lower manpower cost, or fewer arrows burned per shot is the
-            // bonus direction, not a bigger raw number.
-            case BalanceStat::UnitRecruitTime:
-            case BalanceStat::UnitRecruitManpowerCost:
-            case BalanceStat::TowerAmmoEfficiency:
-                return true;
-            default:
-                return false;
-        }
-    }
 
-    bool IsPositiveModifier(const BalanceModifier& modifier)
-    {
-        bool lowerIsBetter = LowerValueIsBetter(modifier.stat);
-        if (std::abs(modifier.additive) > 0.001)
-            return lowerIsBetter ? modifier.additive < 0.0 : modifier.additive > 0.0;
-        if (std::abs(modifier.multiplier - 1.0) > 0.001)
-            return lowerIsBetter ? modifier.multiplier < 1.0 : modifier.multiplier > 1.0;
-        return true;
-    }
 
     std::string TooltipBonusLine(const std::string& text)
     {
@@ -218,47 +155,7 @@ namespace
         return "{separator}";
     }
 
-    const char* ImprovedRateLabel(BalanceStat stat)
-    {
-        switch (stat)
-        {
-            case BalanceStat::BuildTime: return "Build speed";
-            case BalanceStat::ProductionCycleTime: return "Production speed";
-            case BalanceStat::TransportTime: return "Transport speed";
-            default: return FocusStatLabel(stat);
-        }
-    }
 
-    const char* FocusBuildingLabel(BuildingType type)
-    {
-        switch (type)
-        {
-            case BuildingType::Headquarters: return "Headquarters";
-            case BuildingType::Village: return "Village";
-            case BuildingType::StorageBuilding: return "Storage";
-            case BuildingType::Woodcutter: return "Woodcutter";
-            case BuildingType::HuntersHut: return "Hunters Hut";
-            case BuildingType::LumberMill: return "Lumber Mill";
-            case BuildingType::Mine: return "Mine";
-            case BuildingType::Foundry: return "Foundry";
-            case BuildingType::Well: return "Well";
-            case BuildingType::WheatFarm: return "Wheat Farm";
-            case BuildingType::Windmill: return "Windmill";
-            case BuildingType::Bakery: return "Bakery";
-            case BuildingType::Inn: return "Inn";
-            case BuildingType::Paperworks: return "Paperworks";
-            case BuildingType::Smith: return "Smith";
-            case BuildingType::Mint: return "Mint";
-            case BuildingType::Glassworks: return "Glassworks";
-            case BuildingType::Powderworks: return "Powderworks";
-            case BuildingType::University: return "University";
-            case BuildingType::Barracks: return "Barracks";
-            case BuildingType::DefenseTower: return "Defense Tower";
-            case BuildingType::Road: return "Road";
-            case BuildingType::Bridge: return "Bridge";
-            default: return "Building";
-        }
-    }
 
     std::string FormatDuration(double seconds)
     {
@@ -281,11 +178,14 @@ namespace
                           (modifier.stat == BalanceStat::BuildTime ||
                            modifier.stat == BalanceStat::ProductionCycleTime ||
                            modifier.stat == BalanceStat::TransportTime);
-        stream << (showAsRate ? ImprovedRateLabel(modifier.stat) : FocusStatLabel(modifier.stat));
+        const bool isUniversityResearch = modifier.stat == BalanceStat::ProductionCycleTime &&
+                                          modifier.buildingType == BuildingType::University;
+        stream << (isUniversityResearch ? "Research speed" :
+                   (showAsRate ? ImprovedRateLabel(modifier.stat) : BalanceStatLabel(modifier.stat)));
         if (modifier.buildingType.has_value())
-            stream << " for " << FocusBuildingLabel(modifier.buildingType.value());
+            stream << " for {building}" << BalanceBuildingLabel(modifier.buildingType.value()) << "{/building}";
         if (modifier.resourceType.has_value())
-            stream << " producing " << rt2s(modifier.resourceType.value());
+            stream << " producing {resource}" << ResourceDisplayName(modifier.resourceType.value()) << "{/resource}";
         // T5 (docs/post_pivot_audit_2026-07-12.md): unit-scoped and
         // category-scoped modifiers previously showed no hint they were
         // filtered at all — e.g. a "+1 HP for archers" tech looked identical
@@ -296,7 +196,7 @@ namespace
             stream << " for " << (unitDef != nullptr ? unitDef->displayName : modifier.unitDefId.value());
         }
         if (modifier.resourceCategory.has_value())
-            stream << " (" << ResourceCategoryLabel(modifier.resourceCategory.value()) << ")";
+            stream << " ({category}" << ResourceCategoryLabel(modifier.resourceCategory.value()) << "{/category})";
         stream << ": ";
 
         bool hasValue = false;
@@ -320,9 +220,76 @@ namespace
         return IsPositiveModifier(modifier) ? TooltipBonusLine(stream.str()) : TooltipPenaltyLine(stream.str());
     }
 
+    std::string FormatResearchCosts(const std::vector<ResourceAmountDefinition>& costs)
+    {
+        std::ostringstream stream;
+        stream << "Research cost: ";
+        for (size_t index = 0; index < costs.size(); index++)
+        {
+            if (index > 0)
+                stream << "  |  ";
+            stream << "{resource}" << ResourceDisplayName(costs[index].type) << "{/resource} x" << costs[index].amount;
+        }
+        return stream.str();
+    }
+
+    bool RequiresTechnology(const std::vector<std::string>& requirements, const std::string& technologyId)
+    {
+        return std::find(requirements.begin(), requirements.end(), technologyId) != requirements.end();
+    }
+
+    std::string JoinTooltipNames(const std::vector<std::string>& names, const char* markup)
+    {
+        std::ostringstream stream;
+        for (size_t index = 0; index < names.size(); index++)
+        {
+            if (index > 0)
+                stream << ", ";
+            stream << markup << names[index] << "{/" << (std::string(markup) == "{building}" ? "building" : "resource") << "}";
+        }
+        return stream.str();
+    }
+
+    std::vector<std::string> CollectTechnologyUnlockLines(const std::string& technologyId)
+    {
+        std::vector<std::string> buildings;
+        std::vector<std::string> products;
+        std::vector<std::string> units;
+        for (const auto& building : GetBuildingDefinitions())
+        {
+            if (RequiresTechnology(building.requiredTechnologies, technologyId))
+                buildings.push_back(building.name);
+            for (const auto& recipe : building.recipes)
+            {
+                if (!RequiresTechnology(recipe.requiredTechnologies, technologyId))
+                    continue;
+                // The recipe name is player-facing and already describes the
+                // selected product better than its internal resource id.
+                products.push_back(recipe.name);
+            }
+        }
+        for (const auto& [id, unit] : GetUnitCatalog())
+        {
+            if (unit.requiredTechnology == technologyId)
+                units.push_back(unit.displayName);
+        }
+
+        std::vector<std::string> lines;
+        if (!buildings.empty())
+            lines.push_back("Unlocks building: " + JoinTooltipNames(buildings, "{building}"));
+        if (!products.empty())
+            lines.push_back("Unlocks product: " + JoinTooltipNames(products, "{resource}"));
+        if (!units.empty())
+            lines.push_back("Unlocks unit: " + JoinTooltipNames(units, "{resource}"));
+        return lines;
+    }
+
     // Display order of tree lanes; unknown lanes go last, alphabetically.
     int LaneRank(const std::string& lane)
     {
+        if (lane == "Biology") return 0;
+        if (lane == "Mathematics") return 1;
+        if (lane == "Humanities") return 2;
         if (lane == "PRODUCTION" || lane == "ECONOMY") return 0;
         if (lane == "MILITARY" || lane == "WARFARE") return 1;
         if (lane == "SOCIAL" || lane == "LOGISTICS") return 2;
@@ -350,7 +317,7 @@ void ResearchTreePanelWidget::Update(double dt)
         return;
 
     const bool isFocus = kind == ResearchTreeKind::Focus;
-    const char* panelTitle = isFocus ? "Political Focus Tree" : "Technology Research";
+    const char* panelTitle = isFocus ? "Decisions" : "Technology Research";
 
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
@@ -409,12 +376,12 @@ void ResearchTreePanelWidget::Update(double dt)
         panning = false;
 
     // ── Layout: lanes → depth rows → per-row horizontal placement ────────────
-    float nodeW = 128.0f * zoom;
-    float nodeH = 122.0f * zoom;
+    float nodeW = 132.0f * zoom;
+    float nodeH = 104.0f * zoom;
     float colGap = 118.0f * zoom;
-    float laneGap = 250.0f * zoom;
-    float rowGap = 176.0f * zoom;
-    float laneHeaderH = 38.0f * zoom;
+    float laneGap = 220.0f * zoom;
+    float rowGap = 118.0f * zoom;
+    float laneHeaderH = 30.0f * zoom;
     std::map<std::string, Rectangle> nodeRects;
     std::map<std::string, int> depthById;
     std::map<std::string, std::map<int, std::vector<ResearchNodeView*>>> nodesByLaneDepth;
@@ -497,85 +464,35 @@ void ResearchTreePanelWidget::Update(double dt)
                 return a->definitionIndex < b->definitionIndex;
             });
 
-            std::vector<float> desiredX(rowNodes.size(), laneX);
-            float laneCenter = laneX + laneWidth * 0.5f;
-            for (size_t i = 0; i < rowNodes.size(); i++)
+            float rowY = treeArea.y + panOffset.y + laneHeaderH + 24.0f + depth * (nodeH + rowGap) - scrollOffset;
+            float usableWidth = std::max(1.0f, laneWidth - nodeW);
+
+            // A node with no layout_order in the data file cannot be placed by
+            // slot: BuildView substitutes the definition's file index for it, so
+            // slots 0,1,2… would map to almost the same x and the nodes would
+            // sit on top of each other at the left edge. Those pack from the
+            // left with real spacing instead; only genuinely positioned nodes
+            // land on their exact slot.
+            std::vector<ResearchNodeView*> autoNodes;
+            for (auto* rowNode : rowNodes)
             {
-                float parentCenterSum = 0.0f;
-                int parentCount = 0;
-                for (const auto& prerequisite : rowNodes[i]->prerequisites)
+                bool explicitOrder = rowNode->definition != nullptr &&
+                                     rowNode->definition->layoutOrder != std::numeric_limits<int>::max();
+                if (!explicitOrder)
                 {
-                    auto parentIt = nodeRects.find(prerequisite);
-                    if (parentIt == nodeRects.end())
-                        continue;
-                    parentCenterSum += parentIt->second.x + parentIt->second.width * 0.5f;
-                    parentCount++;
+                    autoNodes.push_back(rowNode);
+                    continue;
                 }
-                float rowOffset = (static_cast<float>(i) - (static_cast<float>(rowNodes.size()) - 1.0f) * 0.5f) * (nodeW + colGap * 1.35f);
-                int orderWithinLayer = ((rowNodes[i]->layoutOrder % 1000) + 1000) % 1000;
-                float orderNorm = static_cast<float>(orderWithinLayer) / 999.0f;
-                float laneMargin = std::min(laneWidth * 0.28f, 230.0f * zoom);
-                float orderTarget = laneX + laneMargin + orderNorm * std::max(0.0f, laneWidth - laneMargin * 2.0f - nodeW) + nodeW * 0.5f;
-                if (parentCount > 0)
-                {
-                    float parentCenter = parentCenterSum / parentCount;
-                    float orderInfluence = orderWithinLayer <= 80 || orderWithinLayer >= 920 ? 0.62f : 0.42f;
-                    float spreadTarget = laneCenter + rowOffset;
-                    float center = parentCenter * (1.0f - orderInfluence) + orderTarget * orderInfluence;
-                    center = center * 0.72f + spreadTarget * 0.28f;
-                    desiredX[i] = center - nodeW * 0.5f;
-                }
-                else
-                {
-                    desiredX[i] = laneCenter + rowOffset - nodeW * 0.5f;
-                }
+
+                int slot = ((rowNode->layoutOrder % 1000) + 1000) % 1000;
+                float x = laneX + (static_cast<float>(slot) / 999.0f) * usableWidth;
+                nodeRects[rowNode->id] = Rectangle{x, rowY, nodeW, nodeH};
             }
 
-            std::vector<size_t> order(rowNodes.size());
-            for (size_t i = 0; i < order.size(); i++)
-                order[i] = i;
-            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b)
+            for (size_t i = 0; i < autoNodes.size(); i++)
             {
-                return desiredX[a] < desiredX[b];
-            });
-
-            std::vector<float> placed(order.size(), laneX);
-            for (size_t orderIndex = 0; orderIndex < order.size(); orderIndex++)
-            {
-                size_t i = order[orderIndex];
-                placed[orderIndex] = std::clamp(desiredX[i], laneX, laneX + laneWidth - nodeW);
-            }
-            float minStep = nodeW + colGap;
-            for (int pass = 0; pass < 2; pass++)
-            {
-                for (size_t i = 1; i < placed.size(); i++)
-                    placed[i] = std::max(placed[i], placed[i - 1] + minStep);
-                for (int i = static_cast<int>(placed.size()) - 2; i >= 0; i--)
-                    placed[i] = std::min(placed[i], placed[i + 1] - minStep);
-            }
-            if (!placed.empty())
-            {
-                float rowMin = placed.front();
-                float rowMax = placed.back();
-                float rowCenter = (rowMin + rowMax + nodeW) * 0.5f;
-                float targetCenter = laneCenter;
-                for (float x : desiredX)
-                    targetCenter += x + nodeW * 0.5f;
-                targetCenter /= static_cast<float>(desiredX.size() + 1);
-                float shift = std::clamp(targetCenter - rowCenter, laneX - rowMin, laneX + laneWidth - nodeW - rowMax);
-                for (auto& x : placed)
-                    x += shift;
-            }
-
-            for (size_t orderIndex = 0; orderIndex < order.size(); orderIndex++)
-            {
-                size_t i = order[orderIndex];
-                Rectangle rect{
-                    placed[orderIndex],
-                    treeArea.y + panOffset.y + laneHeaderH + 28.0f + depth * (nodeH + rowGap) - scrollOffset,
-                    nodeW,
-                    nodeH};
-                nodeRects[rowNodes[i]->id] = rect;
+                float x = laneX + static_cast<float>(i) * (nodeW + colGap * 0.5f);
+                nodeRects[autoNodes[i]->id] = Rectangle{std::min(x, laneX + usableWidth), rowY, nodeW, nodeH};
             }
         }
         laneX += laneWidth + laneGap;
@@ -613,8 +530,10 @@ void ResearchTreePanelWidget::Update(double dt)
     BeginScissorMode(static_cast<int>(treeArea.x), static_cast<int>(treeArea.y), static_cast<int>(treeArea.width), static_cast<int>(treeArea.height));
     for (const auto& [lane, header] : laneHeaders)
     {
-        DrawRectangleRounded(header, 0.14f, 8, Color{44, 33, 23, 215});
-        UiText::DrawFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), Color{224, 204, 168, 255});
+        int laneFont = std::max(16, static_cast<int>(21 * zoom));
+        UiText::Draw(lane, header.x, header.y, laneFont, Color{216, 194, 156, 255});
+        float ruleY = header.y + header.height - 4.0f;
+        DrawLineEx({header.x, ruleY}, {header.x + header.width, ruleY}, 1.0f, Color{72, 58, 43, 255});
     }
 
     for (const auto& node : nodes)
@@ -629,13 +548,21 @@ void ResearchTreePanelWidget::Update(double dt)
             Rectangle parent = parentIt->second;
             Vector2 parentAnchor{parent.x + parent.width * 0.5f, parent.y + parent.height};
             bool highlighted = highlightedPath.contains(node.id) && highlightedPath.contains(prerequisite);
-            Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{96, 80, 60, 150};
-            float edgeWidth = highlighted ? 4.0f : 1.5f;
-            Vector2 midA{parentAnchor.x, parentAnchor.y + rowGap * 0.34f};
-            Vector2 midB{childAnchor.x, childAnchor.y - rowGap * 0.34f};
-            DrawLineEx(parentAnchor, midA, edgeWidth, edgeColor);
-            DrawLineEx(midA, midB, edgeWidth, edgeColor);
-            DrawLineEx(midB, childAnchor, edgeWidth, edgeColor);
+            Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{104, 88, 66, 190};
+            float edgeWidth = highlighted ? 3.0f : 1.5f;
+            if (std::abs(parentAnchor.x - childAnchor.x) < 1.5f)
+            {
+                DrawLineEx(parentAnchor, childAnchor, edgeWidth, edgeColor);
+            }
+            else
+            {
+                float midY = (parentAnchor.y + childAnchor.y) * 0.5f;
+                Vector2 corner1{parentAnchor.x, midY};
+                Vector2 corner2{childAnchor.x, midY};
+                DrawLineEx(parentAnchor, corner1, edgeWidth, edgeColor);
+                DrawLineEx(corner1, corner2, edgeWidth, edgeColor);
+                DrawLineEx(corner2, childAnchor, edgeWidth, edgeColor);
+            }
         }
     }
 
@@ -657,18 +584,23 @@ void ResearchTreePanelWidget::Update(double dt)
             fill.a = 110;
             line.a = 120;
         }
-        DrawRectangleRounded(rect, 0.06f, 8, fill);
-        DrawRectangleRoundedLines(rect, 0.06f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{150, 210, 130, 255} : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255} : (hover ? UiTheme::AmberBright : line));
-        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 7.0f * zoom, rect.width - 20.0f * zoom, 45.0f * zoom}, std::max(15, static_cast<int>(24 * zoom)), UiTheme::Parchment, 2);
-        UiText::DrawFit(node.stateText, Rectangle{rect.x + 12.0f * zoom, rect.y + 53.0f * zoom, rect.width - 24.0f * zoom, 21.0f * zoom}, std::max(11, static_cast<int>(18 * zoom)),
+        Color border = tagMatched && !selectedTagFilter.empty() ? Color{150, 210, 130, 255}
+                     : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255}
+                     : hover ? UiTheme::AmberBright
+                     : line;
+        DrawRectangleRec(rect, fill);
+        DrawRectangleRec(Rectangle{rect.x, rect.y, 3.0f, rect.height}, line);
+        DrawRectangleLinesEx(rect, 1.0f, border);
+        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 6.0f * zoom, rect.width - 18.0f * zoom, 38.0f * zoom}, std::max(14, static_cast<int>(20 * zoom)), UiTheme::Parchment, 2);
+        UiText::DrawFit(node.stateText, Rectangle{rect.x + 10.0f * zoom, rect.y + 46.0f * zoom, rect.width - 18.0f * zoom, 18.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)),
             node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{160, 142, 112, 255});
 
-        float timeTextY = 76.0f;
+        float timeTextY = 66.0f;
         std::string timeText = node.active ? FormatDuration(node.remainingTime) + " left" : FormatDuration(node.researchTime);
         UiText::DrawFit(timeText, Rectangle{rect.x + 12.0f * zoom, rect.y + timeTextY * zoom, rect.width - 24.0f * zoom, 16.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)), Color{190, 172, 140, 255});
         if (node.active || node.researched)
         {
-            Rectangle progress{rect.x + 12.0f, rect.y + rect.height - 11.0f, rect.width - 24.0f, 5.0f};
+            Rectangle progress{rect.x + 10.0f, rect.y + rect.height - 9.0f, rect.width - 20.0f, 4.0f};
             DrawRectangleRounded(progress, 0.5f, 4, Color{22, 16, 12, 230});
             Rectangle fillBar = progress;
             fillBar.width *= static_cast<float>(std::clamp(node.progress, 0.0, 1.0));
@@ -702,6 +634,13 @@ void ResearchTreePanelWidget::Update(double dt)
         std::vector<std::string> lines{hovered->description};
         lines.push_back(TooltipSeparatorLine());
         lines.push_back("Time: " + FormatDuration(hovered->researchTime) + " | " + hovered->stateText);
+        if (!isFocus && !hovered->costs.empty())
+            lines.push_back(FormatResearchCosts(hovered->costs));
+        if (!isFocus)
+        {
+            const auto unlockLines = CollectTechnologyUnlockLines(hovered->id);
+            lines.insert(lines.end(), unlockLines.begin(), unlockLines.end());
+        }
         if (hovered->active)
             lines.push_back("Remaining: " + FormatDuration(hovered->remainingTime));
         if (!isFocus && !hovered->available && !hovered->researched && !hovered->active)
@@ -796,10 +735,10 @@ void FocusGuiSystem::DestroyPressed()
     owner->ChangeSystem("destroy");
 }
 
-void FocusGuiSystem::HeadquartersPressed()
+void FocusGuiSystem::StockpilePressed()
 {
     cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
+    owner->ChangeSystem("stockpile");
 }
 
 void FocusGuiSystem::StatsPressed()
@@ -946,10 +885,10 @@ void TechGuiSystem::DestroyPressed()
     owner->ChangeSystem("destroy");
 }
 
-void TechGuiSystem::HeadquartersPressed()
+void TechGuiSystem::StockpilePressed()
 {
     cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
+    owner->ChangeSystem("stockpile");
 }
 
 void TechGuiSystem::StatsPressed()

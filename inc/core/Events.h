@@ -1,7 +1,7 @@
 #ifndef EVENTS_H
 #define EVENTS_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "core/GameWorld.h"
 
 class EventBroker;

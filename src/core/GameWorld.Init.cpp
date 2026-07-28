@@ -1,4 +1,5 @@
 #include "core/GameWorldInternal.h"
+#include "core/Log.h"
 
 #include <limits>
 #include <set>
@@ -72,6 +73,60 @@ namespace
             Color{88, 196, 210, 255}
         };
         return colors[static_cast<size_t>(std::clamp(id, 0, static_cast<int>(colors.size()) - 1))];
+    }
+
+    Vec2i DirectionFromHqToTile(Vec2i hqAnchor, Vec2i hqFootprint, Vec2i tile)
+    {
+        if (tile.x < hqAnchor.x)
+            return {-1, 0};
+        if (tile.x >= hqAnchor.x + hqFootprint.x)
+            return {1, 0};
+        if (tile.y < hqAnchor.y)
+            return {0, -1};
+        if (tile.y >= hqAnchor.y + hqFootprint.y)
+            return {0, 1};
+        return {};
+    }
+
+    std::vector<Vec2i> GetMilitaryExitDirections(const MilitaryRoadNetwork& roads,
+                                                 const TileMap& tilemap,
+                                                 int playerId,
+                                                 Vec2i hqAnchor,
+                                                 Vec2i hqFootprint)
+    {
+        std::vector<Vec2i> directions;
+        for (const MilitaryRoute& route : roads.GetRoutes())
+        {
+            int gateTile = -1;
+            if (route.playerA == playerId && !route.tiles.empty())
+                gateTile = route.tiles.front();
+            else if (route.playerB == playerId && !route.tiles.empty())
+                gateTile = route.tiles.back();
+
+            if (gateTile < 0)
+                continue;
+
+            Vec2i direction = DirectionFromHqToTile(
+                hqAnchor, hqFootprint, tilemap.GetCoordsFromId(gateTile));
+            if (direction.x != 0 || direction.y != 0)
+                directions.push_back(direction);
+        }
+        return directions;
+    }
+
+    int CountMatchingDirections(Vec2i candidateDirection,
+                                const std::vector<Vec2i>& exitDirections,
+                                bool opposite)
+    {
+        int matches = 0;
+        for (Vec2i exitDirection : exitDirections)
+        {
+            if (opposite)
+                exitDirection = {-exitDirection.x, -exitDirection.y};
+            if (candidateDirection == exitDirection)
+                matches++;
+        }
+        return matches;
     }
 
     // Adds a debug resource package to the player's headquarters.
@@ -299,29 +354,48 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
     constexpr int kMaxVillageRoadTiles = 15;
     constexpr int kCandidateAttempts = 30;
 
-    std::vector<Vec2i> villageCandidates;
+    struct VillageCandidate
+    {
+        Vec2i anchor{};
+        Vec2i direction{};
+    };
+
+    std::vector<VillageCandidate> villageCandidates;
+    auto addCandidate = [&](int side, int offset)
+    {
+        switch (side)
+        {
+            case 0:
+                villageCandidates.push_back({
+                    {hqAnchor.x - gap - villageFootprint.x, hqAnchor.y + offset}, {-1, 0}});
+                break;
+            case 1:
+                villageCandidates.push_back({
+                    {hqAnchor.x + hqFootprint.x + gap, hqAnchor.y + offset}, {1, 0}});
+                break;
+            case 2:
+                villageCandidates.push_back({
+                    {hqAnchor.x + offset, hqAnchor.y - gap - villageFootprint.y}, {0, -1}});
+                break;
+            default:
+                villageCandidates.push_back({
+                    {hqAnchor.x + offset, hqAnchor.y + hqFootprint.y + gap}, {0, 1}});
+                break;
+        }
+    };
+
+    // Always include one centered candidate on every side. Random sampling
+    // below still varies the final layout, while these four guarantee that
+    // the side opposite the military exits is actually considered.
+    for (int side = 0; side < 4; side++)
+        addCandidate(side, 0);
+
     for (int attempt = 0; attempt < kCandidateAttempts; attempt++)
     {
         int side = sideDist(startRng);
         int offset = offsetDist(startRng);
-        switch (side)
-        {
-            case 0:
-                villageCandidates.push_back({hqAnchor.x - gap - villageFootprint.x, hqAnchor.y + offset});
-                break;
-            case 1:
-                villageCandidates.push_back({hqAnchor.x + hqFootprint.x + gap, hqAnchor.y + offset});
-                break;
-            case 2:
-                villageCandidates.push_back({hqAnchor.x + offset, hqAnchor.y - gap - villageFootprint.y});
-                break;
-            default:
-                villageCandidates.push_back({hqAnchor.x + offset, hqAnchor.y + hqFootprint.y + gap});
-                break;
-        }
+        addCandidate(side, offset);
     }
-    villageCandidates.push_back({hqAnchor.x - gap - villageFootprint.x, hqAnchor.y});
-    villageCandidates.push_back({hqAnchor.x + hqFootprint.x + gap, hqAnchor.y});
 
     // Two fallback layers, matching the original guarantee that a legally
     // buildable candidate is always used if one exists: prefer the shortest
@@ -330,33 +404,91 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
     // "shouldn't happen short of fully boxed in" case), fall back to the
     // first buildable candidate rather than placing nothing.
     bool haveBuildable = false;
-    Vec2i firstBuildableAnchor{};
+    Vec2i bestBuildableAnchor{};
+    int bestBuildableExitMatches = std::numeric_limits<int>::max();
+    int bestBuildableOppositeMatches = -1;
+    bool bestBuildableDetached = false;
     bool haveRoutable = false;
     Vec2i bestRoutableAnchor{};
+    int bestRoadClearance = 0;
     std::size_t bestPathLength = std::numeric_limits<std::size_t>::max();
-    for (auto candidate : villageCandidates)
+    bool bestWithinBudget = false;
+    bool bestDetached = false;
+    int bestExitMatches = std::numeric_limits<int>::max();
+    int bestOppositeMatches = -1;
+    const std::vector<Vec2i> exitDirections = GetMilitaryExitDirections(
+        militaryRoads, tilemap, player->id, hqAnchor, hqFootprint);
+
+    for (VillageCandidate candidate : villageCandidates)
     {
-        candidate = ClampAnchor(candidate, villageFootprint, tilemap.params);
-        if (!tilemap.CanBuildFootprint(candidate, villageFootprint, player))
+        candidate.anchor = ClampAnchor(candidate.anchor, villageFootprint, tilemap.params);
+        if (!tilemap.CanBuildFootprint(candidate.anchor, villageFootprint, player))
             continue;
-        if (!haveBuildable)
+
+        const int exitMatches = CountMatchingDirections(candidate.direction, exitDirections, false);
+        const int oppositeMatches = CountMatchingDirections(candidate.direction, exitDirections, true);
+        const bool footprintDetached = HasMilitaryRoadClearance(
+            tilemap, candidate.anchor, villageFootprint, 1);
+        const bool betterBuildable =
+            !haveBuildable ||
+            (footprintDetached != bestBuildableDetached && footprintDetached) ||
+            (footprintDetached == bestBuildableDetached &&
+             exitMatches != bestBuildableExitMatches && exitMatches < bestBuildableExitMatches) ||
+            (footprintDetached == bestBuildableDetached &&
+             exitMatches == bestBuildableExitMatches &&
+             oppositeMatches > bestBuildableOppositeMatches);
+        if (betterBuildable)
         {
             haveBuildable = true;
-            firstBuildableAnchor = candidate;
+            bestBuildableAnchor = candidate.anchor;
+            bestBuildableDetached = footprintDetached;
+            bestBuildableExitMatches = exitMatches;
+            bestBuildableOppositeMatches = oppositeMatches;
         }
 
-        std::vector<int> path = FindRoadPathBetweenFootprints(tilemap, player, candidate, villageFootprint, hqAnchor, hqFootprint);
+        std::vector<int> path;
+        bool detached = false;
+        if (footprintDetached)
+        {
+            path = FindRoadPathBetweenFootprints(
+                tilemap, player, candidate.anchor, villageFootprint,
+                hqAnchor, hqFootprint, 1);
+            detached = !path.empty();
+        }
+        if (path.empty())
+        {
+            path = FindRoadPathBetweenFootprints(
+                tilemap, player, candidate.anchor, villageFootprint,
+                hqAnchor, hqFootprint);
+        }
         if (path.empty())
             continue;
 
-        if (path.size() < bestPathLength)
+        const bool withinBudget =
+            path.size() <= static_cast<std::size_t>(kMaxVillageRoadTiles);
+        const bool betterRoutable =
+            !haveRoutable ||
+            (detached != bestDetached && detached) ||
+            (detached == bestDetached && withinBudget != bestWithinBudget && withinBudget) ||
+            (detached == bestDetached && withinBudget == bestWithinBudget &&
+             exitMatches != bestExitMatches && exitMatches < bestExitMatches) ||
+            (detached == bestDetached && withinBudget == bestWithinBudget &&
+             exitMatches == bestExitMatches && oppositeMatches != bestOppositeMatches &&
+             oppositeMatches > bestOppositeMatches) ||
+            (detached == bestDetached && withinBudget == bestWithinBudget &&
+             exitMatches == bestExitMatches && oppositeMatches == bestOppositeMatches &&
+             path.size() < bestPathLength);
+        if (betterRoutable)
         {
             haveRoutable = true;
             bestPathLength = path.size();
-            bestRoutableAnchor = candidate;
+            bestRoutableAnchor = candidate.anchor;
+            bestRoadClearance = detached ? 1 : 0;
+            bestWithinBudget = withinBudget;
+            bestDetached = detached;
+            bestExitMatches = exitMatches;
+            bestOppositeMatches = oppositeMatches;
         }
-        if (path.size() <= static_cast<std::size_t>(kMaxVillageRoadTiles))
-            break;
     }
 
     if (!haveBuildable)
@@ -366,12 +498,13 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
                   kMaxVillageRoadTiles, " road tiles of HQ — using shortest found (",
                   bestPathLength, " tiles)");
 
-    Vec2i villageAnchor = haveRoutable ? bestRoutableAnchor : firstBuildableAnchor;
+    Vec2i villageAnchor = haveRoutable ? bestRoutableAnchor : bestBuildableAnchor;
     SetFootprintTerrain(tilemap, villageAnchor, villageFootprint, TileType::GRASS, resourceRng, 3);
     Building* village = player->Build<Village>(villageAnchor, false);
 
     if (village != nullptr)
-        BuildStartRoad(player, villageAnchor, villageFootprint, hqAnchor, hqFootprint);
+        BuildStartRoad(player, villageAnchor, villageFootprint, hqAnchor, hqFootprint,
+                       haveRoutable ? bestRoadClearance : 0);
 
     // WOOD/STONE stay on the original ring (17..23); COAL/IRON_ORE (user
     // request 2026-07-19: iron is often missing near spawn) sit on a wider
@@ -477,6 +610,7 @@ void GameWorld::InitWorld(std::string name, Renderer* r, AudioSystem* a, MapPara
         cachedCameraTarget = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
         cachedCameraZoom = -1.0f;
     }
+    UpdateFogOfWar();
 }
 
 // Initializes deterministic multiplayer runtime state with server-assigned slots.
@@ -571,5 +705,6 @@ void GameWorld::InitMultiplayerWorld(std::string name, Renderer* r, AudioSystem*
         cachedCameraTarget = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
         cachedCameraZoom = -1.0f;
     }
+    UpdateFogOfWar();
 }
 

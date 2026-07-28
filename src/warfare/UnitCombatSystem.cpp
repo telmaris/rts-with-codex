@@ -56,6 +56,13 @@ namespace
         return std::sqrt(dx * dx + dy * dy);
     }
 
+    double EngagementRange(const BattleUnit& unit)
+    {
+        const UnitDefinition* definition = FindUnitDefinition(unit.unitDefId);
+        return std::max<double>(kMeleeContactRange,
+                                definition != nullptr ? definition->attackRange : 0.0);
+    }
+
     // TD(etap-6.2) mode-conflict fallback: besiegers parked in AttackingHq
     // are deliberately excluded from FindFrontMostUnit's normal front-vs-front
     // road-combat pool (a fresh column must never be able to yank one of them
@@ -130,7 +137,7 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
         BattleUnit& opponent = deployedUnits.at(opponentId);
         Vec2f selfPos = UnitMarchSystem::ComputeWorldPosition(world, self);
         Vec2f opponentPos = UnitMarchSystem::ComputeWorldPosition(world, opponent);
-        if (DistanceBetween(selfPos, opponentPos) > kMeleeContactRange)
+        if (DistanceBetween(selfPos, opponentPos) > EngagementRange(self))
         {
             self.state = BattleUnitState::Marching; // opponent stepped out of range
             continue;
@@ -146,19 +153,63 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
         self.attackTimer += attackSpeed > 0.0 ? 1.0 / attackSpeed : 1.0;
 
         double damage = self.GetEffectiveRoadAttack(*ownerIt->second);
-        double armor = opponent.GetEffectiveArmor(*opponentOwnerIt->second);
-        const UnitDefinition* opponentDef = FindUnitDefinition(opponent.unitDefId);
-        static const std::map<DamageType, float> noResistances;
-        const auto& resistances = opponentDef != nullptr ? opponentDef->resistances : noResistances;
+        const UnitDefinition* selfDef = FindUnitDefinition(self.unitDefId);
+        auto applyHit = [&](BattleUnit& target, double multiplier)
+        {
+            auto targetOwner = playerHandler.players.find(target.ownerPlayerId);
+            if (targetOwner == playerHandler.players.end() || targetOwner->second == nullptr)
+                return;
 
-        double resolved = CombatResolver::ResolveDamage(damage, armor, DamageType::Physical, resistances,
-                                                         worldSeed, tick, self.instanceId);
-        double applied = std::min(resolved, std::max(0.0, opponent.currentHp));
-        bool lethal = opponent.currentHp - resolved <= 0.0;
-        world.GetCombatTelemetry().RecordUnitDamage(opponent.instanceId, opponent.ownerPlayerId,
-                                                     opponent.unitDefId, CombatDamageSource::Unit,
-                                                     applied, lethal);
-        opponent.currentHp -= resolved;
+            const UnitDefinition* targetDef = FindUnitDefinition(target.unitDefId);
+            double targetDamage = damage * multiplier;
+            if (selfDef != nullptr && targetDef != nullptr && targetDef->cavalry)
+                targetDamage *= std::max(1.0, selfDef->antiCavalryMultiplier);
+
+            static const std::map<DamageType, float> noResistances;
+            const auto& resistances = targetDef != nullptr ? targetDef->resistances : noResistances;
+            double armor = target.GetEffectiveArmor(*targetOwner->second);
+            double resolved = CombatResolver::ResolveDamage(
+                targetDamage, armor, DamageType::Physical, resistances,
+                worldSeed, tick, self.instanceId + target.instanceId);
+            double applied = std::min(resolved, std::max(0.0, target.currentHp));
+            bool lethal = target.currentHp - resolved <= 0.0;
+            world.GetCombatTelemetry().RecordUnitDamage(
+                target.instanceId, target.ownerPlayerId, target.unitDefId,
+                CombatDamageSource::Unit, applied, lethal);
+            target.currentHp -= resolved;
+        };
+
+        applyHit(opponent, 1.0);
+
+        int areaTargets = selfDef != nullptr ? std::max(1, selfDef->areaTargets) : 1;
+        if (areaTargets > 1)
+        {
+            std::vector<int> splashIds;
+            for (const auto& [candidateId, candidate] : deployedUnits)
+            {
+                if (candidateId == opponentId || candidate.currentHp <= 0.0 ||
+                    candidate.routeFromPlayerId != self.routeToPlayerId ||
+                    candidate.routeToPlayerId != self.routeFromPlayerId)
+                    continue;
+                if (candidate.state != BattleUnitState::Marching &&
+                    candidate.state != BattleUnitState::FightingUnit)
+                    continue;
+                splashIds.push_back(candidateId);
+            }
+            std::sort(splashIds.begin(), splashIds.end(), [&](int lhs, int rhs)
+            {
+                const BattleUnit& a = deployedUnits.at(lhs);
+                const BattleUnit& b = deployedUnits.at(rhs);
+                if (a.tileIndex != b.tileIndex) return a.tileIndex > b.tileIndex;
+                if (a.tileProgress != b.tileProgress) return a.tileProgress > b.tileProgress;
+                return lhs < rhs;
+            });
+            for (int splashId : splashIds)
+            {
+                if (--areaTargets <= 0) break;
+                applyHit(deployedUnits.at(splashId), 0.6);
+            }
+        }
     }
 
     // Pass 2: remove the dead immediately (TD etap-5 v1 simplification — no
@@ -190,25 +241,34 @@ void UnitCombatSystem::Update(GameWorld& world, double dt)
     // immediately — no "free" alpha strike on first contact.
     for (const auto& route : world.GetMilitaryRoads().GetRoutes())
     {
-        int frontAB = FindFrontMostUnit(deployedUnits, route.playerA, route.playerB);
-        int frontBA = FindFrontMostUnit(deployedUnits, route.playerB, route.playerA);
-        if (frontAB == -1 || frontBA == -1)
-            continue;
+        for (auto [from, to] : {std::pair{route.playerA, route.playerB},
+                                std::pair{route.playerB, route.playerA}})
+        {
+            int enemyFrontId = FindFrontMostUnit(deployedUnits, to, from);
+            if (enemyFrontId == -1)
+                continue;
 
-        BattleUnit& unitAB = deployedUnits.at(frontAB);
-        BattleUnit& unitBA = deployedUnits.at(frontBA);
-        if (unitAB.state == BattleUnitState::FightingUnit && unitBA.state == BattleUnitState::FightingUnit)
-            continue; // already engaged with each other
+            Vec2f enemyPos = UnitMarchSystem::ComputeWorldPosition(world, deployedUnits.at(enemyFrontId));
+            int ownFrontId = FindFrontMostUnit(deployedUnits, from, to);
+            for (auto& [id, unit] : deployedUnits)
+            {
+                if (unit.routeFromPlayerId != from || unit.routeToPlayerId != to ||
+                    unit.state != BattleUnitState::Marching || unit.currentHp <= 0.0)
+                    continue;
 
-        Vec2f posAB = UnitMarchSystem::ComputeWorldPosition(world, unitAB);
-        Vec2f posBA = UnitMarchSystem::ComputeWorldPosition(world, unitBA);
-        if (DistanceBetween(posAB, posBA) > kMeleeContactRange)
-            continue;
+                const UnitDefinition* definition = FindUnitDefinition(unit.unitDefId);
+                bool ranged = definition != nullptr && definition->attackRange > kMeleeContactRange;
+                if (!ranged && id != ownFrontId)
+                    continue;
 
-        auto ownerAB = playerHandler.players.find(unitAB.ownerPlayerId);
-        auto ownerBA = playerHandler.players.find(unitBA.ownerPlayerId);
-        LockIntoMelee(unitAB, ownerAB != playerHandler.players.end() ? ownerAB->second.get() : nullptr);
-        LockIntoMelee(unitBA, ownerBA != playerHandler.players.end() ? ownerBA->second.get() : nullptr);
+                Vec2f unitPos = UnitMarchSystem::ComputeWorldPosition(world, unit);
+                if (DistanceBetween(unitPos, enemyPos) > EngagementRange(unit))
+                    continue;
+
+                auto owner = playerHandler.players.find(unit.ownerPlayerId);
+                LockIntoMelee(unit, owner != playerHandler.players.end() ? owner->second.get() : nullptr);
+            }
+        }
     }
 
     // Pass 4 (TD etap-6.2, mode-conflict proposal): a fresh defender reaching

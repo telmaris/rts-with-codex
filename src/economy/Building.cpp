@@ -2,6 +2,7 @@
 #include "economy/BuildingConfig.h"
 #include "economy/ProductionBuildings.h"
 #include "economy/Player.h"
+#include "core/Log.h"
 #include "simulation/MapGenerator.h"
 
 #include <algorithm>
@@ -125,14 +126,16 @@ void Building::AddResource(Resource* res)
 
     if (auto* pop = GetComponent<PopulationComponent>())
     {
-        if (res->type != ResourceType::FOOD_PROVISIONS || !CanReceiveResource(res->type))
+        ResourceBuffer* buffer = pop->GetSupplyBuffer(res->type);
+        if (buffer == nullptr || !CanReceiveResource(res->type))
         {
             if (res->sourceBuilding != nullptr)
                 res->sourceBuilding->ReturnOutgoingResource(res);
             return;
         }
-        pop->foodBuffer.AddResource(res);
-        pop->hasFood = true;
+        buffer->AddResource(res);
+        if (res->type == ResourceType::FOOD_PROVISIONS)
+            pop->hasFood = true;
         return;
     }
 
@@ -151,8 +154,9 @@ Resource Building::GetResource(ResourceType type)
         return storage->GetResource(type);
     if (auto* pop = GetComponent<PopulationComponent>())
     {
-        if (type != ResourceType::FOOD_PROVISIONS) return Resource{};
-        auto [avail, res] = pop->foodBuffer.GetResource();
+        ResourceBuffer* buffer = pop->GetSupplyBuffer(type);
+        if (buffer == nullptr) return Resource{};
+        auto [avail, res] = buffer->GetResource();
         return avail ? *res : Resource{};
     }
     return Resource{};
@@ -171,10 +175,9 @@ void Building::ReturnOutgoingResource(Resource* res)
         storage->ReturnOutgoingResource(res);
         return;
     }
-    if (res->type != ResourceType::FOOD_PROVISIONS)
-        return;
     if (auto* pop = GetComponent<PopulationComponent>())
-        pop->foodBuffer.AddResource(res);
+        if (ResourceBuffer* buffer = pop->GetSupplyBuffer(res->type))
+            buffer->AddResource(res);
 }
 
 void Building::CancelRequestedResource(ResourceType type)
@@ -246,8 +249,8 @@ bool Building::CanAcceptResource(ResourceType type) const
         return prod->inputBuffers.contains(type);
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanAccept(type);
-    if (GetComponent<PopulationComponent>() != nullptr)
-        return type == ResourceType::FOOD_PROVISIONS;
+    if (auto* pop = GetComponent<PopulationComponent>())
+        return pop->RequiresSupply(type);
     return false;
 }
 
@@ -262,8 +265,11 @@ bool Building::CanReceiveResource(ResourceType type) const
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanReceive(type);
     if (auto* pop = GetComponent<PopulationComponent>())
-        return type == ResourceType::FOOD_PROVISIONS &&
-               static_cast<int>(pop->foodBuffer.buffer.size()) < pop->foodBuffer.bufferSize;
+    {
+        const ResourceBuffer* buffer = pop->GetSupplyBuffer(type);
+        return buffer != nullptr && pop->RequiresSupply(type) &&
+               static_cast<int>(buffer->buffer.size()) < buffer->bufferSize;
+    }
     return false;
 }
 
@@ -272,10 +278,19 @@ std::vector<ResourceBufferView> Building::GetInputBufferViews() const
     if (auto* prod = GetComponent<ProductionComponent>())
         return prod->GetInputBufferViews(prod->ingredients);
     if (auto* pop = GetComponent<PopulationComponent>())
-        return {{ResourceType::FOOD_PROVISIONS,
-                 static_cast<int>(pop->foodBuffer.buffer.size()),
-                 pop->foodBuffer.bufferSize,
-                 static_cast<int>(std::ceil(pop->foodPackageUpkeep))}};
+    {
+        std::vector<ResourceBufferView> views;
+        for (ResourceType type : {ResourceType::FOOD_PROVISIONS,
+                                  ResourceType::HOUSEHOLD_GOODS,
+                                  ResourceType::URBAN_GOODS})
+        {
+            const ResourceBuffer* buffer = pop->GetSupplyBuffer(type);
+            if (buffer != nullptr && pop->RequiresSupply(type))
+                views.push_back({type, static_cast<int>(buffer->buffer.size()),
+                                 buffer->bufferSize, pop->GetSupplyUpkeep(type)});
+        }
+        return views;
+    }
     // T3 fix (docs/post_pivot_audit_2026-07-12.md): a tower's ammo buffer and
     // Barracks' unit-cost buffers are ordinary StorageComponent entries that
     // this building needs delivered TO it, unlike a plain warehouse/HQ where
@@ -515,6 +530,8 @@ void UpgradeComponent::Update(Building& self, double dt)
 
     level++;
     isUpgrading = false;
+    if (auto* population = self.GetComponent<PopulationComponent>())
+        population->SetSettlementLevel(level);
     if (self.owner != nullptr)
         self.owner->ApplyUpgradeLevelModifiers(self);
 }
@@ -579,6 +596,9 @@ Village::Village(int actualId)
     population.foodPackageUpkeep   = def.village.foodPackageUpkeep;
 
     RegisterComponent(&population);
+    for (const auto& levelDef : def.upgradeLevels)
+        upgrade.maxLevel = std::max(upgrade.maxLevel, levelDef.level);
+    RegisterComponent(&upgrade);
 }
 
 // ─── Barracks ────────────────────────────────────────────────────────────────
@@ -610,6 +630,19 @@ DefenseTower::DefenseTower(int actualId)
 }
 
 // ─── Concrete ProductionBuilding subclasses ───────────────────────────────────
+
+ConfiguredProductionBuilding::ConfiguredProductionBuilding(int i, BuildingType type)
+{
+    id = i;
+    const auto& def = GetBuildingDefinition(type);
+    RegisterComponent(&production);
+    RegisterComponent(&logistics);
+    RegisterComponent(&workers);
+    RegisterComponent(&recipes);
+    ApplyBuildingDefinition(*this, def);
+    ApplyProductionDefinition(*this, def.production);
+    ApplyProductionRecipes(*this, def);
+}
 
 Woodcutter::Woodcutter(int i)
 {

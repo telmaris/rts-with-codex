@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <fstream>
+
 #include <filesystem>
 
 namespace
@@ -59,6 +61,7 @@ unit militia
     road_attack 3
     siege_attack 1
     recruit_building Barracks
+    requires_tech militia_drill
     recruit_time 8
     manpower_cost 5
     cost FOOD_PROVISIONS 5
@@ -74,12 +77,29 @@ end
     ASSERT_TRUE(catalog.contains("militia"));
     EXPECT_EQ(catalog.at("militia").displayName, "Militia");
     EXPECT_DOUBLE_EQ(catalog.at("militia").maxHp, 20.0);
+    EXPECT_EQ(catalog.at("militia").requiredTechnology, "militia_drill");
     ASSERT_EQ(catalog.at("militia").cost.size(), 1u);
     EXPECT_EQ(catalog.at("militia").cost.front().type, ResourceType::FOOD_PROVISIONS);
     EXPECT_EQ(catalog.at("militia").cost.front().amount, 5);
     EXPECT_FALSE(catalog.contains("broken"));
 
     std::filesystem::remove(path);
+}
+
+TEST(BattleUnitTests, TechnologyGatedUnitCannotBeQueuedBeforeResearch)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+    Barracks* barracks = PlaceReadyBarracks(map, player);
+    ASSERT_NE(barracks, nullptr);
+
+    EXPECT_EQ(barracks->recruitment.DiagnoseRecruitmentBlock(*barracks, "catapult"),
+              "Requires tech: catapult_construction");
+    EXPECT_FALSE(barracks->recruitment.QueueRecruitment(*barracks, "catapult"));
+
+    player.technologies.RestoreTechnology("catapult_construction");
+    EXPECT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "catapult"));
 }
 
 TEST(BattleUnitTests, RecruitmentEndToEndConsumesResourcesAndManpowerThenAddsToRoster)

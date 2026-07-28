@@ -1,6 +1,8 @@
 #include "warfare/UnitDefinition.h"
 #include "data/RtsDataFile.h"
-#include "core/Utils.h"
+#include "core/Log.h"
+
+#include <algorithm>
 
 namespace
 {
@@ -55,6 +57,12 @@ namespace
         if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
         if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
         if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
+        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
+        if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
+        if (value == "BALLISTA") return ResourceType::BALLISTA;
+        if (value == "BATTERING_RAM") return ResourceType::BATTERING_RAM;
+        if (value == "CATAPULT") return ResourceType::CATAPULT;
         return ResourceType::Null;
     }
 
@@ -90,6 +98,16 @@ namespace
                 definition.attackSpeed = std::stod(tokens[1]);
             else if (command == "attack_range" && tokens.size() >= 2)
                 definition.attackRange = std::stod(tokens[1]);
+            else if (command == "movement" && tokens.size() >= 2)
+                definition.movementType = tokens[1] == "flying" ? MovementType::Flying : MovementType::Ground;
+            else if (command == "can_target_flying" && tokens.size() >= 2)
+                definition.canTargetFlying = std::stoi(tokens[1]) != 0;
+            else if (command == "cavalry" && tokens.size() >= 2)
+                definition.cavalry = std::stoi(tokens[1]) != 0;
+            else if (command == "anti_cavalry_multiplier" && tokens.size() >= 2)
+                definition.antiCavalryMultiplier = std::stod(tokens[1]);
+            else if (command == "area_targets" && tokens.size() >= 2)
+                definition.areaTargets = std::max(1, std::stoi(tokens[1]));
             else if (command == "collider_radius" && tokens.size() >= 2)
                 definition.colliderRadius = std::stod(tokens[1]);
             else if (command == "ability" && tokens.size() >= 2)
@@ -98,6 +116,8 @@ namespace
                 definition.equipmentSlots.push_back(tokens[1]);
             else if (command == "recruit_building" && tokens.size() >= 2)
                 definition.recruitBuilding = ParseBuildingType(tokens[1]);
+            else if (command == "requires_tech" && tokens.size() >= 2)
+                definition.requiredTechnology = tokens[1];
             else if (command == "recruit_time" && tokens.size() >= 2)
                 definition.recruitTime = std::stod(tokens[1]);
             else if (command == "manpower_cost" && tokens.size() >= 2)

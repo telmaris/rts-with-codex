@@ -1,6 +1,6 @@
 #include "research/Technology.h"
 #include "data/RtsDataFile.h"
-#include "core/Utils.h"
+#include "core/Log.h"
 
 #include <algorithm>
 #include <cctype>
@@ -206,6 +206,35 @@ namespace
         if (value == "University") return BuildingType::University;
         if (value == "Barracks") return BuildingType::Barracks;
         if (value == "Road") return BuildingType::Road;
+        // These five existed in BuildingType but were missing here, so a data
+        // file saying `building DefenseTower` silently produced
+        // BuildingType::Building and the modifier targeted nothing. Found while
+        // building tools/tech-tree-editor (2026-07-25).
+        if (value == "Mint") return BuildingType::Mint;
+        if (value == "Glassworks") return BuildingType::Glassworks;
+        if (value == "Powderworks") return BuildingType::Powderworks;
+        if (value == "DefenseTower") return BuildingType::DefenseTower;
+        if (value == "Bridge") return BuildingType::Bridge;
+        if (value == "AnimalFarm") return BuildingType::AnimalFarm;
+        if (value == "Butcher") return BuildingType::Butcher;
+        if (value == "Tannery") return BuildingType::Tannery;
+        if (value == "Tailor") return BuildingType::Tailor;
+        if (value == "Armorer") return BuildingType::Armorer;
+        if (value == "HorseStable") return BuildingType::HorseStable;
+        if (value == "Kiln") return BuildingType::Kiln;
+        if (value == "HouseholdWorkshop") return BuildingType::HouseholdWorkshop;
+        if (value == "Soapworks") return BuildingType::Soapworks;
+        if (value == "Inkworks") return BuildingType::Inkworks;
+        if (value == "Scriptorium") return BuildingType::Scriptorium;
+        if (value == "Copperworks") return BuildingType::Copperworks;
+        if (value == "UrbanWorkshop") return BuildingType::UrbanWorkshop;
+        if (value == "HempFarm") return BuildingType::HempFarm;
+        if (value == "Ropery") return BuildingType::Ropery;
+        if (value == "Weaver") return BuildingType::Weaver;
+        if (value == "Bowyer") return BuildingType::Bowyer;
+        if (value == "Fletchery") return BuildingType::Fletchery;
+        if (value == "SpearWorkshop") return BuildingType::SpearWorkshop;
+        if (value == "SiegeWorkshop") return BuildingType::SiegeWorkshop;
         return BuildingType::Building;
     }
 
@@ -249,6 +278,46 @@ namespace
         if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
         if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
         if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
+        // Same gap as ParseBuildingType above: these exist in ResourceType (and
+        // in rt2s) but were unparseable, so `cost STEEL 10` read as Null.
+        if (value == "TIN_ORE") return ResourceType::TIN_ORE;
+        if (value == "TIN") return ResourceType::TIN;
+        if (value == "BRONZE") return ResourceType::BRONZE;
+        if (value == "COKE") return ResourceType::COKE;
+        if (value == "STEEL") return ResourceType::STEEL;
+        if (value == "SAND") return ResourceType::SAND;
+        if (value == "GLASS") return ResourceType::GLASS;
+        if (value == "SULFUR") return ResourceType::SULFUR;
+        if (value == "SALTPETER") return ResourceType::SALTPETER;
+        if (value == "GUNPOWDER") return ResourceType::GUNPOWDER;
+        if (value == "MUSKET") return ResourceType::MUSKET;
+        if (value == "CARTRIDGE") return ResourceType::CARTRIDGE;
+        if (value == "CLAY") return ResourceType::CLAY;
+        if (value == "CATTLE") return ResourceType::CATTLE;
+        if (value == "RAW_HIDE") return ResourceType::RAW_HIDE;
+        if (value == "TALLOW") return ResourceType::TALLOW;
+        if (value == "CLOTHES") return ResourceType::CLOTHES;
+        if (value == "POTTERY") return ResourceType::POTTERY;
+        if (value == "HOUSEHOLD_GOODS") return ResourceType::HOUSEHOLD_GOODS;
+        if (value == "SOAP") return ResourceType::SOAP;
+        if (value == "INK") return ResourceType::INK;
+        if (value == "BOOKS") return ResourceType::BOOKS;
+        if (value == "COPPERWARE") return ResourceType::COPPERWARE;
+        if (value == "URBAN_GOODS") return ResourceType::URBAN_GOODS;
+        if (value == "HEMP") return ResourceType::HEMP;
+        if (value == "FIBRE") return ResourceType::FIBRE;
+        if (value == "ROPE") return ResourceType::ROPE;
+        if (value == "COPPER_VESSEL") return ResourceType::COPPER_VESSEL;
+        if (value == "COPPER_PIPE") return ResourceType::COPPER_PIPE;
+        if (value == "MECHANICAL_PARTS") return ResourceType::MECHANICAL_PARTS;
+        if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
+        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
+        if (value == "BRICKS") return ResourceType::BRICKS;
+        if (value == "CLOTH") return ResourceType::CLOTH;
+        if (value == "BALLISTA") return ResourceType::BALLISTA;
+        if (value == "BATTERING_RAM") return ResourceType::BATTERING_RAM;
+        if (value == "CATAPULT") return ResourceType::CATAPULT;
         return ResourceType::Null;
     }
 
@@ -276,6 +345,9 @@ namespace
         if (value == "Ammunition")     return ResourceCategory::Ammunition;
         if (value == "Shield")         return ResourceCategory::Shield;
         if (value == "Armor")          return ResourceCategory::Armor;
+        if (value == "Livestock")      return ResourceCategory::Livestock;
+        if (value == "CraftedGood")    return ResourceCategory::CraftedGood;
+        if (value == "SettlementSupply") return ResourceCategory::SettlementSupply;
         return ResourceCategory::None;
     }
 

@@ -1,0 +1,1041 @@
+# SCIENTIFIC DEVELOPMENT TREE
+# Mathematics occupies the centre; Life and Humanities branch on either side.
+
+# -----------------------------------------------------------------------------
+# LIFE / BIOLOGY — natural history, medicine, agronomy, and chymistry
+# -----------------------------------------------------------------------------
+technology field_herbals
+    name "Field Herbals"
+    description "Collectors record useful plants, seasons, and places of growth instead of relying on a single healer's memory."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 500
+    tags production manpower
+    research_time 120
+    cost PAPER 100
+    modifier ProductionCycleTime multiplier 0.952381 building HuntersHut
+end
+
+technology comparative_anatomy
+    name "Comparative Anatomy"
+    description "Careful observation of animals makes the body a structure to be understood rather than a mystery to be endured."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 2500
+    tags military manpower
+    research_time 180
+    requires field_herbals
+    cost PAPER 150
+    cost LEATHER 20
+    modifier UnitHp multiplier 1.05
+end
+
+technology anatomical_dissection
+    name "Anatomical Dissection"
+    description "Direct observation challenges inherited authority and gives surgeons a map of the body beneath the wound."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 3300
+    tags military manpower
+    research_time 300
+    requires comparative_anatomy
+    cost PAPER 350
+    cost TOOLS 12
+    modifier UnitHp multiplier 1.05
+end
+
+technology circulation_of_the_blood
+    name "Circulation of the Blood"
+    description "The heart is understood as a pump and the body as a moving system rather than a store of stagnant humours."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 5300
+    tags manpower military
+    research_time 360
+    requires anatomical_dissection
+    cost PAPER 500
+    cost GLASS 10
+    modifier ManpowerRate multiplier 1.05
+    modifier UnitHp multiplier 1.05
+end
+
+technology microscopy
+    name "Microscopy"
+    description "Ground lenses reveal structures too small for the naked eye and reward patient observation."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 4500
+    tags production
+    research_time 360
+    requires anatomical_dissection
+    cost PAPER 550
+    cost GLASS 20
+    cost TOOLS 20
+    modifier ProductionCycleTime multiplier 0.909091 building University
+end
+
+technology systematic_natural_history
+    name "Systematic Natural History"
+    description "Plants, animals, ores, and soils are classified so that a useful observation can travel beyond the valley where it was made."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 5500
+    tags production manpower
+    research_time 420
+    requires microscopy
+    cost PAPER 700
+    modifier ProductionCycleTime multiplier 0.952381 building HuntersHut
+    modifier ProductionCycleTime multiplier 0.952381 building WheatFarm
+end
+
+technology experimental_physiology
+    name "Experimental Physiology"
+    description "Repeated experiments link anatomy, circulation, and measured observation into a practical science of survival."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 7300
+    tags military manpower
+    research_time 480
+    requires circulation_of_the_blood
+    cost PAPER 900
+    cost GLASS 30
+    modifier UnitHp multiplier 1.10
+end
+
+technology three_field_rotation
+    name "Three-Field Rotation"
+    description "Fields are rested and rotated according to a shared plan, preserving fertility while keeping more land productive."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 2300
+    tags production manpower
+    research_time 240
+    requires field_herbals
+    cost PAPER 250
+    cost TOOLS 8
+    modifier ProductionCycleTime multiplier 0.909091 building WheatFarm
+end
+
+technology selective_breeding
+    name "Selective Breeding"
+    description "Useful traits are recorded across seasons, making animal stock a deliberate long-term investment."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 6500
+    tags production manpower
+    research_time 420
+    requires systematic_natural_history
+    cost PAPER 700
+    cost FOOD_PROVISIONS 60
+    modifier ProductionCycleTime multiplier 0.869565 building HuntersHut
+end
+
+technology practical_distillation
+    name "Practical Distillation"
+    description "Controlled heat separates useful substances from a mixture and creates a reliable craft of purification."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 2700
+    tags production
+    research_time 240
+    requires field_herbals
+    cost PAPER 250
+    cost GLASS 8
+    modifier ProductionCycleTime multiplier 0.952381 building Inn
+end
+
+technology assaying_and_cupellation
+    name "Assaying and Cupellation"
+    description "Measured samples distinguish a promising vein from worthless stone and make precious metal trustworthy in trade."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 3500
+    tags production
+    research_time 300
+    requires practical_distillation
+    cost PAPER 350
+    cost SILVER 10
+    modifier ProductionCycleTime multiplier 0.909091 building Mint
+end
+
+technology clear_glassmaking
+    name "Clear Glassmaking"
+    description "Cleaner melts and more even furnaces produce glass fit for instruments as well as windows."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 4300
+    tags production construction
+    research_time 300
+    requires practical_distillation
+    cost PAPER 350
+    cost SAND 40
+    cost COKE 20
+    modifier ProductionCycleTime multiplier 0.869565 building Glassworks
+end
+
+technology saltpeter_refining
+    name "Saltpeter Refining"
+    description "Leaching, filtering, and patient crystallization turn a scarce mineral into a dependable industrial input."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 3700
+    tags production military
+    research_time 360
+    requires practical_distillation
+    cost PAPER 500
+    cost SALTPETER 30
+    modifier ProductionCycleTime multiplier 0.909091 building Powderworks
+end
+
+technology gunpowder_compounding
+    name "Gunpowder Compounding"
+    description "Measured grain, dry storage, and controlled mixing make black powder a material of war rather than an unpredictable curiosity."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 4700
+    tags military production
+    research_time 420
+    requires saltpeter_refining
+    cost PAPER 700
+    cost SULFUR 30
+    cost SALTPETER 50
+    modifier ProductionCycleTime multiplier 0.869565 building Powderworks
+    modifier TowerDamage multiplier 1.05
+end
+
+technology pneumatic_chymistry
+    name "Pneumatic Chymistry"
+    description "Gases become measurable substances when vessels, pumps, and careful experiments make them visible."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 6300
+    tags production
+    research_time 480
+    requires clear_glassmaking
+    cost PAPER 900
+    cost GLASS 30
+    modifier ProductionCycleTime multiplier 0.909091 building University
+end
+
+technology quantitative_chemistry
+    name "Quantitative Chemistry"
+    description "Weights, proportions, and reproducible apparatus transform chymistry into a discipline of controlled production."
+    category SCIENCE
+    layout_lane "Biology"
+    layout_order 8300
+    tags production
+    research_time 540
+    requires pneumatic_chymistry
+    cost PAPER 1100
+    cost GLASS 40
+    cost TOOLS 40
+    modifier ProductionCycleTime multiplier 0.869565 building Glassworks
+    modifier ProductionCycleTime multiplier 0.909091 building Powderworks
+end
+
+# -----------------------------------------------------------------------------
+# MATHEMATICS — central core, physics, and engineering
+# -----------------------------------------------------------------------------
+technology arithmetic_and_proportion
+    name "Arithmetic and Proportion"
+    description "Counting, ratios, and measured work create a shared language for stores, contracts, and recipes."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 500
+    tags production construction
+    research_time 120
+    cost PAPER 100
+    modifier ProductionCycleTime multiplier 0.952381
+end
+
+technology euclidean_geometry
+    name "Euclidean Geometry"
+    description "Lines, angles, and proofs make space something that can be drawn before it is built."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 2300
+    tags construction
+    research_time 180
+    requires arithmetic_and_proportion
+    cost PAPER 150
+    cost STONE 40
+    modifier BuildCost multiplier 0.952381
+end
+
+technology algebra
+    name "Algebra"
+    description "Symbols and equations make unknown quantities manageable in accounts, mixtures, and machines."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 2700
+    tags production construction
+    research_time 180
+    requires arithmetic_and_proportion
+    cost PAPER 180
+    modifier ProductionCycleTime multiplier 0.952381
+    modifier BuildTime multiplier 0.952381
+end
+
+technology trigonometry
+    name "Trigonometry"
+    description "Angles and triangles enable surveying, range estimation, navigation, and precise engineering."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 3100
+    tags construction military
+    research_time 240
+    requires euclidean_geometry
+    cost PAPER 260
+    cost PLANKS 80
+    modifier TowerRange multiplier 1.10
+    modifier BuildTime multiplier 0.952381
+end
+
+technology analytical_geometry
+    name "Analytical Geometry"
+    description "Coordinates join algebra and geometry, letting planners describe position and motion with the same notation."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 5300
+    tags construction logistics
+    research_time 300
+    requires trigonometry
+    cost PAPER 380
+    modifier RoadSpeed multiplier 1.10
+    modifier BuildTime multiplier 0.952381
+end
+
+technology calculus
+    name "Calculus"
+    description "The mathematics of change turns motion, flow, and accumulation into problems that can be solved rather than guessed."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 7300
+    tags production logistics
+    research_time 420
+    requires analytical_geometry
+    cost PAPER 700
+    cost TOOLS 25
+    modifier ProductionCycleTime multiplier 0.952381
+    modifier TransportTime multiplier 0.952381
+end
+
+technology differential_equations
+    name "Differential Equations"
+    description "Interlocking rates of change make it possible to reason about complex machines, traffic, and sustained combat."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 9300
+    tags production logistics military
+    research_time 480
+    requires calculus
+    cost PAPER 900
+    cost GLASS 20
+    modifier ProductionCycleTime multiplier 0.909091
+    modifier UnitAttackSpeed multiplier 1.10
+end
+
+technology statics_and_simple_machines
+    name "Classical Mechanics: Statics"
+    description "Levers, pulleys, balances, and centres of gravity make force a thing that can be measured before work begins."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 3300
+    tags construction production
+    research_time 240
+    requires euclidean_geometry
+    cost PAPER 250
+    cost TOOLS 10
+    modifier BuildTime multiplier 0.952381
+end
+
+technology hydrostatics
+    name "Hydrostatics"
+    description "Pressure and floating bodies explain wells, pumps, locks, and the behavior of water under load."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 3700
+    tags production logistics
+    research_time 300
+    requires algebra
+    cost PAPER 380
+    cost WATER 40
+    modifier ProductionCycleTime multiplier 0.909091 building Well
+end
+
+technology mechanics_of_motion
+    name "Classical Mechanics: Dynamics"
+    description "Motion, mass, and force are treated as a single system, turning battlefield intuition into reproducible calculations."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 6300
+    tags military logistics
+    research_time 360
+    requires statics_and_simple_machines
+    cost PAPER 520
+    cost IRON 30
+    modifier UnitMoveSpeed multiplier 1.05
+    modifier UnitSiegeAttack multiplier 1.05
+end
+
+technology torsion_engines
+    name "Torsion Engines"
+    description "Twisted rope bundles and rigid frames store force for a controlled release, establishing the first dedicated siege machines."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 8300
+    tags military production
+    research_time 420
+    requires mechanics_of_motion
+    cost PAPER 700
+    cost PLANKS 100
+    cost IRON 30
+    modifier UnitSiegeAttack multiplier 1.05 unit ram
+end
+
+technology catapult_construction
+    name "Catapult Construction"
+    description "Standardized arms, cups, and frames turn stored force into a fieldable stone-throwing engine. Unlocks the Catapult."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 10300
+    tags military construction
+    research_time 480
+    requires torsion_engines
+    cost PAPER 900
+    cost PLANKS 140
+    cost IRON 45
+    modifier UnitSiegeAttack multiplier 1.10 unit catapult
+end
+
+technology ballista_construction
+    name "Ballista Construction"
+    description "A rigid torsion frame and a guided bolt create a siege engine precise enough to threaten soldiers as well as walls. Unlocks the Ballista."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 11300
+    tags military construction
+    research_time 540
+    requires catapult_construction
+    cost PAPER 1100
+    cost PLANKS 100
+    cost IRON 70
+    modifier UnitRoadAttack multiplier 1.10 unit ballista
+end
+
+technology incendiary_projectors
+    name "Incendiary Projectors"
+    description "Sealed pots, bellows, and protected crews allow a heavy engine to deliver burning mixtures against a defended position. Unlocks the Fire Projector."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 13300
+    tags military production
+    research_time 600
+    requires ballista_construction
+    cost PAPER 1300
+    cost PLANKS 120
+    cost IRON 100
+    modifier UnitSiegeAttack multiplier 1.15 unit fire_projector
+end
+
+technology geometrical_optics
+    name "Geometrical Optics"
+    description "Lenses, mirrors, and sight lines make observation and ranging more exact."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 3500
+    tags military construction
+    research_time 300
+    requires euclidean_geometry
+    cost PAPER 360
+    cost GLASS 12
+    modifier TowerRange multiplier 1.05
+end
+
+technology thermometry_and_heat
+    name "Thermometry and Heat"
+    description "Measured heat turns furnace tending from inherited feel into a repeatable industrial process."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 11700
+    tags production
+    research_time 420
+    requires analytical_geometry
+    cost PAPER 700
+    cost GLASS 20
+    modifier ProductionCycleTime multiplier 0.909091 building Foundry
+end
+
+technology atmospheric_pressure
+    name "Atmospheric Pressure"
+    description "The weight of air becomes a source of useful force when measured with pumps and instruments."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 6700
+    tags production
+    research_time 420
+    requires hydrostatics
+    cost PAPER 700
+    cost GLASS 20
+    modifier ProductionCycleTime multiplier 0.909091 building Mine
+end
+
+technology electrostatic_machines
+    name "Electrostatic Machines"
+    description "Friction, glass, and careful apparatus make electrical charge a repeatable experimental phenomenon."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 4500
+    tags production military
+    research_time 480
+    requires geometrical_optics
+    cost PAPER 900
+    cost GLASS 30
+    cost COPPER 30
+    modifier ProductionCycleTime multiplier 0.952381 building University
+    modifier TowerAttackSpeed multiplier 1.05
+end
+
+technology leyden_batteries
+    name "Leyden Batteries"
+    description "Stored electrical charge permits stronger, repeatable demonstrations and marks the edge of the age's practical electricity."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 6500
+    tags production military
+    research_time 540
+    requires electrostatic_machines
+    cost PAPER 1100
+    cost GLASS 40
+    cost COPPER 50
+    modifier ProductionCycleTime multiplier 0.869565 building University
+    modifier TowerAttackSpeed multiplier 1.05
+end
+
+technology land_surveying
+    name "Land Surveying"
+    description "Measured boundaries and gradients allow roads and works to be laid out before labor is committed."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 3900
+    tags construction logistics
+    research_time 240
+    requires euclidean_geometry
+    cost PAPER 250
+    cost TOOLS 10
+    modifier BuildCost multiplier 0.952381 building Road
+end
+
+technology waterwheel_gearing
+    name "Waterwheel Gearing"
+    description "Rotary motion is transferred through dependable gearing, letting a steady source of power serve several tasks."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 7700
+    tags production
+    research_time 360
+    requires statics_and_simple_machines
+    cost PAPER 520
+    cost PLANKS 100
+    modifier ProductionCycleTime multiplier 0.909091 building Windmill
+end
+
+technology precision_instruments
+    name "Precision Instruments"
+    description "Standard measures, fine screws, and calibrated glass make experiments repeatable between workshops."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 5500
+    tags production construction
+    research_time 360
+    requires trigonometry
+    cost PAPER 520
+    cost GLASS 20
+    cost TOOLS 25
+    modifier ProductionCycleTime multiplier 0.909091 building University
+end
+
+technology furnace_and_casting_geometry
+    name "Furnace and Casting Geometry"
+    description "Moulds, channels, and hearth proportions are drawn before the melt, reducing waste in every pour."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 4700
+    tags production construction
+    research_time 300
+    requires euclidean_geometry
+    cost PAPER 380
+    cost STONE 80
+    modifier ProductionCycleTime multiplier 0.909091 building Foundry
+end
+
+technology pump_engineering
+    name "Pump Engineering"
+    description "Valves, rods, and sealed cylinders turn pressure into a durable machine for drainage and water supply."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 12700
+    tags production
+    research_time 480
+    requires atmospheric_pressure
+    cost PAPER 900
+    cost IRON 80
+    modifier ProductionCycleTime multiplier 0.869565 building Mine
+end
+
+technology atmospheric_steam_engine
+    name "Atmospheric Steam Engine"
+    description "Steam and vacuum drive a practical pumping engine, bringing dependable power to deep mines."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 15700
+    tags production
+    research_time 540
+    requires pump_engineering
+    cost PAPER 1100
+    cost STEEL 80
+    cost COKE 80
+    modifier ProductionCycleTime multiplier 0.833333 building Mine
+end
+
+technology separate_condenser
+    name "Separate Condenser"
+    description "Separating condensation from the working cylinder makes steam power economical enough to transform production rather than merely drain a shaft."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 12300
+    tags production
+    research_time 600
+    requires atmospheric_steam_engine
+    cost PAPER 1300
+    cost STEEL 100
+    cost COKE 100
+    modifier ProductionCycleTime multiplier 0.909091 building Mine
+    modifier ProductionCycleTime multiplier 0.952381 building Foundry
+end
+
+# -----------------------------------------------------------------------------
+# HUMANITIES / SOCIETY — institutions, governance, arts, and commerce
+# -----------------------------------------------------------------------------
+technology writing_and_recordkeeping
+    name "Writing and Recordkeeping"
+    description "Stores, obligations, and observations survive the memory of a single official."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 500
+    tags production manpower
+    research_time 120
+    cost PAPER 100
+    modifier ProductionCycleTime multiplier 0.952381 building Paperworks
+end
+
+technology codified_law
+    name "Codified Law"
+    description "Written rules make duties predictable at the worksite, the gate, and the market."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 2200
+    tags construction military
+    research_time 180
+    requires writing_and_recordkeeping
+    cost PAPER 150
+    modifier BuildCost multiplier 0.952381
+    modifier HqDefense additive 1
+end
+
+technology rhetoric_and_logic
+    name "Rhetoric and Logic"
+    description "Arguments can be examined, compared, and taught instead of being settled solely by rank."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 2400
+    tags production manpower
+    research_time 180
+    requires writing_and_recordkeeping
+    cost PAPER 150
+    modifier ProductionCycleTime multiplier 0.952381 building University
+end
+
+technology scholastic_institutions
+    name "Scholastic Institutions"
+    description "A durable curriculum turns scattered teachers and manuscripts into an institution that can preserve knowledge."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 3300
+    tags production manpower
+    research_time 240
+    requires codified_law
+    cost PAPER 250
+    cost PLANKS 60
+    modifier WorkerCapacity additive -2 building University
+end
+
+technology movable_type_printing
+    name "Movable-Type Printing"
+    description "Texts can be copied in batches, allowing instructions and discoveries to travel faster than a single scribe."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 4300
+    tags production
+    research_time 300
+    requires scholastic_institutions
+    cost PAPER 380
+    cost IRON 30
+    modifier ProductionCycleTime multiplier 0.909091 building Paperworks
+end
+
+technology learned_correspondence
+    name "Learned Correspondence"
+    description "Letters, journals, and replies connect observations made in distant towns into a shared debate."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 5300
+    tags production
+    research_time 360
+    requires movable_type_printing
+    cost PAPER 520
+    cost COINS 40
+    modifier ProductionCycleTime multiplier 0.909091 building University
+end
+
+technology enlightenment_inquiry
+    name "Enlightenment Inquiry"
+    description "Public argument, experiment, and publication make useful knowledge a matter of collective progress."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 6300
+    tags production manpower
+    research_time 480
+    requires learned_correspondence
+    cost PAPER 900
+    cost COINS 100
+    modifier ProductionCycleTime multiplier 0.869565 building University
+end
+
+technology census_and_cadastre
+    name "Census and Cadastre"
+    description "Population, land, and taxable output are counted systematically enough to plan beyond the next harvest."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 2600
+    tags manpower construction
+    research_time 240
+    requires writing_and_recordkeeping
+    cost PAPER 250
+    modifier PopulationCap additive 15 building Village
+    modifier ManpowerRate multiplier 1.05
+end
+
+technology civic_administration
+    name "Civic Administration"
+    description "Permanent clerks coordinate provisions, works, and obligations across more than one settlement."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 3500
+    tags manpower construction logistics
+    research_time 300
+    requires codified_law
+    cost PAPER 380
+    cost COINS 30
+    modifier BuilderAmount additive 1
+    modifier RoadCapacity additive 1 building Road
+end
+
+technology professional_bureaucracy
+    name "Professional Bureaucracy"
+    description "Officials make procedures repeatable, reducing delay at the cost of a larger administrative establishment."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 4500
+    tags construction logistics manpower
+    research_time 360
+    requires civic_administration
+    cost PAPER 520
+    cost COINS 60
+    modifier BuildTime multiplier 0.909091
+    modifier WorkerCapacity multiplier 1.05
+end
+
+technology political_economy
+    name "Political Economy"
+    description "Production, exchange, and public works are treated as one system rather than isolated local concerns."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 5500
+    tags production logistics
+    research_time 420
+    requires professional_bureaucracy
+    cost PAPER 700
+    cost COINS 100
+    modifier ProductionCycleTime multiplier 0.952381
+    modifier TransportTime multiplier 0.952381
+end
+
+technology public_credit
+    name "Public Credit"
+    description "The state can gather capital for expensive works because obligations outlive a single ruler or merchant."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 6500
+    tags construction production
+    research_time 480
+    requires political_economy
+    cost PAPER 900
+    cost COINS 180
+    modifier BuildCost multiplier 0.909091
+end
+
+technology guild_apprenticeship
+    name "Guild Apprenticeship"
+    description "Craft knowledge is passed through a recognized path from learner to master instead of remaining a family secret."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 3700
+    tags production manpower
+    research_time 240
+    requires codified_law
+    cost PAPER 250
+    cost TOOLS 10
+    modifier WorkerCapacity additive -1 building Smith
+    modifier WorkerCapacity additive -1 building Paperworks
+end
+
+technology double_entry_bookkeeping
+    name "Double-Entry Bookkeeping"
+    description "Every claim has a counterpart, making deficits, stock, and long routes visible before they become a crisis."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 2800
+    tags production logistics
+    research_time 300
+    requires writing_and_recordkeeping
+    cost PAPER 380
+    modifier BuildCost multiplier 0.952381
+    modifier TransportTime multiplier 0.952381
+end
+
+technology standard_coinage
+    name "Standard Coinage"
+    description "Reliable weight and stamp turn bullion into currency that can cross the map without a new assay at every gate."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 3800
+    tags production
+    research_time 360
+    requires double_entry_bookkeeping
+    cost PAPER 520
+    cost SILVER 30
+    modifier ProductionCycleTime multiplier 0.869565 building Mint
+end
+
+technology banking_and_bills
+    name "Banking and Bills of Exchange"
+    description "Credit and transferable claims let trade fund works long before every payment arrives as metal."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 4800
+    tags construction logistics
+    research_time 420
+    requires standard_coinage
+    cost PAPER 700
+    cost COINS 120
+    modifier BuildCost multiplier 0.952381
+    modifier TransportTime multiplier 0.952381
+end
+
+technology monumental_arts
+    name "Monumental Arts"
+    description "Public buildings and crafted symbols make authority visible, attracting specialists and shared civic pride."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 3400
+    tags construction manpower
+    research_time 240
+    requires rhetoric_and_logic
+    cost PAPER 250
+    cost STONE 80
+    modifier PopulationCap additive 10 building Village
+end
+
+technology linear_perspective
+    name "Linear Perspective"
+    description "A disciplined picture plane sharpens the eye for scale, distance, and planned space."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 4400
+    tags construction military
+    research_time 300
+    requires monumental_arts
+    cost PAPER 380
+    cost PLANKS 40
+    modifier TowerRange multiplier 1.05
+    modifier BuildTime multiplier 0.952381 building University
+end
+
+technology print_culture
+    name "Print Culture"
+    description "Books, diagrams, and pamphlets create a public that can accumulate technical knowledge over generations."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 5700
+    tags production manpower
+    research_time 360
+    requires movable_type_printing
+    cost PAPER 520
+    cost COINS 40
+    modifier ProductionCycleTime multiplier 0.952381 building University
+    modifier ManpowerRate multiplier 1.05
+end
+
+technology academies_and_patronage
+    name "Academies and Patronage"
+    description "Artists, engineers, and natural philosophers receive a stable institution for teaching, criticism, and demonstration."
+    category SCIENCE
+    layout_lane "Humanities"
+    layout_order 5400
+    tags production
+    research_time 420
+    requires linear_perspective
+    cost PAPER 700
+    cost COINS 100
+    modifier ProductionCycleTime multiplier 0.909091 building University
+end
+
+# -----------------------------------------------------------------------------
+# CROSS-DISCIPLINARY TECHNOLOGIES
+# -----------------------------------------------------------------------------
+technology experimental_method
+    name "Experimental Method"
+    description "Claims are tested, measured, published, and repeated until useful knowledge can survive the person who found it."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 8700
+    tags production
+    research_time 420
+    requires anatomical_dissection
+    cost PAPER 700
+    cost GLASS 20
+    modifier ProductionCycleTime multiplier 0.869565 building University
+end
+
+technology public_sanitation
+    name "Public Sanitation"
+    description "Water, waste, and food storage are organized as public concerns, reducing the fragility of dense settlements."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 5700
+    tags manpower production
+    research_time 360
+    requires comparative_anatomy
+    cost PAPER 520
+    cost STONE 100
+    modifier ManpowerRate multiplier 1.10
+    modifier ProductionCycleTime multiplier 0.909091 building Inn
+end
+
+technology fortification_geometry
+    name "Fortification Geometry"
+    description "Angles, fields of fire, and layered works turn a defended site into a calculated machine for delaying an attacker."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 9700
+    tags military construction
+    research_time 420
+    requires trigonometry
+    cost PAPER 700
+    cost STONE 120
+    modifier TowerRange multiplier 1.10
+    modifier HqDefense additive 2
+end
+
+technology ballistics
+    name "Ballistics"
+    description "Motion, powder, and measured range turn siege fire from a frightening spectacle into an engineered threat."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 13700
+    tags military
+    research_time 480
+    requires mechanics_of_motion
+    cost PAPER 900
+    cost GUNPOWDER 40
+    modifier UnitSiegeAttack multiplier 1.15
+    modifier TowerDamage multiplier 1.10
+end
+
+technology steam_mine_drainage
+    name "Steam Mine Drainage"
+    description "The steam pump is married to the mine, making deeper seams a practical rather than merely geological possibility."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 16700
+    tags production
+    research_time 600
+    requires atmospheric_steam_engine
+    cost PAPER 1300
+    cost STEEL 100
+    cost COKE 100
+    modifier ProductionCycleTime multiplier 0.769231 building Mine
+end
+
+technology agricultural_improvement
+    name "Agricultural Improvement"
+    description "Measured fields, selected stock, and planned rotations turn farming into a managed system of long-term yield."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 4300
+    tags production manpower
+    research_time 480
+    requires three_field_rotation
+    cost PAPER 900
+    cost TOOLS 40
+    modifier ProductionCycleTime multiplier 0.869565 building WheatFarm
+    modifier ProductionCycleTime multiplier 0.909091 building HuntersHut
+end
+
+technology mechanized_printing
+    name "Mechanized Printing"
+    description "Gearing and type turn the printing shop into a reliable producer of manuals, ledgers, and scientific texts."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 14700
+    tags production
+    research_time 420
+    requires waterwheel_gearing
+    cost PAPER 700
+    cost IRON 60
+    modifier ProductionCycleTime multiplier 0.800000 building Paperworks
+end
+
+technology cannon_founding
+    name "Cannon Founding"
+    description "Casting, powder, and state logistics combine into artillery that can change the meaning of a fortified frontier."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 10700
+    tags military production
+    research_time 540
+    requires furnace_and_casting_geometry
+    cost PAPER 1100
+    cost BRONZE 80
+    cost GUNPOWDER 60
+    modifier UnitSiegeAttack multiplier 1.10
+    modifier HqDefense additive 1
+end
+
+technology rotary_steamworks
+    name "Rotary Steamworks"
+    description "Rotary steam power drives a purpose-built workshop: the deliberate steampunk edge of the tree, grounded in late eighteenth-century machinery."
+    category SCIENCE
+    layout_lane "Mathematics"
+    layout_order 14300
+    tags production construction
+    research_time 660
+    requires separate_condenser
+    cost PAPER 1500
+    cost STEEL 140
+    cost COKE 120
+    modifier ProductionCycleTime multiplier 0.909091 building Smith
+    modifier ProductionCycleTime multiplier 0.909091 building Paperworks
+    modifier BuildTime multiplier 0.952381
+end

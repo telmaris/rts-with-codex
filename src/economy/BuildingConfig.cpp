@@ -31,7 +31,7 @@ namespace
                 BuildingType::Headquarters,
                 "Headquarters",
                 "[Headquarters]",
-                "assets/textures/building/headquarters.png",
+                "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png",
                 "Starting building",
                 {},
                 {3, 3},
@@ -45,10 +45,6 @@ namespace
                     {ResourceType::IRON_ORE, 100, 40},
                     {ResourceType::COPPER_ORE, 80, 0},
                     {ResourceType::COPPER, 80, 0},
-                    {ResourceType::SILVER_ORE, 80, 0},
-                    {ResourceType::SILVER, 80, 0},
-                    {ResourceType::GOLD_ORE, 80, 0},
-                    {ResourceType::GOLD, 80, 0},
                     {ResourceType::WOOD, 160, 120},
                     {ResourceType::PLANKS, 100, 40},
                     {ResourceType::LEATHER, 80, 0},
@@ -62,12 +58,23 @@ namespace
                     {ResourceType::FOOD_PROVISIONS, 100, 20},
                     {ResourceType::PAPER, 80, 0},
                     {ResourceType::TOOLS, 60, 0},
-                    {ResourceType::COPPER_SWORD, 60, 0},
                     {ResourceType::IRON_SWORD, 60, 0},
-                    {ResourceType::STEEL_SWORD, 60, 0},
                     {ResourceType::BOW, 60, 0},
                     {ResourceType::ARROWS, 120, 0},
-                    {ResourceType::HORSE, 60, 0}
+                    {ResourceType::HORSE, 60, 0},
+                    {ResourceType::CLAY, 100, 0},
+                    {ResourceType::SAND, 100, 0},
+                    {ResourceType::CATTLE, 60, 0},
+                    {ResourceType::RAW_HIDE, 80, 0},
+                    {ResourceType::TALLOW, 80, 0},
+                    {ResourceType::CLOTHES, 80, 0},
+                    {ResourceType::POTTERY, 80, 0},
+                    {ResourceType::HOUSEHOLD_GOODS, 100, 0},
+                    {ResourceType::SOAP, 80, 0},
+                    {ResourceType::INK, 60, 0},
+                    {ResourceType::BOOKS, 80, 0},
+                    {ResourceType::COPPERWARE, 80, 0},
+                    {ResourceType::URBAN_GOODS, 100, 0}
                 },
                 {}, {}, {}, {}, {},
                 HqDefinition{500.0, 10.0, 3.0, 3.0, 0.2, 60.0}},
@@ -105,10 +112,6 @@ namespace
                     {ResourceType::IRON_ORE, 80, 0},
                     {ResourceType::COPPER_ORE, 80, 0},
                     {ResourceType::COPPER, 80, 0},
-                    {ResourceType::SILVER_ORE, 80, 0},
-                    {ResourceType::SILVER, 80, 0},
-                    {ResourceType::GOLD_ORE, 80, 0},
-                    {ResourceType::GOLD, 80, 0},
                     {ResourceType::WOOD, 160, 0},
                     {ResourceType::PLANKS, 100, 0},
                     {ResourceType::LEATHER, 80, 0},
@@ -122,12 +125,23 @@ namespace
                     {ResourceType::FOOD_PROVISIONS, 100, 0},
                     {ResourceType::PAPER, 80, 0},
                     {ResourceType::TOOLS, 60, 0},
-                    {ResourceType::COPPER_SWORD, 60, 0},
                     {ResourceType::IRON_SWORD, 60, 0},
-                    {ResourceType::STEEL_SWORD, 60, 0},
                     {ResourceType::BOW, 60, 0},
                     {ResourceType::ARROWS, 120, 0},
-                    {ResourceType::HORSE, 60, 0}
+                    {ResourceType::HORSE, 60, 0},
+                    {ResourceType::CLAY, 100, 0},
+                    {ResourceType::SAND, 100, 0},
+                    {ResourceType::CATTLE, 60, 0},
+                    {ResourceType::RAW_HIDE, 80, 0},
+                    {ResourceType::TALLOW, 80, 0},
+                    {ResourceType::CLOTHES, 80, 0},
+                    {ResourceType::POTTERY, 80, 0},
+                    {ResourceType::HOUSEHOLD_GOODS, 100, 0},
+                    {ResourceType::SOAP, 80, 0},
+                    {ResourceType::INK, 60, 0},
+                    {ResourceType::BOOKS, 80, 0},
+                    {ResourceType::COPPERWARE, 80, 0},
+                    {ResourceType::URBAN_GOODS, 100, 0}
                 }},
             BuildingDefinition{
                 BuildingType::Woodcutter,
@@ -283,6 +297,26 @@ namespace
         if (value == "Road") return BuildingType::Road;
         if (value == "DefenseTower") return BuildingType::DefenseTower;
         if (value == "Bridge") return BuildingType::Bridge;
+        if (value == "AnimalFarm") return BuildingType::AnimalFarm;
+        if (value == "Butcher") return BuildingType::Butcher;
+        if (value == "Tannery") return BuildingType::Tannery;
+        if (value == "Tailor") return BuildingType::Tailor;
+        if (value == "Armorer") return BuildingType::Armorer;
+        if (value == "HorseStable") return BuildingType::HorseStable;
+        if (value == "Kiln") return BuildingType::Kiln;
+        if (value == "HouseholdWorkshop") return BuildingType::HouseholdWorkshop;
+        if (value == "Soapworks") return BuildingType::Soapworks;
+        if (value == "Inkworks") return BuildingType::Inkworks;
+        if (value == "Scriptorium") return BuildingType::Scriptorium;
+        if (value == "Copperworks") return BuildingType::Copperworks;
+        if (value == "UrbanWorkshop") return BuildingType::UrbanWorkshop;
+        if (value == "HempFarm") return BuildingType::HempFarm;
+        if (value == "Ropery") return BuildingType::Ropery;
+        if (value == "Weaver") return BuildingType::Weaver;
+        if (value == "Bowyer") return BuildingType::Bowyer;
+        if (value == "Fletchery") return BuildingType::Fletchery;
+        if (value == "SpearWorkshop") return BuildingType::SpearWorkshop;
+        if (value == "SiegeWorkshop") return BuildingType::SiegeWorkshop;
         return BuildingType::Building;
     }
 
@@ -351,6 +385,32 @@ namespace
         if (value == "GUNPOWDER") return ResourceType::GUNPOWDER;
         if (value == "MUSKET") return ResourceType::MUSKET;
         if (value == "CARTRIDGE") return ResourceType::CARTRIDGE;
+        if (value == "CLAY") return ResourceType::CLAY;
+        if (value == "CATTLE") return ResourceType::CATTLE;
+        if (value == "RAW_HIDE") return ResourceType::RAW_HIDE;
+        if (value == "TALLOW") return ResourceType::TALLOW;
+        if (value == "CLOTHES") return ResourceType::CLOTHES;
+        if (value == "POTTERY") return ResourceType::POTTERY;
+        if (value == "HOUSEHOLD_GOODS") return ResourceType::HOUSEHOLD_GOODS;
+        if (value == "SOAP") return ResourceType::SOAP;
+        if (value == "INK") return ResourceType::INK;
+        if (value == "BOOKS") return ResourceType::BOOKS;
+        if (value == "COPPERWARE") return ResourceType::COPPERWARE;
+        if (value == "URBAN_GOODS") return ResourceType::URBAN_GOODS;
+        if (value == "HEMP") return ResourceType::HEMP;
+        if (value == "FIBRE") return ResourceType::FIBRE;
+        if (value == "ROPE") return ResourceType::ROPE;
+        if (value == "COPPER_VESSEL") return ResourceType::COPPER_VESSEL;
+        if (value == "COPPER_PIPE") return ResourceType::COPPER_PIPE;
+        if (value == "MECHANICAL_PARTS") return ResourceType::MECHANICAL_PARTS;
+        if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
+        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
+        if (value == "BRICKS") return ResourceType::BRICKS;
+        if (value == "CLOTH") return ResourceType::CLOTH;
+        if (value == "BALLISTA") return ResourceType::BALLISTA;
+        if (value == "BATTERING_RAM") return ResourceType::BATTERING_RAM;
+        if (value == "CATAPULT") return ResourceType::CATAPULT;
         return ResourceType::Null;
     }
 
@@ -369,6 +429,7 @@ namespace
         if (value == "SAND") return TileType::SAND;
         if (value == "SULFUR") return TileType::SULFUR;
         if (value == "SALTPETER") return TileType::SALTPETER;
+        if (value == "CLAY") return TileType::CLAY;
         return TileType::GRASS;
     }
 
@@ -404,7 +465,9 @@ namespace
     void ParseProduction(
         const std::vector<std::vector<std::string>>& lines,
         size_t& index,
-        ProductionDefinition& production)
+        ProductionDefinition& production,
+        std::vector<std::string>* requiredTechnologies = nullptr,
+        std::vector<std::string>* requiredFocuses = nullptr)
     {
         production = ProductionDefinition{};
 
@@ -427,6 +490,10 @@ namespace
                 production.outputBuffers.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
             else if (command == "workers" && tokens.size() >= 2)
                 production.workerCapacity = std::stoi(tokens[1]);
+            else if (command == "requires_tech" && tokens.size() >= 2 && requiredTechnologies != nullptr)
+                requiredTechnologies->push_back(tokens[1]);
+            else if (command == "requires_focus" && tokens.size() >= 2 && requiredFocuses != nullptr)
+                requiredFocuses->push_back(tokens[1]);
         }
     }
 
@@ -436,6 +503,8 @@ namespace
         recipe.name = definition.name;
         recipe.cycleTime = definition.production.cycleTime;
         recipe.workerCapacity = definition.production.workerCapacity;
+        recipe.requiredTechnologies = definition.requiredTechnologies;
+        recipe.requiredFocuses = definition.requiredFocuses;
         for (const auto& input : definition.production.inputs)
             recipe.inputs[input.type] = input.amount;
         for (const auto& output : definition.production.outputs)
@@ -516,7 +585,8 @@ namespace
             {
                 ProductionRecipeDefinition recipe;
                 recipe.name = tokens[1];
-                ParseProduction(lines, index, recipe.production);
+                ParseProduction(lines, index, recipe.production,
+                                &recipe.requiredTechnologies, &recipe.requiredFocuses);
                 definition.recipes.push_back(std::move(recipe));
             }
             else if (command == "terrain_production" && tokens.size() >= 2)
@@ -691,9 +761,26 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::Inn,
         BuildingType::Paperworks,
         BuildingType::Smith,
-        BuildingType::Mint,
-        BuildingType::Glassworks,
-        BuildingType::Powderworks,
+        BuildingType::AnimalFarm,
+        BuildingType::Butcher,
+        BuildingType::Tannery,
+        BuildingType::Tailor,
+        BuildingType::Armorer,
+        BuildingType::HorseStable,
+        BuildingType::Kiln,
+        BuildingType::HouseholdWorkshop,
+        BuildingType::Soapworks,
+        BuildingType::Inkworks,
+        BuildingType::Scriptorium,
+        BuildingType::Copperworks,
+        BuildingType::UrbanWorkshop,
+        BuildingType::HempFarm,
+        BuildingType::Ropery,
+        BuildingType::Weaver,
+        BuildingType::Bowyer,
+        BuildingType::Fletchery,
+        BuildingType::SpearWorkshop,
+        BuildingType::SiegeWorkshop,
         BuildingType::University,
         BuildingType::StorageBuilding,
         BuildingType::Village,

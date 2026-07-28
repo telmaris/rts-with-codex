@@ -1,7 +1,7 @@
 #ifndef COMBAT_PIPELINE_H
 #define COMBAT_PIPELINE_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "warfare/UnitDefinition.h"
 
 #include <cstdint>

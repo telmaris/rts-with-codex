@@ -1,11 +1,18 @@
 #include "economy/Player.h"
 #include "economy/Building.h"
+#include "economy/StockpileIndex.h"
+#include "core/Log.h"
 #include "simulation/MapGenerator.h"
 #include "economy/BuildingConfig.h"
 #include "research/Technology.h"
 
 #include <algorithm>
 #include <cmath>
+
+void Player::ReportBuildCostFailure(const std::string& buildingName) const
+{
+    Log::Msg("[Player]", "Not enough resources to build ", buildingName);
+}
 
 void Player::UpdateFocus(double dt)
 {
@@ -79,22 +86,8 @@ bool Player::IsTechnologyInProgress(const std::string& id) const
 bool Player::HasBuildResources(const std::vector<ResourceAmountDefinition>& costs) const
 {
     for (const auto& cost : costs)
-    {
-        int available = 0;
-        for (const auto* building : GetTrackedBuildingsWithComponent<StorageComponent>())
-        {
-            const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
-            if (storage == nullptr || building->owner != this)
-                continue;
-
-            auto it = storage->buffers.find(cost.type);
-            if (it != storage->buffers.end())
-                available += static_cast<int>(it->second.buffer.size());
-        }
-
-        if (available < cost.amount)
+        if (StockpileIndex::GetTotal(*this, cost.type) < cost.amount)
             return false;
-    }
     return true;
 }
 
@@ -162,6 +155,30 @@ double Player::GetFoodSupplyRatio() const
     }
 
     return villageCount > 0 ? ratio / villageCount : 1.0;
+}
+
+// Ammo fill averaged per tower rather than summed across the network: five
+// full towers and one empty one is a defensive hole, and a pooled
+// held/capacity ratio would hide it behind the four that are fine.
+double Player::GetAmmunitionSupplyRatio() const
+{
+    int towerCount = 0;
+    double ratio = 0.0;
+    for (const auto* building : GetTrackedBuildingsWithComponent<TowerCombatComponent>())
+    {
+        const auto* tower = building != nullptr ? building->GetComponent<TowerCombatComponent>() : nullptr;
+        const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+        if (tower == nullptr || storage == nullptr || building->owner != this || building->IsUnderConstruction())
+            continue;
+
+        towerCount++;
+        auto it = storage->buffers.find(tower->ammoResource);
+        if (it == storage->buffers.end() || it->second.bufferSize <= 0)
+            continue;
+        ratio += std::clamp(static_cast<double>(it->second.buffer.size()) / it->second.bufferSize, 0.0, 1.0);
+    }
+
+    return towerCount > 0 ? ratio / towerCount : 1.0;
 }
 
 bool Player::CanResearchTechnology(const std::string& id) const
@@ -318,81 +335,23 @@ bool Player::TryPayBuildCost(const std::vector<ResourceAmountDefinition>& costs)
     if (!HasBuildResources(costs))
         return false;
 
-    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): with 2+
-    // storage-like buildings holding the same resource, which one gets
-    // drained first (and therefore which building's buffer ends up empty vs.
-    // full) must not depend on Building* heap addresses — same bug class as
-    // the main per-tick building loop.
-    std::vector<Building*> sortedStorage(GetTrackedBuildingsWithComponent<StorageComponent>().begin(),
-                                          GetTrackedBuildingsWithComponent<StorageComponent>().end());
-    std::sort(sortedStorage.begin(), sortedStorage.end(), [](Building* a, Building* b) { return a->id < b->id; });
-
+    // Paid out of the warehouse network only, in building-id order — see
+    // StockpileIndex for why that scope (and that ordering) is the one every
+    // "how much do I have" answer in the game shares.
     for (const auto& cost : costs)
-    {
-        int remaining = cost.amount;
-        for (auto* building : sortedStorage)
-        {
-            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
-            if (storage == nullptr || building->owner != this)
-                continue;
-
-            auto it = storage->buffers.find(cost.type);
-            if (it == storage->buffers.end())
-                continue;
-
-            while (remaining > 0 && !it->second.buffer.empty())
-            {
-                it->second.FreeResource();
-                remaining--;
-            }
-
-            if (remaining == 0)
-                break;
-        }
-    }
+        StockpileIndex::Consume(*this, cost.type, cost.amount);
 
     return true;
 }
 
 void Player::RefundBuildCost(const std::vector<ResourceAmountDefinition>& costs)
 {
-    // Determinism audit (docs/work_plan_2026-07-13.md, pre-Block-C): same
-    // reasoning as TryPayBuildCost above — which building's buffer receives
-    // the refund must not depend on Building* heap addresses.
-    std::vector<Building*> sortedStorage(GetTrackedBuildingsWithComponent<StorageComponent>().begin(),
-                                          GetTrackedBuildingsWithComponent<StorageComponent>().end());
-    std::sort(sortedStorage.begin(), sortedStorage.end(), [](Building* a, Building* b) { return a->id < b->id; });
-
+    // Pour the resources back into the network they were paid from. Buffers
+    // that already hold this type have the capacity we freed at build time;
+    // anything that no longer fits (production refilled it) spills.
     for (const auto& cost : costs)
-    {
-        int remaining = cost.amount;
-        if (remaining <= 0)
-            continue;
-
-        // Pour the resources back into the same kind of storage they were paid
-        // from. Buffers that already hold this type have the capacity we freed at
-        // build time; anything that no longer fits (production refilled it) spills.
-        for (auto* building : sortedStorage)
-        {
-            if (remaining <= 0)
-                break;
-
-            auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
-            if (storage == nullptr || building->owner != this)
-                continue;
-
-            auto it = storage->buffers.find(cost.type);
-            if (it == storage->buffers.end())
-                continue;
-
-            while (remaining > 0 &&
-                   static_cast<int>(it->second.buffer.size()) < it->second.bufferSize)
-            {
-                it->second.GenerateResource(cost.type);
-                remaining--;
-            }
-        }
-    }
+        if (cost.amount > 0)
+            StockpileIndex::Deposit(*this, cost.type, cost.amount);
 }
 
 // ── PlayerEconomyTelemetry ──────────────────────────────────────────────────

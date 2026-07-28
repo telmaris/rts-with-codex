@@ -2,7 +2,7 @@
 #include "simulation/MapGenerator.h"
 #include "simulation/RoadNetwork.h"
 #include "economy/Building.h"
-#include "core/Utils.h"
+#include "core/Types.h"
 #include <cmath>
 #include <map>
 #include <queue>

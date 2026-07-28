@@ -1,8 +1,17 @@
 #ifndef RESOURCE_H
 #define RESOURCE_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "simulation/Transport.h"
+
+#include <array>
+#include <cctype>
+#include <cstdint>
+#include <deque>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 // raylib exposes GOLD as a color macro; resources need the plain enum name.
 #ifdef GOLD
@@ -88,7 +97,37 @@ enum class ResourceType : uint8_t
 
     // Firearms (Phase 3 — steampunk chemistry consumer):
     MUSKET = 48,
-    CARTRIDGE = 49
+    CARTRIDGE = 49,
+
+    // Active medieval economy expansion. Values are appended deliberately:
+    // saves serialize ResourceType numerically, so retired prototype resources
+    // above must keep their historical ids even when no longer generated.
+    CLAY = 50,
+    CATTLE = 51,
+    RAW_HIDE = 52,
+    TALLOW = 53,
+    CLOTHES = 54,
+    POTTERY = 55,
+    HOUSEHOLD_GOODS = 56,
+    SOAP = 57,
+    INK = 58,
+    BOOKS = 59,
+    COPPERWARE = 60,
+    URBAN_GOODS = 61,
+    HEMP = 62,
+    FIBRE = 63,
+    ROPE = 64,
+    COPPER_VESSEL = 65,
+    COPPER_PIPE = 66,
+    MECHANICAL_PARTS = 67,
+    HEAVY_BOW = 68,
+    LIGHT_WEAPON = 69,
+    HEAVY_ARMOR = 70,
+    BRICKS = 71,
+    CLOTH = 72,
+    BALLISTA = 73,
+    BATTERING_RAM = 74,
+    CATAPULT = 75
 
 };
 
@@ -143,7 +182,33 @@ constexpr ResourceType resourceTypes[] =
     ResourceType::GLASS,
     ResourceType::GUNPOWDER,
     ResourceType::MUSKET,
-    ResourceType::CARTRIDGE
+    ResourceType::CARTRIDGE,
+    ResourceType::CLAY,
+    ResourceType::CATTLE,
+    ResourceType::RAW_HIDE,
+    ResourceType::TALLOW,
+    ResourceType::CLOTHES,
+    ResourceType::POTTERY,
+    ResourceType::HOUSEHOLD_GOODS,
+    ResourceType::SOAP,
+    ResourceType::INK,
+    ResourceType::BOOKS,
+    ResourceType::COPPERWARE,
+    ResourceType::URBAN_GOODS,
+    ResourceType::HEMP,
+    ResourceType::FIBRE,
+    ResourceType::ROPE,
+    ResourceType::COPPER_VESSEL,
+    ResourceType::COPPER_PIPE,
+    ResourceType::MECHANICAL_PARTS,
+    ResourceType::HEAVY_BOW,
+    ResourceType::LIGHT_WEAPON,
+    ResourceType::HEAVY_ARMOR,
+    ResourceType::BRICKS,
+    ResourceType::CLOTH,
+    ResourceType::BALLISTA,
+    ResourceType::BATTERING_RAM,
+    ResourceType::CATAPULT
 };
 
 // Converts resource type to a readable debug label.
@@ -201,9 +266,57 @@ inline std::string rt2s(ResourceType s)
         case ResourceType::GUNPOWDER: return "GUNPOWDER";
         case ResourceType::MUSKET: return "MUSKET";
         case ResourceType::CARTRIDGE: return "CARTRIDGE";
+        case ResourceType::CLAY: return "CLAY";
+        case ResourceType::CATTLE: return "CATTLE";
+        case ResourceType::RAW_HIDE: return "RAW_HIDE";
+        case ResourceType::TALLOW: return "TALLOW";
+        case ResourceType::CLOTHES: return "CLOTHES";
+        case ResourceType::POTTERY: return "POTTERY";
+        case ResourceType::HOUSEHOLD_GOODS: return "HOUSEHOLD_GOODS";
+        case ResourceType::SOAP: return "SOAP";
+        case ResourceType::INK: return "INK";
+        case ResourceType::BOOKS: return "BOOKS";
+        case ResourceType::COPPERWARE: return "COPPERWARE";
+        case ResourceType::URBAN_GOODS: return "URBAN_GOODS";
+        case ResourceType::HEMP: return "HEMP";
+        case ResourceType::FIBRE: return "FIBRE";
+        case ResourceType::ROPE: return "ROPE";
+        case ResourceType::COPPER_VESSEL: return "COPPER_VESSEL";
+        case ResourceType::COPPER_PIPE: return "COPPER_PIPE";
+        case ResourceType::MECHANICAL_PARTS: return "MECHANICAL_PARTS";
+        case ResourceType::HEAVY_BOW: return "HEAVY_BOW";
+        case ResourceType::LIGHT_WEAPON: return "LIGHT_WEAPON";
+        case ResourceType::HEAVY_ARMOR: return "HEAVY_ARMOR";
+        case ResourceType::BRICKS: return "BRICKS";
+        case ResourceType::CLOTH: return "CLOTH";
+        case ResourceType::BALLISTA: return "BALLISTA";
+        case ResourceType::BATTERING_RAM: return "BATTERING_RAM";
+        case ResourceType::CATAPULT: return "CATAPULT";
 
         default: return "Unknown";
     }
+}
+
+// Player-facing resource name. Keep rt2s() as the stable, all-caps debug and
+// serialization label; UI should use this helper instead.
+inline std::string ResourceDisplayName(ResourceType type)
+{
+    std::string name = rt2s(type);
+    bool capitalizeNext = true;
+    for (char& character : name)
+    {
+        if (character == '_')
+        {
+            character = ' ';
+            capitalizeNext = true;
+            continue;
+        }
+
+        unsigned char value = static_cast<unsigned char>(character);
+        character = static_cast<char>(capitalizeNext ? std::toupper(value) : std::tolower(value));
+        capitalizeNext = false;
+    }
+    return name;
 }
 
 // ─── Resource categories / tags ───────────────────────────────────────────────
@@ -233,6 +346,9 @@ enum class ResourceCategory : uint8_t
     Paper,           // PAPER
     Currency,        // COINS
     Mount,           // HORSE
+    Livestock,       // CATTLE
+    CraftedGood,     // pottery, clothes, books, copper goods, mechanisms
+    SettlementSupply,// HOUSEHOLD_GOODS, URBAN_GOODS
 
     // Military logistics (abstract package units carried to the front)
     MilitarySupply,  // FOOD_PROVISIONS

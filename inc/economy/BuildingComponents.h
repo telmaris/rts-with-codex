@@ -29,6 +29,8 @@ struct ProductionRecipeRuntime
     std::map<ResourceType, int> inputBufferCapacities;
     std::map<ResourceType, int> outputBufferCapacities;
     int workerCapacity{5};
+    std::vector<std::string> requiredTechnologies;
+    std::vector<std::string> requiredFocuses;
 };
 
 enum class BuildingCapability : std::size_t
@@ -67,10 +69,18 @@ struct RoadComponent : IBuildingComponent
     int upgradeLevel{1};
     Stat<int> maxCapacity{BalanceStat::RoadCapacity, 5};
     Stat<double> speedModifier{BalanceStat::RoadSpeed, 1.0};
+    // Visual/diagnostic telemetry. The EMA describes sustained utilization,
+    // while the short hold makes a momentary capacity jam visible long enough
+    // to notice. Neither value affects transport simulation.
+    double trafficUtilizationEma{0.0};
+    double saturationIndicatorRemaining{0.0};
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Road; }
+    void Update(Building& self, double dt) override;
     int GetModifiedMaxCapacity(const Building& self) const;
     double GetModifiedSpeedModifier(const Building& self) const;
+    double GetTrafficUtilizationTrend() const;
+    bool HasRecentSaturation() const;
 };
 
 // --- UpgradeComponent ---
@@ -150,6 +160,10 @@ struct LogisticsComponent : IBuildingComponent
     bool HasSupplier(ResourceType type) const;
     bool HasReceiver(ResourceType type) const;
     bool AcceptsSupplierFor(ResourceType type, const Building* supplier) const;
+    // True when the player narrowed this building's supply for `type` down to
+    // direct producers — RequestResource then skips the warehouse-network
+    // fallback rather than overriding that decision.
+    bool IsRestrictedToDirectSuppliers(ResourceType type) const;
 
     void SetSupplier(ResourceType type, Building* supplier, Building& self);
     void SetReceiver(ResourceType type, Building* receiver, Building& self,
@@ -197,6 +211,7 @@ struct RecipeComponent : IBuildingComponent
     BuildingCapability GetCapability() const override { return BuildingCapability::Recipes; }
     bool HasSelectableRecipes() const;
     std::string GetActiveRecipeName() const;
+    bool IsRecipeAvailable(const Building& self, int index) const;
     void SetRecipes(std::vector<ProductionRecipeRuntime> newRecipes,
                     Building& self,
                     ProductionComponent& production,
@@ -229,7 +244,15 @@ struct ResearchComponent : IBuildingComponent
 };
 
 // --- StorageComponent ---
-// Generic multi-resource storage hub (Headquarters, StorageBuilding).
+// Generic multi-resource storage hub (Headquarters, StorageBuilding) and, for
+// DefenseTower/Barracks, the local buffer their own component consumes from.
+//
+// Passive by design: it accepts deliveries (AddResource) and serves requests
+// (HandleTransport), but has no Update() and never initiates a transfer. The
+// ambient "push my buffer to anyone who accepts it" scan this used to run made
+// every new StorageBuilding drain the HQ into itself (see
+// src/economy/StorageComponent.cpp for the full story). Consumers pull; the
+// warehouse network they pull from is resolved by StockpileIndex.
 struct StorageComponent : IBuildingComponent
 {
     std::map<ResourceType, ResourceBuffer> buffers;
@@ -241,7 +264,6 @@ struct StorageComponent : IBuildingComponent
     void ReturnOutgoingResource(Resource* res);
     Resource GetResource(ResourceType type);
     int HandleTransport(ResourceType type, int amount, Building* receiver, Building& self);
-    void Update(Building& self, double dt) override;
 
     std::vector<ResourceBufferView> GetBufferViews() const;
 };
@@ -252,13 +274,20 @@ struct PopulationComponent : IBuildingComponent
 {
     Stat<double> manpowerRate{BalanceStat::ManpowerRate, 5.0};
     Stat<int> populationCap{BalanceStat::PopulationCap, 1000};
+    int settlementLevel{1};
+    std::array<int, 4> levelPopulationCaps{0, 140, 350, 1200};
+    std::array<double, 4> levelManpowerRates{0.0, 0.7, 1.75, 6.0};
     double upkeepTimer{0.0};
     double upkeepInterval{10.0};
     double foodPackageUpkeep{1.0};
     bool hasFood{true};
     double foodSupplyLevel{1.0};
     double foodSupplyDropPerMissedUpkeep{0.25};
-    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 1};
+    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 12};
+    ResourceBuffer householdGoodsBuffer{ResourceType::HOUSEHOLD_GOODS, 6};
+    ResourceBuffer urbanGoodsBuffer{ResourceType::URBAN_GOODS, 3};
+    double householdSupplyLevel{1.0};
+    double urbanSupplyLevel{1.0};
 
     BuildingCapability GetCapability() const override { return BuildingCapability::Population; }
     void Update(Building& self, double dt) override;
@@ -267,6 +296,13 @@ struct PopulationComponent : IBuildingComponent
     double GetWorkerProductivity() const;
     int RequestFoodSupply(Building& self);
     int GetFoodDemand() const;
+    void SetSettlementLevel(int level);
+    int GetActivePopulationCap() const;
+    bool RequiresSupply(ResourceType type) const;
+    int GetSupplyUpkeep(ResourceType type) const;
+    ResourceBuffer* GetSupplyBuffer(ResourceType type);
+    const ResourceBuffer* GetSupplyBuffer(ResourceType type) const;
+    int RequestSupply(Building& self, ResourceType type);
 };
 
 // --- RecruitmentComponent ---

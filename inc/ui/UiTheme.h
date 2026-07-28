@@ -18,6 +18,7 @@ namespace UiTheme
     constexpr Color Bronze {150, 108, 58, 255}; // default borders, dividers
     constexpr Color Iron   {96, 82, 66, 255};   // muted / disabled borders
     constexpr Color Gold   {214, 170, 86, 255}; // selection, hover accents, highlights
+    constexpr Color Cyan   {96, 202, 210, 255}; // category / taxonomy label
 
     // Text.
     constexpr Color Parchment      {236, 220, 190, 255}; // primary text (replaces RAYWHITE)

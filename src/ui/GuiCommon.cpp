@@ -3,7 +3,10 @@
 #include "GuiInternal.h"
 
 #include "scenes/Scenes.h"
+#include "core/Log.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
+#include "ui/Renderer.h"
 #include "raymath.h"
 
 #include <algorithm>
@@ -220,6 +223,41 @@ std::string FormatOneDecimal(double value)
     return stream.str();
 }
 
+std::vector<std::string> StockpileTooltipLines(Player* player, ResourceType type)
+{
+    if (player == nullptr)
+        return {};
+
+    auto holdings = StockpileIndex::GetHoldings(*player, type);
+    int total = 0;
+    for (const auto& holding : holdings)
+        total += holding.amount;
+
+    std::vector<std::string> lines{"Total: " + std::to_string(total)};
+    if (holdings.empty())
+    {
+        lines.push_back("Not stored anywhere");
+        return lines;
+    }
+
+    lines.push_back("Stored in:");
+    for (const auto& holding : holdings)
+    {
+        const char* label = holding.building != nullptr &&
+                            holding.building->buildingType == BuildingType::Headquarters
+            ? "HQ" : "Storage";
+        lines.push_back("  " + std::string(label) + " #" + std::to_string(holding.buildingId) +
+                        ": " + std::to_string(holding.amount) + " / " + std::to_string(holding.capacity));
+    }
+    return lines;
+}
+
+void DrawResourceTooltip(ResourceType type, const std::vector<std::string>& lines, float preferredWidth)
+{
+    Tooltip::Draw(ResourceDisplayName(type), lines, preferredWidth,
+                  [type](Rectangle icon) { GuiPanel::DrawResourceIcon(type, icon); });
+}
+
 Rectangle StatsHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     float height = static_cast<float>(hud.size.y);
@@ -268,6 +306,12 @@ Rectangle RosterHudButtonRect(const StrategicResourceHudWidget& hud)
     return Rectangle{build.x - 108.0f - 10.0f, build.y, 108.0f, build.height};
 }
 
+Rectangle LogisticsHudButtonRect(const StrategicResourceHudWidget& hud)
+{
+    Rectangle roster = RosterHudButtonRect(hud);
+    return Rectangle{roster.x - 42.0f - 8.0f, roster.y, 42.0f, roster.height};
+}
+
 bool IsStatsHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
     return CheckCollisionPointRec(GetMousePosition(), StatsHudButtonRect(hud));
@@ -303,16 +347,27 @@ bool IsRosterHudButtonHovered(const StrategicResourceHudWidget& hud)
     return CheckCollisionPointRec(GetMousePosition(), RosterHudButtonRect(hud));
 }
 
+bool IsLogisticsHudButtonHovered(const StrategicResourceHudWidget& hud)
+{
+    return CheckCollisionPointRec(GetMousePosition(), LogisticsHudButtonRect(hud));
+}
+
 bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
     return IsBuildHudButtonHovered(hud) || IsRoadHudButtonHovered(hud) ||
            IsDestroyHudButtonHovered(hud) || IsStatsHudButtonHovered(hud) ||
            IsFocusHudButtonHovered(hud) || IsTechHudButtonHovered(hud) ||
-           IsRosterHudButtonHovered(hud);
+           IsRosterHudButtonHovered(hud) || IsLogisticsHudButtonHovered(hud);
 }
 
 bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget& hud)
 {
+    if (IsLogisticsHudButtonHovered(hud))
+    {
+        SetLogisticsOverlayPreferenceEnabled(!IsLogisticsOverlayPreferenceEnabled());
+        return true;
+    }
+
     const char* action = nullptr;
     if (IsBuildHudButtonHovered(hud))
         action = "q";
@@ -345,12 +400,3 @@ void SetupStrategicHud(StrategicResourceHudWidget& hud, GameScene* scene)
     hud.ChangeSizeAnchor({0.42f, 0.055f});
     hud.UpdateSize({GetScreenWidth(), GetScreenHeight()});
 }
-
-void SwitchToMapViewAndOpenHeadquarters(GuiController* owner)
-{
-    owner->ChangeSystem("default");
-    auto mapSystem = std::dynamic_pointer_cast<BasicMapViewSystem>(owner->systems["default"]);
-    if (mapSystem != nullptr)
-        mapSystem->OpenHeadquartersPanel();
-}
-

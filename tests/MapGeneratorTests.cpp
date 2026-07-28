@@ -1,11 +1,17 @@
 #include "core/GameWorld.h"
+#include "core/GameWorldInternal.h"
 #include "simulation/MapGenerator.h"
 #include "ai/AIActions.h"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <random>
 #include <set>
+#include <vector>
 
 namespace
 {
@@ -23,6 +29,41 @@ namespace
         long long abx = b.x - a.x, aby = b.y - a.y;
         long long acx = c.x - a.x, acy = c.y - a.y;
         return abx * acy - aby * acx;
+    }
+
+    Vec2i DirectionFromFootprint(Vec2i anchor, Vec2i footprint, Vec2i point)
+    {
+        if (point.x < anchor.x)
+            return {-1, 0};
+        if (point.x >= anchor.x + footprint.x)
+            return {1, 0};
+        if (point.y < anchor.y)
+            return {0, -1};
+        if (point.y >= anchor.y + footprint.y)
+            return {0, 1};
+        return {};
+    }
+
+    bool TouchesMilitaryRoad(TileMap& map, const Building* building)
+    {
+        Vec2i anchor = map.GetCoordsFromId(building->positionId);
+        Vec2i footprint = building->GetFootprint();
+        for (int y = anchor.y; y < anchor.y + footprint.y; y++)
+        {
+            for (int x = anchor.x; x < anchor.x + footprint.x; x++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    for (int offsetX = -1; offsetX <= 1; offsetX++)
+                    {
+                        Vec2i nearby{x + offsetX, y + offsetY};
+                        if (map.IsInside(nearby) && map[nearby].isMilitaryRoad)
+                            return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }
 
@@ -93,6 +134,66 @@ TEST(MapGeneratorTests, PlacementIsDeterministicForSameSeed)
     auto anchorsA = MapGenerator::PickHeadquartersAnchors(params, 5);
     auto anchorsB = MapGenerator::PickHeadquartersAnchors(params, 5);
     EXPECT_EQ(anchorsA, anchorsB);
+}
+
+TEST(MapGeneratorTests, StartingResourcePatchShapeIsRoundedIrregularAndSlightlyLarger)
+{
+    std::set<std::set<std::pair<int, int>>> distinctShapes;
+    for (unsigned int seed : {11u, 222u, 3333u, 44444u})
+    {
+        std::mt19937 rng(seed);
+        const std::vector<Vec2i> offsets =
+            GameWorldInternal::BuildStartingResourcePatchOffsets(rng);
+
+        // The previous radius-4 circle had 49 tiles. The new shape is
+        // deliberately 6-8% larger while remaining compact and connected.
+        EXPECT_GE(offsets.size(), 52u);
+        EXPECT_LE(offsets.size(), 53u);
+
+        std::set<std::pair<int, int>> uniqueOffsets;
+        int minX = std::numeric_limits<int>::max();
+        int minY = std::numeric_limits<int>::max();
+        int maxX = std::numeric_limits<int>::min();
+        int maxY = std::numeric_limits<int>::min();
+        for (Vec2i offset : offsets)
+        {
+            uniqueOffsets.insert({offset.x, offset.y});
+            minX = std::min(minX, offset.x);
+            minY = std::min(minY, offset.y);
+            maxX = std::max(maxX, offset.x);
+            maxY = std::max(maxY, offset.y);
+        }
+        EXPECT_EQ(uniqueOffsets.size(), offsets.size());
+
+        const int width = maxX - minX + 1;
+        const int height = maxY - minY + 1;
+        EXPECT_EQ(std::min(width, height), 7);
+        EXPECT_GE(std::max(width, height), 9);
+        EXPECT_LE(std::max(width, height), 11);
+
+        std::set<std::pair<int, int>> visited;
+        std::vector<std::pair<int, int>> frontier{*uniqueOffsets.begin()};
+        while (!frontier.empty())
+        {
+            const auto current = frontier.back();
+            frontier.pop_back();
+            if (!visited.insert(current).second)
+                continue;
+
+            constexpr std::array<std::pair<int, int>, 4> neighbours{{
+                {1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+            for (const auto [dx, dy] : neighbours)
+            {
+                const std::pair<int, int> next{current.first + dx, current.second + dy};
+                if (uniqueOffsets.contains(next) && !visited.contains(next))
+                    frontier.push_back(next);
+            }
+        }
+        EXPECT_EQ(visited.size(), uniqueOffsets.size());
+        distinctShapes.insert(std::move(uniqueOffsets));
+    }
+
+    EXPECT_GT(distinctShapes.size(), 1u);
 }
 
 // User request 2026-07-19: iron is often missing near spawn. COAL and
@@ -201,6 +302,98 @@ TEST(MapGeneratorTests, StartingVillageRoadStaysWithinBudget)
             int roadTiles = AIActions::CountOwnedBuildings(player.get(), BuildingType::Road);
             EXPECT_LE(roadTiles, kMaxVillageRoadTiles)
                 << "seed=" << seed << " player=" << playerId << " village road is " << roadTiles << " tiles";
+        }
+    }
+}
+
+// User report 2026-07-28: a random starting-village candidate could land on
+// a side occupied by one of the HQ's military gates. Its road would then run
+// parallel to (or directly beside) the unit track. The generator now ranks
+// an unused/opposite side first and requires a one-tile Chebyshev buffer
+// around both the Village footprint and every start-road tile whenever such
+// a route is available.
+TEST(MapGeneratorTests, StartingVillageAndRoadStayOppositeAndDetachedFromUnitTrack)
+{
+    for (int aiOpponentCount : {1, 2})
+    {
+        for (unsigned int seed : {11u, 222u, 3333u})
+        {
+            MapParameters params;
+            params.sizePreset = MapSizePreset::S;
+            params.aiOpponentCount = aiOpponentCount;
+            params.seed = seed;
+
+            GameWorld world;
+            world.InitWorld("test", nullptr, nullptr, params);
+            TileMap& map = world.GetTileMap();
+
+            for (const auto& [playerId, player] : world.GetPlayerHandler().players)
+            {
+                Building* hq = nullptr;
+                Building* village = nullptr;
+                for (Building* building : player->GetTrackedBuildings())
+                {
+                    if (building == nullptr)
+                        continue;
+                    if (building->buildingType == BuildingType::Headquarters)
+                        hq = building;
+                    else if (building->buildingType == BuildingType::Village)
+                        village = building;
+                }
+
+                ASSERT_NE(hq, nullptr) << "seed=" << seed << " player=" << playerId;
+                ASSERT_NE(village, nullptr) << "seed=" << seed << " player=" << playerId;
+
+                Vec2i hqAnchor = map.GetCoordsFromId(hq->positionId);
+                std::vector<Vec2i> gateDirections;
+                for (const MilitaryRoute& route : world.GetMilitaryRoads().GetRoutes())
+                {
+                    int gateTile = -1;
+                    if (route.playerA == playerId && !route.tiles.empty())
+                        gateTile = route.tiles.front();
+                    else if (route.playerB == playerId && !route.tiles.empty())
+                        gateTile = route.tiles.back();
+                    if (gateTile >= 0)
+                    {
+                        gateDirections.push_back(DirectionFromFootprint(
+                            hqAnchor, hq->GetFootprint(), map.GetCoordsFromId(gateTile)));
+                    }
+                }
+
+                ASSERT_FALSE(gateDirections.empty())
+                    << "seed=" << seed << " player=" << playerId;
+                Vec2i villageDirection = DirectionFromFootprint(
+                    hqAnchor, hq->GetFootprint(), map.GetCoordsFromId(village->positionId));
+                if (gateDirections.size() == 1)
+                {
+                    EXPECT_EQ(villageDirection,
+                              (Vec2i{-gateDirections[0].x, -gateDirections[0].y}))
+                        << "seed=" << seed << " player=" << playerId
+                        << " village is not opposite its military gate";
+                }
+                else
+                {
+                    EXPECT_EQ(std::count(gateDirections.begin(), gateDirections.end(),
+                                         villageDirection), 0)
+                        << "seed=" << seed << " player=" << playerId
+                        << " village shares a side with a military gate";
+                }
+
+                EXPECT_FALSE(TouchesMilitaryRoad(map, village))
+                    << "seed=" << seed << " player=" << playerId
+                    << " village touches the military track";
+
+                for (Building* building : player->GetTrackedBuildings())
+                {
+                    if (building != nullptr && building->buildingType == BuildingType::Road)
+                    {
+                        EXPECT_FALSE(TouchesMilitaryRoad(map, building))
+                            << "seed=" << seed << " player=" << playerId
+                            << " start road touches the military track at tile "
+                            << building->positionId;
+                    }
+                }
+            }
         }
     }
 }

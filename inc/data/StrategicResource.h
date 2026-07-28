@@ -1,7 +1,7 @@
 #ifndef STRATEGIC_RESOURCE_H
 #define STRATEGIC_RESOURCE_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 
 // Non-tile resources tracked at player or faction level.
 enum class StrategicResourceType : int

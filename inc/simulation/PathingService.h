@@ -1,7 +1,7 @@
 #ifndef PATHING_SERVICE_H
 #define PATHING_SERVICE_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "simulation/MilitaryRoadNetwork.h"
 #include <vector>
 #include <functional>

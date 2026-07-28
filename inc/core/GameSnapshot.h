@@ -3,7 +3,7 @@
 
 #include "core/Serialization.h"
 #include "economy/BuildingConfig.h"
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "raylib.h"
 
 #include <algorithm>
@@ -11,6 +11,49 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+// Render-only player information. A full snapshot transmits this immutable
+// palette once; tile deltas refer to it through buildingOwnerId.
+struct GameSnapshotPlayer
+{
+    int id{-1};
+    Color color{WHITE};
+};
+
+inline bool operator==(const GameSnapshotPlayer& lhs, const GameSnapshotPlayer& rhs)
+{
+    return lhs.id == rhs.id &&
+           lhs.color.r == rhs.color.r &&
+           lhs.color.g == rhs.color.g &&
+           lhs.color.b == rhs.color.b &&
+           lhs.color.a == rhs.color.a;
+}
+
+inline void SerializeSnapshotPlayer(std::ostringstream& out, const GameSnapshotPlayer& player)
+{
+    out << player.id << ' '
+        << static_cast<int>(player.color.r) << ' '
+        << static_cast<int>(player.color.g) << ' '
+        << static_cast<int>(player.color.b) << ' '
+        << static_cast<int>(player.color.a) << ' ';
+}
+
+inline bool TryDeserializeSnapshotPlayer(std::istringstream& in, GameSnapshotPlayer& player)
+{
+    int r = 0;
+    int g = 0;
+    int b = 0;
+    int a = 0;
+    if (!(in >> player.id >> r >> g >> b >> a))
+        return false;
+
+    player.color = Color{
+        static_cast<unsigned char>(std::clamp(r, 0, 255)),
+        static_cast<unsigned char>(std::clamp(g, 0, 255)),
+        static_cast<unsigned char>(std::clamp(b, 0, 255)),
+        static_cast<unsigned char>(std::clamp(a, 0, 255))};
+    return true;
+}
 
 struct GameSnapshotTile
 {
@@ -20,6 +63,11 @@ struct GameSnapshotTile
     bool hasBuilding{false};
     BuildingType buildingType{BuildingType::Building};
     Vec2i buildingFootprint{1, 1};
+    int buildingOwnerId{-1};
+    bool isBuildingOperational{false};
+    float buildingDamageIndicator{0.0f};
+    float roadUtilization{0.0f};
+    bool roadSaturated{false};
     bool isMilitaryRoad{false};
 };
 
@@ -35,6 +83,11 @@ inline bool operator==(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
            lhs.buildingType == rhs.buildingType &&
            lhs.buildingFootprint.x == rhs.buildingFootprint.x &&
            lhs.buildingFootprint.y == rhs.buildingFootprint.y &&
+           lhs.buildingOwnerId == rhs.buildingOwnerId &&
+           lhs.isBuildingOperational == rhs.isBuildingOperational &&
+           lhs.buildingDamageIndicator == rhs.buildingDamageIndicator &&
+           lhs.roadUtilization == rhs.roadUtilization &&
+           lhs.roadSaturated == rhs.roadSaturated &&
            lhs.isMilitaryRoad == rhs.isMilitaryRoad;
 }
 
@@ -55,6 +108,11 @@ inline void SerializeSnapshotTile(std::ostringstream& out, const GameSnapshotTil
         << static_cast<int>(tile.buildingType) << ' '
         << tile.buildingFootprint.x << ' '
         << tile.buildingFootprint.y << ' '
+        << tile.buildingOwnerId << ' '
+        << (tile.isBuildingOperational ? 1 : 0) << ' '
+        << tile.buildingDamageIndicator << ' '
+        << tile.roadUtilization << ' '
+        << (tile.roadSaturated ? 1 : 0) << ' '
         << (tile.isMilitaryRoad ? 1 : 0) << ' ';
 }
 
@@ -67,8 +125,10 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
     int b = 0;
     int a = 0;
     int buildingType = 0;
+    int isBuildingOperational = 0;
+    int roadSaturated = 0;
     int isMilitaryRoad = 0;
-    if (!(in >> tile.terrainTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y >> isMilitaryRoad))
+    if (!(in >> tile.terrainTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y >> tile.buildingOwnerId >> isBuildingOperational >> tile.buildingDamageIndicator >> tile.roadUtilization >> roadSaturated >> isMilitaryRoad))
         return false;
     tile.hasOwner = hasOwner != 0;
     tile.ownerColor = Color{
@@ -78,6 +138,10 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
         static_cast<unsigned char>(std::clamp(a, 0, 255))};
     tile.hasBuilding = hasBuilding != 0;
     tile.buildingType = static_cast<BuildingType>(buildingType);
+    tile.isBuildingOperational = isBuildingOperational != 0;
+    tile.buildingDamageIndicator = std::max(0.0f, tile.buildingDamageIndicator);
+    tile.roadUtilization = std::clamp(tile.roadUtilization, 0.0f, 1.0f);
+    tile.roadSaturated = roadSaturated != 0;
     tile.isMilitaryRoad = isMilitaryRoad != 0;
     return true;
 }
@@ -87,6 +151,7 @@ struct GameSnapshot
     std::uint64_t simulationTick{0};
     int localPlayerId{0};
     Vec2i mapSize{0, 0};
+    std::vector<GameSnapshotPlayer> players;
     std::vector<GameSnapshotTile> tiles;
 
     bool IsValid() const
@@ -97,11 +162,13 @@ struct GameSnapshot
     std::string Serialize() const
     {
         Archive ar(SerializationVersion::GameSnapshotVersion);
-        ar << simulationTick << localPlayerId << mapSize.x << mapSize.y;
+        ar << simulationTick << localPlayerId << mapSize.x << mapSize.y << static_cast<int>(players.size());
 
         std::string payload = ar.GetString();
         std::ostringstream out;
         out << payload << ' ';
+        for (const auto& player : players)
+            SerializeSnapshotPlayer(out, player);
         for (const auto& tile : tiles)
             SerializeSnapshotTile(out, tile);
         return out.str();
@@ -111,13 +178,23 @@ struct GameSnapshot
     {
         std::istringstream in(payload);
         int version = 0;
+        int playerCount = 0;
         GameSnapshot parsed;
-        in >> version >> parsed.simulationTick >> parsed.localPlayerId >> parsed.mapSize.x >> parsed.mapSize.y;
+        in >> version >> parsed.simulationTick >> parsed.localPlayerId >> parsed.mapSize.x >> parsed.mapSize.y >> playerCount;
         if (!in || version != SerializationVersion::GameSnapshotVersion)
             return false;
-        if (parsed.mapSize.x <= 0 || parsed.mapSize.y <= 0)
+        constexpr int MaxSnapshotPlayers = 64;
+        if (parsed.mapSize.x <= 0 || parsed.mapSize.y <= 0 || playerCount < 0 || playerCount > MaxSnapshotPlayers)
             return false;
 
+        parsed.players.reserve(static_cast<size_t>(playerCount));
+        for (int i = 0; i < playerCount; i++)
+        {
+            GameSnapshotPlayer player;
+            if (!TryDeserializeSnapshotPlayer(in, player))
+                return false;
+            parsed.players.push_back(player);
+        }
         parsed.tiles.reserve(static_cast<size_t>(parsed.mapSize.x * parsed.mapSize.y));
         for (int i = 0; i < parsed.mapSize.x * parsed.mapSize.y; i++)
         {
@@ -131,6 +208,18 @@ struct GameSnapshot
         return true;
     }
 };
+
+// A missing owner is intentionally rendered neutrally. This permits destroyed,
+// neutral, and legacy buildings to keep their normal albedo while callers
+// safely use the same lookup in single-player and snapshot rendering paths.
+inline Color ResolveSnapshotPlayerColor(const GameSnapshot& snapshot, int playerId, Color fallback = WHITE)
+{
+    auto player = std::find_if(snapshot.players.begin(), snapshot.players.end(),
+                               [playerId](const GameSnapshotPlayer& candidate) {
+                                   return candidate.id == playerId;
+                               });
+    return player != snapshot.players.end() ? player->color : fallback;
+}
 
 struct GameSnapshotDeltaTile
 {

@@ -1,8 +1,13 @@
 #ifndef MAP_GENERATOR_H
 #define MAP_GENERATOR_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "economy/Building.h"
+
+#include <map>
+#include <memory>
+#include <random>
+#include <vector>
 
 class Player;
 
@@ -63,14 +68,10 @@ struct MapParameters
         {TileType::COAL,        8, 3,  7, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
         {TileType::IRON_ORE,    8, 3,  7, {BiomeType::MOUNTAINS, BiomeType::HILLS},   1.0f},
         // Uncommon.
-        {TileType::COPPER_ORE,  5, 2,  6, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::COPPER_ORE,  6, 2,  6, {BiomeType::HILLS, BiomeType::MOUNTAINS},   1.0f},
+        {TileType::CLAY,         7, 3,  7, {BiomeType::PLAINS, BiomeType::WETLAND},    1.0f},
         // Rare — strategic, drives trade. Few, concentrated patches.
-        {TileType::TIN_ORE,     3, 2,  5, {BiomeType::MOUNTAINS},                     0.8f},
-        {TileType::SILVER_ORE,  3, 2,  4, {BiomeType::MOUNTAINS},                     0.7f},
-        {TileType::GOLD_ORE,    2, 2,  4, {BiomeType::MOUNTAINS},                     0.6f},
         {TileType::SAND,        4, 3,  8, {BiomeType::DESERT},                        1.0f},
-        {TileType::SULFUR,      3, 2,  5, {BiomeType::DESERT, BiomeType::MOUNTAINS},  0.8f},
-        {TileType::SALTPETER,   3, 2,  5, {BiomeType::WETLAND},                       0.8f}
     };
 };
 
@@ -254,6 +255,7 @@ class TileMap
             {TileType::SILVER_ORE, {{13, 1},{14, 1}}},
             {TileType::GOLD_ORE, {{14, 1},{15, 1}}},
             {TileType::SAND, {{9, 1},{10, 1}}},
+            {TileType::CLAY, {{16, 1},{18, 1}}},
             {TileType::SULFUR, {{2, 1}}},
             {TileType::SALTPETER, {{18, 1}}}
         };

@@ -46,6 +46,7 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
         case ResourceType::SAND:
         case ResourceType::SULFUR:
         case ResourceType::SALTPETER:
+        case ResourceType::CLAY:
             return ResourceCategory::Mineral;
 
         // Refined metals
@@ -63,6 +64,11 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
             return ResourceCategory::Timber;
 
         case ResourceType::LEATHER:
+        case ResourceType::RAW_HIDE:
+        case ResourceType::HEMP:
+        case ResourceType::FIBRE:
+        case ResourceType::ROPE:
+        case ResourceType::CLOTH:
             return ResourceCategory::Textile;
 
         case ResourceType::WHEAT:
@@ -77,6 +83,9 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
         case ResourceType::GLASS:
         case ResourceType::GUNPOWDER:
         case ResourceType::COKE:
+        case ResourceType::TALLOW:
+        case ResourceType::SOAP:
+        case ResourceType::INK:
             return ResourceCategory::Chemical;
 
         case ResourceType::TOOLS:
@@ -90,6 +99,26 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
 
         case ResourceType::HORSE:
             return ResourceCategory::Mount;
+
+        case ResourceType::CATTLE:
+            return ResourceCategory::Livestock;
+
+        case ResourceType::HOUSEHOLD_GOODS:
+        case ResourceType::URBAN_GOODS:
+            return ResourceCategory::SettlementSupply;
+
+        case ResourceType::CLOTHES:
+        case ResourceType::POTTERY:
+        case ResourceType::BOOKS:
+        case ResourceType::COPPERWARE:
+        case ResourceType::COPPER_VESSEL:
+        case ResourceType::COPPER_PIPE:
+        case ResourceType::MECHANICAL_PARTS:
+        case ResourceType::BRICKS:
+        case ResourceType::BALLISTA:
+        case ResourceType::BATTERING_RAM:
+        case ResourceType::CATAPULT:
+            return ResourceCategory::CraftedGood;
 
         case ResourceType::FOOD_PROVISIONS:
             return ResourceCategory::MilitarySupply;
@@ -114,6 +143,9 @@ const char* ResourceCategoryLabel(ResourceCategory category)
         case ResourceCategory::Paper:          return "Paper";
         case ResourceCategory::Currency:       return "Currency";
         case ResourceCategory::Mount:          return "Mount";
+        case ResourceCategory::Livestock:      return "Livestock";
+        case ResourceCategory::CraftedGood:    return "CraftedGood";
+        case ResourceCategory::SettlementSupply:return "SettlementSupply";
         case ResourceCategory::MilitarySupply: return "MilitarySupply";
         case ResourceCategory::Sword:          return "Sword";
         case ResourceCategory::Spear:          return "Spear";

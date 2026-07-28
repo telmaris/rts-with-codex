@@ -1,7 +1,7 @@
 #include "warfare/CombatPipeline.h"
 #include "economy/Building.h"
 #include "simulation/MapGenerator.h"
-#include "core/Utils.h"
+#include "core/Types.h"
 
 #include <algorithm>
 #include <cmath>

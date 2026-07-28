@@ -1,7 +1,7 @@
 #ifndef GAME_H
 #define GAME_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "ui/Window.h"
 #include "core/GameWorld.h"
 

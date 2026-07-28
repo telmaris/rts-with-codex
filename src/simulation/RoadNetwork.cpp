@@ -1,6 +1,7 @@
 #include "simulation/RoadNetwork.h"
 #include "simulation/MapGenerator.h"
 #include "economy/Player.h"
+#include "core/Log.h"
 
 namespace
 {

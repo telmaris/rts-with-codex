@@ -53,7 +53,7 @@ cmake -S $RepoRoot -B $BuildPath `
     "-Draygui_INCLUDE_DIR=$RayguiInclude"
 
 Write-Host "Running coverage target ($Config)..." -ForegroundColor Cyan
-cmake --build $BuildPath --config $Config --target coverage
+cmake --build $BuildPath --parallel --config $Config --target coverage
 
 $HtmlReport = Join-Path $BuildPath "coverage\index.html"
 $XmlReport = Join-Path $BuildPath "coverage.xml"

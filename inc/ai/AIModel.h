@@ -7,9 +7,13 @@
 #include <array>
 #include <optional>
 #include <random>
+#include <set>
+#include <string>
+#include <vector>
 
 class GameWorld;
 struct UnitDefinition;
+struct TechnologyDefinition;
 
 // Utility-based tower-defense AI (AI rework, TODO #2 — replaces the removed
 // 3-tier axis/goal/milestone PrimitiveAIModel, whose priority-axis framing
@@ -81,7 +85,6 @@ struct AISituation
     int universityCount{0};
     // A completed University with no research running (AIActions::FindUniversity).
     bool hasIdleUniversity{false};
-    bool focusActive{false};
     // FOOD_PROVISIONS is the manpower lifeline — "alive" = positive
     // production rate in current telemetry.
     bool foodProductionAlive{false};
@@ -159,6 +162,20 @@ public:
     // Failed waves must not be repeated at identical strength. Kept pure for
     // direct regression testing of the escalation rule.
     static double FailedWaveStrengthThreshold(double currentThreshold, double launchedStrength);
+    // Strategic value of one focus in the current posture. Tags express the
+    // designer's intent; modifiers are the fallback/confirmation, so an
+    // untagged recruitment-time focus is still recognized as mobilization.
+    // Public and pure for direct policy regression tests.
+    static double ScoreFocusChoice(const TechnologyDefinition& definition,
+                                   const AISituation& situation);
+    // Discounted value of a focus and every reachable branch up to
+    // `lookAheadDepth` decisions later. Completed nodes are ignored and
+    // cycles are cut, making this safe for data-driven focus graphs.
+    static double ScoreFocusPlan(const TechnologyDefinition& root,
+                                 const std::vector<TechnologyDefinition>& definitions,
+                                 const std::set<std::string>& completed,
+                                 const AISituation& situation,
+                                 int lookAheadDepth = 3);
 
     // Test seam (2026-07-20): read-only access to the seeded personality bias
     // — only populated after the first Update() call (that's where seeding
@@ -178,6 +195,10 @@ private:
     bool ExecuteEconomy(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteLogistics(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteResearch(GameWorld& world, Player* player, const AISituation& s);
+    // Focuses run in parallel with ordinary actions and cost no resources.
+    // This is called every simulation tick, outside the throttled/noisy need
+    // cycle, so completion is followed by the next valid choice immediately.
+    bool TryStartBestFocus(GameWorld& world, Player* player, const AISituation& s);
     int GetCachedAttackTargetPlayer(GameWorld& world, Player* player);
     // Builds the first affordable producer of `resource` (or of the deepest
     // missing input in its chain). Returns false when nothing can be placed

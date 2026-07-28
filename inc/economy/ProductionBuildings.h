@@ -21,6 +21,16 @@
     WorkerComponent     workers;          \
     RecipeComponent     recipes
 
+// Data-only production building used by the expanded economy. New workshops do
+// not need an otherwise empty C++ subclass: their identity, recipes, buffers,
+// footprint and placeholder art all come from buildings.rtsdata.
+class ConfiguredProductionBuilding : public Building
+{
+    public:
+        ConfiguredProductionBuilding(int, BuildingType);
+        RTS_PRODUCTION_COMPONENTS;
+};
+
 // Terrain-dependent wood producer.
 class Woodcutter : public Building
 {

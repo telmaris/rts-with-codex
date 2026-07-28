@@ -27,6 +27,18 @@ namespace
         params.seed = seed;
         return params;
     }
+
+    // AI players submit commands on the same ticks these tests do, so
+    // results.back() is not reliably the command under test — match on the id
+    // SubmitCommand returned instead.
+    const GameCommandResult* FindResult(const std::vector<GameCommandResult>& results, std::uint64_t commandId)
+    {
+        for (const auto& result : results)
+            if (result.commandId == commandId)
+                return &result;
+        return nullptr;
+    }
+
 }
 
 TEST(EliminationTests, EliminatePlayerFlagsDefeatedAndVictoryIsDetected)
@@ -379,19 +391,21 @@ TEST(EliminationTests, DeployUnitsAcceptsTargetThroughConqueredHq)
     p0->roster.AddUnit(std::move(unit));
 
     // Rejected before the middle player is eliminated — not a ring neighbor.
-    world.SubmitCommand(GameCommand::DeployUnits(0, farTargetId, {instanceId}));
+    std::uint64_t beforeCmd = world.SubmitCommand(GameCommand::DeployUnits(0, farTargetId, {instanceId}));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
     auto results = world.ConsumeCommandResults();
-    ASSERT_FALSE(results.empty());
-    EXPECT_FALSE(results.back().accepted);
+    const GameCommandResult* before = FindResult(results, beforeCmd);
+    ASSERT_NE(before, nullptr);
+    EXPECT_FALSE(before->accepted);
 
     world.EliminatePlayer(middleId, 0);
 
-    world.SubmitCommand(GameCommand::DeployUnits(0, farTargetId, {instanceId}));
+    std::uint64_t afterCmd = world.SubmitCommand(GameCommand::DeployUnits(0, farTargetId, {instanceId}));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
     results = world.ConsumeCommandResults();
-    ASSERT_FALSE(results.empty());
-    EXPECT_TRUE(results.back().accepted);
+    const GameCommandResult* after = FindResult(results, afterCmd);
+    ASSERT_NE(after, nullptr);
+    EXPECT_TRUE(after->accepted);
 }
 
 TEST(EliminationTests, SaveAndLoadPreservesDefeatedAndCapturedStorageState)

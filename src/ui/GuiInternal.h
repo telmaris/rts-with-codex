@@ -8,6 +8,7 @@
 #include "ui/GuiController.h"
 
 #include <string>
+#include <vector>
 
 class GameScene;
 class Player;
@@ -69,6 +70,16 @@ float PanelTitleCloseReserve(Rectangle panel);
 // Formats a compact fixed-point HUD value with one decimal place.
 std::string FormatOneDecimal(double value);
 
+// Tooltip body for one resource: the player-wide total followed by one line
+// per warehouse holding it ("HQ #1: 42"). Shared by the strategic HUD chips
+// and the stockpile panel so both always describe the stock the same way.
+std::vector<std::string> StockpileTooltipLines(Player* player, ResourceType type);
+
+// Renders the standard tooltip for a resource, including its enlarged atlas
+// icon and the player-facing (title-cased) resource name.
+void DrawResourceTooltip(ResourceType type, const std::vector<std::string>& lines,
+                         float preferredWidth = 0.0f);
+
 // Returns the local player's headquarters building, or nullptr.
 Building* FindLocalHeadquarters(GameScene* scene);
 
@@ -87,6 +98,8 @@ Rectangle RoadHudButtonRect(const StrategicResourceHudWidget& hud);
 Rectangle BuildHudButtonRect(const StrategicResourceHudWidget& hud);
 // TD(etap-8): roster/deploy panel button, left of Build.
 Rectangle RosterHudButtonRect(const StrategicResourceHudWidget& hud);
+// Compact visual-only logistics overlay toggle, left of the roster button.
+Rectangle LogisticsHudButtonRect(const StrategicResourceHudWidget& hud);
 
 bool IsStatsHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsFocusHudButtonHovered(const StrategicResourceHudWidget& hud);
@@ -96,6 +109,7 @@ bool IsDestroyHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsRoadHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsBuildHudButtonHovered(const StrategicResourceHudWidget& hud);
 bool IsRosterHudButtonHovered(const StrategicResourceHudWidget& hud);
+bool IsLogisticsHudButtonHovered(const StrategicResourceHudWidget& hud);
 
 // True when the cursor is over any strategic HUD mode button.
 bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud);
@@ -110,9 +124,6 @@ bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget&
 // Applies the standard scene/anchor setup for a system-owned strategic HUD.
 void SetupStrategicHud(StrategicResourceHudWidget& hud, GameScene* scene);
 
-// Switches to the default map view and opens the headquarters panel there.
-void SwitchToMapViewAndOpenHeadquarters(GuiController* owner);
-
 // Wires the input actions shared by every interaction system to the system's
 // handler methods. Systems with extra actions add them after this call.
 template <typename SystemT>
@@ -122,7 +133,7 @@ void WireCommonSystemActions(SystemT& system, CameraMovement& cameraMovement)
     system.actionMap["q"]    = [&system] { system.BuildPressed(); };
     system.actionMap["r"]    = [&system] { system.RoadBuildPressed(); };
     system.actionMap["d"]    = [&system] { system.DestroyPressed(); };
-    system.actionMap["e"]    = [&system] { system.HeadquartersPressed(); };
+    system.actionMap["e"]    = [&system] { system.StockpilePressed(); };
     system.actionMap["s"]    = [&system] { system.StatsPressed(); };
     system.actionMap["f"]    = [&system] { system.FocusPressed(); };
     system.actionMap["t"]    = [&system] { system.TechPressed(); };

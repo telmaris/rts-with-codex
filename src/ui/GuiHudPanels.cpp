@@ -4,6 +4,8 @@
 
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
+#include "ui/Renderer.h"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +30,8 @@ namespace
         int buildingCount{0};
         int roadCount{0};
         int totalProduced{0};
+        int ammunitionSupplyPercent{100};
+        int towerCount{0};
     };
 
     PlayerStatsSnapshot BuildPlayerStatsSnapshot(Player* player)
@@ -70,15 +74,16 @@ namespace
             if (population->upkeepInterval > 0.0)
                 stats.villageFoodConsumptionPerMinute += population->foodPackageUpkeep * (60.0 / population->upkeepInterval);
         }
-        for (const auto* building : player->GetTrackedBuildingsWithComponent<StorageComponent>())
-        {
-            if (building == nullptr || building->owner != player || building->IsUnderConstruction())
-                continue;
+        // Warehouse network only (see StockpileIndex): a tower's ammo and a
+        // Barracks' queued unit costs are that building's own consumption
+        // buffer, not stock the player can spend or route anywhere else.
+        // Tower ammo gets its own chip below instead of silently inflating
+        // these numbers.
+        for (const auto& [type, totals] : StockpileIndex::Snapshot(*player))
+            stats.storedResources[type] = totals.amount;
 
-            const auto* storage = building->GetComponent<StorageComponent>();
-            for (const auto& [type, buffer] : storage->buffers)
-                stats.storedResources[type] += static_cast<int>(buffer.buffer.size());
-        }
+        stats.ammunitionSupplyPercent = static_cast<int>(std::round(player->GetAmmunitionSupplyRatio() * 100.0));
+        stats.towerCount = static_cast<int>(player->GetTrackedBuildingsWithComponent<TowerCombatComponent>().size());
         for (const auto* building : player->GetTrackedBuildingsWithComponent<ProductionComponent>())
         {
             if (building == nullptr || building->owner != player || building->IsUnderConstruction())
@@ -178,8 +183,9 @@ void StrategicResourceHudWidget::Update(double dt)
         if (it != stats.storedResources.end())
             amount = it->second;
 
-        DrawRectangleRounded(chip, 0.16f, 8, Color{42, 31, 22, 228});
-        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, Color{120, 92, 58, 220});
+        bool hovered = CheckCollisionPointRec(GetMousePosition(), chip);
+        DrawRectangleRounded(chip, 0.16f, 8, hovered ? Color{58, 43, 30, 236} : Color{42, 31, 22, 228});
+        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, hovered ? UiTheme::Gold : Color{120, 92, 58, 220});
         GuiPanel::DrawResourceIcon(type, Rectangle{icon.x + 3.0f, icon.y + 3.0f, icon.width - 6.0f, icon.height - 6.0f});
         UiText::DrawFit(std::to_string(amount), Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 16.0f, chip.height - 10.0f}, 21, Color{228, 210, 180, 255});
     };
@@ -203,6 +209,24 @@ void StrategicResourceHudWidget::Update(double dt)
         DrawRectangleRounded(Rectangle{cx - icon.width * 0.06f, icon.y + icon.height * 0.36f, icon.width * 0.12f, icon.height * 0.44f}, 0.40f, 6, Color{201, 174, 122, 255});
     });
 
+    // Ammunition chip: how well the defence towers are stocked, averaged per
+    // tower. Tower ammo lives in each tower's own buffer, outside the
+    // warehouse totals the resource chips report (see StockpileIndex), so
+    // without this the player has no HUD-level read on it at all. Hidden
+    // entirely with no towers built — an "ammo 100%" chip for a player who
+    // has no towers is noise.
+    Rectangle ammoIcon{buildersIcon.x + 132.0f, y, iconSize, iconSize};
+    bool showAmmo = stats.towerCount > 0;
+    if (showAmmo)
+    {
+        bool ammoLow = stats.ammunitionSupplyPercent < 35;
+        drawStatChip(ammoIcon, std::to_string(stats.ammunitionSupplyPercent) + "%",
+                     ammoLow ? UiTheme::RustBright : Color{188, 150, 96, 255}, [&](Rectangle icon)
+        {
+            GuiPanel::DrawResourceIcon(ResourceType::ARROWS, Rectangle{icon.x + 4.0f, icon.y + 4.0f, icon.width - 8.0f, icon.height - 8.0f});
+        });
+    }
+
     Rectangle statsButton = StatsHudButtonRect(*this);
     Rectangle focusButton = FocusHudButtonRect(*this);
     Rectangle techButton = TechHudButtonRect(*this);
@@ -210,9 +234,10 @@ void StrategicResourceHudWidget::Update(double dt)
     Rectangle roadButton = RoadHudButtonRect(*this);
     Rectangle buildButton = BuildHudButtonRect(*this);
     Rectangle rosterButton = RosterHudButtonRect(*this);
+    Rectangle logisticsButton = LogisticsHudButtonRect(*this);
 
-    float resourceX = buildersIcon.x + 130.0f;
-    float resourceRightLimit = rosterButton.x - 12.0f;
+    float resourceX = (showAmmo ? ammoIcon.x : buildersIcon.x) + 130.0f;
+    float resourceRightLimit = logisticsButton.x - 12.0f;
     bool showWood = resourceX + 116.0f <= resourceRightLimit;
     bool showStone = resourceX + 242.0f <= resourceRightLimit;
     bool showPlanks = resourceX + 368.0f <= resourceRightLimit;
@@ -230,6 +255,8 @@ void StrategicResourceHudWidget::Update(double dt)
     bool destroyHovered = CheckCollisionPointRec(GetMousePosition(), destroyButton);
     bool roadHovered = CheckCollisionPointRec(GetMousePosition(), roadButton);
     bool buildHovered = CheckCollisionPointRec(GetMousePosition(), buildButton);
+    bool logisticsHovered = CheckCollisionPointRec(GetMousePosition(), logisticsButton);
+    bool logisticsEnabled = IsLogisticsOverlayPreferenceEnabled();
     bool focusAvailable = player->focuses.GetActiveFocusId().empty();
     float focusProgress = static_cast<float>(player->focuses.GetActiveFocusProgress());
     float pulse = focusAvailable ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.0f)) : 0.0f;
@@ -271,6 +298,9 @@ void StrategicResourceHudWidget::Update(double dt)
     drawHudButton(buildButton, "Build", buildHovered, Color{43, 60, 52, 238}, Color{92, 151, 118, 230});
     drawHudButton(roadButton, "Road", roadHovered, Color{54, 46, 34, 238}, Color{140, 112, 74, 230});
     drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
+    drawHudButton(logisticsButton, "L", logisticsHovered,
+                  logisticsEnabled ? Color{42, 76, 57, 238} : Color{43, 39, 31, 238},
+                  logisticsEnabled ? Color{102, 214, 145, 255} : Color{117, 98, 70, 230});
 
     // Roster button — pulses red border when this player's HQ is under siege.
     Color rosterBase = incomingAttack
@@ -297,7 +327,7 @@ void StrategicResourceHudWidget::Update(double dt)
     DrawRectangleRoundedLines(focusButton, 0.14f, 8, 1.5f, focusLine);
     if (focusAvailable)
         DrawRectangleRounded(Rectangle{focusButton.x + 4.0f, focusButton.y + 4.0f, focusButton.width - 8.0f, focusButton.height - 8.0f}, 0.14f, 8, Color{255, 221, 120, static_cast<unsigned char>(22 + pulse * 48.0f)});
-    UiText::DrawFit("Focus Tree", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21, UiTheme::Parchment);
+    UiText::DrawFit("Decisions", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21, UiTheme::Parchment);
     Rectangle focusBar{focusButton.x + 12.0f, focusButton.y + focusButton.height - 9.0f, focusButton.width - 24.0f, 4.0f};
     DrawRectangleRounded(focusBar, 0.6f, 6, Color{26, 22, 34, 170});
     Rectangle focusFillBar = focusBar;
@@ -336,17 +366,29 @@ void StrategicResourceHudWidget::Update(double dt)
             "Village consumption: " + FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min"
         }, 290.0f);
     }
+    else if (showAmmo && CheckCollisionPointRec(mouse, Rectangle{ammoIcon.x - 6.0f, bounds.y, 125.0f, bounds.height}))
+    {
+        Tooltip::Draw("Ammunition", {
+            "Average fill across " + std::to_string(stats.towerCount) + " tower(s): " +
+                std::to_string(stats.ammunitionSupplyPercent) + "%",
+            "Each tower keeps its own ammo buffer, refilled",
+            "from the warehouse network over the roads."
+        }, 300.0f);
+    }
+    // Warehouse chips: the total, plus which warehouse holds how much (user
+    // request, 2026-07-25) — StockpileTooltipLines is shared with the
+    // stockpile panel so the two always word it identically.
     else if (showWood && CheckCollisionPointRec(mouse, Rectangle{resourceX, bounds.y, 116.0f, bounds.height}))
     {
-        Tooltip::Draw("Wood", {"Stored: " + std::to_string(stats.storedResources[ResourceType::WOOD])}, 180.0f);
+        DrawResourceTooltip(ResourceType::WOOD, StockpileTooltipLines(player, ResourceType::WOOD), 280.0f);
     }
     else if (showStone && CheckCollisionPointRec(mouse, Rectangle{resourceX + 126.0f, bounds.y, 116.0f, bounds.height}))
     {
-        Tooltip::Draw("Stone", {"Stored: " + std::to_string(stats.storedResources[ResourceType::STONE])}, 180.0f);
+        DrawResourceTooltip(ResourceType::STONE, StockpileTooltipLines(player, ResourceType::STONE), 280.0f);
     }
     else if (showPlanks && CheckCollisionPointRec(mouse, Rectangle{resourceX + 252.0f, bounds.y, 116.0f, bounds.height}))
     {
-        Tooltip::Draw("Planks", {"Stored: " + std::to_string(stats.storedResources[ResourceType::PLANKS])}, 180.0f);
+        DrawResourceTooltip(ResourceType::PLANKS, StockpileTooltipLines(player, ResourceType::PLANKS), 280.0f);
     }
     else if (buildHovered)
     {
@@ -360,15 +402,24 @@ void StrategicResourceHudWidget::Update(double dt)
     {
         Tooltip::Draw("Destroy", {"[D] Open destroy mode"}, 220.0f);
     }
+    else if (logisticsHovered)
+    {
+        Tooltip::Draw("Logistics overlay", {
+            "[L] Toggle road load overlay",
+            logisticsEnabled ? "Status: enabled" : "Status: disabled",
+            "10 s trend: green = light, red = congested",
+            "Pulsing dot = recently reached full capacity"
+        }, 300.0f);
+    }
     else if (statsHovered)
     {
         Tooltip::Draw("Resources", {"[S] Open economy overview"}, 240.0f);
     }
     else if (focusHovered)
     {
-        Tooltip::Draw("Focus Tree", {
-            "[F] Open political focus tree",
-            focusAvailable ? "No active focus selected" : "Focus is already in progress",
+        Tooltip::Draw("Decisions", {
+            "[F] Open decisions",
+            focusAvailable ? "No active decision selected" : "Decision is already in progress",
             "Progress: " + std::to_string(static_cast<int>(std::round(focusProgress * 100.0f))) + "%"
         }, 240.0f);
     }
@@ -670,7 +721,7 @@ void StatsPanelWidget::Update(double dt)
         GuiPanel::DrawResourceIcon(type, Rectangle{slot.x + 5.0f, slot.y + 5.0f, 24.0f, 24.0f});
         DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : Color{100, 84, 64, 210});
         if (CheckCollisionPointRec(GetMousePosition(), slot))
-            Tooltip::Draw(rt2s(type), {
+            DrawResourceTooltip(type, {
                 active ? (showingConsumption ? "Consumed in selected window" : "Produced in selected window")
                        : (showingConsumption ? "No consumption in selected window" : "No production in selected window"),
                 selected ? "Visible on graph" : "Hidden from graph"
@@ -790,11 +841,11 @@ void StatsGuiSystem::DestroyPressed()
     owner->ChangeSystem("destroy");
 }
 
-// Opens headquarters from statistics mode.
-void StatsGuiSystem::HeadquartersPressed()
+// Opens the player-wide stockpile panel from statistics mode.
+void StatsGuiSystem::StockpilePressed()
 {
     cameraMovement.isMoving = false;
-    SwitchToMapViewAndOpenHeadquarters(owner);
+    owner->ChangeSystem("stockpile");
 }
 
 // Toggles the statistics overlay.

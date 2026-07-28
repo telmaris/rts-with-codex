@@ -1,6 +1,6 @@
 #include "scenes/Game.h"
 #include "scenes/GameWindow.h"
-#include "core/Utils.h"
+#include "core/Log.h"
 
 // Initializes main.
 int main(void)

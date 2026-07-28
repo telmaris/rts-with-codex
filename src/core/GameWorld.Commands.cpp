@@ -1,4 +1,5 @@
 #include "core/GameWorldInternal.h"
+#include "core/Log.h"
 #include "ui/AudioSystem.h"
 
 #include <algorithm>
@@ -132,6 +133,13 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         auto preview = CreateBuildingFromType(command.buildingType, 0);
         if (preview == nullptr)
+            return false;
+
+        // This is gameplay state, not a sample from the screen-space FBO:
+        // the exact result must be independent of camera position and renderer
+        // availability. AI deliberately retains its omniscient-map bonus.
+        if (IsFogOfWarPreferenceEnabled() && player->controllerType != PlayerControllerType::AI &&
+            !IsBuildFootprintVisibleToPlayer(player->id, command.tilePos, preview->GetFootprint()))
             return false;
 
         if (!tilemap.CanPlaceBuilding(command.buildingType, command.tilePos, preview->GetFootprint(), player))

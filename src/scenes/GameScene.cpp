@@ -1,7 +1,77 @@
 #include "scenes/Scenes.h"
 #include "scenes/SceneUtils.h"
+#include "core/Log.h"
+#include "data/TextureConfig.h"
 #include "multiplayer/TcpGameTransport.h"
 #include "ui/GuiController.h"
+#include "ui/Renderer.h"
+
+#include <algorithm>
+#include <set>
+
+namespace
+{
+    constexpr const char* TextureConfigPath = "assets/data/textures.rtsdata";
+
+    // Building artwork is authored in textures.rtsdata so the game and the
+    // texture editor consume the same atlas path and animation definition.
+    // Legacy texturePath values remain a safe fallback for incomplete configs.
+    void LoadBuildingArtwork(Renderer& renderer)
+    {
+        const auto& buildingDefinitions = GetBuildingDefinitions();
+        std::string error;
+        const TextureConfig textureConfig = LoadTextureConfig(TextureConfigPath, &error);
+        std::set<BuildingType> configuredTypes;
+
+        if (!error.empty())
+        {
+            Log::Msg("[Textures]", "Could not load ", TextureConfigPath, ": ", error,
+                     ". Using legacy building texture paths.");
+        }
+        else
+        {
+            for (const BuildingTextureDefinition& textureDefinition : textureConfig.buildings)
+            {
+                const auto definitionIt = std::find_if(
+                    buildingDefinitions.begin(), buildingDefinitions.end(),
+                    [&](const BuildingDefinition& definition)
+                    {
+                        return definition.tag == "[" + textureDefinition.buildingType + "]";
+                    });
+                const TextureAtlasDefinition* atlas = textureConfig.FindAtlas(textureDefinition.sprite.atlasId);
+
+                // The current standalone-building renderer supports strips
+                // beginning at cell zero. The editor can still author richer
+                // atlases; those stay on the legacy fallback until that path is
+                // rendered natively.
+                if (definitionIt == buildingDefinitions.end() || atlas == nullptr ||
+                    atlas->path.empty() || !FileExists(atlas->path.c_str()) ||
+                    textureDefinition.sprite.textureId != 0)
+                    continue;
+
+                renderer.LoadBuildingTexture(definitionIt->type, atlas->path);
+                configuredTypes.insert(definitionIt->type);
+
+                if (textureDefinition.animation.enabled && textureDefinition.animation.frames > 1 &&
+                    textureDefinition.animation.frameTime > 0.0)
+                {
+                    renderer.RegisterBuildingAnimation(
+                        definitionIt->type,
+                        AnimationClip{0, textureDefinition.animation.frames,
+                                      static_cast<float>(textureDefinition.animation.frameTime),
+                                      textureDefinition.animation.looping});
+                }
+            }
+        }
+
+        for (const BuildingDefinition& definition : buildingDefinitions)
+        {
+            if (configuredTypes.contains(definition.type) || definition.texturePath.empty())
+                continue;
+            renderer.LoadBuildingTexture(definition.type, definition.texturePath);
+        }
+    }
+}
 
 // InputProcessor's polling methods live here since GameScene is its only
 // owner (InputProcessor inputs; is a GameScene member).
@@ -52,14 +122,11 @@ bool InputProcessor::IsActionDown(int action)
 // Initializes GameScene::GameScene.
 GameScene::GameScene()
 {
+    render.InitializeWorldLayers();
     render.atlasMap[0] = TextureAtlas{};
     render.atlasMap[0].LoadTextureAtlas("assets/textures/terrain/terrain_tileset.png");
 
-    for (const auto& definition : GetBuildingDefinitions())
-    {
-        if (!definition.texturePath.empty())
-            render.LoadBuildingTexture(definition.type, definition.texturePath);
-    }
+    LoadBuildingArtwork(render);
 
     GuiPanel::LoadResourceAtlas("assets/textures/resources/basic_resources.png", {64, 64});
 
@@ -73,6 +140,7 @@ GameScene::GameScene()
     controller->AddSystem<FocusGuiSystem>("focus");
     controller->AddSystem<TechGuiSystem>("tech");
     controller->AddSystem<RosterGuiSystem>("roster");
+    controller->AddSystem<StockpileGuiSystem>("stockpile");
     controller->ChangeSystem("default");
 
     inputs.Init(controller.get());
@@ -165,6 +233,7 @@ namespace
             // inputs.HandleInputs()) so the first frame after a scene switch
             // never re-consumes the key edge that caused the switch.
             scene.ProcessGuiInput(dt);
+            scene.HandleRenderDebugInput();
             scene.controller->Update(dt);
 
             std::vector<UiWidget*> widgets = scene.controller->GetUiWidgets();
@@ -279,6 +348,32 @@ namespace
             DrawReadyGameplay(scene, dt, true);
         }
     };
+}
+
+void GameScene::HandleRenderDebugInput()
+{
+    if (InputManager::IsKeyPressed(KEY_F6))
+    {
+        render.SetDayNightCycleEnabled(!render.IsDayNightCycleEnabled());
+        Log::Msg("[Renderer] Day/night cycle: ", render.IsDayNightCycleEnabled() ? "on" : "off");
+    }
+    if (InputManager::IsKeyPressed(KEY_F7))
+    {
+        render.SetDynamicLightsEnabled(!render.AreDynamicLightsEnabled());
+        Log::Msg("[Renderer] Dynamic lights: ", render.AreDynamicLightsEnabled() ? "on" : "off");
+    }
+    if (InputManager::IsKeyPressed(KEY_F8))
+    {
+        render.CycleDebugView();
+        Log::Msg("[Renderer] Debug view changed.");
+    }
+    if (InputManager::IsKeyPressed(KEY_L))
+    {
+        const bool enabled = !IsLogisticsOverlayPreferenceEnabled();
+        SetLogisticsOverlayPreferenceEnabled(enabled);
+        render.SetLogisticsOverlayEnabled(enabled);
+        Log::Msg("[Renderer] Logistics overlay: ", enabled ? "on" : "off");
+    }
 }
 
 // Advances this object's state for one frame.

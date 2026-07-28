@@ -1,5 +1,6 @@
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "simulation/MapGenerator.h"
 #include "BuildingComponentsInternal.h"
 
@@ -23,6 +24,31 @@ bool LogisticsComponent::HasSupplier(ResourceType type) const
 bool LogisticsComponent::HasReceiver(ResourceType type) const
 {
     return receivers.contains(type) && receivers.at(type) != nullptr;
+}
+
+bool LogisticsComponent::IsRestrictedToDirectSuppliers(ResourceType type) const
+{
+    auto it = suppliers.find(type);
+    if (it == suppliers.end())
+        return false;
+
+    // SetSupplier evicts every warehouse supplier the moment a non-warehouse
+    // one is wired in, and TileMap::ConnectReceiver is how the player does
+    // that by hand. So "a direct producer and no warehouse" is the signature
+    // of an explicit routing decision — honour it instead of quietly topping
+    // the consumer up from the depot network behind the player's back.
+    // Auto-connected consumers keep the nearest warehouse alongside their
+    // producer (TileMap::AutoConnectBuilding) and so are not restricted.
+    bool hasDirect = false;
+    for (auto* supplier : it->second)
+    {
+        if (supplier == nullptr)
+            continue;
+        if (StockpileIndex::IsWarehouse(supplier))
+            return false;
+        hasDirect = true;
+    }
+    return hasDirect;
 }
 
 bool LogisticsComponent::AcceptsSupplierFor(ResourceType type, const Building* supplier) const
@@ -140,20 +166,42 @@ int LogisticsComponent::RequestResource(ResourceType type, int amount, Building&
     if (amount <= 0)
         return 0;
 
-    if (!suppliers.contains(type))
-    {
-        requestBlocked = true;
-        return 0;
-    }
-
     int sent = 0;
-    for (auto* sup : suppliers[type])
+    std::vector<Building*> tried;
+    auto pullFrom = [&](Building* source)
     {
-        if (sup == nullptr) continue;
+        if (source == nullptr || source == &self)
+            return;
         int missing = amount - sent;
-        if (missing <= 0) break;
-        sent += sup->HandleTransport(type, missing, &self);
-    }
+        if (missing <= 0)
+            return;
+        // A wired supplier can also show up in the warehouse ranking below;
+        // asking it twice in one tick is pure waste (each attempt walks the
+        // road network) and would let one source appear to serve more than it
+        // has.
+        if (std::find(tried.begin(), tried.end(), source) != tried.end())
+            return;
+        tried.push_back(source);
+        sent += source->HandleTransport(type, missing, &self);
+    };
+
+    // Explicitly wired suppliers first — a direct producer link is a player
+    // (or auto-connect) decision and must win over generic warehouse stock.
+    auto wired = suppliers.find(type);
+    if (wired != suppliers.end())
+        for (auto* supplier : wired->second)
+            pullFrom(supplier);
+
+    // Then the rest of the warehouse network, nearest connected first. Without
+    // this, stock sitting in a warehouse the consumer happens not to be wired
+    // to is unreachable and the consumer starves beside a full depot — which
+    // is exactly what the removed ambient storage push used to paper over
+    // (see StorageComponent.cpp). RankSourcesFor only returns warehouses that
+    // hold the type and have a road path here, so an unreachable depot is
+    // never even attempted.
+    if (sent < amount && !IsRestrictedToDirectSuppliers(type))
+        for (Building* warehouse : StockpileIndex::RankSourcesFor(type, self))
+            pullFrom(warehouse);
 
     if (sent < amount)
         requestBlocked = true;

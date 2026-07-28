@@ -12,6 +12,8 @@
 #include "economy/BuildingComponents.h"
 #include "warfare/CombatPipeline.h"
 
+#include <cmath>
+
 namespace
 {
     // Returns the screen-space rectangle covering a building's footprint.
@@ -55,6 +57,20 @@ namespace
         DrawCircleV({screenCenter.x, screenCenter.y}, screenRadius, Color{236, 92, 74, 28});
         DrawCircleLinesV({screenCenter.x, screenCenter.y}, screenRadius, Color{255, 120, 100, 200});
     }
+
+    // A two-pass animated outline remains sharp above fog and lighting without
+    // needing a sprite mask or a full-screen outline shader. It is screen-space
+    // UI, so it never alters the cached world render targets.
+    void DrawPulsingOutline(Rectangle bounds, Color color, float baseThickness)
+    {
+        const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.2f);
+        Color outer = color;
+        outer.a = static_cast<unsigned char>(55.0f + pulse * 65.0f);
+        Color inner = color;
+        inner.a = static_cast<unsigned char>(175.0f + pulse * 65.0f);
+        DrawRectangleRoundedLines(bounds, 0.04f, 8, baseThickness + 2.0f, outer);
+        DrawRectangleRoundedLines(bounds, 0.04f, 8, baseThickness, inner);
+    }
 }
 
 // ─── SelectedBuildingWidget ──────────────────────────────────────────────────
@@ -65,19 +81,22 @@ void SelectedBuildingWidget::Update(double dt)
     if (scene == nullptr || scene->game == nullptr || building == nullptr)
         return;
 
+    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 3.6f);
     for (const auto& supplier : building->GetSupplierViews())
     {
         if (supplier.building == nullptr)
             continue;
 
         Rectangle supplierDest = BuildingScreenRect(scene, supplier.building);
-        DrawRectangleRounded(supplierDest, 0.04f, 8, Color{73, 146, 236, 48});
-        DrawRectangleRoundedLines(supplierDest, 0.04f, 8, 1.0f, Color{96, 174, 255, 190});
+        DrawRectangleRounded(supplierDest, 0.04f, 8,
+                             Color{73, 146, 236, static_cast<unsigned char>(28.0f + pulse * 24.0f)});
+        DrawPulsingOutline(supplierDest, Color{96, 174, 255, 190}, 1.0f);
     }
 
     Rectangle dest = BuildingScreenRect(scene, building);
-    DrawRectangleRounded(dest, 0.04f, 8, Color{88, 196, 124, 55});
-    DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{112, 230, 150, 185});
+    DrawRectangleRounded(dest, 0.04f, 8,
+                         Color{88, 196, 124, static_cast<unsigned char>(32.0f + pulse * 32.0f)});
+    DrawPulsingOutline(dest, Color{112, 230, 150, 220}, 1.25f);
 
     DrawTowerRangeRing(scene, building);
 }
@@ -94,13 +113,16 @@ void ProductionWarningWidget::Update(double dt)
     if (localPlayer == nullptr)
         return;
 
+    const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 3.2f);
     for (auto* building : localPlayer->GetTrackedBuildings())
     {
         if (building == nullptr || !building->IsProductionStalled())
             continue;
 
         Rectangle dest = BuildingScreenRect(scene, building);
-        DrawRectangleRounded(dest, 0.04f, 8, Color{236, 184, 62, 42});
-        DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{255, 211, 84, 210});
+        DrawRectangleRounded(dest, 0.04f, 8,
+                             Color{236, 184, 62, static_cast<unsigned char>(22.0f + pulse * 30.0f)});
+        DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f,
+                                  Color{255, 211, 84, static_cast<unsigned char>(135.0f + pulse * 90.0f)});
     }
 }

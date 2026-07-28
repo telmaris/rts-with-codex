@@ -37,6 +37,7 @@ namespace
             {ResourceType::SPEAR,         EquipmentCategory::Spear,    EquipmentMaterial::Iron},
             // Ranged
             {ResourceType::BOW,           EquipmentCategory::Bow,      EquipmentMaterial::Wood},
+            {ResourceType::HEAVY_BOW,     EquipmentCategory::Bow,      EquipmentMaterial::Wood},
             {ResourceType::CROSSBOW,      EquipmentCategory::Crossbow, EquipmentMaterial::Iron},
             {ResourceType::MUSKET,        EquipmentCategory::Firearm,  EquipmentMaterial::Blackpowder},
             // Ammo
@@ -49,6 +50,7 @@ namespace
             // Armor
             {ResourceType::LEATHER_ARMOR, EquipmentCategory::Armor,    EquipmentMaterial::Leather},
             {ResourceType::IRON_ARMOR,    EquipmentCategory::Armor,    EquipmentMaterial::Iron},
+            {ResourceType::HEAVY_ARMOR,   EquipmentCategory::Armor,    EquipmentMaterial::Iron},
         };
 
         std::vector<EquipmentProfile> profiles;

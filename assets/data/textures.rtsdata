@@ -1,0 +1,397 @@
+# Texture bindings for every drawable slot in the game.
+# Written by tools/texture-editor. Addressing: cell <texture> of <atlas>.
+# An atlas is (image, cell size) - a standalone sprite is a one-cell atlas.
+
+# atlas <id> <name> "<path>" <cellWidth> <cellHeight>
+atlas 0 terrain "assets/textures/terrain/terrain_tileset.png" 32 32
+atlas 1 resources "assets/textures/resources/basic_resources.png" 64 64
+atlas 2 headquarters "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png" 96 96
+atlas 3 cottage "assets/textures/building/cottage.png" 128 128
+atlas 4 storage "assets/textures/building/storage.png" 96 96
+atlas 5 woodcutter "assets/textures/building/woodcutter.png" 64 64
+atlas 6 hunter "assets/textures/building/hunter.png" 64 64
+atlas 7 lumbermill "assets/textures/building/lumbermill.png" 96 96
+atlas 8 mine "assets/textures/building/mine.png" 64 64
+atlas 9 foundry "assets/textures/building/foundry.png" 96 96
+atlas 10 well "assets/textures/building/well.png" 64 64
+atlas 11 wheat_farm "assets/textures/building/wheat_farm.png" 96 96
+atlas 12 windmill "assets/textures/building/windmill.png" 128 128
+atlas 13 bakery "assets/textures/building/bakery.png" 96 96
+atlas 14 inn "assets/textures/building/inn.png" 96 96
+atlas 15 paperworks "assets/textures/building/paperworks.png" 96 96
+atlas 16 smith "assets/textures/building/smith.png" 64 64
+atlas 17 university "assets/textures/building/university.png" 128 128
+atlas 18 barracks "assets/textures/building/barracks.png" 96 96
+atlas 19 road "assets/textures/building/road.png" 32 32
+atlas 20 guard_tower "assets/textures/building/guard_tower.png" 64 64
+atlas 21 tannery_idle "assets/textures/building/generated/tannery_idle/tannery_idle_sheet_2x1.png" 96 96
+atlas 22 tailor_idle "assets/textures/building/generated/tailor_idle/tailor_idle_sheet_2x1.png" 96 96
+atlas 23 armorer_idle "assets/textures/building/generated/armorer_idle/armorer_idle_sheet_2x1.png" 96 96
+
+terrain GRASS
+    variant atlas 0 texture 9 weight 1
+    variant atlas 0 texture 10 weight 1
+    variant atlas 0 texture 11 weight 1
+    variant atlas 0 texture 12 weight 1
+end
+
+terrain WOOD
+    variant atlas 0 texture 6 weight 1
+    variant atlas 0 texture 7 weight 1
+    variant atlas 0 texture 8 weight 1
+end
+
+terrain COAL
+    variant atlas 0 texture 0 weight 1
+    variant atlas 0 texture 1 weight 1
+    variant atlas 0 texture 2 weight 1
+end
+
+terrain IRON_ORE
+    variant atlas 0 texture 13 weight 1
+    variant atlas 0 texture 14 weight 1
+    variant atlas 0 texture 15 weight 1
+end
+
+terrain STONE
+    variant atlas 0 texture 16 weight 1
+    variant atlas 0 texture 17 weight 1
+    variant atlas 0 texture 18 weight 1
+end
+
+terrain COPPER_ORE
+    variant atlas 0 texture 0 weight 1
+    variant atlas 0 texture 1 weight 1
+end
+
+terrain TIN_ORE
+    variant atlas 0 texture 16 weight 1
+    variant atlas 0 texture 17 weight 1
+end
+
+terrain SILVER_ORE
+    variant atlas 0 texture 13 weight 1
+    variant atlas 0 texture 14 weight 1
+end
+
+terrain GOLD_ORE
+    variant atlas 0 texture 14 weight 1
+    variant atlas 0 texture 15 weight 1
+end
+
+terrain SAND
+    variant atlas 0 texture 9 weight 1
+    variant atlas 0 texture 10 weight 1
+end
+
+terrain SULFUR
+    variant atlas 0 texture 2 weight 1
+end
+
+terrain SALTPETER
+    variant atlas 0 texture 18 weight 1
+end
+
+building Headquarters
+    sprite atlas 2 texture 0
+    animation frames 3 frame_time 0.18 loop
+end
+
+building Village
+    sprite atlas 3 texture 0
+end
+
+building StorageBuilding
+    sprite atlas 4 texture 0
+end
+
+building Woodcutter
+    sprite atlas 5 texture 0
+end
+
+building HuntersHut
+    sprite atlas 6 texture 0
+end
+
+building LumberMill
+    sprite atlas 7 texture 0
+end
+
+building Mine
+    sprite atlas 8 texture 0
+end
+
+building Foundry
+    sprite atlas 9 texture 0
+end
+
+building Well
+    sprite atlas 10 texture 0
+end
+
+building WheatFarm
+    sprite atlas 11 texture 0
+end
+
+building Windmill
+    sprite atlas 12 texture 0
+end
+
+building Bakery
+    sprite atlas 13 texture 0
+end
+
+building Inn
+    sprite atlas 14 texture 0
+end
+
+building Paperworks
+    sprite atlas 15 texture 0
+end
+
+building Smith
+    sprite atlas 16 texture 0
+end
+
+building Tannery
+    sprite atlas 21 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Tailor
+    sprite atlas 22 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Armorer
+    sprite atlas 23 texture 0
+    animation frames 2 frame_time 0.30 loop
+end
+
+building Mint
+    sprite atlas 9 texture 0
+end
+
+building Glassworks
+    sprite atlas 16 texture 0
+end
+
+building Powderworks
+    sprite atlas 16 texture 0
+end
+
+building University
+    sprite atlas 17 texture 0
+end
+
+building Barracks
+    sprite atlas 18 texture 0
+end
+
+building Road
+    sprite atlas 19 texture 0
+end
+
+building Bridge
+    sprite atlas 19 texture 0
+end
+
+building DefenseTower
+    sprite atlas 20 texture 0
+end
+
+resource COPPER_ORE
+    icon atlas 1 texture 0
+end
+
+resource COPPER
+    icon atlas 1 texture 1
+end
+
+resource IRON_ORE
+    icon atlas 1 texture 2
+end
+
+resource IRON
+    icon atlas 1 texture 3
+end
+
+resource SILVER_ORE
+    icon atlas 1 texture 4
+end
+
+resource SILVER
+    icon atlas 1 texture 5
+end
+
+resource GOLD_ORE
+    icon atlas 1 texture 6
+end
+
+resource GOLD
+    icon atlas 1 texture 7
+end
+
+resource WOOD
+    icon atlas 1 texture 8
+end
+
+resource PLANKS
+    icon atlas 1 texture 9
+end
+
+resource LEATHER
+    icon atlas 1 texture 10
+end
+
+resource COAL
+    icon atlas 1 texture 11
+end
+
+resource STONE
+    icon atlas 1 texture 12
+end
+
+resource WHEAT
+    icon atlas 1 texture 13
+end
+
+resource FLOUR
+    icon atlas 1 texture 14
+end
+
+resource BREAD
+    icon atlas 1 texture 15
+end
+
+resource MEAT
+    icon atlas 1 texture 16
+end
+
+resource WATER
+    icon atlas 1 texture 17
+end
+
+resource BEER
+    icon atlas 1 texture 18
+end
+
+resource COINS
+    icon atlas 1 texture 19
+end
+
+resource PAPER
+    icon atlas 1 texture 20
+end
+
+resource TOOLS
+    icon atlas 1 texture 21
+end
+
+resource FOOD_PROVISIONS
+    icon atlas 1 texture 22
+end
+
+resource COPPER_SWORD
+    icon atlas 1 texture 24
+end
+
+resource IRON_SWORD
+    icon atlas 1 texture 25
+end
+
+resource STEEL_SWORD
+    icon atlas 1 texture 26
+end
+
+resource BOW
+    icon atlas 1 texture 27
+end
+
+resource ARROWS
+    icon atlas 1 texture 28
+end
+
+resource HORSE
+    icon atlas 1 texture 29
+end
+
+resource BRONZE_SWORD
+    icon atlas 1 texture 30
+end
+
+resource SPEAR
+    icon atlas 1 texture 31
+end
+
+resource CROSSBOW
+    icon atlas 1 texture 32
+end
+
+resource BOLTS
+    icon atlas 1 texture 33
+end
+
+resource WOODEN_SHIELD
+    icon atlas 1 texture 34
+end
+
+resource IRON_SHIELD
+    icon atlas 1 texture 35
+end
+
+resource LEATHER_ARMOR
+    icon atlas 1 texture 36
+end
+
+resource IRON_ARMOR
+    icon atlas 1 texture 37
+end
+
+resource TIN_ORE
+    icon atlas 1 texture 38
+end
+
+resource SAND
+    icon atlas 1 texture 39
+end
+
+resource SULFUR
+    icon atlas 1 texture 40
+end
+
+resource SALTPETER
+    icon atlas 1 texture 41
+end
+
+resource TIN
+    icon atlas 1 texture 42
+end
+
+resource BRONZE
+    icon atlas 1 texture 43
+end
+
+resource COKE
+    icon atlas 1 texture 44
+end
+
+resource STEEL
+    icon atlas 1 texture 45
+end
+
+resource GLASS
+    icon atlas 1 texture 46
+end
+
+resource GUNPOWDER
+    icon atlas 1 texture 47
+end
+
+resource MUSKET
+    icon atlas 1 texture 48
+end
+
+resource CARTRIDGE
+    icon atlas 1 texture 49
+end

@@ -3,6 +3,7 @@
 #include "economy/Building.h"
 #include "economy/BuildingConfig.h"
 #include "economy/Player.h"
+#include "economy/StockpileIndex.h"
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
 #include "warfare/UnitDefinition.h"
@@ -27,8 +28,6 @@
 namespace
 {
     ResourceIconAtlas resourceIconAtlas;
-    Font uiFont{};
-    bool uiFontLoaded{false};
 
     void DrawTextFit(const std::string& text, Rectangle bounds, int fontSize, Color color);
 
@@ -38,6 +37,7 @@ namespace
         std::string title;
         std::vector<std::string> lines;
         float preferredWidth{0.0f};
+        ResourceType resourceType{ResourceType::Null};
     };
 
     bool HasNodeTag(const ResearchNodeView& node, const std::string& tag)
@@ -100,22 +100,17 @@ namespace
             static_cast<float>(widget.size.y)};
     }
 
-    // Measures text using the configured UI font when available.
+    // These four forward to the shared implementation in ui/UiText.cpp. They stay
+    // as file-local names so the call sites throughout this file did not have to
+    // change when the implementation moved out.
     int MeasureUiText(const std::string& text, int fontSize)
     {
-        if (!uiFontLoaded)
-            return MeasureText(text.c_str(), fontSize);
-
-        return static_cast<int>(std::ceil(MeasureTextEx(uiFont, text.c_str(), static_cast<float>(fontSize), 0.0f).x));
+        return UiText::Measure(text, fontSize);
     }
 
-    // Draws text using the configured UI font when available.
     void DrawUiText(const std::string& text, float x, float y, int fontSize, Color color)
     {
-        if (uiFontLoaded)
-            DrawTextEx(uiFont, text.c_str(), {x, y}, static_cast<float>(fontSize), 0.0f, color);
-        else
-            DrawText(text.c_str(), static_cast<int>(x), static_cast<int>(y), fontSize, color);
+        UiText::Draw(text, x, y, fontSize, color);
     }
 
     // Returns a fallback swatch color for a resource type.
@@ -152,6 +147,28 @@ namespace
             case ResourceType::BOW: return Color{137, 91, 48, 255};
             case ResourceType::ARROWS: return Color{174, 144, 92, 255};
             case ResourceType::HORSE: return Color{130, 91, 67, 255};
+            case ResourceType::SAND: return Color{207, 194, 151, 255};
+            case ResourceType::GLASS: return Color{151, 205, 211, 255};
+            case ResourceType::CLAY: return Color{151, 91, 64, 255};
+            case ResourceType::CATTLE: return Color{117, 82, 58, 255};
+            case ResourceType::RAW_HIDE: return Color{151, 103, 70, 255};
+            case ResourceType::TALLOW: return Color{213, 196, 145, 255};
+            case ResourceType::CLOTHES:
+            case ResourceType::CLOTH: return Color{123, 142, 170, 255};
+            case ResourceType::POTTERY:
+            case ResourceType::BRICKS: return Color{173, 91, 60, 255};
+            case ResourceType::HOUSEHOLD_GOODS: return Color{143, 117, 84, 255};
+            case ResourceType::SOAP: return Color{206, 201, 174, 255};
+            case ResourceType::INK: return Color{48, 44, 51, 255};
+            case ResourceType::BOOKS: return Color{125, 73, 55, 255};
+            case ResourceType::COPPERWARE:
+            case ResourceType::COPPER_VESSEL:
+            case ResourceType::COPPER_PIPE: return Color{194, 112, 65, 255};
+            case ResourceType::URBAN_GOODS: return Color{145, 94, 153, 255};
+            case ResourceType::HEMP:
+            case ResourceType::FIBRE:
+            case ResourceType::ROPE: return Color{134, 150, 92, 255};
+            case ResourceType::MECHANICAL_PARTS: return Color{134, 123, 108, 255};
             default: return Color{88, 92, 98, 255};
         }
     }
@@ -190,6 +207,33 @@ namespace
             case ResourceType::BOW: return "Bw";
             case ResourceType::ARROWS: return "Arr";
             case ResourceType::HORSE: return "Ho";
+            case ResourceType::SAND: return "Sa";
+            case ResourceType::GLASS: return "Gl";
+            case ResourceType::CLAY: return "Cl";
+            case ResourceType::CATTLE: return "Ct";
+            case ResourceType::RAW_HIDE: return "Hd";
+            case ResourceType::TALLOW: return "Ta";
+            case ResourceType::CLOTHES: return "Clt";
+            case ResourceType::POTTERY: return "Pot";
+            case ResourceType::HOUSEHOLD_GOODS: return "HH";
+            case ResourceType::SOAP: return "So";
+            case ResourceType::INK: return "Ink";
+            case ResourceType::BOOKS: return "Bk";
+            case ResourceType::COPPERWARE: return "CuW";
+            case ResourceType::URBAN_GOODS: return "UG";
+            case ResourceType::HEMP: return "He";
+            case ResourceType::FIBRE: return "Fi";
+            case ResourceType::ROPE: return "Ro";
+            case ResourceType::COPPER_VESSEL: return "Ves";
+            case ResourceType::COPPER_PIPE: return "Pip";
+            case ResourceType::MECHANICAL_PARTS: return "Mec";
+            case ResourceType::HEAVY_BOW: return "HB";
+            case ResourceType::HEAVY_ARMOR: return "HA";
+            case ResourceType::BRICKS: return "Bri";
+            case ResourceType::CLOTH: return "Clo";
+            case ResourceType::BALLISTA: return "Bal";
+            case ResourceType::BATTERING_RAM: return "Ram";
+            case ResourceType::CATAPULT: return "Cat";
             default: return "?";
         }
     }
@@ -197,57 +241,18 @@ namespace
     // Draws text that shrinks until it fits inside the target rectangle.
     void DrawTextFit(const std::string& text, Rectangle bounds, int fontSize, Color color)
     {
-        int measured = MeasureUiText(text, fontSize);
-        while (fontSize > 8 && measured > bounds.width)
-        {
-            fontSize--;
-            measured = MeasureUiText(text, fontSize);
-        }
-
-        DrawUiText(text,
-            bounds.x + (bounds.width - measured) * 0.5f,
-            bounds.y + (bounds.height - fontSize) * 0.5f,
-            fontSize,
-            color);
+        UiText::DrawFit(text, bounds, fontSize, color);
     }
 
+    // Forward to the shared implementation in ui/UiText.cpp.
     void RemoveLastUtf8Codepoint(std::string& value)
     {
-        if (value.empty())
-            return;
-
-        size_t index = value.size() - 1;
-        while (index > 0 && (static_cast<unsigned char>(value[index]) & 0xC0) == 0x80)
-            index--;
-        value.erase(index);
+        Utf8::RemoveLast(value);
     }
 
     std::string EncodeUtf8Codepoint(int codepoint)
     {
-        std::string encoded;
-        if (codepoint <= 0x7F)
-        {
-            encoded.push_back(static_cast<char>(codepoint));
-        }
-        else if (codepoint <= 0x7FF)
-        {
-            encoded.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
-            encoded.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        }
-        else if (codepoint <= 0xFFFF)
-        {
-            encoded.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
-            encoded.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-            encoded.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        }
-        else if (codepoint <= 0x10FFFF)
-        {
-            encoded.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
-            encoded.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-            encoded.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-            encoded.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        }
-        return encoded;
+        return Utf8::Encode(codepoint);
     }
 
     void SyncTextBoxBuffer(const std::string& value, char* buffer, size_t bufferSize)
@@ -276,29 +281,7 @@ namespace
     // Wraps prose to fit a fixed width while keeping the requested font size.
     std::vector<std::string> WrapText(const std::string& text, int fontSize, float maxWidth)
     {
-        std::vector<std::string> wrapped;
-        std::istringstream words(text);
-        std::string word;
-        std::string line;
-
-        while (words >> word)
-        {
-            std::string candidate = line.empty() ? word : line + " " + word;
-            if (MeasureUiText(candidate, fontSize) <= maxWidth || line.empty())
-            {
-                line = candidate;
-                continue;
-            }
-
-            wrapped.push_back(line);
-            line = word;
-        }
-
-        if (!line.empty())
-            wrapped.push_back(line);
-        if (wrapped.empty())
-            wrapped.push_back("");
-        return wrapped;
+        return UiText::Wrap(text, fontSize, maxWidth);
     }
 
     // Draws centered wrapped text without shrinking the requested font size.
@@ -331,6 +314,16 @@ namespace
         pendingTooltip.title = title;
         pendingTooltip.lines = std::move(lines);
         pendingTooltip.preferredWidth = preferredWidth;
+        pendingTooltip.resourceType = ResourceType::Null;
+    }
+
+    void QueueResourceTooltip(ResourceType type, std::vector<std::string> lines, float preferredWidth = 0.0f)
+    {
+        pendingTooltip.visible = true;
+        pendingTooltip.title = ResourceDisplayName(type);
+        pendingTooltip.lines = std::move(lines);
+        pendingTooltip.preferredWidth = preferredWidth;
+        pendingTooltip.resourceType = type;
     }
 
     // Draws the queued tooltip above all panel content.
@@ -339,7 +332,14 @@ namespace
         if (!pendingTooltip.visible)
             return;
 
-        Tooltip::Draw(pendingTooltip.title, pendingTooltip.lines, pendingTooltip.preferredWidth);
+        if (pendingTooltip.resourceType != ResourceType::Null)
+        {
+            const ResourceType type = pendingTooltip.resourceType;
+            Tooltip::Draw(pendingTooltip.title, pendingTooltip.lines, pendingTooltip.preferredWidth,
+                          [type](Rectangle icon) { GuiPanel::DrawResourceIcon(type, icon); });
+        }
+        else
+            Tooltip::Draw(pendingTooltip.title, pendingTooltip.lines, pendingTooltip.preferredWidth);
     }
 
     // Draws one resource buffer as a wide card with amount and capacity.
@@ -461,7 +461,10 @@ namespace
     }
 
     // Draws compact resource icons in a fixed-column grid.
-    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float scrollOffset = 0.0f, float* maxScrollOffset = nullptr)
+    // `panelBuilding` is only used to enrich the hover tooltip: for a warehouse
+    // it adds the player-wide total, so "this panel is local stock" reads as a
+    // deliberate choice rather than a number that might or might not be global.
+    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float scrollOffset = 0.0f, float* maxScrollOffset = nullptr, const Building* panelBuilding = nullptr)
     {
         if (maxScrollOffset != nullptr)
             *maxScrollOffset = 0.0f;
@@ -473,10 +476,6 @@ namespace
         }
 
         columns = std::max(1, columns);
-        if (views.size() > 16)
-            columns = std::max(columns, 5);
-        if (views.size() > 25)
-            columns = std::max(columns, 6);
         float gap = 8.0f;
         float cellW = (bounds.width - gap * (columns - 1)) / columns;
         int rows = static_cast<int>((views.size() + columns - 1) / columns);
@@ -511,7 +510,16 @@ namespace
         if (hoveredIndex >= 0)
         {
             const auto& view = views[hoveredIndex];
-            QueueTooltip(rt2s(view.type), {"Amount: " + std::to_string(view.amount)});
+            std::vector<std::string> lines{
+                "In this building: " + std::to_string(view.amount) +
+                (view.capacity > 0 ? " / " + std::to_string(view.capacity) : "")};
+            // A warehouse panel is deliberately local-only (user request,
+            // 2026-07-25), so name that explicitly and point at where the
+            // player-wide number lives instead of leaving it ambiguous.
+            if (StockpileIndex::IsWarehouse(panelBuilding) && panelBuilding->owner != nullptr)
+                lines.push_back("Player-wide: " +
+                    std::to_string(StockpileIndex::GetTotal(*panelBuilding->owner, view.type)) + "  (E)");
+            QueueResourceTooltip(view.type, std::move(lines));
         }
     }
 
@@ -570,6 +578,7 @@ namespace
             case BalanceStat::BuildTime:
             case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
+            case BalanceStat::WorkerCapacity:
             case BalanceStat::TransportTime:
                 return true;
             default:
@@ -622,6 +631,30 @@ namespace
             case BuildingType::Barracks: return "Barracks";
             case BuildingType::Road: return "Road";
             case BuildingType::Bridge: return "Bridge";
+            case BuildingType::Mint: return "Mint";
+            case BuildingType::Glassworks: return "Glassworks";
+            case BuildingType::Powderworks: return "Powderworks";
+            case BuildingType::DefenseTower: return "Defense tower";
+            case BuildingType::AnimalFarm: return "Animal farm";
+            case BuildingType::Butcher: return "Butcher";
+            case BuildingType::Tannery: return "Tannery";
+            case BuildingType::Tailor: return "Tailor";
+            case BuildingType::Armorer: return "Armorer";
+            case BuildingType::HorseStable: return "Horse stable";
+            case BuildingType::Kiln: return "Kiln";
+            case BuildingType::HouseholdWorkshop: return "Household workshop";
+            case BuildingType::Soapworks: return "Soapworks";
+            case BuildingType::Inkworks: return "Inkworks";
+            case BuildingType::Scriptorium: return "Scriptorium";
+            case BuildingType::Copperworks: return "Copperworks";
+            case BuildingType::UrbanWorkshop: return "Urban workshop";
+            case BuildingType::HempFarm: return "Hemp farm";
+            case BuildingType::Ropery: return "Ropery";
+            case BuildingType::Weaver: return "Weaver";
+            case BuildingType::Bowyer: return "Bowyer";
+            case BuildingType::Fletchery: return "Fletchery";
+            case BuildingType::SpearWorkshop: return "Spear workshop";
+            case BuildingType::SiegeWorkshop: return "Siege workshop";
             default: return "Building";
         }
     }
@@ -631,9 +664,9 @@ namespace
     {
         std::string text;
         if (modifier.buildingType.has_value())
-            text += std::string(BuildingTypeLabel(modifier.buildingType.value())) + ": ";
+            text += "{building}" + std::string(BuildingTypeLabel(modifier.buildingType.value())) + "{/building}: ";
         if (modifier.resourceType.has_value() && modifier.resourceType.value() != ResourceType::Null)
-            text += rt2s(modifier.resourceType.value()) + " ";
+            text += "{resource}" + ResourceDisplayName(modifier.resourceType.value()) + "{/resource} ";
 
         bool lowerIsBetter = LowerValueIsBetter(modifier.stat);
         bool showAsRate = lowerIsBetter && std::abs(modifier.multiplier - 1.0) > 0.0001 &&
@@ -655,7 +688,21 @@ namespace
             text += deltaPercent > 0 ? " +" : " ";
             text += std::to_string(deltaPercent) + "%";
         }
+        if (modifier.resourceCategory.has_value())
+            text += std::string(" ({category}") + ResourceCategoryLabel(modifier.resourceCategory.value()) + "{/category})";
         return IsPositiveModifier(modifier) ? TooltipBonusLine(text) : TooltipPenaltyLine(text);
+    }
+
+    std::string FormatTechnologyCosts(const std::vector<ResourceAmountDefinition>& costs)
+    {
+        std::string text = "Research cost: ";
+        for (size_t index = 0; index < costs.size(); index++)
+        {
+            if (index > 0)
+                text += "  |  ";
+            text += "{resource}" + ResourceDisplayName(costs[index].type) + "{/resource} x" + std::to_string(costs[index].amount);
+        }
+        return text;
     }
 
     // Returns display depth in the research tree based on prerequisite chains.
@@ -708,6 +755,8 @@ namespace
         lines.push_back(technology.description);
         lines.push_back(TooltipSeparatorLine());
         lines.push_back(std::string("Time: ") + std::to_string(static_cast<int>(technology.researchTime)) + "s | " + technology.stateText);
+        if (!technology.costs.empty())
+            lines.push_back(FormatTechnologyCosts(technology.costs));
         if (technology.active)
             lines.push_back("Remaining: " + std::to_string(static_cast<int>(std::round(technology.remainingTime))) + "s");
         lines.push_back(TooltipSeparatorLine());
@@ -894,12 +943,13 @@ namespace
 
         auto laneRank = [](const std::string& lane)
         {
-            if (lane == "Core Sciences") return 0;
-            if (lane == "Natural Sciences") return 1;
-            if (lane == "Engineering") return 2;
-            if (lane == "Medicine") return 3;
-            if (lane == "Social Sciences") return 4;
-            if (lane == "Military Science") return 5;
+            if (lane == "Biology") return 0;
+            if (lane == "Mathematics") return 1;
+            if (lane == "Humanities") return 2;
+            if (lane == "PRODUCTION" || lane == "ECONOMY") return 0;
+            if (lane == "MILITARY" || lane == "WARFARE") return 1;
+            if (lane == "SOCIAL" || lane == "LOGISTICS") return 2;
+            if (lane == "POLITICS" || lane == "GOVERNANCE") return 3;
             return 10;
         };
 
@@ -1423,118 +1473,6 @@ Rectangle ResourceIconAtlas::GetRect(ResourceType type) const
         static_cast<float>(size.y)};
 }
 
-// Measures text using the shared UI font.
-int UiText::Measure(const std::string& text, int fontSize)
-{
-    return MeasureUiText(text, fontSize);
-}
-
-// Draws text using the shared UI font.
-void UiText::Draw(const std::string& text, float x, float y, int fontSize, Color color)
-{
-    DrawUiText(text, x, y, fontSize, color);
-}
-
-// Draws text that shrinks until it fits within bounds.
-void UiText::DrawFit(const std::string& text, Rectangle bounds, int fontSize, Color color)
-{
-    DrawTextFit(text, bounds, fontSize, color);
-}
-
-void UiText::DrawTitleBar(Rectangle titleBar, const std::string& text, float closeButtonReserve)
-{
-    int titleFont = std::max(21, std::min(30, static_cast<int>(titleBar.height) / 2 + 4));
-    int titleWidth = Measure(text, titleFont);
-    while (titleFont > 14 && titleWidth > titleBar.width - closeButtonReserve)
-    {
-        titleFont--;
-        titleWidth = Measure(text, titleFont);
-    }
-    Draw(text,
-         titleBar.x + (titleBar.width - titleWidth) * 0.5f,
-         titleBar.y + (titleBar.height - titleFont) * 0.5f,
-         titleFont,
-         UiTheme::Parchment);
-}
-
-// Renders a tooltip near the mouse using the shared UI style.
-void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lines, float preferredWidth)
-{
-    int titleFont = 24;
-    int lineFont = 20;
-    float padding = 14.0f;
-    float lineH = 27.0f;
-    float paragraphGap = 5.0f;
-
-    float width = std::max(240.0f, preferredWidth);
-    width = std::max(width, std::min(520.0f, static_cast<float>(MeasureUiText(title, titleFont)) + padding * 2.0f));
-    width = std::min(width, 520.0f);
-    float textWidth = width - padding * 2.0f;
-
-    std::vector<std::vector<std::string>> wrappedLines;
-    wrappedLines.reserve(lines.size());
-    int visualLineCount = 0;
-    for (const auto& line : lines)
-    {
-        if (line == "{separator}")
-        {
-            wrappedLines.push_back({line});
-            visualLineCount++;
-            continue;
-        }
-
-        std::string displayLine = line;
-        if (displayLine.rfind("{bonus}", 0) == 0)
-            displayLine = displayLine.substr(7);
-        else if (displayLine.rfind("{penalty}", 0) == 0)
-            displayLine = displayLine.substr(9);
-
-        wrappedLines.push_back(WrapText(displayLine, lineFont, textWidth));
-        visualLineCount += static_cast<int>(wrappedLines.back().size());
-    }
-
-    float height = padding * 2.0f + titleFont + 8.0f +
-                   std::max(1, visualLineCount) * lineH +
-                   std::max(0, static_cast<int>(wrappedLines.size()) - 1) * paragraphGap;
-    Vector2 mouse = GetMousePosition();
-    Rectangle bounds{mouse.x + 14.0f, mouse.y + 14.0f, width, height};
-    bounds.x = std::min(bounds.x, static_cast<float>(GetScreenWidth()) - bounds.width - 8.0f);
-    bounds.y = std::min(bounds.y, static_cast<float>(GetScreenHeight()) - bounds.height - 8.0f);
-    bounds.x = std::max(8.0f, bounds.x);
-    bounds.y = std::max(8.0f, bounds.y);
-
-    DrawRectangleRounded(bounds, 0.05f, 8, Fade(UiTheme::Bark, 0.98f));
-    DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.0f, UiTheme::Bronze);
-    DrawUiText(title, bounds.x + padding, bounds.y + padding - 1.0f, titleFont, UiTheme::Parchment);
-
-    float y = bounds.y + padding + titleFont + 6.0f;
-    for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
-    {
-        const auto& paragraph = wrappedLines[paragraphIndex];
-        if (paragraph.size() == 1 && paragraph.front() == "{separator}")
-        {
-            y += 5.0f;
-            DrawLineEx(Vector2{bounds.x + padding, y}, Vector2{bounds.x + bounds.width - padding, y}, 1.0f, Fade(UiTheme::Bronze, 0.82f));
-            y += 8.0f;
-            continue;
-        }
-
-        Color lineColor = UiTheme::ParchmentDim;
-        const std::string& sourceLine = lines[paragraphIndex];
-        if (sourceLine.rfind("{penalty}", 0) == 0)
-            lineColor = UiTheme::Rust;
-        else if (sourceLine.rfind("{bonus}", 0) == 0)
-            lineColor = UiTheme::Sage;
-
-        for (const auto& line : paragraph)
-        {
-            DrawTextFit(line, Rectangle{bounds.x + padding, y, bounds.width - padding * 2.0f, lineH}, lineFont, lineColor);
-            y += lineH;
-        }
-        y += paragraphGap;
-    }
-}
-
 // Advances this object's state for one frame.
 // Draws background, title bar, drag handling and the close button; reports
 // the content area below the title bar. Returns false (after already having
@@ -1723,7 +1661,7 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y),
             static_cast<float>(contentW),
             static_cast<float>(bottom - y - destroyButton.size.y - margin)};
-        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset);
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset, building);
         contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
         if (maxContentScrollOffset > 0.0f)
         {
@@ -1818,7 +1756,7 @@ void GuiPanel::Update(double dt)
 
             std::string costText = "Manpower " + std::to_string(static_cast<int>(effectiveManpowerCost));
             for (const auto& cost : def.cost)
-                costText += ", " + rt2s(cost.type) + " " + std::to_string(cost.amount);
+                costText += ", " + ResourceDisplayName(cost.type) + " " + std::to_string(cost.amount);
 
             // T4 (docs/post_pivot_audit_2026-07-12.md): mirror QueueRecruitment's
             // own checks (non-mutating) so the button visibly disables with a
@@ -1902,7 +1840,7 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y),
             static_cast<float>(contentW),
             static_cast<float>(bottom - y - destroyButton.size.y - margin)};
-        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset);
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset, building);
         contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
         if (maxContentScrollOffset > 0.0f)
         {
@@ -1984,7 +1922,7 @@ void GuiPanel::Update(double dt)
                         {
                             Rectangle icon{box.x + 8.0f, rowY, 18.0f, 18.0f};
                             GuiPanel::DrawResourceIcon(cost.type, icon);
-                            UiText::Draw(rt2s(cost.type) + " x" + std::to_string(cost.amount),
+                            UiText::Draw(ResourceDisplayName(cost.type) + " x" + std::to_string(cost.amount),
                                 box.x + 34.0f, rowY + 1.0f, 14, UiTheme::Parchment);
                             rowY += rowH;
                         }
@@ -2031,7 +1969,7 @@ void GuiPanel::Update(double dt)
                     DrawTextFit(ResourceShortName(type), {icon.x + 3.0f, icon.y + 7.0f, icon.width - 6.0f, 14.0f}, 12, WHITE);
                 }
 
-                DrawTextFit(rt2s(type), Rectangle{row.x + 40.0f, row.y + 4.0f, row.width - 46.0f, 16.0f}, 13, UiTheme::Parchment);
+                DrawTextFit(ResourceDisplayName(type), Rectangle{row.x + 40.0f, row.y + 4.0f, row.width - 46.0f, 16.0f}, 13, UiTheme::Parchment);
                 float progress = transportable->transportTime > 0.0
                     ? std::clamp(static_cast<float>(transportable->elapsedTime / transportable->transportTime), 0.0f, 1.0f)
                     : 0.0f;
@@ -2059,13 +1997,23 @@ void GuiPanel::Update(double dt)
             ? building->owner->ResolveStat(population->populationCap, building)
             : population->populationCap.GetBase();
         std::vector<std::string> stats{
+            "Settlement: " + std::string(population->settlementLevel == 1 ? "Village" :
+                                          population->settlementLevel == 2 ? "Town" : "City"),
             "Generates: Manpower",
             "Rate: " + std::to_string(static_cast<int>(manpowerRate * 60.0)) + " / min",
             "Population cap: " + std::to_string(populationCap),
-            "Upkeep: " + std::to_string(static_cast<int>(population->foodPackageUpkeep)) + " food / min",
+            "Food upkeep: " + std::to_string(population->GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS)) + " / min",
             "Food supply: " + std::to_string(static_cast<int>(std::round(population->GetFoodSupplyRatio() * 100.0))) + "%",
             "Worker output: " + std::to_string(static_cast<int>(std::round(population->GetWorkerProductivity() * 100.0))) + "%",
             "Lifetime: " + std::to_string(static_cast<int>(building->GetLifetime())) + "s"};
+        if (population->settlementLevel >= 2)
+            stats.push_back("Household supply: " +
+                std::to_string(static_cast<int>(std::round(population->householdSupplyLevel * 100.0))) + "%");
+        if (population->settlementLevel >= 3)
+            stats.push_back("Urban supply: " +
+                std::to_string(static_cast<int>(std::round(population->urbanSupplyLevel * 100.0))) + "%");
+        if (auto* upgrade = building->GetComponent<UpgradeComponent>(); upgrade != nullptr && upgrade->isUpgrading)
+            stats.push_back("Upgrading: " + std::to_string(static_cast<int>(std::ceil(upgrade->upgradeRemaining))) + "s left");
 
         int line = 18;
         for (const auto& stat : stats)
@@ -2073,6 +2021,25 @@ void GuiPanel::Update(double dt)
             Color color = population->GetFoodSupplyRatio() < 1.0 && stat.find("Food supply") != std::string::npos ? Color{238, 184, 84, 255} : UiTheme::Parchment;
             DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(line)}, line - 3, color);
             y += line + 4;
+        }
+        if (auto* upgrade = building->GetComponent<UpgradeComponent>();
+            upgrade != nullptr && !upgrade->isUpgrading && upgrade->level < upgrade->maxLevel)
+        {
+            int targetLevel = upgrade->level + 1;
+            UiButton settlementUpgradeButton;
+            settlementUpgradeButton.pos = Vec2i{contentX, y};
+            settlementUpgradeButton.size = Vec2i{contentW, 32};
+            settlementUpgradeButton.ChangeText(targetLevel == 2 ? "Upgrade to Town" : "Upgrade to City");
+            Building* self = building;
+            GameScene* panelScene = scene;
+            settlementUpgradeButton.func = [self, panelScene]()
+            {
+                if (self == nullptr || panelScene == nullptr || panelScene->game == nullptr)
+                    return;
+                panelScene->SubmitLocalCommand(GameCommand::UpgradeBuilding(
+                    panelScene->game->GetLocalPlayerId(), self->positionId));
+            };
+            settlementUpgradeButton.Update(dt);
         }
         drawDestroyButton();
         return;
@@ -2137,7 +2104,7 @@ void GuiPanel::Update(double dt)
     }
     for (const auto& supplier : suppliers)
     {
-        std::string label = (supplier.building != nullptr ? supplier.building->name : "No supplier") + " -> " + rt2s(supplier.type);
+        std::string label = (supplier.building != nullptr ? supplier.building->name : "No supplier") + " -> " + ResourceDisplayName(supplier.type);
         Color color = supplier.building != nullptr ? UiTheme::AmberBright : Color{238, 184, 84, 255};
         DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(leftY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, color);
         leftY += connectionLine;
@@ -2150,7 +2117,7 @@ void GuiPanel::Update(double dt)
     }
     for (const auto& receiver : receivers)
     {
-        std::string label = rt2s(receiver.type) + " -> " + (receiver.building != nullptr ? receiver.building->name : "No receiver");
+        std::string label = ResourceDisplayName(receiver.type) + " -> " + (receiver.building != nullptr ? receiver.building->name : "No receiver");
         if (receiver.alternative)
             label += " (alt)";
         Color color = receiver.building != nullptr ? UiTheme::Parchment : Color{238, 184, 84, 255};
@@ -2323,21 +2290,15 @@ void GuiPanel::LoadResourceAtlas(const std::string& path, Vec2i iconSize)
     resourceIconAtlas.Load(path, iconSize);
 }
 
-// Loads the shared UI font and applies it to raygui widgets.
+// Loads the shared UI font and applies it to raygui widgets. The loading itself
+// lives in ui/UiText.cpp (shared with tools/); only the raygui hookup stays here,
+// because RAYGUI_IMPLEMENTATION is in this translation unit.
 void GuiPanel::LoadUiFont(const std::string& path)
 {
-    if (!FileExists(path.c_str()))
-        return;
-
-    if (uiFontLoaded)
-        UnloadFont(uiFont);
-
-    uiFont = LoadFont(path.c_str());
-    uiFontLoaded = uiFont.texture.id != 0;
-    if (uiFontLoaded)
+    UiTextFont::Load(path);
+    if (UiTextFont::IsLoaded())
     {
-        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
-        GuiSetFont(uiFont);
+        GuiSetFont(UiTextFont::Get());
         GuiSetStyle(DEFAULT, TEXT_SIZE, 20);
     }
 }

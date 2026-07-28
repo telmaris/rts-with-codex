@@ -1,4 +1,5 @@
 #include "scenes/Scenes.h"
+#include "core/Log.h"
 
 #include "raylib.h"
 
@@ -50,9 +51,19 @@ void GameWindow::LaunchGame()
 
     MainLoop();
 
+    ShutdownRenderers();
     audio.Cleanup();
     CloseAudioDevice();
     CloseWindow();
+}
+
+void GameWindow::ShutdownRenderers()
+{
+    for (auto& [name, scene] : scenes)
+    {
+        if (scene != nullptr)
+            scene->render.Shutdown();
+    }
 }
 
 // Handles the requested event or transfer.

@@ -53,12 +53,114 @@ namespace
         DrawRectangle(x, screenTopY, static_cast<int>(width * ratio), height, fill);
         DrawRectangleLines(x, screenTopY, width, height, Color{0, 0, 0, 200});
     }
+
+    void DrawDamageFlashOverlay(Vec2f position, Vec2i footprint, float remainingSeconds)
+    {
+        if (remainingSeconds <= 0.0f)
+            return;
+        const float width = footprint.x * TILE_SIZE;
+        const float height = footprint.y * TILE_SIZE;
+        const float top = RENDER_HEIGHT - position.y - height;
+        const float pulse = 0.45f + 0.55f * std::abs(std::sin(static_cast<float>(GetTime()) * 10.0f));
+        const unsigned char fillAlpha = static_cast<unsigned char>(18.0f + pulse * 28.0f);
+        const unsigned char lineAlpha = static_cast<unsigned char>(125.0f + pulse * 110.0f);
+        DrawRectangle(static_cast<int>(position.x), static_cast<int>(top),
+                      static_cast<int>(width), static_cast<int>(height), Color{255, 58, 32, fillAlpha});
+        DrawRectangleLinesEx({position.x - 2.0f, top - 2.0f, width + 4.0f, height + 4.0f},
+                             2.5f, Color{255, 110, 72, lineAlpha});
+    }
+
+    float GetRoadUtilization(const Building& building)
+    {
+        const auto* road = building.GetComponent<RoadComponent>();
+        if (road == nullptr)
+            return 0.0f;
+
+        // Quantization prevents an EMA-changing float from dirtying every
+        // road tile in every snapshot tick.
+        constexpr float QuantizationSteps = 32.0f;
+        const float trend = static_cast<float>(road->GetTrafficUtilizationTrend());
+        return std::round(std::clamp(trend, 0.0f, 1.0f) * QuantizationSteps) / QuantizationSteps;
+    }
+
+    bool IsRoadRecentlySaturated(const Building& building)
+    {
+        const auto* road = building.GetComponent<RoadComponent>();
+        return road != nullptr && road->HasRecentSaturation();
+    }
+
+    void DrawRoadUtilizationOverlay(Vec2f position, float utilization,
+                                    bool left, bool right, bool up, bool down)
+    {
+        utilization = std::clamp(utilization, 0.0f, 1.0f);
+        if (utilization <= 0.01f)
+            return;
+
+        Color color{};
+        if (utilization < 0.55f)
+        {
+            float t = utilization / 0.55f;
+            color = Color{static_cast<unsigned char>(68.0f + t * 150.0f),
+                          static_cast<unsigned char>(172.0f + t * 18.0f), 102, 255};
+        }
+        else
+        {
+            float t = (utilization - 0.55f) / 0.45f;
+            color = Color{218, static_cast<unsigned char>(190.0f - t * 112.0f),
+                          static_cast<unsigned char>(88.0f - t * 30.0f), 255};
+        }
+        const float top = RENDER_HEIGHT - position.y - TILE_SIZE;
+        const Vector2 center{position.x + TILE_SIZE * 0.5f, top + TILE_SIZE * 0.5f};
+        const float thickness = 10.0f + utilization * 8.0f;
+        const float bloomScale = IsLocalLightBloomPreferenceEnabled() ? 1.25f : 1.0f;
+        const Color outerGlow{color.r, color.g, color.b,
+                              static_cast<unsigned char>(11.0f + utilization * 15.0f)};
+        const Color innerGlow{color.r, color.g, color.b,
+                              static_cast<unsigned char>(22.0f + utilization * 20.0f)};
+        const Color fill{color.r, color.g, color.b,
+                         static_cast<unsigned char>(58.0f + utilization * 42.0f)};
+        BeginBlendMode(BLEND_ADDITIVE);
+        const auto drawSegment = [&](Vector2 end)
+        {
+            DrawLineEx(center, end, thickness * 5.0f * bloomScale, outerGlow);
+            DrawLineEx(center, end, thickness * 2.5f, innerGlow);
+            DrawLineEx(center, end, thickness, fill);
+        };
+
+        if (left)  drawSegment({position.x, center.y});
+        if (right) drawSegment({position.x + TILE_SIZE, center.y});
+        // Map Y grows upward while framebuffer Y grows downward.
+        if (up)    drawSegment({center.x, top + TILE_SIZE});
+        if (down)  drawSegment({center.x, top});
+        DrawCircleV(center, thickness * 2.50f * bloomScale, outerGlow);
+        DrawCircleV(center, thickness * 1.25f, innerGlow);
+        if (!left && !right && !up && !down)
+            DrawCircleV(center, thickness * 0.55f, fill);
+        else
+            DrawCircleV(center, thickness * 0.50f, fill);
+        EndBlendMode();
+    }
+
+    void DrawRoadSaturationIndicator(Vec2f position, bool saturated)
+    {
+        if (!saturated)
+            return;
+        const float top = RENDER_HEIGHT - position.y - TILE_SIZE;
+        const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 6.0f);
+        const Vector2 center{position.x + TILE_SIZE - 6.0f, top + 6.0f};
+        DrawCircleV(center, 3.5f + pulse * 1.0f, Color{232, 91, 48, 255});
+        DrawCircleV(center, 1.5f, Color{255, 222, 128, 255});
+    }
 }
 
 // Advances authoritative gameplay state for one simulation tick.
 void GameWorld::UpdateSimulation(double dt)
 {
     simulationTick++;
+    // Commands issued this tick must use the same deterministic, camera-free
+    // visibility as the build preview. Refresh before controllers/commands,
+    // then once more after movement below.
+    UpdateFogOfWar();
     UpdateControllers(dt);
     for (auto& [id, player] : playerHandler.players)
         if (player != nullptr && !player->defeated)
@@ -124,6 +226,57 @@ void GameWorld::UpdateSimulation(double dt)
         }
 
     UpdateUnits(dt);
+    UpdateFogOfWar();
+}
+
+bool GameWorld::IsBuildFootprintVisibleToPlayer(int playerId, Vec2i anchor, Vec2i footprint) const
+{
+    auto fogIt = fogOfWarByPlayer.find(playerId);
+    return fogIt != fogOfWarByPlayer.end() && fogIt->second.IsFootprintVisible(anchor, footprint);
+}
+
+void GameWorld::UpdateFogOfWar()
+{
+    const Vec2i mapSize{tilemap.params.sizeX, tilemap.params.sizeY};
+    if (mapSize.x <= 0 || mapSize.y <= 0)
+        return;
+
+    for (const auto& [playerId, player] : playerHandler.players)
+    {
+        FogOfWarState& fog = fogOfWarByPlayer[playerId];
+        if (!fog.IsInitializedFor(mapSize))
+            fog.Initialize(mapSize);
+        else
+            fog.BeginVisibilityUpdate();
+
+        if (player == nullptr || player->defeated)
+            continue;
+
+        for (const Building* building : player->GetTrackedBuildings())
+        {
+            if (building == nullptr)
+                continue;
+
+            const Vec2i anchor = tilemap.GetCoordsFromId(building->positionId);
+            const Vec2i footprint = building->GetFootprint();
+            const Vec2f center{
+                static_cast<float>(anchor.x * TILE_SIZE) + footprint.x * TILE_SIZE * 0.5f,
+                static_cast<float>(anchor.y * TILE_SIZE) + footprint.y * TILE_SIZE * 0.5f};
+            fog.RevealWorldCircle(center, FogOfWar::BuildingRevealRadiusWorld(building->buildingType, footprint));
+        }
+    }
+
+    for (const auto& [instanceId, unit] : deployedUnits)
+    {
+        if (unit.tileIndex < 0 || unit.state == BattleUnitState::Dying)
+            continue;
+
+        auto fogIt = fogOfWarByPlayer.find(unit.ownerPlayerId);
+        if (fogIt == fogOfWarByPlayer.end())
+            continue;
+        fogIt->second.RevealWorldCircle(UnitMarchSystem::ComputeWorldPosition(*this, unit),
+                                        FogOfWar::UnitRevealRadiusWorld);
+    }
 }
 
 // Advances this object's state for one frame.
@@ -162,7 +315,14 @@ GameSnapshot GameWorld::BuildSnapshot() const
     snapshot.simulationTick = simulationTick;
     snapshot.localPlayerId = localPlayerId;
     snapshot.mapSize = {tilemap.params.sizeX, tilemap.params.sizeY};
+    snapshot.players.reserve(playerHandler.players.size());
     snapshot.tiles.reserve(tilemap.tilemap.size());
+
+    for (const auto& [playerId, player] : playerHandler.players)
+    {
+        if (player != nullptr)
+            snapshot.players.push_back(GameSnapshotPlayer{playerId, player->color});
+    }
 
     for (const auto& tile : tilemap.tilemap)
     {
@@ -184,6 +344,15 @@ GameSnapshot GameWorld::BuildSnapshot() const
             view.hasBuilding = true;
             view.buildingType = tile.building->buildingType;
             view.buildingFootprint = tile.building->GetFootprint();
+            view.buildingOwnerId = tile.building->owner != nullptr ? tile.building->owner->id : -1;
+            view.isBuildingOperational = !tile.building->IsUnderConstruction();
+            if (const auto* hq = tile.building->GetComponent<HqComponent>(); hq != nullptr)
+                view.buildingDamageIndicator = static_cast<float>(hq->recentDamageTimer);
+            if (IsRoadLike(tile.building->buildingType))
+            {
+                view.roadUtilization = GetRoadUtilization(*tile.building);
+                view.roadSaturated = IsRoadRecentlySaturated(*tile.building);
+            }
         }
         view.isMilitaryRoad = tile.isMilitaryRoad;
         snapshot.tiles.push_back(view);
@@ -195,8 +364,10 @@ GameSnapshot GameWorld::BuildSnapshot() const
 // Draws cached terrain, territory and building layers.
 void GameWorld::DrawMap()
 {
-    if (render == nullptr)
+    if (render == nullptr || !render->HasWorldLayers())
         return;
+
+    render->SetSimulationTick(simulationTick);
 
     bool cameraChanged =
         cachedCameraZoom != render->camera.zoom ||
@@ -215,13 +386,133 @@ void GameWorld::DrawMap()
     int minTileY = std::clamp(static_cast<int>(std::floor(minWorldY / TILE_SIZE)) - 2, 0, tilemap.params.sizeY - 1);
     int maxTileY = std::clamp(static_cast<int>(std::ceil(maxWorldY / TILE_SIZE)) + 2, 0, tilemap.params.sizeY - 1);
 
+    render->ClearDynamicLights();
+    render->ClearFogReveals();
+    // Fog and local-light influence must not depend on whether the building
+    // anchor itself is inside the camera tile rectangle. Queue every source;
+    // Renderer conservatively rejects only circles that cannot touch the
+    // render target. This keeps the mask stable while panning/zooming.
+    for (const auto& [playerId, player] : playerHandler.players)
+    {
+        if (player == nullptr)
+            continue;
+
+        for (Building* building : player->GetTrackedBuildings())
+        {
+            if (building == nullptr)
+                continue;
+
+            const Vec2i anchor = tilemap.GetCoordsFromId(building->positionId);
+            const Vec2f position{static_cast<float>(anchor.x * TILE_SIZE),
+                                 static_cast<float>(anchor.y * TILE_SIZE)};
+            render->QueueBuildingLight(building->buildingType, building->GetFootprint(),
+                                       position, building->id, !building->IsUnderConstruction());
+            if (!player->defeated && playerId == localPlayerId)
+                render->QueueBuildingFogReveal(building->buildingType,
+                                               building->GetFootprint(), position);
+        }
+    }
+
+    std::map<Building*, Vec2f> visibleBuildings;
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
+            if (tile.building != nullptr)
+            {
+                Vec2f position{static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
+                visibleBuildings.emplace(tile.building.get(), position);
+            }
+        }
+    }
+
+    render->ClearLayer(WorldRenderLayer::WorldEffects);
+    if (render->AreContactShadowsEnabled())
+    {
+        const WorldLightingFrame lighting = ComputeWorldLighting(simulationTick);
+        const unsigned char shadowAlpha = static_cast<unsigned char>(std::clamp(
+            32.0f + (1.0f - lighting.ambientIntensity) * 42.0f, 32.0f, 74.0f));
+        render->BeginLayer(WorldRenderLayer::WorldEffects);
+        for (const auto& [building, position] : visibleBuildings)
+        {
+            // Roads are flat, contiguous tile art. Casting a separate shadow
+            // from every tile turns a road into a black wall, so they receive
+            // no object shadow at all.
+            if (building == nullptr || IsRoadLike(building->buildingType))
+                continue;
+
+            Vec2i footprint = building->GetFootprint();
+            float width = footprint.x * TILE_SIZE;
+            float height = footprint.y * TILE_SIZE;
+            const float baseX = position.x + width * 0.50f;
+            const float baseY = RENDER_HEIGHT - position.y - height * 0.84f;
+            const float directionalLength = std::min(
+                lighting.shadowLength * 0.30f, std::max(width, height) * 1.10f);
+            if (directionalLength > 0.5f)
+            {
+                // Three faint, shrinking ellipses produce a soft, tapered
+                // cast shadow without the hard line/end-cap geometry.
+                constexpr float samples[] = {0.32f, 0.62f, 0.90f};
+                constexpr float widths[] = {0.30f, 0.24f, 0.18f};
+                constexpr float alphas[] = {0.32f, 0.22f, 0.14f};
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float shadowX = baseX - lighting.sunDirection.x * directionalLength * samples[i];
+                    const float shadowY = baseY + lighting.sunDirection.y * directionalLength * samples[i];
+                    DrawEllipse(static_cast<int>(shadowX), static_cast<int>(shadowY),
+                                width * widths[i], std::max(2.0f, height * 0.075f),
+                                Color{0, 0, 0, static_cast<unsigned char>(shadowAlpha * alphas[i])});
+                }
+            }
+            DrawEllipse(static_cast<int>(baseX), static_cast<int>(baseY),
+                        static_cast<float>(width * 0.32f),
+                        static_cast<float>(std::max(2.0f, height * 0.075f)),
+                        Color{0, 0, 0, static_cast<unsigned char>(shadowAlpha * 0.70f)});
+        }
+        render->EndLayer();
+    }
+
+    // The heatmap belongs below road albedo, like a local light spilling out
+    // from underneath the stones. WorldEffects is composed before
+    // StaticObjects, so the road texture masks the bright core naturally.
+    if (IsLogisticsOverlayPreferenceEnabled())
+    {
+        render->BeginLayer(WorldRenderLayer::WorldEffects);
+        for (const auto& [building, position] : visibleBuildings)
+        {
+            if (building == nullptr || !IsRoadLike(building->buildingType))
+                continue;
+            const Vec2i tilePosition = tilemap.GetCoordsFromId(building->positionId);
+            const auto isRoadAt = [&](int checkX, int checkY)
+            {
+                if (checkX < 0 || checkY < 0 || checkX >= tilemap.params.sizeX || checkY >= tilemap.params.sizeY)
+                    return false;
+                const Tile& neighbor = tilemap.tilemap[checkY * tilemap.params.sizeX + checkX];
+                return neighbor.building != nullptr && IsRoadLike(neighbor.building->buildingType);
+            };
+            DrawRoadUtilizationOverlay(position, GetRoadUtilization(*building),
+                                       isRoadAt(tilePosition.x - 1, tilePosition.y),
+                                       isRoadAt(tilePosition.x + 1, tilePosition.y),
+                                       isRoadAt(tilePosition.x, tilePosition.y - 1),
+                                       isRoadAt(tilePosition.x, tilePosition.y + 1));
+        }
+        render->EndLayer();
+    }
+
     bool redrawTerrain = cameraChanged || tilemap.terrainDirty;
-    bool redrawBuildings = cameraChanged || tilemap.buildingsDirty;
+    const bool hasVisibleBuildingAnimation = std::any_of(
+        visibleBuildings.begin(), visibleBuildings.end(),
+        [&](const auto& entry)
+        {
+            return entry.first != nullptr && render->HasBuildingAnimation(entry.first->buildingType);
+        });
+    bool redrawBuildings = cameraChanged || tilemap.buildingsDirty || hasVisibleBuildingAnimation;
 
     if (redrawTerrain)
     {
-        render->ClearLayer(0);
-        render->BeginLayer(0);
+        render->ClearLayer(WorldRenderLayer::Terrain);
+        render->BeginLayer(WorldRenderLayer::Terrain);
         for(int x = minTileX; x <= maxTileX; x++)
         {
             for(int y = minTileY; y <= maxTileY; y++)
@@ -233,14 +524,20 @@ void GameWorld::DrawMap()
                 // TD(etap-2): military road placeholder — a flat tint until a
                 // dedicated texture exists; kept as its own visual type so
                 // swapping in real art later doesn't touch this call site.
+            }
+        }
+        render->EndLayer();
+
+        render->ClearLayer(WorldRenderLayer::MilitaryRoads);
+        render->BeginLayer(WorldRenderLayer::MilitaryRoads);
+        for (int x = minTileX; x <= maxTileX; x++)
+        {
+            for (int y = minTileY; y <= maxTileY; y++)
+            {
+                const auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
                 if (tile.isMilitaryRoad)
-                {
-                    DrawRectangle(static_cast<int>(pos.x),
-                                  static_cast<int>(RENDER_HEIGHT - TILE_SIZE - pos.y),
-                                  TILE_SIZE,
-                                  TILE_SIZE,
-                                  Color{139, 90, 43, 150});
-                }
+                    DrawRectangle(x * TILE_SIZE, RENDER_HEIGHT - TILE_SIZE - y * TILE_SIZE,
+                                  TILE_SIZE, TILE_SIZE, Color{139, 90, 43, 150});
             }
         }
         render->EndLayer();
@@ -249,8 +546,8 @@ void GameWorld::DrawMap()
 
     if (redrawBuildings)
     {
-        render->ClearLayer(1);
-        render->BeginLayer(1);
+        render->ClearLayer(WorldRenderLayer::StaticObjects);
+        render->BeginLayer(WorldRenderLayer::StaticObjects);
         for(int x = minTileX; x <= maxTileX; x++)
         {
             for(int y = minTileY; y <= maxTileY; y++)
@@ -261,10 +558,8 @@ void GameWorld::DrawMap()
 
                 if(tile.building)
                 {
-                    // Buildings still under construction (actively built or waiting
-                    // in the queue) are drawn shaded until they finish.
-                    Color tint = tile.building->IsUnderConstruction()
-                        ? Color{118, 128, 150, 165}
+                    const Color tint = tile.building->IsUnderConstruction()
+                        ? Color{118, 122, 132, 215}
                         : WHITE;
                     render->DrawBuildingTexture(tile.building.get(), pos, tint);
                 }
@@ -280,14 +575,31 @@ void GameWorld::DrawMap()
     // rectangle — no unit texture yet) pending real sprites/animation
     // (plan 4.3) — deliberately simple so swapping in art later only touches
     // this block.
-    render->ClearLayer(3);
-    render->BeginLayer(3);
+    render->ClearLayer(WorldRenderLayer::DynamicObjects);
+    render->BeginLayer(WorldRenderLayer::DynamicObjects);
+    for (const auto& [building, position] : visibleBuildings)
+    {
+        if (building != nullptr)
+        {
+            if (const auto* hq = building->GetComponent<HqComponent>(); hq != nullptr)
+                DrawDamageFlashOverlay(position, building->GetFootprint(), static_cast<float>(hq->recentDamageTimer));
+            if (IsLogisticsOverlayPreferenceEnabled() && IsRoadLike(building->buildingType))
+                DrawRoadSaturationIndicator(position, IsRoadRecentlySaturated(*building));
+        }
+    }
+    const WorldLightingFrame dynamicLighting = ComputeWorldLighting(simulationTick);
+    const unsigned char unitShadowAlpha = static_cast<unsigned char>(std::clamp(
+        45.0f + (1.0f - dynamicLighting.ambientIntensity) * 55.0f, 45.0f, 100.0f));
+    const float unitDirectionalLength = dynamicLighting.shadowLength * 0.24f;
     for (const auto& [instanceId, unit] : deployedUnits)
     {
         if (unit.tileIndex < 0)
             continue; // still waiting in the spawn queue, not on the map yet
 
         Vec2f worldPos = UnitMarchSystem::ComputeWorldPosition(*this, unit);
+
+        if (unit.ownerPlayerId == localPlayerId && unit.state != BattleUnitState::Dying)
+            render->QueueFogReveal({{worldPos.x, worldPos.y}, FogOfWar::UnitRevealRadiusWorld});
 
         auto ownerIt = playerHandler.players.find(unit.ownerPlayerId);
         Player* owner = ownerIt != playerHandler.players.end() ? ownerIt->second.get() : nullptr;
@@ -304,6 +616,27 @@ void GameWorld::DrawMap()
         int halfSize = static_cast<int>(TILE_SIZE * 0.3f);
         Rectangle box{static_cast<float>(screenX - halfSize), static_cast<float>(screenY - halfSize),
                       static_cast<float>(halfSize * 2), static_cast<float>(halfSize * 2)};
+        if (render->AreContactShadowsEnabled())
+        {
+            // This stays in the dynamic layer so it follows marching units
+            // precisely, while the selection/health overlays remain above
+            // the lighting pass in regular UI rendering.
+            const float baseShadowY = screenY + static_cast<float>(halfSize) * 0.62f;
+            if (unitDirectionalLength > 0.5f)
+            {
+                const float cappedLength = std::min(unitDirectionalLength, static_cast<float>(halfSize) * 1.25f);
+                const float shadowX = screenX - dynamicLighting.sunDirection.x * cappedLength * 0.60f;
+                const float shadowY = baseShadowY + dynamicLighting.sunDirection.y * cappedLength * 0.60f;
+                DrawEllipse(static_cast<int>(shadowX), static_cast<int>(shadowY),
+                            static_cast<float>(halfSize) * 0.52f,
+                            std::max(1.5f, static_cast<float>(halfSize) * 0.16f),
+                            Color{0, 0, 0, static_cast<unsigned char>(unitShadowAlpha * 0.30f)});
+            }
+            DrawEllipse(screenX, static_cast<int>(baseShadowY),
+                        static_cast<float>(halfSize) * 0.90f,
+                        std::max(2.0f, static_cast<float>(halfSize) * 0.28f),
+                        Color{0, 0, 0, unitShadowAlpha});
+        }
         DrawRectangleRec(box, fillColor);
         DrawRectangleLinesEx(box, unit.state == BattleUnitState::FightingUnit ? 2.0f : 1.0f, ownerColor);
 
@@ -353,7 +686,32 @@ void GameWorld::DrawMap()
 
         int screenX = static_cast<int>(projectile.position.x);
         int screenY = static_cast<int>(RENDER_HEIGHT) - static_cast<int>(projectile.position.y);
+        // Tower rounds are intentionally a visual-only high-priority light:
+        // their deterministic simulation position is already available, while
+        // the glow/trail never enters saves, checksums, or combat resolution.
+        render->QueueDynamicLight({{projectile.position.x, projectile.position.y},
+                                   Color{255, 205, 116, 255},
+                                   88.0f, 1.85f, 0.58f, 0.12f, -id, 90});
+
+        auto targetIt = deployedUnits.find(projectile.targetUnitInstanceId);
+        if (targetIt != deployedUnits.end())
+        {
+            Vec2f targetPos = UnitMarchSystem::ComputeWorldPosition(*this, targetIt->second);
+            float dx = targetPos.x - projectile.position.x;
+            float dy = targetPos.y - projectile.position.y;
+            float length = std::sqrt(dx * dx + dy * dy);
+            if (length > 0.001f)
+            {
+                constexpr float TrailLength = 16.0f;
+                float trailX = projectile.position.x - dx / length * TrailLength;
+                float trailY = projectile.position.y - dy / length * TrailLength;
+                DrawLineEx({trailX, static_cast<float>(RENDER_HEIGHT) - trailY},
+                           {static_cast<float>(screenX), static_cast<float>(screenY)},
+                           2.0f, Color{255, 220, 150, 185});
+            }
+        }
         DrawCircle(screenX, screenY, TILE_SIZE * 0.12f, color);
+        DrawCircle(screenX, screenY, TILE_SIZE * 0.055f, Color{255, 244, 202, 255});
     }
     render->EndLayer();
 

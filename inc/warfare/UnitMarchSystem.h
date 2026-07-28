@@ -1,7 +1,7 @@
 #ifndef UNIT_MARCH_SYSTEM_H
 #define UNIT_MARCH_SYSTEM_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 
 class GameWorld;
 class BattleUnit;

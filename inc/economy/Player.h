@@ -1,7 +1,7 @@
 #ifndef PLAYER_H
 #define PLAYER_H
 
-#include "core/Utils.h"
+#include "core/Types.h"
 #include "economy/BuildingFactory.h"
 #include "economy/BuildingConfig.h"
 #include "economy/BalanceModifiers.h"
@@ -100,7 +100,7 @@ public:
         const auto& definition = GetBuildingDefinition(preview.buildingType);
         if (chargeCost && !TryPayBuildCost(GetEffectiveBuildCosts(definition)))
         {
-            Log::Msg("[Player]", "Not enough resources to build ", definition.name);
+            ReportBuildCostFailure(definition.name);
             return nullptr;
         }
 
@@ -129,6 +129,7 @@ public:
     }
 
     bool HasBuildResources(const std::vector<ResourceAmountDefinition>& costs) const;
+    void ReportBuildCostFailure(const std::string& buildingName) const;
     std::vector<std::string> GetBuildRequirementFailures(const BuildingDefinition& definition, bool ignoreDebugFreeBuild = true) const;
 
     // Applies BalanceStat::BuildCost modifiers (tech/focus/state) to a building's base resource costs.
@@ -168,6 +169,12 @@ public:
     // Raw food supply ratio (0-1) averaged across villages — see Player.cpp
     // for why this must not be confused with GetFoodProductivity().
     double GetFoodSupplyRatio() const;
+    // How well the defence towers are stocked: ammo held / ammo capacity
+    // averaged over every completed tower (1.0 when the player has none, so
+    // "no towers" never reads as an emergency). Tower ammo lives in each
+    // tower's own local buffer, deliberately outside the warehouse network
+    // StockpileIndex reports — this is the one number that summarises it.
+    double GetAmmunitionSupplyRatio() const;
 
     double ModifyBalance(BalanceStat stat, double base, BuildingType buildingType = BuildingType::Building,
                          ResourceType resourceType = ResourceType::Null) const
