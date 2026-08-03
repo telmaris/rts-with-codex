@@ -102,17 +102,20 @@ TEST(EconomyExpansionTests, SettlementTiersUseTheAgreedCapsAndSupplyPackages)
     EXPECT_EQ(village.population.GetActivePopulationCap(), 140);
     EXPECT_TRUE(village.population.RequiresSupply(ResourceType::FOOD_PROVISIONS));
     EXPECT_FALSE(village.population.RequiresSupply(ResourceType::HOUSEHOLD_GOODS));
+    EXPECT_EQ(village.population.foodBuffer.bufferSize, 2);
 
     village.population.SetSettlementLevel(2);
     EXPECT_EQ(village.population.GetActivePopulationCap(), 350);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS), 3);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::HOUSEHOLD_GOODS), 1);
+    EXPECT_EQ(village.population.foodBuffer.bufferSize, 4);
 
     village.population.SetSettlementLevel(3);
     EXPECT_EQ(village.population.GetActivePopulationCap(), 1200);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS), 10);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::HOUSEHOLD_GOODS), 3);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::URBAN_GOODS), 1);
+    EXPECT_EQ(village.population.foodBuffer.bufferSize, 11);
 
     village.population.urbanSupplyLevel = 0.0;
     EXPECT_EQ(village.population.GetActivePopulationCap(), 350);

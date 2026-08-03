@@ -124,6 +124,13 @@ void PopulationComponent::SetSettlementLevel(int level)
     settlementLevel = std::clamp(level, 1, 3);
     populationCap = levelPopulationCaps[settlementLevel];
     manpowerRate = levelManpowerRates[settlementLevel];
+
+    // Keep exactly one upkeep payment plus one local reserve. The starting
+    // village therefore requests only two packages, while upgraded
+    // settlements can still hold a complete higher-tier upkeep payment.
+    foodBuffer.bufferSize = GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS) + 1;
+    while (static_cast<int>(foodBuffer.buffer.size()) > foodBuffer.bufferSize)
+        foodBuffer.FreeResource();
 }
 
 int PopulationComponent::GetActivePopulationCap() const
