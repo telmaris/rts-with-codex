@@ -50,7 +50,11 @@ void StorageComponent::ReturnOutgoingResource(Resource* res)
 Resource StorageComponent::GetResource(ResourceType type)
 {
     auto [avail, res] = buffers[type].GetResource();
-    return avail ? *res : Resource{};
+    if (!avail)
+        return Resource{};
+    Resource value = *res;
+    Resource::DestroyOwned(res);
+    return value;
 }
 
 int StorageComponent::HandleTransport(ResourceType type, int amount, Building* receiver,

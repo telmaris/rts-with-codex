@@ -3,11 +3,15 @@
 
 #include "core/Types.h"
 
+#include <cstdint>
 #include <vector>
 
 class Building;
 class Player;
+class RoadNetwork;
 class TileMap;
+
+using ShipmentId = std::uint64_t;
 
 struct Transportable
 {
@@ -25,6 +29,14 @@ struct Transportable
     // the source building itself changes hands mid-transport (would otherwise be
     // self-referential and never detect the change).
     Player* originatingOwner = nullptr;
+
+    // Stable per-road-network identity for diagnostics and lifecycle cleanup.
+    // The transport object remains the compatibility payload for now; the
+    // next AUD-02 stage can replace it with a quantity-based shipment record.
+    ShipmentId shipmentId{0};
+    RoadNetwork* shipmentNetwork{nullptr};
+
+    void ReleaseShipment();
     
     bool Update(double);
     void BeginTransport(Building*, Building*, TileMap*, const std::vector<int>&);

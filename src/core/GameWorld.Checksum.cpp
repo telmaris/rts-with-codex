@@ -1,55 +1,56 @@
 #include "core/GameWorld.h"
+#include "core/SimulationState.h"
 
 #include <algorithm>
 #include <vector>
 
 namespace
 {
-    void HashValue(std::uint64_t& hash, std::uint64_t value)
+    void HashValue(CanonicalStateWriter& state, std::uint64_t value)
     {
-        hash ^= value;
-        hash *= 1099511628211ull;
+        state.U64(value);
     }
 
-    void HashInt(std::uint64_t& hash, int value)
+    void HashInt(CanonicalStateWriter& state, int value)
     {
-        HashValue(hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(value)));
+        state.I32(value);
     }
 
-    void HashDouble(std::uint64_t& hash, double value)
+    void HashDouble(CanonicalStateWriter& state, double value)
     {
-        HashInt(hash, static_cast<int>(value * 1000.0));
+        state.FixedDouble3(value);
     }
 
-    void HashResourceBuffers(std::uint64_t& hash, const std::map<ResourceType, ResourceBuffer>& buffers)
+    void HashResourceBuffers(CanonicalStateWriter& state, const std::map<ResourceType, ResourceBuffer>& buffers)
     {
-        HashValue(hash, static_cast<std::uint64_t>(buffers.size()));
+        HashValue(state, static_cast<std::uint64_t>(buffers.size()));
         for (const auto& [type, buffer] : buffers)
         {
-            HashInt(hash, static_cast<int>(type));
-            HashInt(hash, buffer.bufferSize);
-            HashInt(hash, static_cast<int>(buffer.buffer.size()));
+            HashInt(state, static_cast<int>(type));
+            HashInt(state, buffer.bufferSize);
+            HashInt(state, static_cast<int>(buffer.buffer.size()));
         }
     }
 
     // Character-by-character rather than std::hash<std::string>, which is not
     // guaranteed stable across STL versions/architectures — this checksum is
     // compared between host and client processes.
-    void HashString(std::uint64_t& hash, const std::string& value)
+    void HashString(CanonicalStateWriter& state, const std::string& value)
     {
-        HashValue(hash, static_cast<std::uint64_t>(value.size()));
-        for (char c : value)
-            HashInt(hash, static_cast<int>(static_cast<unsigned char>(c)));
+        state.String(value);
     }
 }
 
 std::uint64_t GameWorld::BuildChecksum() const
 {
-    std::uint64_t hash = 1469598103934665603ull;
-    HashValue(hash, simulationTick);
-    HashInt(hash, tilemap.params.sizeX);
-    HashInt(hash, tilemap.params.sizeY);
-    HashValue(hash, tilemap.params.seed);
+    CanonicalStateWriter state;
+    // Keep the existing traversal readable while routing every primitive
+    // through the canonical AUD-03 writer.
+    auto& hash = state;
+    HashValue(state, simulationTick);
+    HashInt(state, tilemap.params.sizeX);
+    HashInt(state, tilemap.params.sizeY);
+    HashValue(state, tilemap.params.seed);
 
     // Military road ring (TD etap-2): immutable after generation, but included
     // so any host/client generation divergence surfaces as a checksum
@@ -259,5 +260,5 @@ std::uint64_t GameWorld::BuildChecksum() const
         HashInt(hash, projectile.ticksRemaining);
     }
 
-    return hash;
+    return state.Finish();
 }

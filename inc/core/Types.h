@@ -3,7 +3,7 @@
 
 #include <ostream>
 
-constexpr int TILE_SIZE = 32;
+constexpr int TILE_SIZE = 64;
 
 // Two-component value type used for integer and floating point coordinates.
 template <typename T>

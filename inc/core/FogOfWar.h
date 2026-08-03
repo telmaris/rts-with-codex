@@ -88,16 +88,24 @@ private:
 
 namespace FogOfWar
 {
-    // Large starting visibility is intentional: resource discovery should be
-    // a strategic decision, not a blind search immediately outside the HQ.
-    constexpr float HeadquartersRevealRadiusWorld = 3072.0f;
-    constexpr float UnitRevealRadiusWorld = 640.0f;
+    // Keep gameplay distances expressed in tiles. TILE_SIZE is a world-space
+    // presentation constant and changed from 32 to 64 px; hard-coded pixel
+    // radii silently halved the visible area after that migration.
+    constexpr float HeadquartersRevealRadiusTiles = 192.0f;
+    constexpr float StandardRevealRadiusTiles = 20.0f;
+    constexpr float HeadquartersRevealRadiusWorld = HeadquartersRevealRadiusTiles * TILE_SIZE;
+    constexpr float UnitRevealRadiusWorld = StandardRevealRadiusTiles * TILE_SIZE;
 
     inline float BuildingRevealRadiusWorld(BuildingType type, Vec2i footprint)
     {
         if (type == BuildingType::Headquarters)
             return HeadquartersRevealRadiusWorld;
-        return 576.0f + static_cast<float>(std::max(footprint.x, footprint.y)) * 64.0f;
+
+        // A standard one-tile building gets the same 20-tile minimum as a
+        // unit. Larger footprints extend the source radius by their excess
+        // footprint so the whole building remains inside its reveal circle.
+        const int largestFootprint = std::max(1, std::max(footprint.x, footprint.y));
+        return (StandardRevealRadiusTiles + static_cast<float>(largestFootprint - 1)) * TILE_SIZE;
     }
 }
 

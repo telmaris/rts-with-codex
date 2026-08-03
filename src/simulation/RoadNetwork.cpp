@@ -84,17 +84,18 @@ bool Transportable::Update(double dt)
 
         if (next->HasComponent<RoadComponent>())
         {
-            auto* road = static_cast<Road*>(next);
-            if (static_cast<int>(road->transportables.size()) >= road->GetModifiedMaxCapacity())
+            auto* road = next->GetComponent<RoadComponent>();
+            if (road != nullptr &&
+                static_cast<int>(next->transportables.size()) >= road->GetModifiedMaxCapacity(*next))
             {
                 Building* currentBuilding = map->GetBuilding(currentTileId);
                 auto* currentRoad = currentBuilding != nullptr && currentBuilding->HasComponent<RoadComponent>()
-                    ? static_cast<Road*>(currentBuilding)
+                    ? currentBuilding->GetComponent<RoadComponent>()
                     : nullptr;
-                if (currentRoad != nullptr)
+                if (currentRoad != nullptr && road != nullptr)
                 {
-                    auto currentIt = std::find(currentRoad->transportables.begin(), currentRoad->transportables.end(), this);
-                    auto oncomingIt = std::find_if(road->transportables.begin(), road->transportables.end(),
+                    auto currentIt = std::find(currentBuilding->transportables.begin(), currentBuilding->transportables.end(), this);
+                    auto oncomingIt = std::find_if(next->transportables.begin(), next->transportables.end(),
                         [currentTileId](Transportable* other)
                         {
                             return other != nullptr &&
@@ -103,7 +104,7 @@ bool Transportable::Update(double dt)
                                    other->elapsedTime >= other->transportTime;
                         });
 
-                    if (currentIt != currentRoad->transportables.end() && oncomingIt != road->transportables.end())
+                    if (currentIt != currentBuilding->transportables.end() && oncomingIt != next->transportables.end())
                     {
                         Transportable* oncoming = *oncomingIt;
                         *currentIt = oncoming;
@@ -111,11 +112,11 @@ bool Transportable::Update(double dt)
 
                         currentPathStep++;
                         elapsedTime = 0.0;
-                        transportTime = road->GetModifiedTransportTime();
+                        transportTime = next->GetModifiedTransportTime();
 
                         oncoming->currentPathStep++;
                         oncoming->elapsedTime = 0.0;
-                        oncoming->transportTime = currentRoad->GetModifiedTransportTime();
+                        oncoming->transportTime = currentBuilding->GetModifiedTransportTime();
                     }
                 }
                 return false;
@@ -150,6 +151,33 @@ RoadNetwork::RoadNetwork(TileMap &tmap)
     tilemap = &tmap;
 }
 
+RoadNetwork::~RoadNetwork()
+{
+    // Buildings outlive a Player's RoadNetwork in the current ownership
+    // graph. Clear back-pointers before the registry disappears so their
+    // destructors never call through a dangling network pointer.
+    for (auto& [id, transportable] : activeShipments)
+    {
+        if (transportable != nullptr && transportable->shipmentNetwork == this)
+        {
+            transportable->shipmentNetwork = nullptr;
+            transportable->shipmentId = 0;
+        }
+    }
+    activeShipments.clear();
+}
+
+void Transportable::ReleaseShipment()
+{
+    if (shipmentNetwork != nullptr)
+    {
+        RoadNetwork* network = shipmentNetwork;
+        network->ReleaseShipment(this);
+        return;
+    }
+    shipmentId = 0;
+}
+
 // Advances this object's state for one frame.
 void RoadNetwork::Update(double dt)
 {
@@ -158,6 +186,8 @@ void RoadNetwork::Update(double dt)
 // Initializes RoadNetwork::BeginTransport.
 bool RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* res)
 {
+    if (src == nullptr || dest == nullptr || res == nullptr || res->shipmentNetwork != nullptr)
+        return false;
     auto path = CalculatePath(src, dest);
     if(path.empty())
     {
@@ -171,8 +201,32 @@ bool RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* r
         return false;
     }
     res->BeginTransport(src, dest, tilemap, path);
+    ShipmentId shipmentId = nextShipmentId++;
+    if (shipmentId == 0)
+        shipmentId = nextShipmentId++;
+    res->shipmentId = shipmentId;
+    res->shipmentNetwork = this;
+    activeShipments.emplace(shipmentId, res);
     src->ReceptTransport(res);
     return true;
+}
+
+void RoadNetwork::ReleaseShipment(Transportable* transportable)
+{
+    if (transportable == nullptr)
+        return;
+
+    if (transportable->shipmentNetwork == this && transportable->shipmentId != 0)
+    {
+        auto it = activeShipments.find(transportable->shipmentId);
+        if (it != activeShipments.end() && it->second == transportable)
+            activeShipments.erase(it);
+    }
+    if (transportable->shipmentNetwork == this)
+    {
+        transportable->shipmentNetwork = nullptr;
+        transportable->shipmentId = 0;
+    }
 }
 
 // Initializes RoadNetwork::CalculateTransportTime.

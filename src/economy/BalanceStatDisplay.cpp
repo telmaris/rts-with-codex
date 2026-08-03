@@ -129,7 +129,6 @@ const char* BalanceBuildingLabel(BuildingType type)
         case BuildingType::Ropery: return "Ropery";
         case BuildingType::Weaver: return "Weaver";
         case BuildingType::Bowyer: return "Bowyer";
-        case BuildingType::Fletchery: return "Fletchery";
         case BuildingType::SpearWorkshop: return "Spear Workshop";
         case BuildingType::SiegeWorkshop: return "Siege Workshop";
         default: return "Building";

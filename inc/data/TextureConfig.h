@@ -70,6 +70,23 @@ struct TerrainTextureDefinition
     std::vector<TerrainVariantDefinition> variants;
 };
 
+// A transparent resource sprite drawn over its terrain tile. `edge` variants
+// are selected only at the rim of a generated deposit and should therefore be
+// authored more sparsely than its ordinary fillers.
+struct ResourceOverlayVariantDefinition
+{
+    TextureRef texture;
+    int weight{1};
+    bool edge{false};
+};
+
+struct ResourceOverlayTextureDefinition
+{
+    // Same vocabulary as TerrainTextureDefinition, but this is visual-only.
+    std::string tileType;
+    std::vector<ResourceOverlayVariantDefinition> variants;
+};
+
 struct BuildingTextureDefinition
 {
     // Block key of buildings.rtsdata ("Headquarters", "Foundry", ...).
@@ -89,6 +106,7 @@ struct TextureConfig
 {
     std::vector<TextureAtlasDefinition> atlases;
     std::vector<TerrainTextureDefinition> terrain;
+    std::vector<ResourceOverlayTextureDefinition> resourceOverlays;
     std::vector<BuildingTextureDefinition> buildings;
     std::vector<ResourceTextureDefinition> resources;
 

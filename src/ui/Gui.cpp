@@ -141,7 +141,6 @@ namespace
             case ResourceType::FOOD_PROVISIONS: return Color{113, 162, 92, 255};
             case ResourceType::PAPER: return Color{213, 211, 190, 255};
             case ResourceType::TOOLS: return Color{120, 136, 145, 255};
-            case ResourceType::COPPER_SWORD: return Color{178, 105, 70, 255};
             case ResourceType::IRON_SWORD: return Color{153, 160, 170, 255};
             case ResourceType::STEEL_SWORD: return Color{185, 198, 205, 255};
             case ResourceType::BOW: return Color{137, 91, 48, 255};
@@ -201,7 +200,6 @@ namespace
             case ResourceType::FOOD_PROVISIONS: return "Fd";
             case ResourceType::PAPER: return "Pa";
             case ResourceType::TOOLS: return "Tl";
-            case ResourceType::COPPER_SWORD: return "CuS";
             case ResourceType::IRON_SWORD: return "Sw";
             case ResourceType::STEEL_SWORD: return "StS";
             case ResourceType::BOW: return "Bw";
@@ -385,12 +383,13 @@ namespace
         DrawRectangleRounded(bounds, 0.10f, 8, Color{40, 29, 21, 230});
         DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, Color{112, 88, 58, 255});
 
-        float padding = std::max(6.0f, bounds.width * 0.12f);
+        float padding = std::max(6.0f, std::min(bounds.width, bounds.height) * 0.10f);
+        float iconSize = std::max(1.0f, std::min(bounds.width, bounds.height) - padding * 2.0f);
         Rectangle icon{
-            bounds.x + padding,
-            bounds.y + padding,
-            bounds.width - padding * 2.0f,
-            bounds.height - padding * 2.0f};
+            bounds.x + (bounds.width - iconSize) * 0.5f,
+            bounds.y + (bounds.height - iconSize) * 0.5f,
+            iconSize,
+            iconSize};
 
         if (resourceIconAtlas.IsLoaded())
         {
@@ -460,11 +459,13 @@ namespace
         }
     }
 
-    // Draws compact resource icons in a fixed-column grid.
+    // Draws compact resource icons in a responsive grid.  Keep each cell at
+    // a readable, fixed size and scroll overflow; shrinking every cell to fit
+    // every row made a full HQ/warehouse stock look like a row of pixels.
     // `panelBuilding` is only used to enrich the hover tooltip: for a warehouse
     // it adds the player-wide total, so "this panel is local stock" reads as a
     // deliberate choice rather than a number that might or might not be global.
-    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float scrollOffset = 0.0f, float* maxScrollOffset = nullptr, const Building* panelBuilding = nullptr)
+    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float* scrollOffset = nullptr, float* maxScrollOffset = nullptr, const Building* panelBuilding = nullptr, bool* scrollbarDragging = nullptr, float* scrollbarDragOffset = nullptr)
     {
         if (maxScrollOffset != nullptr)
             *maxScrollOffset = 0.0f;
@@ -475,16 +476,57 @@ namespace
             return;
         }
 
-        columns = std::max(1, columns);
-        float gap = 8.0f;
-        float cellW = (bounds.width - gap * (columns - 1)) / columns;
+        constexpr float gap = 8.0f;
+        const bool canScroll = scrollOffset != nullptr;
+        const float minimumCellWidth = canScroll ? 96.0f : 80.0f;
+        const float scrollbarReserve = canScroll ? 18.0f : 0.0f;
+
+        // Three columns are the narrow-panel baseline.  Wider panels gain a
+        // fourth/fifth column, up to the caller's requested maximum, without
+        // ever compromising texture legibility.
+        if (canScroll)
+        {
+            int responsiveColumns = static_cast<int>((bounds.width - scrollbarReserve + gap) /
+                                                      (minimumCellWidth + gap));
+            int minimumColumns = bounds.width >= 280.0f ? 3 : 1;
+            columns = std::clamp(responsiveColumns, minimumColumns, std::max(minimumColumns, columns));
+        }
+        else
+        {
+            // Production panels reserve the caller's full slot count so the
+            // input side can fit three ingredients and the output side can
+            // fit two products at the same size. A one-product recipe must
+            // not grow to fill the whole output column.
+            columns = std::max(1, columns);
+        }
+        float contentWidth = std::max(1.0f, bounds.width - scrollbarReserve);
+        float cellW = (contentWidth - gap * (columns - 1)) / columns;
         int rows = static_cast<int>((views.size() + columns - 1) / columns);
-        float cellH = std::min(cellW, (bounds.height - gap * std::max(0, rows - 1)) / std::max(1, rows));
-        cellH = std::max(28.0f, cellH);
-        cellW = std::min(cellW, cellH);
+        float cellH = 0.0f;
+        if (canScroll)
+        {
+            cellH = std::clamp(cellW * 0.88f, 82.0f, 118.0f);
+        }
+        else
+        {
+            // The production section is clipped to its measured height. Fit
+            // every row into that height instead of drawing an 82 px cell into
+            // a 50–70 px viewport and cutting off the icon at the bottom.
+            float availableCellHeight = (bounds.height - gap * std::max(0, rows - 1)) /
+                                        std::max(1, rows);
+            cellH = std::min(cellW * 0.88f, std::max(1.0f, availableCellHeight));
+        }
+        // Resource cards are icon slots, not stretchable banners. Keep the
+        // actual card square even when a production column is wider than its
+        // short vertical viewport; center it inside that column.
+        cellH = std::min(cellW, cellH);
         float contentHeight = rows * cellH + std::max(0, rows - 1) * gap;
+        float resolvedMaxScrollOffset = canScroll
+            ? std::max(0.0f, contentHeight - bounds.height)
+            : 0.0f;
         if (maxScrollOffset != nullptr)
-            *maxScrollOffset = std::max(0.0f, contentHeight - bounds.height);
+            *maxScrollOffset = resolvedMaxScrollOffset;
+        float resolvedScrollOffset = scrollOffset != nullptr ? *scrollOffset : 0.0f;
         int hoveredIndex = -1;
 
         BeginScissorMode(static_cast<int>(bounds.x), static_cast<int>(bounds.y), static_cast<int>(bounds.width), static_cast<int>(bounds.height));
@@ -492,20 +534,59 @@ namespace
         {
             int col = i % columns;
             int row = i / columns;
-            float x = bounds.x + col * (cellW + gap);
-            float y = bounds.y + row * (cellH + gap) - scrollOffset;
+            float x = bounds.x + col * (cellW + gap) + (cellW - cellH) * 0.5f;
+            float y = bounds.y + row * (cellH + gap) - resolvedScrollOffset;
 
             if (y > bounds.y + bounds.height)
                 break;
             if (y + cellH < bounds.y)
                 continue;
 
-            Rectangle cell{x, y, cellW, cellH};
+            Rectangle cell{x, y, cellH, cellH};
             DrawResourceIcon(views[i], cell);
             if (CheckCollisionPointRec(GetMousePosition(), cell))
                 hoveredIndex = i;
         }
         EndScissorMode();
+
+        // The wheel scroll is handled by GuiPanel::ScrollContent.  Reserve a
+        // proper, high-contrast track for it so overflow is discoverable and
+        // no resource card is hidden underneath the scrollbar.
+        if (resolvedMaxScrollOffset > 0.0f)
+        {
+            Rectangle track{bounds.x + contentWidth + 5.0f, bounds.y, 9.0f, bounds.height};
+            DrawRectangleRounded(track, 0.5f, 6, Color{24, 17, 12, 210});
+            float thumbH = std::max(30.0f, track.height * (track.height / contentHeight));
+            float normalizedOffset = std::clamp(resolvedScrollOffset / resolvedMaxScrollOffset, 0.0f, 1.0f);
+            float thumbY = track.y + (track.height - thumbH) * normalizedOffset;
+            Rectangle thumb{track.x, thumbY, track.width, thumbH};
+            if (scrollbarDragging != nullptr && scrollbarDragOffset != nullptr && scrollOffset != nullptr)
+            {
+                Vector2 mouse = GetMousePosition();
+                if (InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+                    CheckCollisionPointRec(mouse, thumb))
+                {
+                    *scrollbarDragging = true;
+                    *scrollbarDragOffset = mouse.y - thumb.y;
+                }
+                if (*scrollbarDragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+                {
+                    float thumbRange = track.height - thumbH;
+                    float targetThumbY = std::clamp(mouse.y - *scrollbarDragOffset,
+                                                   track.y, track.y + thumbRange);
+                    float normalized = thumbRange > 0.0f
+                        ? (targetThumbY - track.y) / thumbRange
+                        : 0.0f;
+                    *scrollOffset = normalized * resolvedMaxScrollOffset;
+                    resolvedScrollOffset = *scrollOffset;
+                    thumbY = targetThumbY;
+                }
+                if (*scrollbarDragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+                    *scrollbarDragging = false;
+            }
+            DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 6,
+                                 Color{174, 128, 67, 245});
+        }
 
         if (hoveredIndex >= 0)
         {
@@ -518,7 +599,7 @@ namespace
             // player-wide number lives instead of leaving it ambiguous.
             if (StockpileIndex::IsWarehouse(panelBuilding) && panelBuilding->owner != nullptr)
                 lines.push_back("Player-wide: " +
-                    std::to_string(StockpileIndex::GetTotal(*panelBuilding->owner, view.type)) + "  (E)");
+                    std::to_string(StockpileIndex::GetTotal(*panelBuilding->owner, view.type)) + "  [E]");
             QueueResourceTooltip(view.type, std::move(lines));
         }
     }
@@ -652,7 +733,6 @@ namespace
             case BuildingType::Ropery: return "Ropery";
             case BuildingType::Weaver: return "Weaver";
             case BuildingType::Bowyer: return "Bowyer";
-            case BuildingType::Fletchery: return "Fletchery";
             case BuildingType::SpearWorkshop: return "Spear workshop";
             case BuildingType::SiegeWorkshop: return "Siege workshop";
             default: return "Building";
@@ -1405,6 +1485,144 @@ void UiLabel::Update(double dt)
     UiText::DrawFit(text, WidgetBounds(*this), fontSize, color);
 }
 
+PopupWindowWidget::PopupWindowWidget()
+{
+    actionButton.ChangeText("Continue");
+    UpdateSize({GetScreenWidth(), GetScreenHeight()});
+}
+
+void PopupWindowWidget::Show(std::string newTitle, std::string newBody,
+                             std::string actionText, std::function<void()> action)
+{
+    const bool wasVisible = visible;
+    title = std::move(newTitle);
+    body = std::move(newBody);
+    actionButton.ChangeText(std::move(actionText));
+    actionButton.func = std::move(action);
+    visible = true;
+    if (!wasVisible && modalStateCallback)
+        modalStateCallback(true);
+    UpdateSize({GetScreenWidth(), GetScreenHeight()});
+}
+
+void PopupWindowWidget::Hide()
+{
+    if (!visible)
+        return;
+
+    visible = false;
+    if (modalStateCallback)
+        modalStateCallback(false);
+}
+
+void PopupWindowWidget::SetModalStateCallback(std::function<void(bool)> callback)
+{
+    modalStateCallback = std::move(callback);
+    if (visible && modalStateCallback)
+        modalStateCallback(true);
+}
+
+void PopupWindowWidget::UpdateSize(Vec2i windowSize)
+{
+    const int panelWidth = std::clamp(static_cast<int>(windowSize.x * 0.56f), 520, 820);
+    const int panelHeight = std::clamp(static_cast<int>(windowSize.y * 0.48f), 330, 500);
+    size = {panelWidth, panelHeight};
+    const int maxX = std::max(8, windowSize.x - panelWidth - 8);
+    pos = {std::clamp((windowSize.x - panelWidth) / 2 + horizontalOffset, 8, maxX),
+           (windowSize.y - panelHeight) / 2};
+
+    const int buttonWidth = std::clamp(panelWidth / 3, 180, 260);
+    actionButton.ChangeSize(buttonWidth, 52);
+    actionButton.ChangePosition(pos.x + (panelWidth - buttonWidth) / 2,
+                                pos.y + panelHeight - 76);
+}
+
+void PopupWindowWidget::Update(double dt)
+{
+    if (!visible)
+        return;
+
+    if (dimBackground)
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{8, 6, 4, 190});
+
+    Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
+                    static_cast<float>(size.x), static_cast<float>(size.y)};
+    DrawRectangleRounded(panel, 0.035f, 10, Color{34, 25, 18, 252});
+    DrawRectangleRoundedLines(panel, 0.035f, 10, 2.0f, UiTheme::Bronze);
+
+    Rectangle titleBar{panel.x + 2.0f, panel.y + 2.0f, panel.width - 4.0f, 68.0f};
+    DrawRectangleRounded(titleBar, 0.08f, 8, UiTheme::Oak);
+    UiText::DrawTitleBar(titleBar, title, 0.0f);
+
+    constexpr int bodyFontSize = 22;
+    const float textX = panel.x + 42.0f;
+    float textY = titleBar.y + titleBar.height + 32.0f;
+    const float textWidth = panel.width - 84.0f;
+    for (const auto& line : UiText::WrapWithControlIcons(body, bodyFontSize, textWidth, 30.0f))
+    {
+        UiText::DrawWithControlIcons(line, textX, textY, bodyFontSize, UiTheme::Parchment, 30.0f);
+        textY += bodyFontSize + 10.0f;
+    }
+
+    // The modal popup is the only widget allowed to consume input while the
+    // scene is paused. Temporarily enable the shared input gate for its button
+    // and restore the previous state after processing the click.
+    const bool wasInputEnabled = InputManager::IsInputEnabled();
+    InputManager::SetInputEnabled(true);
+    actionButton.Update(dt);
+    InputManager::SetInputEnabled(visible ? wasInputEnabled : true);
+}
+
+void TutorialTaskWidget::UpdateSize(Vec2i windowSize)
+{
+    pos = {12, std::max(52, static_cast<int>(windowSize.y * 0.075f))};
+    size = {std::clamp(static_cast<int>(windowSize.x * 0.27f), 300, 390), 54 + static_cast<int>(tasks.size()) * 28};
+}
+
+void TutorialTaskWidget::Update(double dt)
+{
+    if (tasks.empty())
+        return;
+
+    UpdateSize({GetScreenWidth(), GetScreenHeight()});
+    Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
+                    static_cast<float>(size.x), static_cast<float>(size.y)};
+    DrawRectangleRounded(panel, 0.06f, 8, Color{25, 19, 14, 224});
+    DrawRectangleRoundedLines(panel, 0.06f, 8, 1.0f, UiTheme::Bronze);
+
+    UiText::Draw("Tutorial", panel.x + 14.0f, panel.y + 8.0f, 16, UiTheme::Gold);
+    UiText::DrawFit(title, Rectangle{panel.x + 92.0f, panel.y + 7.0f, panel.width - 104.0f, 22.0f}, 15, UiTheme::Parchment);
+
+    float y = panel.y + 32.0f;
+    for (const auto& [task, completed] : tasks)
+    {
+        const Color color = completed ? Color{126, 204, 132, 255} : UiTheme::ParchmentDim;
+        const Vector2 markerCenter{panel.x + 20.0f, y + 9.0f};
+        DrawCircleV(markerCenter, completed ? 5.0f : 4.0f, color);
+        if (completed)
+            DrawCircleLines(static_cast<int>(markerCenter.x), static_cast<int>(markerCenter.y), 7.0f,
+                            Color{126, 204, 132, 210});
+        Rectangle textBounds{panel.x + 34.0f, y - 1.0f, panel.width - 48.0f, 22.0f};
+        UiText::DrawFit(task, textBounds, 15, color);
+        if (completed)
+        {
+            int fittedFont = 15;
+            int textWidth = UiText::Measure(task, fittedFont);
+            while (fittedFont > 8 && textWidth > textBounds.width)
+            {
+                --fittedFont;
+                textWidth = UiText::Measure(task, fittedFont);
+            }
+            const float textX = textBounds.x + (textBounds.width - textWidth) * 0.5f;
+            const float strikeY = y + 10.0f;
+            DrawLineEx({textX, strikeY},
+                       {textX + static_cast<float>(textWidth), strikeY},
+                       1.0f, Color{126, 204, 132, 190});
+        }
+        y += 28.0f;
+    }
+}
+
 // Loads the requested data into runtime state.
 bool UiImage::LoadTextureFromFile(const std::string& path)
 {
@@ -1661,16 +1879,8 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y),
             static_cast<float>(contentW),
             static_cast<float>(bottom - y - destroyButton.size.y - margin)};
-        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset, building);
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 5, &contentScrollOffset, &maxContentScrollOffset, building, &contentScrollbarDragging, &contentScrollbarDragOffset);
         contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
-        if (maxContentScrollOffset > 0.0f)
-        {
-            Rectangle track{grid.x + grid.width - 5.0f, grid.y, 4.0f, grid.height};
-            DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
-            float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxContentScrollOffset)));
-            float thumbY = track.y + (track.height - thumbH) * (contentScrollOffset / maxContentScrollOffset);
-            DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
-        }
         drawDestroyButton(); // no-op: Headquarters::CanBeManuallyDestroyed() == false
         DrawPendingTooltip();
         return;
@@ -1711,7 +1921,7 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y),
             static_cast<float>(contentW),
             static_cast<float>(bottom - y - destroyButton.size.y - margin)};
-        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4);
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, nullptr);
         drawDestroyButton();
         DrawPendingTooltip();
         return;
@@ -1840,16 +2050,8 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y),
             static_cast<float>(contentW),
             static_cast<float>(bottom - y - destroyButton.size.y - margin)};
-        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 4, contentScrollOffset, &maxContentScrollOffset, building);
+        DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 5, &contentScrollOffset, &maxContentScrollOffset, building, &contentScrollbarDragging, &contentScrollbarDragOffset);
         contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
-        if (maxContentScrollOffset > 0.0f)
-        {
-            Rectangle track{grid.x + grid.width - 5.0f, grid.y, 4.0f, grid.height};
-            DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
-            float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxContentScrollOffset)));
-            float thumbY = track.y + (track.height - thumbH) * (contentScrollOffset / maxContentScrollOffset);
-            DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
-        }
         drawDestroyButton();
         DrawPendingTooltip();
         return;
@@ -1857,19 +2059,20 @@ void GuiPanel::Update(double dt)
 
     if (building->HasComponent<RoadComponent>())
     {
-        auto* road = static_cast<Road*>(building);
+        auto* road = building->GetComponent<RoadComponent>();
+        auto* upgrade = building->GetComponent<UpgradeComponent>();
         UiText::Draw("Transport", contentX, y, 22, Color{224, 204, 168, 255});
         y += 30;
 
-        if (road != nullptr)
+        if (road != nullptr && upgrade != nullptr)
         {
-            int used = static_cast<int>(road->transportables.size());
+            int used = static_cast<int>(building->transportables.size());
             std::vector<std::string> stats{
-                "Capacity: " + std::to_string(used) + "/" + std::to_string(road->GetModifiedMaxCapacity()),
-                "Speed: x" + std::to_string(static_cast<int>(road->GetModifiedSpeedModifier() * 100.0)) + "%",
-                "Upgrade level: " + std::to_string(road->upgrade.level) + "/" + std::to_string(road->upgrade.maxLevel)};
-            if (road->upgrade.isUpgrading)
-                stats.push_back("Upgrading: " + std::to_string(static_cast<int>(std::ceil(road->upgrade.upgradeRemaining))) + "s left");
+                "Capacity: " + std::to_string(used) + "/" + std::to_string(road->GetModifiedMaxCapacity(*building)),
+                "Speed: x" + std::to_string(static_cast<int>(road->GetModifiedSpeedModifier(*building) * 100.0)) + "%",
+                "Upgrade level: " + std::to_string(upgrade->level) + "/" + std::to_string(upgrade->maxLevel)};
+            if (upgrade->isUpgrading)
+                stats.push_back("Upgrading: " + std::to_string(static_cast<int>(std::ceil(upgrade->upgradeRemaining))) + "s left");
 
             for (const auto& stat : stats)
             {
@@ -1881,16 +2084,16 @@ void GuiPanel::Update(double dt)
             // (UpgradeComponent never touches constructionRemaining, see
             // GameWorld.Commands.cpp), so this button only disappears once
             // maxed out, never while mid-upgrade elsewhere on the road.
-            if (!road->upgrade.isUpgrading && road->upgrade.level < road->upgrade.maxLevel)
+            if (!upgrade->isUpgrading && upgrade->level < upgrade->maxLevel)
             {
-                const auto& definition = GetBuildingDefinition(road->buildingType);
-                int targetLevel = road->upgrade.level + 1;
+                const auto& definition = GetBuildingDefinition(building->buildingType);
+                int targetLevel = upgrade->level + 1;
                 auto levelIt = std::find_if(definition.upgradeLevels.begin(), definition.upgradeLevels.end(),
                     [&](const BuildingUpgradeLevelDefinition& d) { return d.level == targetLevel; });
 
                 if (levelIt != definition.upgradeLevels.end())
                 {
-                    Building* self = road;
+                    Building* self = building;
                     GameScene* panelScene = scene;
                     Rectangle upgradeRect{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 32.0f};
                     UiButton upgradeButton;
@@ -1938,7 +2141,7 @@ void GuiPanel::Update(double dt)
             UiText::Draw("Resources on road", contentX, y, 20, Color{224, 204, 168, 255});
             y += 26;
 
-            if (road->transportables.empty())
+            if (building->transportables.empty())
             {
                 DrawTextFit("No active transports", Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, UiTheme::ParchmentDim);
                 drawDestroyButton();
@@ -1946,7 +2149,7 @@ void GuiPanel::Update(double dt)
             }
 
             int rowH = 42;
-            for (auto* transportable : road->transportables)
+            for (auto* transportable : building->transportables)
             {
                 if (y + rowH > bottom - destroyButton.size.y - margin)
                     break;
@@ -2074,8 +2277,8 @@ void GuiPanel::Update(double dt)
         static_cast<float>(y),
         static_cast<float>(columnW),
         static_cast<float>(resourcesH - headerH)};
-    DrawResourceIconGrid(building->GetInputBufferViews(), inputGrid, 3);
-    DrawResourceIconGrid(building->GetOutputBufferViews(), outputGrid, 3);
+    DrawResourceIconGrid(building->GetInputBufferViews(), inputGrid, 3, nullptr);
+    DrawResourceIconGrid(building->GetOutputBufferViews(), outputGrid, 3, nullptr);
 
     y = static_cast<int>(inputGrid.y + inputGrid.height + margin);
     progressBar.pos = Vec2i{contentX, y};
@@ -2171,7 +2374,21 @@ void GuiPanel::Update(double dt)
             static_cast<float>(y + row * statLine),
             static_cast<float>(statColumnW),
             static_cast<float>(statLine)};
-        DrawTextFit(stats[i], statBounds, statLine - 3, UiTheme::Parchment);
+        const bool highlight = tutorialHighlight &&
+            (stats[i].rfind("Workers:", 0) == 0 ||
+             stats[i].rfind("Worker output:", 0) == 0 ||
+             stats[i].rfind("Food productivity:", 0) == 0);
+        if (highlight)
+        {
+            const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.5f);
+            DrawRectangleRounded(statBounds, 0.12f, 6,
+                                 Color{184, 132, 48, static_cast<unsigned char>(42.0f + pulse * 44.0f)});
+            DrawRectangleRoundedLines(statBounds, 0.12f, 6, 1.0f + pulse * 1.2f,
+                                      Color{UiTheme::Gold.r, UiTheme::Gold.g, UiTheme::Gold.b,
+                                            static_cast<unsigned char>(160.0f + pulse * 95.0f)});
+        }
+        DrawTextFit(stats[i], statBounds, statLine - 3,
+                    highlight ? UiTheme::Gold : UiTheme::Parchment);
     }
 
     if (panelRecipes != nullptr && panelRecipes->HasSelectableRecipes())
@@ -2254,10 +2471,13 @@ void GuiPanel::UpdateSize(Vec2i windowSize)
 // Updates the requested state value.
 void GuiPanel::SetBuilding(Building* ptr)
 {
+    tutorialHighlight = false;
     building = ptr;
     destroyRequested = false;
     contentScrollOffset = 0.0f;
     maxContentScrollOffset = 0.0f;
+    contentScrollbarDragging = false;
+    contentScrollbarDragOffset = 0.0f;
     ChangeText(building != nullptr ? building->name : "Gui Panel");
     UpdateSize({GetScreenWidth(), GetScreenHeight()});
 }

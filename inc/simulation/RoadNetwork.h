@@ -34,11 +34,15 @@ class RoadNetwork
 
     RoadNetwork() = delete;
     RoadNetwork(TileMap&);
+    ~RoadNetwork();
 
     // Advances road network state.
     void Update(double);
     // Starts a resource transport if a valid path exists.
     bool BeginTransport(Building* src, Building* dest, Transportable* res);
+    // Removes a completed/cancelled transport from the world-owned registry.
+    void ReleaseShipment(Transportable* transportable);
+    std::size_t GetLiveShipmentCount() const { return activeShipments.size(); }
     // Registers a building or road in the navigation map.
     void UpdateNavMap(int id, Building* bld);
     // Calculates a tile-id path between two building footprints.
@@ -71,6 +75,8 @@ class RoadNetwork
         // topology change (UpdateNavMap — fires on every build/destroy).
         // Purely a performance memo: identical inputs, identical BFS result.
         std::map<std::pair<int, int>, std::vector<int>> pathCache;
+        std::map<ShipmentId, Transportable*> activeShipments;
+        ShipmentId nextShipmentId{1};
 };
 
 #endif

@@ -80,6 +80,15 @@ public:
         return dataTracker.CountBuildings(type, completedOnly);
     }
 
+    std::size_t GetLiveShipmentCount() const
+    {
+        return roadNetwork != nullptr ? roadNetwork->GetLiveShipmentCount() : 0;
+    }
+
+    // Read-only access for routing diagnostics and tutorial milestones. The
+    // graph is still mutated only by simulation-side building commands.
+    RoadNetwork* GetRoadNetwork() const { return roadNetwork.get(); }
+
     // Returns how many accepted commands of a given type were processed.
     int GetAcceptedCommandCount(GameCommandType type) const
     {

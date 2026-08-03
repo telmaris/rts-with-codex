@@ -9,12 +9,63 @@
 
 namespace
 {
-    bool fogOfWarPreferenceEnabled = false;
+    bool fogOfWarPreferenceEnabled = true;
     bool colorGradingPreferenceEnabled = true;
-    bool retroFilterPreferenceEnabled = false;
-    bool localLightBloomPreferenceEnabled = false;
+    bool retroFilterPreferenceEnabled = true;
+    bool localLightBloomPreferenceEnabled = true;
     bool rainOverlayPreferenceEnabled = false;
     bool logisticsOverlayPreferenceEnabled = false;
+
+    // Terrain is composed from individual TILE_SIZE-square quads. Keeping a
+    // tile an integral number of render pixels wide prevents adjacent quads
+    // from falling on opposite sides of a pixel when zoomed out.
+    float SnapZoomToTileGrid(float zoom)
+    {
+        const float pixelsPerTile = std::max(1.0f,
+            std::round(zoom * static_cast<float>(TILE_SIZE)));
+        return pixelsPerTile / static_cast<float>(TILE_SIZE);
+    }
+
+    void SnapCameraTargetToRenderPixels(Camera2D& camera)
+    {
+        if (camera.zoom <= 0.0f)
+            return;
+
+        camera.target.x = std::round(camera.target.x * camera.zoom) / camera.zoom;
+        camera.target.y = std::round(camera.target.y * camera.zoom) / camera.zoom;
+    }
+
+    // Bakery smoke is deliberately a separate visual effect instead of an
+    // animated sprite sheet: the building remains completely stable while
+    // only the smoke rises and disperses above its chimney.
+    void DrawBakerySmoke(Vec2f position, Vec2i footprint, float elapsedTime)
+    {
+        const float width = static_cast<float>(footprint.x * TILE_SIZE);
+        const float height = static_cast<float>(footprint.y * TILE_SIZE);
+        const float chimneyX = position.x + width * 0.76f;
+        const float chimneyY = RENDER_HEIGHT - position.y - height * 0.86f;
+        constexpr float SmokeCycleSeconds = 2.4f;
+        const float phaseOffset = std::fmod(position.x * 0.0031f + position.y * 0.0017f,
+                                             SmokeCycleSeconds);
+
+        for (int puff = 0; puff < 3; ++puff)
+        {
+            float age = std::fmod(elapsedTime + phaseOffset + puff * 0.72f,
+                                  SmokeCycleSeconds) / SmokeCycleSeconds;
+            if (age < 0.0f)
+                age += 1.0f;
+
+            const float drift = std::sin((age + static_cast<float>(puff) * 0.31f) * 5.2f) *
+                                (2.0f + age * 4.0f);
+            const float x = chimneyX + drift;
+            const float y = chimneyY - 3.0f - age * 30.0f;
+            const float radius = 3.0f + age * 5.0f;
+            const float fade = 1.0f - age;
+            const unsigned char alpha = static_cast<unsigned char>(42.0f + fade * 68.0f);
+            DrawCircleGradient(static_cast<int>(std::round(x)), static_cast<int>(std::round(y)), radius,
+                               Color{196, 202, 212, alpha}, Color{156, 165, 178, 0});
+        }
+    }
 
     void DrawDamageFlashOverlay(Vec2f position, Vec2i footprint, float remainingSeconds)
     {
@@ -185,6 +236,11 @@ void CanvasLayer::Shutdown()
 void TextureAtlas::LoadTextureAtlas(const char* path, Vec2i tileSize)
 {
     tex = LoadTexture(path);
+    // World atlases contain neighbouring, unrelated cells. Point sampling
+    // keeps their pixel-art edges discrete instead of blending from a
+    // neighbour while the map is minified.
+    if (tex.id != 0)
+        SetTextureFilter(tex, TEXTURE_FILTER_POINT);
     size = tileSize;
     dim = {tex.width / size.x, tex.height / size.y};
 
@@ -267,7 +323,12 @@ bool Renderer::InitializeWorldLayers()
         return false;
     }
 
-    lightMap.Initialize(RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
+    // Keep the light buffer at the same resolution as the world composite.
+    // When this was half-resolution, the additive falloff was resampled at a
+    // different pixel grid from the building sprite.  A light could therefore
+    // look brighter or dimmer after a small pan/zoom even though neither its
+    // world position nor intensity had changed.
+    lightMap.Initialize(RENDER_WIDTH, RENDER_HEIGHT);
     if (!lightMap.IsInitialized())
     {
         Log::Msg("[Renderer] Failed to allocate the light map target.");
@@ -476,23 +537,36 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
     switch (type)
     {
         case BuildingType::Foundry:
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.70f, pos.y + footprint.y * TILE_SIZE * 0.60f},
-                     Color{255, 126, 48, 255}, 304.0f, 2.60f, 0.70f, 0.10f, stableId, 30};
+            // The furnace itself is animated and brightly coloured. Anchor
+            // the environmental glow at the chimney instead, so the sprite's
+            // coloured work area is not mistaken for a flashing light source.
+            light = {{pos.x + footprint.x * TILE_SIZE * 0.49f, pos.y + footprint.y * TILE_SIZE * 0.86f},
+                     Color{255, 164, 88, 255}, 272.0f, 1.75f, 0.70f, 0.0f, stableId, 30};
             break;
         case BuildingType::Smith:
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.62f, pos.y + footprint.y * TILE_SIZE * 0.58f},
-                     Color{255, 151, 64, 255}, 240.0f, 2.00f, 0.68f, 0.08f, stableId, 20};
+            // The smithy is entered from the lower facade; keep the glow at
+            // that doorway rather than on the team-coloured roof details.
+            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f, pos.y + footprint.y * TILE_SIZE * 0.22f},
+                     Color{255, 184, 112, 255}, 208.0f, 1.30f, 0.68f, 0.0f, stableId, 20};
             break;
         case BuildingType::Inn:
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f, pos.y + footprint.y * TILE_SIZE * 0.60f},
-                     Color{255, 184, 92, 255}, 208.0f, 1.55f, 0.65f, 0.05f, stableId, 10};
+            // A warm inn light reads as lamplight from the upper chimney,
+            // not as an emission from its painted trim.
+            light = {{pos.x + footprint.x * TILE_SIZE * 0.76f, pos.y + footprint.y * TILE_SIZE * 0.86f},
+                     Color{255, 196, 126, 255}, 192.0f, 1.10f, 0.65f, 0.0f, stableId, 10};
             break;
         default:
         {
-            float largestDimension = static_cast<float>(std::max(footprint.x, footprint.y));
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f, pos.y + footprint.y * TILE_SIZE * 0.58f},
-                     Color{255, 196, 110, 255}, 96.0f + largestDimension * 40.0f,
-                     0.82f, 0.64f, 0.04f, stableId, 5};
+            // Every finished building needs a small, steady night-time pool
+            // of light so it remains legible. This is an environmental
+            // fill/light from its occupied plot, not an emissive sample of
+            // any coloured sprite pixel, so painted roofs and trims cannot
+            // start appearing to blink.
+            const float largestDimension = static_cast<float>(std::max(footprint.x, footprint.y));
+            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f,
+                      pos.y + footprint.y * TILE_SIZE * 0.54f},
+                     Color{255, 200, 132, 255}, 96.0f + largestDimension * 40.0f,
+                     0.90f, 0.64f, 0.0f, stableId, 5};
             break;
         }
     }
@@ -536,7 +610,9 @@ void Renderer::DrawLightMap(const WorldLightingFrame& lighting)
             float color[4]{light.color.r / 255.0f, light.color.g / 255.0f, light.color.b / 255.0f, 1.0f};
             float intensity = light.intensity * lighting.localLightVisibility * flicker;
             float stablePhase = static_cast<float>(light.stableId) * 0.6180339f;
-            float animationAmount = 0.75f + std::clamp(light.flickerAmount, 0.0f, 1.0f) * 2.0f;
+            // Buildings are deliberately steady. Only explicitly flickering
+            // emitters (currently projectiles) animate their radial edge.
+            float animationAmount = std::clamp(light.flickerAmount, 0.0f, 1.0f) * 2.0f;
             if (colorLocation >= 0)
                 SetShaderValue(*radialLightShader, colorLocation, color, SHADER_UNIFORM_VEC4);
             if (intensityLocation >= 0)
@@ -675,13 +751,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         Rectangle layerSource{0.0f, 0.0f, static_cast<float>(RENDER_WIDTH), -static_cast<float>(RENDER_HEIGHT)};
         Rectangle layerDestination{0.0f, 0.0f, static_cast<float>(RENDER_WIDTH), static_cast<float>(RENDER_HEIGHT)};
         for (std::size_t index = 0; index < layers.size(); ++index)
-        {
-            // Military tracks need a stricter fog threshold than terrain so
-            // their ring topology cannot reveal an enemy HQ through fog.
-            if (renderSettings.fogOfWar && index == ToLayerIndex(WorldRenderLayer::MilitaryRoads))
-                continue;
             DrawTexturePro(layers[index].fbo.texture, layerSource, layerDestination, {0.0f, 0.0f}, 0.0f, WHITE);
-        }
         EndTextureMode();
 
         Texture2D presentedWorld = worldComposite.fbo.texture;
@@ -764,24 +834,6 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             EndTextureMode();
             presentedWorld = foggedWorld.fbo.texture;
 
-            // Draw the military-road layer after fogging the rest of the
-            // world. The dedicated pass discards it unless its mask pixel is
-            // fully revealed; normal terrain can still fade smoothly.
-            const Shader* fogRoadShader = shaderLibrary.Find(ShaderId::FogRoad);
-            if (fogRoadShader != nullptr)
-            {
-                BeginTextureMode(foggedWorld.fbo);
-                BeginBlendMode(BLEND_ALPHA);
-                BeginShaderMode(*fogRoadShader);
-                int fogMaskLocation = shaderLibrary.GetLocation(ShaderId::FogRoad, "fogMask");
-                if (fogMaskLocation >= 0)
-                    SetShaderValueTexture(*fogRoadShader, fogMaskLocation, fogMask.fbo.texture);
-                DrawTexturePro(layers[ToLayerIndex(WorldRenderLayer::MilitaryRoads)].fbo.texture,
-                               layerSource, layerDestination, {0.0f, 0.0f}, 0.0f, WHITE);
-                EndShaderMode();
-                EndBlendMode();
-                EndTextureMode();
-            }
         }
 
         const Shader* postProcessShader =
@@ -952,6 +1004,20 @@ void Renderer::DrawAtlasTile(int atlas, int tex, Vec2f pos, Vec2f drawSize)
     src.height *= -1.0;
 
     Rectangle dest = {pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
+    if (atlas == 0 && camera.zoom > 0.0f)
+    {
+        // At a distant zoom a tile can cover only a few render pixels. Two
+        // adjacent quads may then round to neighbouring pixel columns/rows
+        // and leave a transparent (black after composition) seam between
+        // them. Extend only the right and top edges by one render pixel. The
+        // next tile is drawn later and owns the overlap, so this closes the
+        // raster gap without shifting the tile grid or changing atlas
+        // sampling. Resource overlays deliberately do not use this because
+        // their transparent edges must not spill into neighbouring tiles.
+        const float renderPixelInWorld = 1.0f / camera.zoom;
+        dest.width += renderPixelInWorld;
+        dest.height += renderPixelInWorld;
+    }
     DrawTexturePro(at.tex, src, dest, {0,0}, 0, WHITE);
 }
 
@@ -977,7 +1043,45 @@ void Renderer::LoadBuildingTexture(BuildingType type, const std::string& path)
 
     Texture2D texture = LoadTexture(path.c_str());
     if (texture.id != 0)
+    {
+        // Building sprites are sampled directly by the team-colour shader.
+        // Point filtering is required for pixel art and prevents subpixel
+        // camera movement from blending neighbouring pixels or animation
+        // frames into a shimmering/floating silhouette.
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
         buildingTextures[type] = texture;
+    }
+}
+
+Rectangle Renderer::GetBuildingTextureFirstFrameSource(BuildingType type) const
+{
+    if (IsRoadLike(type))
+    {
+        auto atlasIt = atlasMap.find(19);
+        if (atlasIt != atlasMap.end())
+        {
+            const TextureAtlas& atlas = atlasIt->second;
+            const int tileId = type == BuildingType::Bridge ? 16 : 0;
+            const int clampedId = std::clamp(tileId, 0, std::max(0, atlas.dim.x * atlas.dim.y - 1));
+            return {static_cast<float>((clampedId % atlas.dim.x) * atlas.size.x),
+                    static_cast<float>((clampedId / atlas.dim.x) * atlas.size.y),
+                    static_cast<float>(atlas.size.x), static_cast<float>(atlas.size.y)};
+        }
+    }
+
+    auto textureIt = buildingTextures.find(type);
+    if (textureIt == buildingTextures.end() || textureIt->second.id == 0)
+        return {};
+
+    const Texture2D& texture = textureIt->second;
+    float frameWidth = static_cast<float>(texture.width);
+    float frameHeight = static_cast<float>(texture.height);
+    auto animationIt = buildingAnimations.find(type);
+    if (animationIt != buildingAnimations.end() && animationIt->second.frameCount > 1)
+    {
+        frameWidth = texture.width / static_cast<float>(animationIt->second.frameCount);
+    }
+    return {0.0f, 0.0f, frameWidth, frameHeight};
 }
 
 void Renderer::RegisterBuildingAnimation(BuildingType type, const AnimationClip& clip)
@@ -987,6 +1091,11 @@ void Renderer::RegisterBuildingAnimation(BuildingType type, const AnimationClip&
 
 bool Renderer::HasBuildingAnimation(BuildingType type) const
 {
+    // The Bakery is redrawn for its procedural chimney smoke even though its
+    // base sprite is static; this prevents roof or wall flicker.
+    if (type == BuildingType::Bakery)
+        return true;
+
     const auto it = buildingAnimations.find(type);
     return it != buildingAnimations.end() && it->second.frameCount > 1;
 }
@@ -1094,6 +1203,8 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
     auto textureIt = buildingTextures.find(type);
     if (animIt == buildingAnimations.end() || animIt->second.frameCount <= 1 || textureIt == buildingTextures.end())
     {
+        if (type == BuildingType::Bakery && tint.r == 255 && tint.g == 255 && tint.b == 255)
+            DrawBakerySmoke(pos, footprint, elapsedTime);
         DrawBuildingTexture(type, footprint, pos, tint, ownerColor, applyTeamColor);
         return;
     }
@@ -1177,6 +1288,21 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
     }
     EndLayer();
 
+    ClearLayer(WorldRenderLayer::ResourceOverlays);
+    BeginLayer(WorldRenderLayer::ResourceOverlays);
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            if (tile.resourceOverlayTextureId < 0)
+                continue;
+            DrawAtlasTile(41, tile.resourceOverlayTextureId,
+                          {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+        }
+    }
+    EndLayer();
+
     ClearLayer(WorldRenderLayer::MilitaryRoads);
     BeginLayer(WorldRenderLayer::MilitaryRoads);
     for (int x = minTileX; x <= maxTileX; x++)
@@ -1184,9 +1310,26 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
         for (int y = minTileY; y <= maxTileY; y++)
         {
             const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            // Keep the track in the normal world layer order so static bridge
+            // sprites render above it and dynamic objects (units/projectiles)
+            // render above both. A Bridge replaces neither the track flag nor
+            // the track texture; it only adds its sprite on StaticObjects.
             if (tile.isMilitaryRoad)
-                DrawRectangle(x * TILE_SIZE, RENDER_HEIGHT - TILE_SIZE - y * TILE_SIZE,
-                              TILE_SIZE, TILE_SIZE, Color{139, 90, 43, 150});
+            {
+                const auto isTrackAt = [&](int checkX, int checkY)
+                {
+                    if (checkX < 0 || checkY < 0 || checkX >= snapshot.mapSize.x || checkY >= snapshot.mapSize.y)
+                        return false;
+                    return snapshot.tiles[static_cast<size_t>(checkY * snapshot.mapSize.x + checkX)].isMilitaryRoad;
+                };
+                int mask = 0;
+                if (isTrackAt(x - 1, y)) mask |= 1;
+                if (isTrackAt(x + 1, y)) mask |= 2;
+                if (isTrackAt(x, y - 1)) mask |= 4;
+                if (isTrackAt(x, y + 1)) mask |= 8;
+                DrawMilitaryRoadTexture(
+                    {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)}, mask);
+            }
         }
     }
     EndLayer();
@@ -1245,18 +1388,18 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
                 const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
                 if (!tile.hasBuilding || !IsRoadLike(tile.buildingType))
                     continue;
-                const auto isRoadAt = [&](int checkX, int checkY)
+                const auto isConnectionAt = [&](int checkX, int checkY)
                 {
                     if (checkX < 0 || checkY < 0 || checkX >= snapshot.mapSize.x || checkY >= snapshot.mapSize.y)
                         return false;
                     const auto& neighbor = snapshot.tiles[static_cast<size_t>(checkY * snapshot.mapSize.x + checkX)];
-                    return neighbor.hasBuilding && IsRoadLike(neighbor.buildingType);
+                    return neighbor.hasBuilding;
                 };
                 DrawRoadUtilizationOverlay(
                     {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)},
                     tile.roadUtilization,
-                    isRoadAt(x - 1, y), isRoadAt(x + 1, y),
-                    isRoadAt(x, y - 1), isRoadAt(x, y + 1));
+                    isConnectionAt(x - 1, y), isConnectionAt(x + 1, y),
+                    isConnectionAt(x, y - 1), isConnectionAt(x, y + 1));
             }
         }
         EndLayer();
@@ -1283,8 +1426,27 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
             // selection still advances strictly left-to-right through the strip.
             constexpr float SimulationTickSeconds = 0.01f;
             const float elapsedTime = static_cast<float>(snapshot.simulationTick) * SimulationTickSeconds;
-            DrawBuildingTexture(tile.buildingType, tile.buildingFootprint, pos, tint, elapsedTime,
-                                ownerColor, hasOwner);
+            if (IsRoadLike(tile.buildingType))
+            {
+                const auto isConnectionAt = [&](int checkX, int checkY)
+                {
+                    if (checkX < 0 || checkY < 0 || checkX >= snapshot.mapSize.x || checkY >= snapshot.mapSize.y)
+                        return false;
+                    const auto& neighbour = snapshot.tiles[static_cast<size_t>(checkY * snapshot.mapSize.x + checkX)];
+                    return neighbour.hasBuilding;
+                };
+                int mask = 0;
+                if (isConnectionAt(x - 1, y)) mask |= 1;
+                if (isConnectionAt(x + 1, y)) mask |= 2;
+                if (isConnectionAt(x, y - 1)) mask |= 4;
+                if (isConnectionAt(x, y + 1)) mask |= 8;
+                DrawRoadTexture(tile.buildingType, pos, mask, tint);
+            }
+            else
+            {
+                DrawBuildingTexture(tile.buildingType, tile.buildingFootprint, pos, tint, elapsedTime,
+                                    ownerColor, hasOwner);
+            }
         }
     }
     EndLayer();
@@ -1389,8 +1551,12 @@ void Renderer::ClampCameraToMap(Vec2i mapSize)
 
     float topRenderPadding = ScreenTopPaddingToRender(topScreenPadding);
     float usableRenderHeight = std::max(1.0f, static_cast<float>(RENDER_HEIGHT) - topRenderPadding);
-    float minZoom = std::max(RENDER_WIDTH / mapW, usableRenderHeight / mapH);
-    camera.zoom = std::clamp(camera.zoom, minZoom, 2.5f);
+    const float minZoom = std::max(RENDER_WIDTH / mapW, usableRenderHeight / mapH);
+    constexpr float MaxZoom = 2.5f;
+    // Round the lower bound upward so snapping never reveals outside the map.
+    const float tileAlignedMinZoom = std::ceil(minZoom * TILE_SIZE) / TILE_SIZE;
+    const float effectiveMinZoom = std::min(tileAlignedMinZoom, MaxZoom);
+    camera.zoom = std::clamp(SnapZoomToTileGrid(camera.zoom), effectiveMinZoom, MaxZoom);
 
     float visibleW = RENDER_WIDTH / camera.zoom;
     float visibleH = usableRenderHeight / camera.zoom;
@@ -1400,6 +1566,77 @@ void Renderer::ClampCameraToMap(Vec2i mapSize)
 
     camera.target.x = std::clamp(camera.target.x, 0.0f, maxX);
     camera.target.y = std::clamp(camera.target.y, minY, maxY);
+    SnapCameraTargetToRenderPixels(camera);
+    // Snapping can cross a clamped map edge by less than one screen pixel.
+    camera.target.x = std::clamp(camera.target.x, 0.0f, maxX);
+    camera.target.y = std::clamp(camera.target.y, minY, maxY);
+}
+
+void Renderer::DrawRoadTexture(BuildingType type, Vec2f pos, int connectionMask, Color tint)
+{
+    connectionMask &= 0x0F;
+    int atlasId = 19;
+    int tileId = (type == BuildingType::Bridge ? 16 : 0) + connectionMask;
+    if (type == BuildingType::Road && atlasMap.contains(145))
+    {
+        const int tileX = static_cast<int>(std::floor(pos.x / TILE_SIZE));
+        const int tileY = static_cast<int>(std::floor(pos.y / TILE_SIZE));
+        const unsigned int hash =
+            static_cast<unsigned int>(tileX) * 73856093u ^
+            static_cast<unsigned int>(tileY) * 19349663u ^
+            static_cast<unsigned int>(connectionMask) * 83492791u;
+        atlasId = 145;
+        tileId = static_cast<int>(hash % 3u) * 16 + connectionMask;
+    }
+
+    auto atlasIt = atlasMap.find(atlasId);
+    if (atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    {
+        DrawRectangle(static_cast<int>(pos.x), RENDER_HEIGHT - TILE_SIZE - static_cast<int>(pos.y),
+                      TILE_SIZE, TILE_SIZE, Color{112, 78, 48, tint.a});
+        return;
+    }
+
+    TextureAtlas& atlas = atlasIt->second;
+    Rectangle source = atlas.GetRectFromId(tileId);
+    source.height *= -1.0f;
+    Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
+                          static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
+    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, tint);
+}
+
+void Renderer::DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint)
+{
+    constexpr int MilitaryRoadAtlasId = 144;
+    connectionMask &= 0x0F;
+    int atlasId = MilitaryRoadAtlasId;
+    int tileId = connectionMask;
+    if (atlasMap.contains(146))
+    {
+        const int tileX = static_cast<int>(std::floor(pos.x / TILE_SIZE));
+        const int tileY = static_cast<int>(std::floor(pos.y / TILE_SIZE));
+        const unsigned int hash =
+            static_cast<unsigned int>(tileX) * 73856093u ^
+            static_cast<unsigned int>(tileY) * 19349663u ^
+            static_cast<unsigned int>(connectionMask) * 83492791u;
+        atlasId = 146;
+        tileId = static_cast<int>(hash % 3u) * 16 + connectionMask;
+    }
+
+    auto atlasIt = atlasMap.find(atlasId);
+    if (atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    {
+        DrawRectangle(static_cast<int>(pos.x), RENDER_HEIGHT - TILE_SIZE - static_cast<int>(pos.y),
+                      TILE_SIZE, TILE_SIZE, Color{190, 178, 151, tint.a});
+        return;
+    }
+
+    TextureAtlas& atlas = atlasIt->second;
+    Rectangle source = atlas.GetRectFromId(tileId);
+    source.height *= -1.0f;
+    Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
+                          static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
+    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, tint);
 }
 
 void Renderer::SetTopScreenPadding(float padding)

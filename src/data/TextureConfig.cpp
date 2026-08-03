@@ -103,7 +103,7 @@ const TextureAtlasDefinition* TextureConfig::FindAtlasByPath(const std::string& 
 
 bool TextureConfig::IsEmpty() const
 {
-    return atlases.empty() && terrain.empty() && buildings.empty() && resources.empty();
+    return atlases.empty() && terrain.empty() && resourceOverlays.empty() && buildings.empty() && resources.empty();
 }
 
 TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
@@ -124,10 +124,11 @@ TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
 
     RtsDataLines lines = ReadRtsDataLines(path);
 
-    enum class Block { None, Terrain, Building, Resource };
+    enum class Block { None, Terrain, ResourceOverlay, Building, Resource };
     Block block = Block::None;
 
     TerrainTextureDefinition terrain;
+    ResourceOverlayTextureDefinition resourceOverlay;
     BuildingTextureDefinition building;
     ResourceTextureDefinition resource;
 
@@ -140,6 +141,7 @@ TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
             switch (block)
             {
                 case Block::Terrain: config.terrain.push_back(terrain); break;
+                case Block::ResourceOverlay: config.resourceOverlays.push_back(resourceOverlay); break;
                 case Block::Building: config.buildings.push_back(building); break;
                 case Block::Resource: config.resources.push_back(resource); break;
                 case Block::None: break;
@@ -180,6 +182,12 @@ TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
                 building.buildingType = tokens[1];
                 block = Block::Building;
             }
+            else if (command == "resource_overlay" && tokens.size() >= 2)
+            {
+                resourceOverlay = ResourceOverlayTextureDefinition{};
+                resourceOverlay.tileType = tokens[1];
+                block = Block::ResourceOverlay;
+            }
             else if (command == "resource" && tokens.size() >= 2)
             {
                 resource = ResourceTextureDefinition{};
@@ -195,6 +203,14 @@ TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
             variant.texture = ParseRef(tokens);
             variant.weight = IntValue(tokens, "weight", 1);
             terrain.variants.push_back(variant);
+        }
+        else if (block == Block::ResourceOverlay && command == "variant")
+        {
+            ResourceOverlayVariantDefinition variant;
+            variant.texture = ParseRef(tokens);
+            variant.weight = IntValue(tokens, "weight", 1);
+            variant.edge = HasFlag(tokens, "edge");
+            resourceOverlay.variants.push_back(variant);
         }
         else if (block == Block::Building && command == "sprite")
         {
@@ -246,6 +262,21 @@ std::string FormatTextureConfig(const TextureConfig& config)
             out << "    variant atlas " << variant.texture.atlasId
                 << " texture " << variant.texture.textureId
                 << " weight " << variant.weight << '\n';
+        }
+        out << "end\n\n";
+    }
+
+    for (const auto& overlay : config.resourceOverlays)
+    {
+        out << "resource_overlay " << overlay.tileType << '\n';
+        for (const auto& variant : overlay.variants)
+        {
+            out << "    variant atlas " << variant.texture.atlasId
+                << " texture " << variant.texture.textureId
+                << " weight " << variant.weight;
+            if (variant.edge)
+                out << " edge";
+            out << '\n';
         }
         out << "end\n\n";
     }
@@ -334,6 +365,23 @@ bool TextureConfigEquals(const TextureConfig& a, const TextureConfig& b, std::st
             if (!(a.terrain[i].variants[v].texture == b.terrain[i].variants[v].texture) ||
                 a.terrain[i].variants[v].weight != b.terrain[i].variants[v].weight)
                 return fail("variant " + std::to_string(v) + " of " + a.terrain[i].tileType);
+        }
+    }
+
+    if (a.resourceOverlays.size() != b.resourceOverlays.size())
+        return fail("resource overlay count");
+    for (size_t i = 0; i < a.resourceOverlays.size(); i++)
+    {
+        if (a.resourceOverlays[i].tileType != b.resourceOverlays[i].tileType)
+            return fail("resource overlay order/name at " + std::to_string(i));
+        if (a.resourceOverlays[i].variants.size() != b.resourceOverlays[i].variants.size())
+            return fail("resource overlay variant count for " + a.resourceOverlays[i].tileType);
+        for (size_t v = 0; v < a.resourceOverlays[i].variants.size(); v++)
+        {
+            const auto& left = a.resourceOverlays[i].variants[v];
+            const auto& right = b.resourceOverlays[i].variants[v];
+            if (!(left.texture == right.texture) || left.weight != right.weight || left.edge != right.edge)
+                return fail("resource overlay variant " + std::to_string(v) + " of " + a.resourceOverlays[i].tileType);
         }
     }
 

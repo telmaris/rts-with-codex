@@ -72,7 +72,7 @@ enum class BuildingType : int
     Ropery = 56,
     Weaver = 57,
     Bowyer = 58,
-    Fletchery = 59,
+    ReservedBuilding59 = 59,
     SpearWorkshop = 60,
     SiegeWorkshop = 61
 };
@@ -142,7 +142,7 @@ class Building
 public:
     Building() = default;
     Building(int i) : id(i) {}
-    virtual ~Building() = default;
+    virtual ~Building();
 
     // Default tick: advances construction/lifetime, runs every component's
     // Update in registration order, then advances in-flight transportables.
@@ -335,6 +335,7 @@ public:
     Bridge(int i);
 
     RoadComponent road;
+    UpgradeComponent upgrade;
     int GetModifiedMaxCapacity() const;
     double GetModifiedSpeedModifier() const;
 };

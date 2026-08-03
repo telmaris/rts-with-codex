@@ -1,6 +1,7 @@
 #include "simulation/MapGenerator.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -240,6 +241,7 @@ void MapGenerator::GenerateResourcePatches(TileMap& tilemap, const MapParameters
         patch.maxRadius = std::max(patch.minRadius, static_cast<int>(std::round(patch.maxRadius * sizeScale)));
         GeneratePatch(tilemap, patch, rng);
     }
+    RefreshResourceOverlayEdges(tilemap, rng);
 }
 
 // B3 rework (docs/work_plan_2026-07-13.md + user follow-up 2026-07-14):
@@ -323,16 +325,19 @@ void MapGenerator::GeneratePatch(TileMap& tilemap, const ResourcePatchParameters
                 double dx = x - radius;
                 double dy = y - radius;
                 double distFromCenter = std::sqrt(dx * dx + dy * dy);
+                double patchBoundary = 1.0;
+                double normalizedDistance = 0.0;
 
                 if (dx != 0.0 || dy != 0.0)
                 {
                     double rx = dx * cosR - dy * sinR;
                     double ry = dx * sinR + dy * cosR;
-                    double normalized = std::sqrt((rx * rx) / (majorAxis * majorAxis) + (ry * ry) / (minorAxis * minorAxis));
+                    normalizedDistance = std::sqrt((rx * rx) / (majorAxis * majorAxis) + (ry * ry) / (minorAxis * minorAxis));
                     double angle = std::atan2(ry, rx);
                     double wobble = 1.0 + wobbleA * std::sin(kWobbleLobesA * angle + phaseA)
                                         + wobbleB * std::sin(kWobbleLobesB * angle + phaseB);
-                    if (normalized > wobble)
+                    patchBoundary = wobble;
+                    if (normalizedDistance > patchBoundary)
                         continue;
                 }
 
@@ -351,8 +356,68 @@ void MapGenerator::GeneratePatch(TileMap& tilemap, const ResourcePatchParameters
                 // tapering toward its (already gently undulating) edge.
                 double edgeFalloff = std::clamp(1.0 - 0.3 * (distFromCenter / (majorAxis + 1.0)), 0.7, 1.0);
                 tile.tileType = patch.type;
-                tile.terrainTextureId = tilemap.PickTerrainTexture(patch.type, rng);
+                const bool usesOverlay = tilemap.HasResourceOverlay(patch.type);
+                tile.terrainTextureId = tilemap.PickTerrainTexture(
+                    usesOverlay ? TileType::GRASS : patch.type, rng);
+                tile.resourceOverlayTextureId = usesOverlay
+                    ? tilemap.PickResourceOverlayTexture(patch.type, ResourceOverlayEdgeDirection::None, rng)
+                    : -1;
                 tile.resourceRichness = std::max(1, static_cast<int>(std::round(tilemap.params.resourceRichness * patch.richnessScale * edgeFalloff)));
+            }
+        }
+    }
+}
+
+void MapGenerator::RefreshResourceOverlayEdges(TileMap& tilemap, std::mt19937& rng)
+{
+    const std::array<std::pair<Vec2i, ResourceOverlayEdgeDirection>, 4> neighbors = {{
+        {Vec2i{0, -1}, ResourceOverlayEdgeDirection::North},
+        {Vec2i{1, 0}, ResourceOverlayEdgeDirection::East},
+        {Vec2i{0, 1}, ResourceOverlayEdgeDirection::South},
+        {Vec2i{-1, 0}, ResourceOverlayEdgeDirection::West}
+    }};
+
+    for (int y = 0; y < tilemap.params.sizeY; ++y)
+    {
+        for (int x = 0; x < tilemap.params.sizeX; ++x)
+        {
+            const Vec2i pos{x, y};
+            auto& tile = tilemap[pos];
+            if (!tilemap.HasResourceOverlay(tile.tileType) || tile.resourceRichness <= 0)
+                continue;
+
+            std::vector<ResourceOverlayEdgeDirection> exposedSides;
+            for (const auto& [offset, direction] : neighbors)
+            {
+                const Vec2i adjacent{pos.x + offset.x, pos.y + offset.y};
+                if (!tilemap.IsInside(adjacent) || tilemap[adjacent].tileType != tile.tileType
+                    || tilemap[adjacent].resourceRichness <= 0)
+                {
+                    exposedSides.push_back(direction);
+                }
+            }
+
+            // A diagonal/corner has two exposed sides.  With the current
+            // cardinal atlas, alternate between them instead of forcing every
+            // corner into the same blocky diagonal treatment.
+            ResourceOverlayEdgeDirection edge = ResourceOverlayEdgeDirection::None;
+            if (!exposedSides.empty())
+            {
+                std::uniform_int_distribution<size_t> sideRoll(0, exposedSides.size() - 1);
+                edge = exposedSides[sideRoll(rng)];
+            }
+            // Forest interiors are a contiguous 2x2 canopy pattern, rather
+            // than independently rolled 64px sprites.  This prevents the
+            // pronounced square grid that random dense forest variants create.
+            if (tile.tileType == TileType::WOOD && edge == ResourceOverlayEdgeDirection::None)
+            {
+                const int canopyColumn = x & 1;
+                const int canopyRow = y & 1;
+                tile.resourceOverlayTextureId = 48 + canopyRow * 2 + canopyColumn;
+            }
+            else
+            {
+                tile.resourceOverlayTextureId = tilemap.PickResourceOverlayTexture(tile.tileType, edge, rng);
             }
         }
     }
@@ -378,6 +443,7 @@ void MapGenerator::PrepareStartingArea(TileMap& tilemap, Vec2i hqAnchor, std::mt
             tile.tileType = TileType::GRASS;
             tile.biome = BiomeType::PLAINS;
             tile.terrainTextureId = tilemap.PickTerrainTexture(TileType::GRASS, rng);
+            tile.resourceOverlayTextureId = -1;
             tile.resourceRichness = 0;
         }
     }

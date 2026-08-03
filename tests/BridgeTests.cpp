@@ -82,6 +82,10 @@ TEST(BridgeTests, PlacementRuleIsInvertedExactlyOnTheTrack)
     Building* bridge = player.Build<Bridge>(trackTileId, false);
     ASSERT_NE(bridge, nullptr);
     EXPECT_EQ(bridge->buildingType, BuildingType::Bridge);
+    const auto* upgrade = bridge->GetComponent<UpgradeComponent>();
+    ASSERT_NE(upgrade, nullptr);
+    EXPECT_EQ(upgrade->level, 1);
+    EXPECT_EQ(upgrade->maxLevel, 4);
     EXPECT_TRUE(map.tilemap[trackTileId].isMilitaryRoad)
         << "placing a Bridge must not clear the underlying military-road flag";
 }

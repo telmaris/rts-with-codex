@@ -28,6 +28,8 @@ class IGameRuntimeLoop
         virtual bool IsConnectionClosed() const = 0;
         virtual std::string GetConnectionStatus() const = 0;
         virtual std::recursive_mutex* GetWorldMutex() = 0;
+        virtual void SetPaused(bool paused) = 0;
+        virtual bool IsPaused() const = 0;
 };
 
 // Main menu scene with textured background and primary navigation buttons.
@@ -116,12 +118,15 @@ class NewGameScene : public Scene, public IGuiHandler
         void OnBackPressed();
         // Starts a new generated world.
         void OnStartPressed();
+        // Starts the generated world in the scripted tutorial scene.
+        void OnTutorialPressed();
         // Cycles map size preset.
         void OnSizePressed();
         // Cycles placeholder AI difficulty.
         void OnDifficultyPressed();
         // Refreshes option labels from current values.
         void RefreshOptionLabels();
+        MapParameters BuildMapParameters();
 
         UiButton backButton;
         TextBox gameName;
@@ -133,6 +138,7 @@ class NewGameScene : public Scene, public IGuiHandler
         SliderBar aiOpponents;
         CheckBox debugMode;
         UiButton startGame;
+        UiButton startTutorial;
         FuncWidget tooltipWidget;
         MapSizePreset selectedSize{MapSizePreset::S};
         int selectedDifficulty{0};
@@ -312,6 +318,7 @@ class GameScene : public Scene, public IGuiHandler
         GameScene();
         // Advances input, world simulation and rendering.
         void Update(double dt) override;
+        void OnActivated() override;
         // Handles game lifecycle and menu events.
         void HandleEvent(std::shared_ptr<Event>) override;
         // Routes gameplay input through this scene's InputProcessor into the
@@ -339,7 +346,17 @@ class GameScene : public Scene, public IGuiHandler
         // Repositions the small multiplayer diagnostics label.
         void UpdateNetworkStatusWidget(Vec2i windowSize);
         // Local visual-only shortcuts. They never submit a game command.
-        void HandleRenderDebugInput();
+        virtual void HandleRenderDebugInput();
+        virtual bool AreTutorialHudButtonsLocked() const { return false; }
+        virtual bool AreTutorialDestroyLocked() const { return AreTutorialHudButtonsLocked(); }
+        virtual bool AreTutorialDecisionsLocked() const { return AreTutorialHudButtonsLocked(); }
+        virtual bool AreTutorialStatisticsLocked() const { return AreTutorialHudButtonsLocked(); }
+        virtual void AppendGameplayWidgets(std::vector<UiWidget*>&) {}
+        virtual void PrepareGameplayRender() {}
+        // Modal hooks used by gameplay-derived scenes without duplicating the
+        // runtime/render loop.
+        virtual bool HasBlockingPopup() const { return false; }
+        virtual UiWidget* GetBlockingPopupWidget() { return nullptr; }
 
         std::unique_ptr<GameWorld> game{nullptr};
         std::unique_ptr<IGameRuntimeLoop> runtimeLoop{nullptr};
@@ -351,6 +368,65 @@ class GameScene : public Scene, public IGuiHandler
         std::size_t prevUnlockedTechCount{0};
         std::size_t prevUnlockedFocusCount{0};
         std::set<int> knownIncomingUnitIds;
+};
+
+// Scripted single-player scene. It reuses GameScene wholesale and drives a
+// data-defined sequence of modal steps from generic tutorial triggers.
+class TutorialScene : public GameScene
+{
+public:
+    TutorialScene();
+
+    void OnActivated() override;
+    void Update(double dt) override;
+    void HandleEvent(std::shared_ptr<Event> e) override;
+    void HandleRenderDebugInput() override;
+    void PrepareGameplayRender() override;
+    bool AreTutorialHudButtonsLocked() const override { return tutorialHudLocked; }
+    bool AreTutorialDestroyLocked() const override { return tutorialHudLocked || tutorialDecisionsUnlocked; }
+    bool AreTutorialDecisionsLocked() const override { return !tutorialDecisionsUnlocked; }
+    bool AreTutorialStatisticsLocked() const override { return tutorialHudLocked || tutorialDecisionsUnlocked; }
+    void AppendGameplayWidgets(std::vector<UiWidget*>& widgets) override { widgets.push_back(&tutorialTasks); }
+    bool HasBlockingPopup() const override { return tutorialPopup.IsVisible(); }
+    UiWidget* GetBlockingPopupWidget() override { return &tutorialPopup; }
+
+private:
+    void ShowPopupForTrigger(TutorialTriggerType trigger, BuildingType buildingType = BuildingType::Building);
+    void OnPopupDismissed();
+    void EmitTrigger(TutorialTriggerType trigger, BuildingType buildingType = BuildingType::Building);
+    void OpenWoodcutterPanelAndHighlights();
+    void ClearTutorialHighlights();
+    void SetTutorialHudLock(bool locked);
+    void UnlockTutorialDecisions();
+    void StartScriptedDefenseAttack();
+    bool IsScriptedDefenseAttackCleared() const;
+    bool IsCounterattackDeployed() const;
+    void UpdateTutorialTasks();
+
+    PopupWindowWidget tutorialPopup;
+    TutorialTriggerType activePopupTrigger{TutorialTriggerType::None};
+    bool awaitingWoodcutter{false};
+    bool woodcutterCompletionReported{false};
+    bool awaitingRoadConnection{false};
+    bool roadConnectionReported{false};
+    bool awaitingBasicProduction{false};
+    bool basicProductionReported{false};
+    bool foodChainReported{false};
+    bool decisionSelectedReported{false};
+    bool awaitingDefense{false};
+    bool defenseAttackStarted{false};
+    bool defenseReported{false};
+    bool counterattackStageActive{false};
+    bool counterattackDeployed{false};
+    bool tutorialHudLocked{false};
+    bool tutorialDecisionsUnlocked{false};
+    bool taskCameraBaselineSet{false};
+    bool taskBuildModeSeen{false};
+    Vec2f taskCameraStart{};
+    int scriptedEnemyPlayerId{-1};
+    std::vector<int> scriptedEnemyUnitIds;
+    bool defenseRouteRevealActive{false};
+    TutorialTaskWidget tutorialTasks;
 };
 
 // Static controls reference scene shown from the main menu.
@@ -427,6 +503,7 @@ class GameMenuScene : public Scene, public IGuiHandler
         VBox vbox;
         std::unique_ptr<GuiController> controller{nullptr};
         InputProcessor inputs;
+        std::string gameplaySceneName{"GameScene"};
 };
 
 #endif

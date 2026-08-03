@@ -167,6 +167,7 @@ void TileMap::DestroyBuildingAt(int id)
                     if (transport->sourceBuilding != nullptr && transport->sourceBuilding != building)
                         transport->sourceBuilding->ReturnOutgoingResource(resource);
                 }
+                transport->ReleaseShipment();
                 it = other->transportables.erase(it);
                 continue;
             }
@@ -560,6 +561,48 @@ int TileMap::PickTerrainTexture(TileType type, std::mt19937& rng) const
     }
 
     return it->second.back().textureId;
+}
+
+int TileMap::PickResourceOverlayTexture(TileType type, ResourceOverlayEdgeDirection edge, std::mt19937& rng) const
+{
+    auto it = resourceOverlayVariants.find(type);
+    if (it == resourceOverlayVariants.end())
+        return -1;
+
+    const std::vector<WeightedTileVariant>* variants = &it->second.fillers;
+    switch (edge)
+    {
+        case ResourceOverlayEdgeDirection::North: variants = &it->second.northEdges; break;
+        case ResourceOverlayEdgeDirection::East:  variants = &it->second.eastEdges; break;
+        case ResourceOverlayEdgeDirection::South: variants = &it->second.southEdges; break;
+        case ResourceOverlayEdgeDirection::West:  variants = &it->second.westEdges; break;
+        case ResourceOverlayEdgeDirection::None:  break;
+    }
+    if (variants->empty())
+        return -1;
+
+    int totalWeight = 0;
+    for (const auto& variant : *variants)
+        totalWeight += std::max(0, variant.weight);
+    if (totalWeight <= 0)
+        return variants->front().textureId;
+
+    std::uniform_int_distribution<int> dist(1, totalWeight);
+    int roll = dist(rng);
+    for (const auto& variant : *variants)
+    {
+        roll -= std::max(0, variant.weight);
+        if (roll <= 0)
+            return variant.textureId;
+    }
+    return variants->back().textureId;
+}
+
+bool TileMap::HasResourceOverlay(TileType type) const
+{
+    auto it = resourceOverlayVariants.find(type);
+    return it != resourceOverlayVariants.end() &&
+           (!it->second.fillers.empty() || !it->second.northEdges.empty());
 }
 
 // Returns the road-neighborhood bitmask for autotiling.

@@ -58,6 +58,7 @@ inline bool TryDeserializeSnapshotPlayer(std::istringstream& in, GameSnapshotPla
 struct GameSnapshotTile
 {
     int terrainTextureId{0};
+    int resourceOverlayTextureId{-1};
     bool hasOwner{false};
     Color ownerColor{BLANK};
     bool hasBuilding{false};
@@ -74,6 +75,7 @@ struct GameSnapshotTile
 inline bool operator==(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
 {
     return lhs.terrainTextureId == rhs.terrainTextureId &&
+           lhs.resourceOverlayTextureId == rhs.resourceOverlayTextureId &&
            lhs.hasOwner == rhs.hasOwner &&
            lhs.ownerColor.r == rhs.ownerColor.r &&
            lhs.ownerColor.g == rhs.ownerColor.g &&
@@ -99,6 +101,7 @@ inline bool operator!=(const GameSnapshotTile& lhs, const GameSnapshotTile& rhs)
 inline void SerializeSnapshotTile(std::ostringstream& out, const GameSnapshotTile& tile)
 {
     out << tile.terrainTextureId << ' '
+        << tile.resourceOverlayTextureId << ' '
         << (tile.hasOwner ? 1 : 0) << ' '
         << static_cast<int>(tile.ownerColor.r) << ' '
         << static_cast<int>(tile.ownerColor.g) << ' '
@@ -128,7 +131,7 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
     int isBuildingOperational = 0;
     int roadSaturated = 0;
     int isMilitaryRoad = 0;
-    if (!(in >> tile.terrainTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y >> tile.buildingOwnerId >> isBuildingOperational >> tile.buildingDamageIndicator >> tile.roadUtilization >> roadSaturated >> isMilitaryRoad))
+    if (!(in >> tile.terrainTextureId >> tile.resourceOverlayTextureId >> hasOwner >> r >> g >> b >> a >> hasBuilding >> buildingType >> tile.buildingFootprint.x >> tile.buildingFootprint.y >> tile.buildingOwnerId >> isBuildingOperational >> tile.buildingDamageIndicator >> tile.roadUtilization >> roadSaturated >> isMilitaryRoad))
         return false;
     tile.hasOwner = hasOwner != 0;
     tile.ownerColor = Color{

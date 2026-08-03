@@ -284,7 +284,7 @@ technology night_watch_rotations
 end
 
 technology fletchers_quota
-    name "Fletchers' Quota"
+    name "Bowyers' Quota"
     description "Each workshop owes a quota of straight shafts and matched heads, and each tower gains a specialist to judge them."
     category WARFARE
     layout_lane "Warfare"
@@ -294,7 +294,6 @@ technology fletchers_quota
     requires night_watch_rotations
     modifier TowerDamage multiplier 1.10
     modifier ProductionCycleTime multiplier 0.833333 building Bowyer
-    modifier ProductionCycleTime multiplier 0.833333 building Fletchery
 end
 
 technology measured_kill_zones

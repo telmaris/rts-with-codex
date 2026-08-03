@@ -247,6 +247,7 @@ bool ProductionComponent::ConsumeTerrainRichness(Building& self)
                 tile.tileType = TileType::GRASS;
                 std::mt19937 rng(static_cast<unsigned int>(tile.id + self.owner->tilemap.params.seed));
                 tile.terrainTextureId = self.owner->tilemap.PickTerrainTexture(TileType::GRASS, rng);
+                tile.resourceOverlayTextureId = -1;
                 self.owner->tilemap.terrainDirty = true;
             }
             return true;

@@ -1,44 +1,329 @@
-# Texture bindings for every drawable slot in the game.
+﻿# Texture bindings for every drawable slot in the game.
 # Written by tools/texture-editor. Addressing: cell <texture> of <atlas>.
 # An atlas is (image, cell size) - a standalone sprite is a one-cell atlas.
 
 # atlas <id> <name> "<path>" <cellWidth> <cellHeight>
-atlas 0 terrain "assets/textures/terrain/terrain_tileset.png" 32 32
-atlas 1 resources "assets/textures/resources/basic_resources.png" 64 64
-atlas 2 headquarters "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png" 96 96
-atlas 3 cottage "assets/textures/building/cottage.png" 128 128
-atlas 4 storage "assets/textures/building/storage.png" 96 96
-atlas 5 woodcutter "assets/textures/building/woodcutter.png" 64 64
-atlas 6 hunter "assets/textures/building/hunter.png" 64 64
-atlas 7 lumbermill "assets/textures/building/lumbermill.png" 96 96
-atlas 8 mine "assets/textures/building/mine.png" 64 64
-atlas 9 foundry "assets/textures/building/foundry.png" 96 96
-atlas 10 well "assets/textures/building/well.png" 64 64
-atlas 11 wheat_farm "assets/textures/building/wheat_farm.png" 96 96
-atlas 12 windmill "assets/textures/building/windmill.png" 128 128
-atlas 13 bakery "assets/textures/building/bakery.png" 96 96
-atlas 14 inn "assets/textures/building/inn.png" 96 96
-atlas 15 paperworks "assets/textures/building/paperworks.png" 96 96
-atlas 16 smith "assets/textures/building/smith.png" 64 64
-atlas 17 university "assets/textures/building/university.png" 128 128
-atlas 18 barracks "assets/textures/building/barracks.png" 96 96
-atlas 19 road "assets/textures/building/road.png" 32 32
-atlas 20 guard_tower "assets/textures/building/guard_tower.png" 64 64
-atlas 21 tannery_idle "assets/textures/building/generated/tannery_idle/tannery_idle_sheet_2x1.png" 96 96
-atlas 22 tailor_idle "assets/textures/building/generated/tailor_idle/tailor_idle_sheet_2x1.png" 96 96
-atlas 23 armorer_idle "assets/textures/building/generated/armorer_idle/armorer_idle_sheet_2x1.png" 96 96
-atlas 24 kiln_idle "assets/textures/building/generated/kiln_idle/kiln_idle_sheet_2x1.png" 96 96
-atlas 25 household_workshop_idle "assets/textures/building/generated/household_workshop_idle/household_workshop_idle_sheet_2x1.png" 96 96
-atlas 26 soapworks_idle "assets/textures/building/generated/soapworks_idle/soapworks_idle_sheet_2x1.png" 96 96
-atlas 27 inkworks_idle "assets/textures/building/generated/inkworks_idle/inkworks_idle_sheet_2x1.png" 96 96
-atlas 28 scriptorium_idle "assets/textures/building/generated/scriptorium_idle/scriptorium_idle_sheet_2x1.png" 96 96
-atlas 29 copperworks_idle "assets/textures/building/generated/copperworks_idle/copperworks_idle_sheet_2x1.png" 96 96
+atlas 0 terrain "assets/textures/terrain/terrain_tileset_64.png" 64 64
+atlas 1 resources "assets/textures/resources/official/resources_rework_atlas.png" 64 64
+atlas 2 headquarters "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_5x1_4x4.png" 256 256
+atlas 3 cottage_idle "assets/textures/building/generated/cottage_idle/cottage_idle_sheet_5x1_4x4_pixellab.png" 256 256
+atlas 4 storage_idle "assets/textures/building/generated/storage_idle_v2/storage_style_v2_pixellab_3x3.png" 192 192
+atlas 5 woodcutter_idle "assets/textures/building/generated/woodcutter_idle/woodcutter_pixellab_2x2.png" 128 128
+atlas 6 hunter_idle "assets/textures/building/generated/hunter_idle/hunter_pixellab_2x2.png" 128 128
+atlas 7 lumbermill_idle "assets/textures/building/generated/lumbermill_idle/lumbermill_idle_sheet_5x1_waterwheel.png" 192 192
+atlas 8 mine_idle "assets/textures/building/generated/mine_idle_v2/mine_idle_2x2.png" 128 128
+atlas 9 foundry_idle "assets/textures/building/generated/foundry_idle_v2/foundry_idle_sheet_5x1.png" 192 192
+atlas 10 well_idle "assets/textures/building/generated/well_idle_v2/well_idle_2x2.png" 128 128
+atlas 11 wheat_farm_idle "assets/textures/building/generated/wheat_farm_idle_v2/wheat_farm_idle_4x4.png" 256 256
+atlas 12 windmill_idle "assets/textures/building/generated/windmill_idle_v2/windmill_idle_4x4.png" 256 256
+atlas 13 bakery_idle "assets/textures/building/generated/bakery_idle_v3/bakery_idle_sheet_5x1.png" 192 192
+atlas 14 inn_idle "assets/textures/building/generated/inn_idle_v3/inn_idle_sheet_5x1.png" 192 192
+atlas 15 paperworks_idle "assets/textures/building/generated/paperworks_idle_v2/paperworks_idle_3x3.png" 192 192
+atlas 16 smith_idle "assets/textures/building/generated/smith_idle_v2/smith_idle_2x2.png" 128 128
+atlas 17 university_idle "assets/textures/building/generated/university_idle_v2/university_idle_sheet_5x1.png" 256 256
+atlas 18 barracks_idle "assets/textures/building/generated/barracks_idle_v2/barracks_idle_4x4.png" 256 256
+atlas 19 road_autotiles "assets/textures/roads/generated/roads_bridges_4x8_64px.png" 64 64
+atlas 20 guard_tower_idle "assets/textures/building/generated/guard_tower_idle_v2/guard_tower_idle_2x2.png" 128 128
+atlas 21 tannery_idle "assets/textures/building/generated/tannery_idle_v2/tannery_idle_4x4.png" 256 256
+atlas 22 tailor_idle "assets/textures/building/generated/tailor_idle_v2/tailor_idle_3x3.png" 192 192
+atlas 23 armorer_idle "assets/textures/building/generated/armorer_idle_v2/armorer_idle_3x3.png" 192 192
+atlas 24 kiln_idle "assets/textures/building/generated/kiln_idle_v2/kiln_idle_3x3.png" 192 192
+atlas 25 household_workshop_idle "assets/textures/building/generated/household_workshop_idle_v2/household_workshop_idle_3x3.png" 192 192
+atlas 26 soapworks_idle "assets/textures/building/generated/soapworks_idle_v2/soapworks_idle_3x3.png" 192 192
+atlas 27 inkworks_idle "assets/textures/building/generated/inkworks_idle_v2/inkworks_idle_3x3.png" 192 192
+atlas 28 scriptorium_idle "assets/textures/building/generated/scriptorium_idle_v2/scriptorium_idle_3x3.png" 192 192
+atlas 29 copperworks_idle "assets/textures/building/generated/copperworks_idle_v2/copperworks_idle_3x3.png" 192 192
+atlas 30 animal_farm_idle "assets/textures/building/generated/animal_farm_idle_v2/animal_farm_idle_4x4.png" 256 256
+atlas 31 butcher_idle "assets/textures/building/generated/butcher_idle_v2/butcher_idle_2x2.png" 128 128
+atlas 32 horse_stable_idle "assets/textures/building/generated/horse_stable_idle_v2/horse_stable_idle_4x4.png" 256 256
+atlas 33 hemp_farm_idle "assets/textures/building/generated/hemp_farm_idle_v2/hemp_farm_idle_4x4.png" 256 256
+atlas 34 ropery_idle "assets/textures/building/generated/ropery_idle_v2/ropery_idle_3x3.png" 192 192
+atlas 35 bowyer_idle "assets/textures/building/generated/bowyer_idle_v2/bowyer_idle_2x2.png" 128 128
+atlas 37 spear_workshop_idle "assets/textures/building/generated/spear_workshop_idle_v2/spear_workshop_idle_2x2.png" 128 128
+atlas 38 siege_workshop_idle "assets/textures/building/generated/siege_workshop_idle_v2/siege_workshop_idle_4x4.png" 256 256
+atlas 39 weaver_idle "assets/textures/building/generated/weaver_idle_v2/weaver_idle_3x3.png" 192 192
+atlas 40 urban_workshop_idle "assets/textures/building/generated/urban_workshop_idle_v2/urban_workshop_idle_3x3.png" 192 192
+atlas 41 resource_overlays "assets/textures/resources/overlays/resource_overlays_tileset_64.png" 64 64
+atlas 42 generated_resources "assets/textures/resources/generated/clay_pixellab.png" 64 64
+atlas 43 generated_cattle "assets/textures/resources/generated/cattle_pixellab.png" 64 64
+atlas 44 generated_raw_hide "assets/textures/resources/generated/raw_hide_pixellab.png" 64 64
+atlas 45 generated_tallow "assets/textures/resources/generated/tallow_pixellab.png" 64 64
+atlas 46 generated_clothes "assets/textures/resources/generated/clothes_pixellab.png" 64 64
+atlas 47 generated_pottery "assets/textures/resources/generated/pottery_pixellab.png" 64 64
+atlas 48 generated_household_goods "assets/textures/resources/generated/household_goods_pixellab.png" 64 64
+atlas 49 generated_soap "assets/textures/resources/generated/soap_pixellab.png" 64 64
+atlas 50 generated_ink "assets/textures/resources/generated/ink_pixellab.png" 64 64
+atlas 51 generated_books "assets/textures/resources/generated/books_pixellab.png" 64 64
+atlas 52 generated_copperware "assets/textures/resources/generated/copperware_pixellab.png" 64 64
+atlas 53 generated_urban_goods "assets/textures/resources/generated/urban_goods_pixellab.png" 64 64
+atlas 54 generated_hemp "assets/textures/resources/generated/hemp_pixellab.png" 64 64
+atlas 55 generated_fibre "assets/textures/resources/generated/fibre_pixellab.png" 64 64
+atlas 56 generated_rope "assets/textures/resources/generated/rope_pixellab.png" 64 64
+atlas 57 generated_copper_vessel "assets/textures/resources/generated/copper_vessel_pixellab.png" 64 64
+atlas 58 generated_copper_pipe "assets/textures/resources/generated/copper_pipe_pixellab.png" 64 64
+atlas 59 generated_mechanical_parts "assets/textures/resources/generated/mechanical_parts_pixellab.png" 64 64
+atlas 60 generated_heavy_bow "assets/textures/resources/generated/heavy_bow_pixellab.png" 64 64
+atlas 61 generated_heavy_armor "assets/textures/resources/generated/heavy_armor_pixellab.png" 64 64
+atlas 62 generated_bricks "assets/textures/resources/generated/bricks_pixellab.png" 64 64
+atlas 63 generated_cloth "assets/textures/resources/generated/cloth_pixellab.png" 64 64
+atlas 64 generated_ballista "assets/textures/resources/generated/ballista_pixellab.png" 64 64
+atlas 65 generated_battering_ram "assets/textures/resources/generated/battering_ram_pixellab.png" 64 64
+atlas 66 generated_catapult "assets/textures/resources/generated/catapult_pixellab.png" 64 64
+atlas 67 rework_wood "assets/textures/resources/official/wood.png" 64 64
+atlas 68 rework_coal "assets/textures/resources/official/coal.png" 64 64
+atlas 69 rework_iron_ore "assets/textures/resources/official/iron_ore.png" 64 64
+atlas 70 rework_stone "assets/textures/resources/official/stone.png" 64 64
+atlas 71 rework_planks "assets/textures/resources/official/planks.png" 64 64
+atlas 72 rework_copper_ore "assets/textures/resources/official/copper_ore.png" 64 64
+atlas 73 rework_copper "assets/textures/resources/official/copper.png" 64 64
+atlas 74 rework_iron "assets/textures/resources/official/iron.png" 64 64
+atlas 75 rework_silver_ore "assets/textures/resources/official/silver_ore.png" 64 64
+atlas 76 rework_silver "assets/textures/resources/official/silver.png" 64 64
+atlas 77 rework_gold_ore "assets/textures/resources/official/gold_ore.png" 64 64
+atlas 78 rework_gold "assets/textures/resources/official/gold.png" 64 64
+atlas 79 rework_leather "assets/textures/resources/official/leather.png" 64 64
+atlas 80 rework_wheat "assets/textures/resources/official/wheat.png" 64 64
+atlas 81 rework_flour "assets/textures/resources/official/flour.png" 64 64
+atlas 82 rework_bread "assets/textures/resources/official/bread.png" 64 64
+atlas 83 rework_meat "assets/textures/resources/official/meat.png" 64 64
+atlas 84 rework_water "assets/textures/resources/official/water.png" 64 64
+atlas 85 rework_beer "assets/textures/resources/official/beer.png" 64 64
+atlas 86 rework_coins "assets/textures/resources/official/coins.png" 64 64
+atlas 87 rework_paper "assets/textures/resources/official/paper.png" 64 64
+atlas 88 rework_tools "assets/textures/resources/official/tools.png" 64 64
+atlas 89 rework_food_provisions "assets/textures/resources/official/food_provisions.png" 64 64
+atlas 90 rework_iron_sword "assets/textures/resources/official/iron_sword.png" 64 64
+atlas 91 rework_steel_sword "assets/textures/resources/official/steel_sword.png" 64 64
+atlas 92 rework_bow "assets/textures/resources/official/bow.png" 64 64
+atlas 93 rework_arrows "assets/textures/resources/official/arrows.png" 64 64
+atlas 94 rework_horse "assets/textures/resources/official/horse.png" 64 64
+atlas 95 rework_bronze_sword "assets/textures/resources/official/bronze_sword.png" 64 64
+atlas 96 rework_food_provisions_crate "assets/textures/resources/official/food_provisions.png" 64 64
+atlas 97 rework_spear "assets/textures/resources/official/spear.png" 64 64
+atlas 98 rework_crossbow "assets/textures/resources/official/crossbow.png" 64 64
+atlas 99 rework_bolts "assets/textures/resources/official/bolts.png" 64 64
+atlas 100 rework_wooden_shield "assets/textures/resources/official/wooden_shield.png" 64 64
+atlas 101 rework_iron_shield "assets/textures/resources/official/iron_shield.png" 64 64
+atlas 102 rework_leather_armor "assets/textures/resources/official/leather_armor.png" 64 64
+atlas 103 rework_iron_armor "assets/textures/resources/official/iron_armor.png" 64 64
+atlas 104 rework_tin_ore "assets/textures/resources/official/tin_ore.png" 64 64
+atlas 105 rework_sand "assets/textures/resources/official/sand.png" 64 64
+atlas 106 rework_sulfur "assets/textures/resources/official/sulfur.png" 64 64
+atlas 107 rework_saltpeter "assets/textures/resources/official/saltpeter.png" 64 64
+atlas 108 rework_tin "assets/textures/resources/official/tin.png" 64 64
+atlas 109 rework_bronze "assets/textures/resources/official/bronze.png" 64 64
+atlas 110 rework_coke "assets/textures/resources/official/coke.png" 64 64
+atlas 111 rework_steel "assets/textures/resources/official/steel.png" 64 64
+atlas 112 rework_glass "assets/textures/resources/official/glass.png" 64 64
+atlas 113 rework_gunpowder "assets/textures/resources/official/gunpowder.png" 64 64
+atlas 114 rework_musket "assets/textures/resources/official/musket.png" 64 64
+atlas 115 rework_cartridge "assets/textures/resources/official/cartridge.png" 64 64
+atlas 116 rework_clay "assets/textures/resources/official/clay.png" 64 64
+atlas 117 rework_cattle "assets/textures/resources/official/cattle.png" 64 64
+atlas 118 rework_raw_hide "assets/textures/resources/official/raw_hide.png" 64 64
+atlas 119 rework_tallow "assets/textures/resources/official/tallow.png" 64 64
+atlas 120 rework_clothes "assets/textures/resources/official/clothes.png" 64 64
+atlas 121 rework_pottery "assets/textures/resources/official/pottery.png" 64 64
+atlas 122 rework_household_goods "assets/textures/resources/official/household_goods.png" 64 64
+atlas 123 rework_soap "assets/textures/resources/official/soap.png" 64 64
+atlas 124 rework_ink "assets/textures/resources/official/ink.png" 64 64
+atlas 125 rework_books "assets/textures/resources/official/books.png" 64 64
+atlas 126 rework_copperware "assets/textures/resources/official/copperware.png" 64 64
+atlas 127 rework_urban_goods "assets/textures/resources/official/urban_goods.png" 64 64
+atlas 128 rework_hemp "assets/textures/resources/official/hemp.png" 64 64
+atlas 129 rework_fibre "assets/textures/resources/official/fibre.png" 64 64
+atlas 130 rework_rope "assets/textures/resources/official/rope.png" 64 64
+atlas 131 rework_copper_vessel "assets/textures/resources/official/copper_vessel.png" 64 64
+atlas 132 rework_copper_pipe "assets/textures/resources/official/copper_pipe.png" 64 64
+atlas 133 rework_mechanical_parts "assets/textures/resources/official/mechanical_parts.png" 64 64
+atlas 134 rework_heavy_bow "assets/textures/resources/official/heavy_bow.png" 64 64
+atlas 135 rework_heavy_armor "assets/textures/resources/official/heavy_armor.png" 64 64
+atlas 136 rework_bricks "assets/textures/resources/official/bricks.png" 64 64
+atlas 137 rework_cloth "assets/textures/resources/official/cloth.png" 64 64
+atlas 138 rework_ballista "assets/textures/resources/official/ballista.png" 64 64
+atlas 139 rework_battering_ram "assets/textures/resources/official/battering_ram.png" 64 64
+atlas 140 rework_catapult "assets/textures/resources/official/catapult.png" 64 64
+atlas 141 glassworks_idle_v2 "assets/textures/building/generated/glassworks_idle_v2/glassworks_idle_3x3.png" 192 192
+atlas 142 powderworks_idle_v2 "assets/textures/building/generated/powderworks_idle_v2/powderworks_idle_3x3.png" 192 192
+atlas 143 mint_idle_v2 "assets/textures/building/generated/mint_idle_v2/mint_idle_2x2.png" 128 128
+atlas 144 military_road_autotiles "assets/textures/military_roads/generated/military_road_autotiles_4x4_64px.png" 64 64
+atlas 145 road_autotile_variants "assets/textures/roads/generated/roads_autotile_variants_3x4_64px.png" 64 64
+atlas 146 military_road_variants "assets/textures/military_roads/generated/military_road_variants_3x4_64px.png" 64 64
+
+# Transparent deposits: draw after terrain and before roads/buildings.
+# Transparent deposits: four full variants and eight directional rim cells per resource.
+# The editor exposes rim cells generically; runtime selects their cardinal direction.
+
+resource_overlay COAL
+    variant atlas 41 texture 0 weight 1
+    variant atlas 41 texture 1 weight 1
+    variant atlas 41 texture 2 weight 1
+    variant atlas 41 texture 3 weight 1
+    variant atlas 41 texture 4 weight 1 edge
+    variant atlas 41 texture 5 weight 1 edge
+    variant atlas 41 texture 6 weight 1 edge
+    variant atlas 41 texture 7 weight 1 edge
+    variant atlas 41 texture 8 weight 1 edge
+    variant atlas 41 texture 9 weight 1 edge
+    variant atlas 41 texture 10 weight 1 edge
+    variant atlas 41 texture 11 weight 1 edge
+end
+
+resource_overlay IRON_ORE
+    variant atlas 41 texture 12 weight 1
+    variant atlas 41 texture 13 weight 1
+    variant atlas 41 texture 14 weight 1
+    variant atlas 41 texture 15 weight 1
+    variant atlas 41 texture 16 weight 1 edge
+    variant atlas 41 texture 17 weight 1 edge
+    variant atlas 41 texture 18 weight 1 edge
+    variant atlas 41 texture 19 weight 1 edge
+    variant atlas 41 texture 20 weight 1 edge
+    variant atlas 41 texture 21 weight 1 edge
+    variant atlas 41 texture 22 weight 1 edge
+    variant atlas 41 texture 23 weight 1 edge
+end
+
+resource_overlay COPPER_ORE
+    variant atlas 41 texture 24 weight 1
+    variant atlas 41 texture 25 weight 1
+    variant atlas 41 texture 26 weight 1
+    variant atlas 41 texture 27 weight 1
+    variant atlas 41 texture 28 weight 1 edge
+    variant atlas 41 texture 29 weight 1 edge
+    variant atlas 41 texture 30 weight 1 edge
+    variant atlas 41 texture 31 weight 1 edge
+    variant atlas 41 texture 32 weight 1 edge
+    variant atlas 41 texture 33 weight 1 edge
+    variant atlas 41 texture 34 weight 1 edge
+    variant atlas 41 texture 35 weight 1 edge
+end
+
+resource_overlay STONE
+    variant atlas 41 texture 36 weight 1
+    variant atlas 41 texture 37 weight 1
+    variant atlas 41 texture 38 weight 1
+    variant atlas 41 texture 39 weight 1
+    variant atlas 41 texture 40 weight 1 edge
+    variant atlas 41 texture 41 weight 1 edge
+    variant atlas 41 texture 42 weight 1 edge
+    variant atlas 41 texture 43 weight 1 edge
+    variant atlas 41 texture 44 weight 1 edge
+    variant atlas 41 texture 45 weight 1 edge
+    variant atlas 41 texture 46 weight 1 edge
+    variant atlas 41 texture 47 weight 1 edge
+end
+
+resource_overlay WOOD
+    variant atlas 41 texture 48 weight 1
+    variant atlas 41 texture 49 weight 1
+    variant atlas 41 texture 50 weight 1
+    variant atlas 41 texture 51 weight 1
+    variant atlas 41 texture 52 weight 1 edge
+    variant atlas 41 texture 53 weight 1 edge
+    variant atlas 41 texture 54 weight 1 edge
+    variant atlas 41 texture 55 weight 1 edge
+    variant atlas 41 texture 56 weight 1 edge
+    variant atlas 41 texture 57 weight 1 edge
+    variant atlas 41 texture 58 weight 1 edge
+    variant atlas 41 texture 59 weight 1 edge
+end
+
+resource_overlay TIN_ORE
+    variant atlas 41 texture 60 weight 1
+    variant atlas 41 texture 61 weight 1
+    variant atlas 41 texture 62 weight 1
+    variant atlas 41 texture 63 weight 1
+    variant atlas 41 texture 64 weight 1 edge
+    variant atlas 41 texture 65 weight 1 edge
+    variant atlas 41 texture 66 weight 1 edge
+    variant atlas 41 texture 67 weight 1 edge
+    variant atlas 41 texture 68 weight 1 edge
+    variant atlas 41 texture 69 weight 1 edge
+    variant atlas 41 texture 70 weight 1 edge
+    variant atlas 41 texture 71 weight 1 edge
+end
+
+resource_overlay SILVER_ORE
+    variant atlas 41 texture 72 weight 1
+    variant atlas 41 texture 73 weight 1
+    variant atlas 41 texture 74 weight 1
+    variant atlas 41 texture 75 weight 1
+    variant atlas 41 texture 76 weight 1 edge
+    variant atlas 41 texture 77 weight 1 edge
+    variant atlas 41 texture 78 weight 1 edge
+    variant atlas 41 texture 79 weight 1 edge
+    variant atlas 41 texture 80 weight 1 edge
+    variant atlas 41 texture 81 weight 1 edge
+    variant atlas 41 texture 82 weight 1 edge
+    variant atlas 41 texture 83 weight 1 edge
+end
+
+resource_overlay GOLD_ORE
+    variant atlas 41 texture 84 weight 1
+    variant atlas 41 texture 85 weight 1
+    variant atlas 41 texture 86 weight 1
+    variant atlas 41 texture 87 weight 1
+    variant atlas 41 texture 88 weight 1 edge
+    variant atlas 41 texture 89 weight 1 edge
+    variant atlas 41 texture 90 weight 1 edge
+    variant atlas 41 texture 91 weight 1 edge
+    variant atlas 41 texture 92 weight 1 edge
+    variant atlas 41 texture 93 weight 1 edge
+    variant atlas 41 texture 94 weight 1 edge
+    variant atlas 41 texture 95 weight 1 edge
+end
+
+resource_overlay SULFUR
+    variant atlas 41 texture 96 weight 1
+    variant atlas 41 texture 97 weight 1
+    variant atlas 41 texture 98 weight 1
+    variant atlas 41 texture 99 weight 1
+    variant atlas 41 texture 100 weight 1 edge
+    variant atlas 41 texture 101 weight 1 edge
+    variant atlas 41 texture 102 weight 1 edge
+    variant atlas 41 texture 103 weight 1 edge
+    variant atlas 41 texture 104 weight 1 edge
+    variant atlas 41 texture 105 weight 1 edge
+    variant atlas 41 texture 106 weight 1 edge
+    variant atlas 41 texture 107 weight 1 edge
+end
+
+resource_overlay SALTPETER
+    variant atlas 41 texture 108 weight 1
+    variant atlas 41 texture 109 weight 1
+    variant atlas 41 texture 110 weight 1
+    variant atlas 41 texture 111 weight 1
+    variant atlas 41 texture 112 weight 1 edge
+    variant atlas 41 texture 113 weight 1 edge
+    variant atlas 41 texture 114 weight 1 edge
+    variant atlas 41 texture 115 weight 1 edge
+    variant atlas 41 texture 116 weight 1 edge
+    variant atlas 41 texture 117 weight 1 edge
+    variant atlas 41 texture 118 weight 1 edge
+    variant atlas 41 texture 119 weight 1 edge
+end
+
+resource_overlay CLAY
+    variant atlas 41 texture 120 weight 1
+    variant atlas 41 texture 121 weight 1
+    variant atlas 41 texture 122 weight 1
+    variant atlas 41 texture 123 weight 1
+    variant atlas 41 texture 124 weight 1 edge
+    variant atlas 41 texture 125 weight 1 edge
+    variant atlas 41 texture 126 weight 1 edge
+    variant atlas 41 texture 127 weight 1 edge
+    variant atlas 41 texture 128 weight 1 edge
+    variant atlas 41 texture 129 weight 1 edge
+    variant atlas 41 texture 130 weight 1 edge
+    variant atlas 41 texture 131 weight 1 edge
+end
 
 terrain GRASS
-    variant atlas 0 texture 9 weight 1
-    variant atlas 0 texture 10 weight 1
-    variant atlas 0 texture 11 weight 1
-    variant atlas 0 texture 12 weight 1
+    variant atlas 0 texture 28 weight 1
+    variant atlas 0 texture 29 weight 1
+    variant atlas 0 texture 30 weight 1
+    variant atlas 0 texture 31 weight 1
 end
 
 terrain WOOD
@@ -60,9 +345,9 @@ terrain IRON_ORE
 end
 
 terrain STONE
-    variant atlas 0 texture 16 weight 1
-    variant atlas 0 texture 17 weight 1
-    variant atlas 0 texture 18 weight 1
+    variant atlas 0 texture 35 weight 1
+    variant atlas 0 texture 36 weight 1
+    variant atlas 0 texture 37 weight 1
 end
 
 terrain COPPER_ORE
@@ -86,8 +371,9 @@ terrain GOLD_ORE
 end
 
 terrain SAND
-    variant atlas 0 texture 9 weight 1
-    variant atlas 0 texture 10 weight 1
+    variant atlas 0 texture 32 weight 1
+    variant atlas 0 texture 33 weight 1
+    variant atlas 0 texture 34 weight 1
 end
 
 terrain SULFUR
@@ -100,11 +386,12 @@ end
 
 building Headquarters
     sprite atlas 2 texture 0
-    animation frames 3 frame_time 0.18 loop
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Village
     sprite atlas 3 texture 0
+    animation frames 5 frame_time 0.32 loop
 end
 
 building StorageBuilding
@@ -121,6 +408,7 @@ end
 
 building LumberMill
     sprite atlas 7 texture 0
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Mine
@@ -129,6 +417,7 @@ end
 
 building Foundry
     sprite atlas 9 texture 0
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Well
@@ -145,10 +434,12 @@ end
 
 building Bakery
     sprite atlas 13 texture 0
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Inn
     sprite atlas 14 texture 0
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Paperworks
@@ -161,63 +452,95 @@ end
 
 building Tannery
     sprite atlas 21 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Tailor
     sprite atlas 22 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Armorer
     sprite atlas 23 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Kiln
     sprite atlas 24 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building HouseholdWorkshop
     sprite atlas 25 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Soapworks
     sprite atlas 26 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Inkworks
     sprite atlas 27 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Scriptorium
     sprite atlas 28 texture 0
-    animation frames 2 frame_time 0.30 loop
 end
 
 building Copperworks
     sprite atlas 29 texture 0
-    animation frames 2 frame_time 0.30 loop
+end
+
+building AnimalFarm
+    sprite atlas 30 texture 0
+end
+
+building Butcher
+    sprite atlas 31 texture 0
+end
+
+building HorseStable
+    sprite atlas 32 texture 0
+end
+
+building HempFarm
+    sprite atlas 33 texture 0
+end
+
+building Ropery
+    sprite atlas 34 texture 0
+end
+
+building Bowyer
+    sprite atlas 35 texture 0
+end
+
+building SpearWorkshop
+    sprite atlas 37 texture 0
+end
+
+building SiegeWorkshop
+    sprite atlas 38 texture 0
+end
+
+building Weaver
+    sprite atlas 39 texture 0
+end
+
+building UrbanWorkshop
+    sprite atlas 40 texture 0
 end
 
 building Mint
-    sprite atlas 9 texture 0
+    sprite atlas 143 texture 0
 end
 
 building Glassworks
-    sprite atlas 16 texture 0
+    sprite atlas 141 texture 0
 end
 
 building Powderworks
-    sprite atlas 16 texture 0
+    sprite atlas 142 texture 0
 end
 
 building University
     sprite atlas 17 texture 0
+    animation frames 5 frame_time 0.18 loop
 end
 
 building Barracks
@@ -237,197 +560,293 @@ building DefenseTower
 end
 
 resource COPPER_ORE
-    icon atlas 1 texture 0
+    icon atlas 72 texture 0
 end
 
 resource COPPER
-    icon atlas 1 texture 1
+    icon atlas 73 texture 0
 end
 
 resource IRON_ORE
-    icon atlas 1 texture 2
+    icon atlas 69 texture 0
 end
 
 resource IRON
-    icon atlas 1 texture 3
+    icon atlas 74 texture 0
 end
 
 resource SILVER_ORE
-    icon atlas 1 texture 4
+    icon atlas 75 texture 0
 end
 
 resource SILVER
-    icon atlas 1 texture 5
+    icon atlas 76 texture 0
 end
 
 resource GOLD_ORE
-    icon atlas 1 texture 6
+    icon atlas 77 texture 0
 end
 
 resource GOLD
-    icon atlas 1 texture 7
+    icon atlas 78 texture 0
 end
 
 resource WOOD
-    icon atlas 1 texture 8
+    icon atlas 67 texture 0
 end
 
 resource PLANKS
-    icon atlas 1 texture 9
+    icon atlas 71 texture 0
 end
 
 resource LEATHER
-    icon atlas 1 texture 10
+    icon atlas 79 texture 0
 end
 
 resource COAL
-    icon atlas 1 texture 11
+    icon atlas 68 texture 0
 end
 
 resource STONE
-    icon atlas 1 texture 12
+    icon atlas 70 texture 0
 end
 
 resource WHEAT
-    icon atlas 1 texture 13
+    icon atlas 80 texture 0
 end
 
 resource FLOUR
-    icon atlas 1 texture 14
+    icon atlas 81 texture 0
 end
 
 resource BREAD
-    icon atlas 1 texture 15
+    icon atlas 82 texture 0
 end
 
 resource MEAT
-    icon atlas 1 texture 16
+    icon atlas 83 texture 0
 end
 
 resource WATER
-    icon atlas 1 texture 17
+    icon atlas 84 texture 0
 end
 
 resource BEER
-    icon atlas 1 texture 18
+    icon atlas 85 texture 0
 end
 
 resource COINS
-    icon atlas 1 texture 19
+    icon atlas 86 texture 0
 end
 
 resource PAPER
-    icon atlas 1 texture 20
+    icon atlas 87 texture 0
 end
 
 resource TOOLS
-    icon atlas 1 texture 21
+    icon atlas 88 texture 0
 end
 
 resource FOOD_PROVISIONS
-    icon atlas 1 texture 22
-end
-
-resource COPPER_SWORD
-    icon atlas 1 texture 24
+    icon atlas 96 texture 0
 end
 
 resource IRON_SWORD
-    icon atlas 1 texture 25
+    icon atlas 90 texture 0
 end
 
 resource STEEL_SWORD
-    icon atlas 1 texture 26
+    icon atlas 91 texture 0
 end
 
 resource BOW
-    icon atlas 1 texture 27
+    icon atlas 92 texture 0
 end
 
 resource ARROWS
-    icon atlas 1 texture 28
+    icon atlas 93 texture 0
 end
 
 resource HORSE
-    icon atlas 1 texture 29
+    icon atlas 94 texture 0
 end
 
 resource BRONZE_SWORD
-    icon atlas 1 texture 30
+    icon atlas 95 texture 0
 end
 
 resource SPEAR
-    icon atlas 1 texture 31
+    icon atlas 97 texture 0
 end
 
 resource CROSSBOW
-    icon atlas 1 texture 32
+    icon atlas 98 texture 0
 end
 
 resource BOLTS
-    icon atlas 1 texture 33
+    icon atlas 99 texture 0
 end
 
 resource WOODEN_SHIELD
-    icon atlas 1 texture 34
+    icon atlas 100 texture 0
 end
 
 resource IRON_SHIELD
-    icon atlas 1 texture 35
+    icon atlas 101 texture 0
 end
 
 resource LEATHER_ARMOR
-    icon atlas 1 texture 36
+    icon atlas 102 texture 0
 end
 
 resource IRON_ARMOR
-    icon atlas 1 texture 37
+    icon atlas 103 texture 0
 end
 
 resource TIN_ORE
-    icon atlas 1 texture 38
+    icon atlas 104 texture 0
 end
 
 resource SAND
-    icon atlas 1 texture 39
+    icon atlas 105 texture 0
 end
 
 resource SULFUR
-    icon atlas 1 texture 40
+    icon atlas 106 texture 0
 end
 
 resource SALTPETER
-    icon atlas 1 texture 41
+    icon atlas 107 texture 0
 end
 
 resource TIN
-    icon atlas 1 texture 42
+    icon atlas 108 texture 0
 end
 
 resource BRONZE
-    icon atlas 1 texture 43
+    icon atlas 109 texture 0
 end
 
 resource COKE
-    icon atlas 1 texture 44
+    icon atlas 110 texture 0
 end
 
 resource STEEL
-    icon atlas 1 texture 45
+    icon atlas 111 texture 0
 end
 
 resource GLASS
-    icon atlas 1 texture 46
+    icon atlas 112 texture 0
 end
 
 resource GUNPOWDER
-    icon atlas 1 texture 47
+    icon atlas 113 texture 0
 end
 
 resource MUSKET
-    icon atlas 1 texture 48
+    icon atlas 114 texture 0
 end
 
 resource CARTRIDGE
-    icon atlas 1 texture 49
+    icon atlas 115 texture 0
+end
+
+resource CLAY
+    icon atlas 116 texture 0
+end
+
+resource CATTLE
+    icon atlas 117 texture 0
+end
+
+resource RAW_HIDE
+    icon atlas 118 texture 0
+end
+
+resource TALLOW
+    icon atlas 119 texture 0
+end
+
+resource CLOTHES
+    icon atlas 120 texture 0
+end
+
+resource POTTERY
+    icon atlas 121 texture 0
+end
+
+resource HOUSEHOLD_GOODS
+    icon atlas 122 texture 0
+end
+
+resource SOAP
+    icon atlas 123 texture 0
+end
+
+resource INK
+    icon atlas 124 texture 0
+end
+
+resource BOOKS
+    icon atlas 125 texture 0
+end
+
+resource COPPERWARE
+    icon atlas 126 texture 0
+end
+
+resource URBAN_GOODS
+    icon atlas 127 texture 0
+end
+
+resource HEMP
+    icon atlas 128 texture 0
+end
+
+resource FIBRE
+    icon atlas 129 texture 0
+end
+
+resource ROPE
+    icon atlas 130 texture 0
+end
+
+resource COPPER_VESSEL
+    icon atlas 131 texture 0
+end
+
+resource COPPER_PIPE
+    icon atlas 132 texture 0
+end
+
+resource MECHANICAL_PARTS
+    icon atlas 133 texture 0
+end
+
+resource HEAVY_BOW
+    icon atlas 134 texture 0
+end
+
+resource HEAVY_ARMOR
+    icon atlas 135 texture 0
+end
+
+resource BRICKS
+    icon atlas 136 texture 0
+end
+
+resource CLOTH
+    icon atlas 137 texture 0
+end
+
+resource BALLISTA
+    icon atlas 138 texture 0
+end
+
+resource BATTERING_RAM
+    icon atlas 139 texture 0
+end
+
+resource CATAPULT
+    icon atlas 140 texture 0
 end

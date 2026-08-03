@@ -2,8 +2,6 @@
 #include "economy/Building.h"
 #include "data/Equipment.h"
 
-static ResourcePool resourcePool;
-
 // Maps an equipment role (Equipment.h) onto its economic tag. Keeping the weapon
 // categories derived from the equipment table means the two taxonomies can never
 // disagree — add one profile row and both layers see the new gear.
@@ -114,7 +112,6 @@ ResourceCategory ResourceCategoryOf(ResourceType type)
         case ResourceType::COPPER_VESSEL:
         case ResourceType::COPPER_PIPE:
         case ResourceType::MECHANICAL_PARTS:
-        case ResourceType::LIGHT_WEAPON:
         case ResourceType::BRICKS:
         case ResourceType::BALLISTA:
         case ResourceType::BATTERING_RAM:
@@ -193,13 +190,74 @@ bool IsWeaponCategory(ResourceCategory category)
     }
 }
 
+Resource* Resource::CreateOwned(ResourceType type)
+{
+    Resource* resource = new Resource(type);
+    resource->ownedAllocation = true;
+    return resource;
+}
+
+void Resource::DestroyOwned(Resource* resource)
+{
+    if (resource == nullptr || !resource->ownedAllocation)
+        return;
+    resource->ownedAllocation = false;
+    delete resource;
+}
+
+ResourceBuffer::~ResourceBuffer()
+{
+    Clear();
+}
+
+ResourceBuffer::ResourceBuffer(const ResourceBuffer& other)
+    : bufferSize(other.bufferSize), type(other.type)
+{
+    for (std::size_t i = 0; i < other.buffer.size(); ++i)
+        GenerateResource(type);
+}
+
+ResourceBuffer& ResourceBuffer::operator=(const ResourceBuffer& other)
+{
+    if (this == &other)
+        return *this;
+    Clear();
+    bufferSize = other.bufferSize;
+    type = other.type;
+    for (std::size_t i = 0; i < other.buffer.size(); ++i)
+        GenerateResource(type);
+    return *this;
+}
+
+ResourceBuffer::ResourceBuffer(ResourceBuffer&& other) noexcept
+    : bufferSize(other.bufferSize), type(other.type), buffer(std::move(other.buffer))
+{
+    other.bufferSize = 0;
+    other.type = ResourceType::Null;
+}
+
+ResourceBuffer& ResourceBuffer::operator=(ResourceBuffer&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    Clear();
+    bufferSize = other.bufferSize;
+    type = other.type;
+    buffer = std::move(other.buffer);
+    other.bufferSize = 0;
+    other.type = ResourceType::Null;
+    return *this;
+}
+
 // Adds this object or value to local state.
 void ResourceBuffer::AddResource(Resource* res)
 {
-    if(buffer.size() < bufferSize)
-    {
+    if (res == nullptr)
+        return;
+    if (buffer.size() < static_cast<std::size_t>(std::max(0, bufferSize)))
         buffer.push_back(res);
-    }
+    else
+        Resource::DestroyOwned(res);
 }
 
 // Removes and returns one resource pointer when available.
@@ -217,17 +275,17 @@ std::pair<bool, Resource*> ResourceBuffer::GetResource()
 // Initializes ResourceBuffer::GenerateResource.
 void ResourceBuffer::GenerateResource(ResourceType type)
 {
-    auto res = resourcePool.GetResource(type);
-    if (res != nullptr)
-        AddResource(res);
+    AddResource(Resource::CreateOwned(type));
 }
 
-// Returns this resource to its pool or buffer.
+// Releases one stored owned resource instance.
 void ResourceBuffer::FreeResource()
 {
+    if (buffer.empty())
+        return;
     auto res = buffer.back();
-    resourcePool.FreeResource(res);
     buffer.pop_back();
+    Resource::DestroyOwned(res);
 }
 
 // Clears this runtime state.
@@ -245,43 +303,15 @@ void ResourceBuffer::SetStoredAmount(int amount)
         GenerateResource(type);
 }
 
-// Returns one pooled resource instance of the requested type, or nullptr if
-// this type's fixed-size pool (see `pool` — std::array<Resource, 10000> per
-// type) is currently fully checked out. Exhaustion is expected, not
-// exceptional (e.g. many short-lived test worlds sharing this process-wide
-// pool without ever returning every instance) — callers already treat "no
-// resource available" as routine, matching the ResourceType::Null sentinel
-// convention used throughout this codebase.
+// Compatibility facade for callers that still request an owned resource
+// directly. New gameplay code uses ResourceBuffer::GenerateResource.
 Resource* ResourcePool::GetResource(ResourceType type)
 {
-    auto& addresses = addressPool[type].addresses;
-    if (addresses.empty())
-        return nullptr;
-
-    auto res = addresses.front();
-    addresses.pop_front();
-    return res;
+    return Resource::CreateOwned(type);
 }
 
-// Returns this resource to its pool or buffer.
+// Releases an owned resource, ignoring external stack-backed values.
 void ResourcePool::FreeResource(Resource* res)
 {
-    auto type = res->type;
-    addressPool[type].addresses.push_front(res);
-}
-
-void ResourcePool::Reset()
-{
-    for (auto& [type, arr] : pool)
-    {
-        auto& addresses = addressPool[type].addresses;
-        addresses.clear();
-        for (auto& x : arr)
-            addresses.push_back(&x);
-    }
-}
-
-void ResetResourcePool()
-{
-    resourcePool.Reset();
+    Resource::DestroyOwned(res);
 }

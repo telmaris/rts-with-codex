@@ -5,6 +5,7 @@ include_directories(../inc)
 target_sources(game
                PRIVATE
                core/Log.cpp
+               core/SimulationState.cpp
                core/GameSession.cpp
                core/GameWorld.cpp
                core/GameWorld.TileMap.cpp
@@ -63,8 +64,10 @@ target_sources(game
                scenes/LoadGameScene.cpp
                scenes/SaveGameScene.cpp
                scenes/GameScene.cpp
+               scenes/TutorialScene.cpp
                scenes/GameMenuScene.cpp
                ui/Gui.cpp
+               ui/ControlIcons.cpp
                ui/UiText.cpp
                ui/UiWidgets.cpp
                ui/GuiHandler.cpp
@@ -86,7 +89,7 @@ target_sources(game
 
 # Organize folders in IDE
 source_group("core" FILES
-             core/Log.cpp core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
+             core/Log.cpp core/SimulationState.cpp core/GameWorld.cpp core/GameWorld.TileMap.cpp core/GameWorld.Init.cpp
              core/GameWorld.Persistence.cpp core/GameWorld.Commands.cpp
              core/GameWorld.Checksum.cpp core/GameWorld.Render.cpp core/GameWorld.Units.cpp
              core/GameWorld.Elimination.cpp)
@@ -109,7 +112,7 @@ source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
              scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp
-             scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/GameMenuScene.cpp)
-source_group("ui" FILES ui/Gui.cpp ui/UiText.cpp ui/UiWidgets.cpp ui/Renderer.cpp ui/ShaderLibrary.cpp ui/WorldLighting.cpp ui/GuiController.cpp ui/GuiCommon.cpp
+             scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/TutorialScene.cpp scenes/GameMenuScene.cpp)
+source_group("ui" FILES ui/Gui.cpp ui/ControlIcons.cpp ui/UiText.cpp ui/UiWidgets.cpp ui/Renderer.cpp ui/ShaderLibrary.cpp ui/WorldLighting.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/GuiRoster.cpp ui/GuiStockpile.cpp ui/AudioSystem.cpp)

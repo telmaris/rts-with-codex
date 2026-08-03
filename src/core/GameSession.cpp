@@ -18,41 +18,49 @@ std::vector<std::string> LocalhostGameTransport::Drain(std::deque<std::string>& 
 
 void LocalhostGameTransport::SendClientCommand(const std::string& payload)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     clientToHost.push_back(payload);
 }
 
 std::vector<std::string> LocalhostGameTransport::ReceiveHostCommands()
 {
+    std::lock_guard<std::mutex> lock(mutex);
     return Drain(clientToHost);
 }
 
 void LocalhostGameTransport::SendHostResult(const std::string& payload)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     hostToClient.push_back(payload);
 }
 
 std::vector<std::string> LocalhostGameTransport::ReceiveClientResults()
 {
+    std::lock_guard<std::mutex> lock(mutex);
     return Drain(hostToClient);
 }
 
 void LocalhostGameTransport::SendHostFrame(const std::string& payload)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     hostFrames.push_back(payload);
 }
 
 std::vector<std::string> LocalhostGameTransport::ReceiveClientFrames()
 {
+    std::lock_guard<std::mutex> lock(mutex);
     return Drain(hostFrames);
 }
 
 void LocalhostGameTransport::SendHostSnapshot(const std::string& payload)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     hostSnapshots.push_back(payload);
 }
 
 std::vector<std::string> LocalhostGameTransport::ReceiveClientSnapshots()
 {
+    std::lock_guard<std::mutex> lock(mutex);
     return Drain(hostSnapshots);
 }
 
@@ -86,7 +94,9 @@ std::uint64_t HostSession::SubmitCommand(const GameCommand& command)
     std::lock_guard<std::recursive_mutex> lock(worldMutex);
     if (world == nullptr)
         return 0;
-    return world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
+    GameCommand authoritative = command;
+    authoritative.targetTick = world->GetSimulationTick() + inputDelayTicks;
+    return world->SubmitCommand(authoritative, authoritative.targetTick);
 }
 
 void HostSession::Update(double dt)
@@ -153,6 +163,26 @@ std::recursive_mutex* HostSession::GetWorldMutex()
     return &worldMutex;
 }
 
+void HostSession::SetPaused(bool shouldPause)
+{
+    paused.store(shouldPause);
+
+    // When pausing, wait for an in-flight tick to leave the critical section.
+    // Once this barrier returns, RunSimulationTick observes `paused` before it
+    // can mutate the world again.
+    if (shouldPause)
+    {
+        std::lock_guard<std::recursive_mutex> lock(worldMutex);
+    }
+
+    cv.notify_all();
+}
+
+bool HostSession::IsPaused() const
+{
+    return paused.load();
+}
+
 void HostSession::Stop()
 {
     running = false;
@@ -196,7 +226,7 @@ void HostSession::SendCorrectionSnapshot()
 void HostSession::RunSimulationTick()
 {
     std::lock_guard<std::recursive_mutex> lock(worldMutex);
-    if (world == nullptr)
+    if (world == nullptr || paused.load())
         return;
 
     // Handle transport commands
@@ -234,12 +264,14 @@ void HostSession::RunSimulationTick()
             GameCommand command;
             if (GameCommand::TryDeserialize(payload, command))
             {
+                const std::uint64_t authoritativeTargetTick = world->GetSimulationTick() + inputDelayTicks;
+                command.targetTick = authoritativeTargetTick;
                 if (command.playerId != remotePlayerId)
                 {
                     GameCommandResult rejected{
                         command.commandId,
                         world->GetSimulationTick(),
-                        command.targetTick,
+                        authoritativeTargetTick,
                         command.playerId,
                         command.type,
                         false,
@@ -249,7 +281,7 @@ void HostSession::RunSimulationTick()
                     transport->SendHostResult(rejected.Serialize());
                     continue;
                 }
-                world->SubmitCommand(command, world->GetSimulationTick() + inputDelayTicks);
+                world->SubmitCommand(command, authoritativeTargetTick);
             }
         }
 
@@ -298,13 +330,21 @@ void HostSession::RunSimulation()
     auto nextTick = std::chrono::steady_clock::now();
     while (running)
     {
+        if (paused.load())
+        {
+            std::unique_lock<std::mutex> pauseLock(sleepMutex);
+            cv.wait(pauseLock, [&]() { return !running.load() || !paused.load(); });
+            nextTick = std::chrono::steady_clock::now();
+            continue;
+        }
+
         nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
             std::chrono::duration<double>(FixedSimulationClock::FixedDt));
 
         RunSimulationTick();
 
         std::unique_lock<std::mutex> sleepLock(sleepMutex);
-        cv.wait_until(sleepLock, nextTick, [&]() { return !running.load(); });
+        cv.wait_until(sleepLock, nextTick, [&]() { return !running.load() || paused.load(); });
         if (std::chrono::steady_clock::now() > nextTick + std::chrono::milliseconds(250))
             nextTick = std::chrono::steady_clock::now();
     }

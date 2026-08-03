@@ -418,6 +418,52 @@ public:
     std::function<void(double)> func;
 };
 
+// Reusable modal popup. Opening and dismissing it notify the owner through the
+// modal callback, so every popup gets the same pause/unpause semantics.
+class PopupWindowWidget : public UiWidget
+{
+public:
+    PopupWindowWidget();
+
+    void Update(double dt) override;
+    void UpdateSize(Vec2i windowSize) override;
+    void Show(std::string title, std::string body, std::string actionText,
+              std::function<void()> action);
+    void Hide();
+    void SetModalStateCallback(std::function<void(bool)> callback);
+    void SetHorizontalOffset(int pixels) { horizontalOffset = pixels; }
+    void SetDimBackground(bool enabled) { dimBackground = enabled; }
+    bool IsVisible() const { return visible; }
+
+private:
+    UiButton actionButton;
+    std::string title;
+    std::string body;
+    std::function<void(bool)> modalStateCallback;
+    int horizontalOffset{0};
+    bool dimBackground{true};
+    bool visible{false};
+};
+
+// Compact objective list shown below the strategic HUD during the tutorial.
+// Completed objectives remain visible and are rendered with a green marker and
+// strike-through so the player can follow the whole stage at a glance.
+class TutorialTaskWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+    void UpdateSize(Vec2i windowSize) override;
+
+    void SetTasks(std::string stageTitle, std::vector<std::pair<std::string, bool>> newTasks)
+    {
+        title = std::move(stageTitle);
+        tasks = std::move(newTasks);
+    }
+
+    std::string title;
+    std::vector<std::pair<std::string, bool>> tasks;
+};
+
 // Texture atlas used by UI panels to render resource icons.
 struct ResourceIconAtlas
 {
@@ -481,6 +527,10 @@ class GuiPanel : public UiWidget
             text = stryng;
         }
 
+        // Highlights worker/food/efficiency rows while a tutorial explains
+        // how population supply affects a production building.
+        void SetTutorialHighlight(bool enabled) { tutorialHighlight = enabled; }
+
     protected:
         // Draws the shared panel chrome (background, title bar, drag-to-move,
         // close button + title text) and reports the content area below the
@@ -503,10 +553,13 @@ class GuiPanel : public UiWidget
         UiButton recipeButton;
         UiButton towerTargetButton;
         bool destroyRequested{false};
+        bool tutorialHighlight{false};
         bool dragging{false};
         Vec2i dragOffset{0, 0};
         float contentScrollOffset{0.0f};
         float maxContentScrollOffset{0.0f};
+        bool contentScrollbarDragging{false};
+        float contentScrollbarDragOffset{0.0f};
 
         // ESC closes this panel (ETAP 6.1): the wrapped subscriber
         // (de)registers itself with InputManager via RAII, so a panel that

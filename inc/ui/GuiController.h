@@ -183,8 +183,25 @@ class StrategicResourceHudWidget : public UiWidget
 public:
     void UpdateSize(Vec2i windowSize) override;
     void Update(double dt) override;
+    void SetTutorialHighlights(bool manpower, bool food)
+    {
+        highlightManpower = manpower;
+        highlightFood = food;
+    }
+    void SetTutorialLockedButtons(bool locked)
+    {
+        tutorialDisableDestroy = locked;
+        tutorialDisableDecisions = locked;
+        tutorialDisableStatistics = locked;
+    }
+    void SetTutorialDecisionsLocked(bool locked) { tutorialDisableDecisions = locked; }
 
     GameScene* scene{nullptr};
+    bool highlightManpower{false};
+    bool highlightFood{false};
+    bool tutorialDisableDestroy{false};
+    bool tutorialDisableDecisions{false};
+    bool tutorialDisableStatistics{false};
 };
 
 // Full-screen economy and strategic statistics overview.
@@ -223,6 +240,9 @@ public:
     GameScene* scene{nullptr};
     float scrollOffset{0.0f};
     float maxScrollOffset{0.0f};
+    bool scrollbarDragging{false};
+    float scrollbarDragOffset{0.0f};
+    void Scroll(float wheel);
 
 private:
     // Grid geometry shared by drawing and hover hit-testing.
@@ -281,6 +301,8 @@ public:
     float maxScrollOffset{0.0f};
     bool dragging{false};
     Vec2i dragOffset{0, 0};
+    bool scrollbarDragging{false};
+    float scrollbarDragOffset{0.0f};
 };
 
 // Roster/deploy panel (TD etap-8.1): composes an ordered attack group
@@ -335,6 +357,7 @@ public:
     void CenterOnHeadquartersPressed();
 
     // Handles map selection and panel interactions.
+    void SelectBuilding(Building* building);
     void LmbPressed();
     // Stops camera drag initiated by left mouse button when relevant.
     void LmbReleased();

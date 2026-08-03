@@ -43,7 +43,6 @@ namespace
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
         if (value == "PAPER") return ResourceType::PAPER;
         if (value == "TOOLS") return ResourceType::TOOLS;
-        if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
         if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "STEEL_SWORD") return ResourceType::STEEL_SWORD;
         if (value == "BOW") return ResourceType::BOW;
@@ -57,7 +56,7 @@ namespace
         if (value == "IRON_SHIELD") return ResourceType::IRON_SHIELD;
         if (value == "LEATHER_ARMOR") return ResourceType::LEATHER_ARMOR;
         if (value == "IRON_ARMOR") return ResourceType::IRON_ARMOR;
-        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
         if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
         if (value == "BALLISTA") return ResourceType::BALLISTA;

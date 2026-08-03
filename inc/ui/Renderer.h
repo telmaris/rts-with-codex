@@ -25,6 +25,7 @@ enum class BuildingType : int;
 enum class WorldRenderLayer : std::size_t
 {
     Terrain,
+    ResourceOverlays,
     MilitaryRoads,
     WorldEffects,
     StaticObjects,
@@ -54,12 +55,12 @@ struct RenderSettings
     bool dayNightCycle{true};
     bool dynamicLights{true};
     bool contactShadows{true};
-    bool fogOfWar{false}; // Pilot feature: opt-in through OptionsScene.
+    bool fogOfWar{true};
     bool colorGrading{true};
-    bool retroFilter{false};
+    bool retroFilter{true};
     // A low-cost blur sampled from the light map only. It never touches UI or
     // bright terrain/albedo, unlike a bloom pass over the final frame.
-    bool localLightBloom{false};
+    bool localLightBloom{true};
     // Procedural rain is a presentation-only postprocess. It is deliberately
     // disabled by default and has no weather/gameplay simulation behind it.
     bool rainOverlay{false};
@@ -221,6 +222,9 @@ class Renderer
     void DrawAtlasTile(int atlas, int clipId, Vec2f pos, Vec2f drawSize, float elapsedTime);
     // Loads a standalone building texture for a building type.
     void LoadBuildingTexture(BuildingType, const std::string&);
+    // Returns the first source frame for an animated texture, or the full
+    // texture for a static building sprite.
+    Rectangle GetBuildingTextureFirstFrameSource(BuildingType) const;
     // Registers an animation clip for a standalone building texture (ETAP 5.4).
     // Frames are read as a horizontal strip inside the loaded texture (frame
     // width = texture width / frameCount). Types with no registered clip (or
@@ -234,6 +238,16 @@ class Renderer
     // Draws a building snapshot with its standalone texture.
     void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint = WHITE,
                              Color ownerColor = WHITE, bool applyTeamColor = false);
+    // Draws one road-like tile using the four-neighbour connection mask.
+    // Mask bits are West=1, East=2, North=4 and South=8. The road half of
+    // atlas 19 occupies cells 0..15; the bridge half occupies cells 16..31.
+    // Road-only cells can use atlas 145, which contains three 16-cell variants
+    // stacked in rows; the selected variant is derived from the tile position.
+    void DrawRoadTexture(BuildingType type, Vec2f pos, int connectionMask, Color tint = WHITE);
+    // Draws the broad military unit track from atlas 144, or one of three
+    // position-stable material variants in atlas 146. It uses the same
+    // West=1, East=2, North=4, South=8 canonical mask order as resource roads.
+    void DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint = WHITE);
     // Same, picking the frame from the type's registered animation clip and elapsed time.
     void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint, float elapsedTime,
                              Color ownerColor = WHITE, bool applyTeamColor = false);

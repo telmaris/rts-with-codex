@@ -7,6 +7,7 @@
 #include "GuiInternal.h"
 
 #include "scenes/Scenes.h"
+#include "ui/ControlIcons.h"
 #include "economy/BalanceStatDisplay.h"
 #include "economy/BuildingConfig.h"
 #include "economy/Player.h"
@@ -334,7 +335,9 @@ void ResearchTreePanelWidget::Update(double dt)
         bool reloadHov = CheckCollisionPointRec(mouse, reloadBtn);
         DrawRectangleRounded(reloadBtn, 0.18f, 8, reloadHov ? Color{80, 100, 60, 245} : Color{46, 60, 38, 230});
         DrawRectangleRoundedLines(reloadBtn, 0.18f, 8, 1.0f, reloadHov ? Color{160, 220, 100, 255} : Color{100, 148, 72, 230});
-        UiText::DrawFit("[D] Reload", Rectangle{reloadBtn.x + 8.0f, reloadBtn.y + 4.0f, reloadBtn.width - 16.0f, reloadBtn.height - 8.0f}, 17, UiTheme::Parchment);
+        UiText::DrawWithControlIcons(
+            UiText::WrapWithControlIcons("[D] Reload", 17, reloadBtn.width - 16.0f, 22.0f).front(),
+            reloadBtn.x + 12.0f, reloadBtn.y + 4.0f, 17, UiTheme::Parchment, 22.0f);
         if (reloadHov && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (isFocus)

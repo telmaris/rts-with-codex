@@ -11,14 +11,24 @@ InputManager& InputManager::Instance()
     return instance;
 }
 
-bool InputManager::IsKeyPressed(int key) { return ::IsKeyPressed(key); }
-bool InputManager::IsKeyPressedRepeat(int key) { return ::IsKeyPressedRepeat(key); }
-bool InputManager::IsKeyDown(int key) { return ::IsKeyDown(key); }
-bool InputManager::IsKeyReleased(int key) { return ::IsKeyReleased(key); }
-bool InputManager::IsMouseButtonPressed(int button) { return ::IsMouseButtonPressed(button); }
-bool InputManager::IsMouseButtonDown(int button) { return ::IsMouseButtonDown(button); }
-bool InputManager::IsMouseButtonReleased(int button) { return ::IsMouseButtonReleased(button); }
-float InputManager::GetMouseWheelMove() { return ::GetMouseWheelMove(); }
+bool InputManager::IsKeyPressed(int key) { return Instance().inputEnabled && ::IsKeyPressed(key); }
+bool InputManager::IsKeyPressedRepeat(int key) { return Instance().inputEnabled && ::IsKeyPressedRepeat(key); }
+bool InputManager::IsKeyDown(int key) { return Instance().inputEnabled && ::IsKeyDown(key); }
+bool InputManager::IsKeyReleased(int key) { return Instance().inputEnabled && ::IsKeyReleased(key); }
+bool InputManager::IsMouseButtonPressed(int button) { return Instance().inputEnabled && ::IsMouseButtonPressed(button); }
+bool InputManager::IsMouseButtonDown(int button) { return Instance().inputEnabled && ::IsMouseButtonDown(button); }
+bool InputManager::IsMouseButtonReleased(int button) { return Instance().inputEnabled && ::IsMouseButtonReleased(button); }
+float InputManager::GetMouseWheelMove() { return Instance().inputEnabled ? ::GetMouseWheelMove() : 0.0f; }
+
+void InputManager::SetInputEnabled(bool enabled)
+{
+    Instance().inputEnabled = enabled;
+}
+
+bool InputManager::IsInputEnabled()
+{
+    return Instance().inputEnabled;
+}
 
 void InputManager::AddSubscriber(IInputSubscriber* subscriber)
 {

@@ -53,6 +53,7 @@ public:
 private:
     static std::vector<std::string> Drain(std::deque<std::string>& queue);
 
+    mutable std::mutex mutex;
     std::deque<std::string> clientToHost;
     std::deque<std::string> hostToClient;
     std::deque<std::string> hostFrames;
@@ -74,6 +75,10 @@ public:
     virtual int GetPingMs() const { return -1; }
     virtual bool IsReadyForGameplay() const { return true; }
     virtual std::recursive_mutex* GetWorldMutex() { return nullptr; }
+    // Suspends deterministic simulation ticks without accumulating catch-up time.
+    // Sessions that cannot be paused (for example a remote client) may ignore it.
+    virtual void SetPaused(bool paused) { (void)paused; }
+    virtual bool IsPaused() const { return false; }
 };
 
 struct FixedSimulationClock
@@ -120,6 +125,8 @@ public:
     int GetPingMs() const override;
     bool IsReadyForGameplay() const override;
     std::recursive_mutex* GetWorldMutex() override;
+    void SetPaused(bool paused) override;
+    bool IsPaused() const override;
 
 private:
     void SendInitialSnapshot();
@@ -152,6 +159,7 @@ private:
     // Background simulation thread
     mutable std::recursive_mutex worldMutex;
     std::atomic<bool> running{false};
+    std::atomic<bool> paused{false};
     std::thread worker;
     std::mutex sleepMutex;
     std::condition_variable cv;

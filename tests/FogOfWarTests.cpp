@@ -43,8 +43,14 @@ namespace
 
     TEST(FogOfWarTests, HeadquartersHasAStartingDiscoveryAdvantage)
     {
+        EXPECT_FLOAT_EQ(FogOfWar::HeadquartersRevealRadiusTiles, 192.0f);
         EXPECT_GT(FogOfWar::HeadquartersRevealRadiusWorld,
                   FogOfWar::BuildingRevealRadiusWorld(BuildingType::Village, {1, 1}));
-        EXPECT_GE(FogOfWar::HeadquartersRevealRadiusWorld, 3072.0f);
+        EXPECT_EQ(FogOfWar::HeadquartersRevealRadiusWorld,
+                  FogOfWar::HeadquartersRevealRadiusTiles * TILE_SIZE);
+        EXPECT_EQ(FogOfWar::UnitRevealRadiusWorld,
+                  FogOfWar::StandardRevealRadiusTiles * TILE_SIZE);
+        EXPECT_EQ(FogOfWar::BuildingRevealRadiusWorld(BuildingType::Village, {1, 1}),
+                  FogOfWar::StandardRevealRadiusTiles * TILE_SIZE);
     }
 }

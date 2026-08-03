@@ -56,6 +56,22 @@ namespace
 
 // ─── Building (base) ─────────────────────────────────────────────────────────
 
+Building::~Building()
+{
+    // Resources in flight are raw transport pointers for compatibility with
+    // the road network. Release only gameplay-owned allocations; stack-backed
+    // resources used by editor/tests are deliberately left untouched.
+    for (Transportable* transportable : transportables)
+    {
+        if (transportable == nullptr)
+            continue;
+        transportable->ReleaseShipment();
+        if (auto* resource = dynamic_cast<Resource*>(transportable))
+            Resource::DestroyOwned(resource);
+    }
+    transportables.clear();
+}
+
 float Building::GetEfficiency() const
 {
     if (lifetime <= 0.0) return 0.0f;
@@ -148,7 +164,11 @@ Resource Building::GetResource(ResourceType type)
     if (auto* prod = GetComponent<ProductionComponent>())
     {
         auto [avail, res] = prod->inputBuffers[type].GetResource();
-        return avail ? *res : Resource{};
+        if (!avail)
+            return Resource{};
+        Resource value = *res;
+        Resource::DestroyOwned(res);
+        return value;
     }
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->GetResource(type);
@@ -157,7 +177,11 @@ Resource Building::GetResource(ResourceType type)
         ResourceBuffer* buffer = pop->GetSupplyBuffer(type);
         if (buffer == nullptr) return Resource{};
         auto [avail, res] = buffer->GetResource();
-        return avail ? *res : Resource{};
+        if (!avail)
+            return Resource{};
+        Resource value = *res;
+        Resource::DestroyOwned(res);
+        return value;
     }
     return Resource{};
 }
@@ -451,6 +475,7 @@ void Building::UpdateTransportables(double dt)
         bool done = (*it)->Update(dt);
         if (done)
         {
+            (*it)->ReleaseShipment();
             auto* res = dynamic_cast<Resource*>(*it);
             std::string resName = res != nullptr ? rt2s(res->type) : "Transportable";
             Log::Msg(tag, "resource ", resName, " deleted from transportables; pos: ",
@@ -478,6 +503,7 @@ void Building::ReceptTransport(Transportable* trans)
             Log::Msg(tag, "Transport of ", rt2s(ptr->type), " finished, adding resource; ID:",
                      positionId, " pos: ", trans->map->GetCoordsFromId(positionId));
             AddResource(ptr);
+            trans->ReleaseShipment();
         }
     }
     else
@@ -547,6 +573,10 @@ Bridge::Bridge(int i)
     road.maxCapacity   = def.road.maxCapacity;
     road.speedModifier = def.road.speedModifier;
     RegisterComponent(&road);
+
+    for (const auto& levelDef : def.upgradeLevels)
+        upgrade.maxLevel = std::max(upgrade.maxLevel, levelDef.level);
+    RegisterComponent(&upgrade);
 }
 
 int Bridge::GetModifiedMaxCapacity() const

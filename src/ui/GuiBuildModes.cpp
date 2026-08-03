@@ -150,7 +150,6 @@ namespace
             case BuildingType::Barracks:
             case BuildingType::Armorer:
             case BuildingType::Bowyer:
-            case BuildingType::Fletchery:
             case BuildingType::SpearWorkshop:
             case BuildingType::SiegeWorkshop:
                 return "MILITARY";
@@ -348,7 +347,6 @@ namespace
             case BuildingType::Ropery:
             case BuildingType::Weaver:
             case BuildingType::Bowyer:
-            case BuildingType::Fletchery:
             case BuildingType::SpearWorkshop:
             case BuildingType::SiegeWorkshop:
             {
@@ -500,18 +498,34 @@ void BuildPanelWidget::Update(double dt)
         DrawRectangleRounded(card, 0.04f, 8, locked ? Color{24, 18, 13, 226} : (selected ? Color{48, 68, 58, 245} : Color{46, 34, 24, 235}));
         DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? Color{74, 64, 54, 240} : (selected ? Color{112, 230, 150, 210} : Color{112, 88, 58, 255}));
 
+        // Every card gets the same square icon box. Animated horizontal
+        // strips use their first frame; static building artwork keeps its
+        // complete source texture because some sprites are authored on a
+        // larger 2x2/3x3/4x4 canvas rather than as separate animation cells.
         float icon = std::min(card.width * 0.52f, card.height - 14.0f);
-        Rectangle dst{card.x + 6.0f, card.y + (card.height - icon) * 0.5f, icon, icon};
+        Rectangle iconBox{card.x + 6.0f, card.y + (card.height - icon) * 0.5f, icon, icon};
         auto textureIt = scene->render.buildingTextures.find(option.buildingType);
         if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
         {
             Texture2D tex = textureIt->second;
-            Rectangle src{0.0f, 0.0f, static_cast<float>(tex.width), static_cast<float>(tex.height)};
+            Rectangle src = scene->render.GetBuildingTextureFirstFrameSource(option.buildingType);
+            float sourceAspect = src.height > 0.0f ? src.width / src.height : 1.0f;
+            float drawWidth = icon;
+            float drawHeight = icon;
+            if (sourceAspect > 1.0f)
+                drawHeight = icon / sourceAspect;
+            else if (sourceAspect < 1.0f)
+                drawWidth = icon * sourceAspect;
+            Rectangle dst{
+                iconBox.x + (iconBox.width - drawWidth) * 0.5f,
+                iconBox.y + (iconBox.height - drawHeight) * 0.5f,
+                drawWidth,
+                drawHeight};
             DrawTexturePro(tex, src, dst, {0.0f, 0.0f}, 0.0f, locked ? Color{110, 92, 70, 145} : WHITE);
         }
         else
         {
-            DrawRectangleRounded(dst, 0.08f, 6, locked ? Color{54, 42, 32, 220} : Color{96, 78, 56, 255});
+            DrawRectangleRounded(iconBox, 0.08f, 6, locked ? Color{54, 42, 32, 220} : Color{96, 78, 56, 255});
         }
 
         int nameFont = 15;
@@ -557,6 +571,26 @@ void BuildPanelWidget::Update(double dt)
         DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
         float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
+        Rectangle thumb{track.x, thumbY, track.width, thumbH};
+        if (InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+            CheckCollisionPointRec(mouse, thumb))
+        {
+            scrollbarDragging = true;
+            scrollbarDragOffset = mouse.y - thumb.y;
+        }
+        if (scrollbarDragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+        {
+            float thumbRange = track.height - thumbH;
+            float targetThumbY = std::clamp(mouse.y - scrollbarDragOffset,
+                                           track.y, track.y + thumbRange);
+            float normalized = thumbRange > 0.0f
+                ? (targetThumbY - track.y) / thumbRange
+                : 0.0f;
+            scrollOffset = normalized * maxScrollOffset;
+            thumbY = targetThumbY;
+        }
+        if (scrollbarDragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+            scrollbarDragging = false;
         DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
     }
 
@@ -671,7 +705,9 @@ void BuildGhostWidget::Update(double dt)
     if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
     {
         Texture2D tex = textureIt->second;
-        Rectangle src{0.0f, 0.0f, static_cast<float>(tex.width), static_cast<float>(tex.height)};
+        // Match the build-card preview: animated horizontal strips show only
+        // their first frame, while static building canvases stay intact.
+        Rectangle src = scene->render.GetBuildingTextureFirstFrameSource(selectedOption->buildingType);
         DrawTexturePro(tex, src, dest, {0.0f, 0.0f}, 0.0f, Color{255, 255, 255, static_cast<unsigned char>(canBuild ? 170 : 120)});
     }
 }

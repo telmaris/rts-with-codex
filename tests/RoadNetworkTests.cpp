@@ -126,6 +126,12 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     EXPECT_EQ(wood.sourceBuilding, source);
     EXPECT_EQ(wood.targetBuilding, destination);
     EXPECT_FALSE(wood.transportPath.empty());
+    EXPECT_NE(wood.shipmentId, 0u);
+    EXPECT_EQ(network.GetLiveShipmentCount(), 1u);
+
+    wood.ReleaseShipment();
+    EXPECT_EQ(network.GetLiveShipmentCount(), 0u);
+    EXPECT_EQ(wood.shipmentId, 0u);
 }
 
 TEST(RoadNetworkTests, RoadCapacityLimitsEntryAndQueuesOverflowAtSource)
@@ -285,13 +291,9 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathRoadChangesOwner)
     roadA->owner = &enemy;
     EXPECT_TRUE(wood.Update(0.1));
     EXPECT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
-    // Plain vector clear, NOT ResourceBuffer::Clear(): cancellation just
-    // returned the stack-local `wood` into this buffer via
-    // Building::ReturnOutgoingResource, and ResourceBuffer::Clear() calls
-    // ResourcePool::FreeResource on every entry — which would hand this
-    // non-pool stack address to the global resource pool's free-list,
-    // corrupting it for every later test that draws from the WOOD pool
-    // (surfaces as a stale-pointer access violation elsewhere, not here).
+    // Plain vector clear, NOT ResourceBuffer::Clear(): the cancellation
+    // returned the stack-local wood into this buffer. ResourceBuffer now
+    // ignores external stack-backed values during owned-resource cleanup.
     source->storage.buffers[ResourceType::WOOD].buffer.clear();
     roadA->owner = &player;
 }

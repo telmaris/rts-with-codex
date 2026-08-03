@@ -1,5 +1,6 @@
 #include "scenes/Scenes.h"
 #include "core/Log.h"
+#include "ui/ControlIcons.h"
 
 #include "raylib.h"
 
@@ -13,6 +14,7 @@ void GameWindow::LaunchGame()
     SetWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
     SetWindowMinSize(960, 540);
     GuiPanel::LoadUiFont("assets/fonts/MarcellusSC-Regular.ttf");
+    UiControlIcons::Load();
 
     InitAudioDevice();
     audio.Init();
@@ -42,6 +44,7 @@ void GameWindow::LaunchGame()
     ChangeScene("MainScene", "");
     AddScene<OptionsScene>("OptionsScene");
     AddScene<GameScene>("GameScene");
+    AddScene<TutorialScene>("TutorialScene");
     AddScene<NewGameScene>("NewGameScene");
     AddScene<MultiplayerScene>("MultiplayerScene");
     AddScene<LoadGameScene>("LoadGameScene");
@@ -52,6 +55,7 @@ void GameWindow::LaunchGame()
     MainLoop();
 
     ShutdownRenderers();
+    UiControlIcons::Unload();
     audio.Cleanup();
     CloseAudioDevice();
     CloseWindow();

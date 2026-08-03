@@ -72,7 +72,7 @@ void GameMenuScene::OnBackPressed()
 {
     auto msg = std::make_shared<ChangeSceneEvent>();
     msg->sender = this;
-    msg->sceneName = "GameScene";
+    msg->sceneName = gameplaySceneName;
     msg->previousSceneName = name;
     broker->Broadcast(msg);
 }
@@ -142,6 +142,11 @@ void GameMenuScene::Update(double dt)
 // Handles the requested event or transfer.
 void GameMenuScene::HandleEvent(std::shared_ptr<Event> e)
 {
+    auto sceneChange = std::dynamic_pointer_cast<ChangeSceneEvent>(e);
+    if (sceneChange != nullptr && sceneChange->sceneName == "GameMenuScene" &&
+        (sceneChange->previousSceneName == "GameScene" || sceneChange->previousSceneName == "TutorialScene"))
+        gameplaySceneName = sceneChange->previousSceneName;
+
     auto ptr = std::dynamic_pointer_cast<WindowSizeChangedEvent>(e);
     if (ptr != nullptr)
     {

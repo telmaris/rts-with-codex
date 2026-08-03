@@ -261,10 +261,12 @@ TEST(MapGeneratorTests, EveryHqGetsStartingCoalAndIronOrePatches)
 // HQ (not straight-line distance) could end up much longer than intended
 // once BuildStartRoad detours around the military track. Village placement
 // now measures the real road path up front and re-rolls away from
-// candidates that would exceed the budget (GameWorld.Init.cpp).
+// candidates that would exceed the budget (GameWorld.Init.cpp). If no
+// detached candidate fits, the complete world layout is regenerated.
 TEST(MapGeneratorTests, StartingVillageRoadStaysWithinBudget)
 {
-    constexpr int kMaxVillageRoadTiles = 15;
+    constexpr int kMinVillageRoadTiles = 20;
+    constexpr int kMaxVillageRoadTiles = 30;
     for (unsigned int seed : {11u, 222u, 3333u, 44444u, 55555u, 66666u})
     {
         MapParameters params;
@@ -300,6 +302,8 @@ TEST(MapGeneratorTests, StartingVillageRoadStaysWithinBudget)
             // one tile from each endpoint's own footprint). At world-init
             // time the only roads a fresh player owns are this start road.
             int roadTiles = AIActions::CountOwnedBuildings(player.get(), BuildingType::Road);
+            EXPECT_GE(roadTiles, kMinVillageRoadTiles)
+                << "seed=" << seed << " player=" << playerId << " village road is " << roadTiles << " tiles";
             EXPECT_LE(roadTiles, kMaxVillageRoadTiles)
                 << "seed=" << seed << " player=" << playerId << " village road is " << roadTiles << " tiles";
         }

@@ -74,7 +74,6 @@ TEST(BalanceModifierTests, SwordCategoryBonusCoversEverySwordTier)
         return ctx;
     };
 
-    EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::COPPER_SWORD)), 105.0);
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::IRON_SWORD)), 105.0);
     EXPECT_DOUBLE_EQ(modifiers.ModifyDouble(100.0, ctxFor(ResourceType::STEEL_SWORD)), 105.0);
     // A bow is a different weapon category — unaffected by a Sword bonus.

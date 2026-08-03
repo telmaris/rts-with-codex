@@ -23,6 +23,16 @@ enum class UiFontRole
     Plain
 };
 
+// One token in a short UI sentence. Icon tokens contain an asset name such
+// as `key_q` or `mouse_mmb`; text tokens contain ordinary display text.
+struct UiInlineRun
+{
+    std::string value;
+    bool icon{false};
+    // Inline resource/building names can use the same gold accent as tooltips.
+    bool highlighted{false};
+};
+
 // Owns the shared UI fonts. Loading is separate from UiText so raygui's
 // GuiSetFont (which lives with RAYGUI_IMPLEMENTATION in Gui.cpp) stays out of
 // here — tools link this file without raygui.
@@ -65,6 +75,13 @@ public:
     static void DrawTitleBar(Rectangle titleBar, const std::string& text, float closeButtonReserve);
     // Greedy word wrap at `maxWidth`, measured with the shared UI font.
     static std::vector<std::string> Wrap(const std::string& text, int fontSize, float maxWidth);
+    // Greedy word wrap for text containing `{icon:name}` tokens.
+    static std::vector<std::vector<UiInlineRun>> WrapWithControlIcons(
+        const std::string& text, int fontSize, float maxWidth, float iconSize = 30.0f);
+    // Draws one line returned by WrapWithControlIcons.
+    static void DrawWithControlIcons(const std::vector<UiInlineRun>& line,
+                                     float x, float y, int fontSize, Color color,
+                                     float iconSize = 30.0f);
 };
 
 // UTF-8 helpers for text entry, so every editable field agrees on what one

@@ -60,10 +60,13 @@ struct InputProcessor
     // Returns true while an action is held.
     bool IsActionDown(int action);
 
+    void SetDebugActionsEnabled(bool enabled) { debugActionsEnabled = enabled; }
+
 
     ActionInput actionInputs[MAX_ACTION];
 
     GuiController* controller{nullptr};
+    bool debugActionsEnabled{true};
 };
 
 inline void InputProcessor::Init(GuiController* gui)

@@ -122,7 +122,6 @@ namespace
                 AddTag(tags, "manpower");
                 break;
             case ResourceType::PAPER: break;
-            case ResourceType::COPPER_SWORD:
             case ResourceType::BRONZE_SWORD:
             case ResourceType::IRON_SWORD:
             case ResourceType::STEEL_SWORD:
@@ -232,7 +231,6 @@ namespace
         if (value == "Ropery") return BuildingType::Ropery;
         if (value == "Weaver") return BuildingType::Weaver;
         if (value == "Bowyer") return BuildingType::Bowyer;
-        if (value == "Fletchery") return BuildingType::Fletchery;
         if (value == "SpearWorkshop") return BuildingType::SpearWorkshop;
         if (value == "SiegeWorkshop") return BuildingType::SiegeWorkshop;
         return BuildingType::Building;
@@ -264,7 +262,6 @@ namespace
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
         if (value == "PAPER") return ResourceType::PAPER;
         if (value == "TOOLS") return ResourceType::TOOLS;
-        if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
         if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "STEEL_SWORD") return ResourceType::STEEL_SWORD;
         if (value == "BOW") return ResourceType::BOW;
@@ -311,7 +308,7 @@ namespace
         if (value == "COPPER_PIPE") return ResourceType::COPPER_PIPE;
         if (value == "MECHANICAL_PARTS") return ResourceType::MECHANICAL_PARTS;
         if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
-        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
         if (value == "BRICKS") return ResourceType::BRICKS;
         if (value == "CLOTH") return ResourceType::CLOTH;

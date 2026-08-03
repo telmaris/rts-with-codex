@@ -60,7 +60,7 @@ TEST(TileMapDomainTests, TerrainTexturePickerUsesWeightsAndFallbacks)
     TileMap map;
     std::mt19937 rng{123};
 
-    EXPECT_EQ(map.GetTerrainTextureId(TileType::GRASS), 9);
+    EXPECT_EQ(map.GetTerrainTextureId(TileType::GRASS), 28);
     EXPECT_EQ(map.GetTerrainTextureId(static_cast<TileType>(999)), 0);
 
     map.terrainVariants[TileType::GRASS] = {{77, 0}, {88, 0}};

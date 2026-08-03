@@ -103,6 +103,38 @@ struct NewGameEvent : Event
     std::string name;
 };
 
+// Requests a generated single-player world hosted by TutorialScene.
+struct TutorialGameEvent : Event
+{
+    TutorialGameEvent() {msgName = "TutorialGameEvent";}
+
+    MapParameters params;
+    std::string name;
+};
+
+// Generic scripted-tutorial signal. Gameplay can emit the same event for
+// future milestones without coupling the simulation to a particular popup.
+enum class TutorialTriggerType
+{
+    None,
+    PracticeIntro,
+    BuildComplete,
+    LogisticsConnected,
+    BasicResourcesIntro,
+    BasicProductionComplete,
+    FoodChainComplete,
+    DecisionSelected,
+    DefenseRepelled
+};
+
+struct TutorialTriggerEvent : Event
+{
+    TutorialTriggerEvent() {msgName = "TutorialTriggerEvent";}
+
+    TutorialTriggerType type{TutorialTriggerType::None};
+    BuildingType buildingType{BuildingType::Building};
+};
+
 // Starts a LAN host session.
 struct HostMultiplayerGameEvent : Event
 {

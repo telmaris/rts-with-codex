@@ -81,6 +81,11 @@ public:
     static bool IsMouseButtonReleased(int button);
     static float GetMouseWheelMove();
 
+    // Suppresses action queries while a modal popup renders the frozen game
+    // behind it. Mouse coordinates remain available for drawing.
+    static void SetInputEnabled(bool enabled);
+    static bool IsInputEnabled();
+
 private:
     InputManager() = default;
 
@@ -91,6 +96,7 @@ private:
     std::vector<IInputSubscriber*> subscribers;
     float mouseX = 0.0f;
     float mouseY = 0.0f;
+    bool inputEnabled = true;
 };
 
 // RAII observer for one (InputType, key) combination. Registers itself with

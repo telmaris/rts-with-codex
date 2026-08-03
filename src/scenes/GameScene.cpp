@@ -13,6 +13,41 @@ namespace
 {
     constexpr const char* TextureConfigPath = "assets/data/textures.rtsdata";
 
+    struct GameNotificationSnapshot
+    {
+        int localPlayerId{-1};
+        std::size_t unlockedTechnologyCount{0};
+        std::size_t unlockedFocusCount{0};
+        std::set<int> incomingUnitIds;
+    };
+
+    void LoadWorldAtlases(Renderer& renderer)
+    {
+        std::string error;
+        const TextureConfig textureConfig = LoadTextureConfig(TextureConfigPath, &error);
+        if (error.empty())
+        {
+            for (const TextureAtlasDefinition& atlas : textureConfig.atlases)
+            {
+                // These atlases are tile-sized and used by the world pass;
+                // standalone building art stays on its dedicated renderer path.
+                if ((atlas.id != 0 && atlas.id != 19 && atlas.id != 41 && atlas.id != 144 && atlas.id != 145 && atlas.id != 146) || atlas.path.empty() ||
+                    !FileExists(atlas.path.c_str()))
+                    continue;
+                renderer.atlasMap[atlas.id] = TextureAtlas{};
+                renderer.atlasMap[atlas.id].LoadTextureAtlas(
+                    atlas.path.c_str(), {atlas.cellWidth, atlas.cellHeight});
+            }
+        }
+
+        // Keep a safe terrain fallback when an editor save is incomplete.
+        if (!renderer.atlasMap.contains(0))
+        {
+            renderer.atlasMap[0] = TextureAtlas{};
+            renderer.atlasMap[0].LoadTextureAtlas("assets/textures/terrain/terrain_tileset.png");
+        }
+    }
+
     // Building artwork is authored in textures.rtsdata so the game and the
     // texture editor consume the same atlas path and animation definition.
     // Legacy texturePath values remain a safe fallback for incomplete configs.
@@ -123,12 +158,11 @@ bool InputProcessor::IsActionDown(int action)
 GameScene::GameScene()
 {
     render.InitializeWorldLayers();
-    render.atlasMap[0] = TextureAtlas{};
-    render.atlasMap[0].LoadTextureAtlas("assets/textures/terrain/terrain_tileset.png");
+    LoadWorldAtlases(render);
 
     LoadBuildingArtwork(render);
 
-    GuiPanel::LoadResourceAtlas("assets/textures/resources/basic_resources.png", {64, 64});
+    GuiPanel::LoadResourceAtlas("assets/textures/resources/official/resources_rework_atlas.png", {64, 64});
 
     controller = std::make_unique<GuiController>();
     controller->Init(this);
@@ -150,6 +184,13 @@ GameScene::GameScene()
     networkStatusLabel.fontSize = 18;
     networkStatusLabel.color = Color{188, 226, 255, 255};
     UpdateNetworkStatusWidget({GetScreenWidth(), GetScreenHeight()});
+}
+
+void GameScene::OnActivated()
+{
+    // A modal tutorial may have disabled the process-wide input query gate;
+    // entering a regular gameplay scene always restores normal controls.
+    InputManager::SetInputEnabled(true);
 }
 
 namespace
@@ -201,6 +242,17 @@ namespace
             return session != nullptr ? session->GetWorldMutex() : nullptr;
         }
 
+        void SetPaused(bool paused) override
+        {
+            if (session != nullptr)
+                session->SetPaused(paused);
+        }
+
+        bool IsPaused() const override
+        {
+            return session != nullptr && session->IsPaused();
+        }
+
     protected:
         void UpdateSessionAndResults(GameScene& scene, double dt)
         {
@@ -228,16 +280,37 @@ namespace
                 renderWorld->DrawMap();
             else if (scene.latestSnapshot.IsValid())
                 scene.render.DrawSnapshot(scene.latestSnapshot);
+            scene.PrepareGameplayRender();
 
             // Gated through IGuiHandler (GameScene::HandleGuiInput forwards to
             // inputs.HandleInputs()) so the first frame after a scene switch
             // never re-consumes the key edge that caused the switch.
-            scene.ProcessGuiInput(dt);
-            scene.HandleRenderDebugInput();
-            scene.controller->Update(dt);
-
-            std::vector<UiWidget*> widgets = scene.controller->GetUiWidgets();
-            AppendDiagnostics(scene, widgets);
+            const bool hasBlockingPopup = scene.HasBlockingPopup();
+            std::vector<UiWidget*> widgets;
+            if (!hasBlockingPopup)
+            {
+                scene.ProcessGuiInput(dt);
+                scene.HandleRenderDebugInput();
+                scene.AppendGameplayWidgets(widgets);
+                scene.controller->Update(dt);
+                const auto controllerWidgets = scene.controller->GetUiWidgets();
+                widgets.insert(widgets.end(), controllerWidgets.begin(), controllerWidgets.end());
+                AppendDiagnostics(scene, widgets);
+            }
+            else
+            {
+                // Keep the HUD and selected building panel visible behind the
+                // modal. InputManager is disabled by the popup callback, so
+                // these widgets remain display-only while the action button is
+                // temporarily enabled by PopupWindowWidget::Update().
+                scene.AppendGameplayWidgets(widgets);
+                scene.controller->Update(dt);
+                const auto controllerWidgets = scene.controller->GetUiWidgets();
+                widgets.insert(widgets.end(), controllerWidgets.begin(), controllerWidgets.end());
+                AppendDiagnostics(scene, widgets);
+                if (UiWidget* popup = scene.GetBlockingPopupWidget())
+                    widgets.push_back(popup);
+            }
 
             // Keep the world lock held through widget rendering: every widget's
             // Update() (called from render.DrawContent) reads live simulation state —
@@ -407,7 +480,35 @@ void GameScene::Update(double dt)
 
     if (audioSystem != nullptr && game != nullptr)
     {
-        int localId = game->GetLocalPlayerId();
+        GameNotificationSnapshot notificationSnapshot;
+        std::unique_lock<std::recursive_mutex> worldLock;
+        if (auto* mutex = runtimeLoop->GetWorldMutex())
+            worldLock = std::unique_lock<std::recursive_mutex>(*mutex);
+
+        notificationSnapshot.localPlayerId = game->GetLocalPlayerId();
+        const auto& players = game->GetPlayerHandler().players;
+        auto pit = players.find(notificationSnapshot.localPlayerId);
+        if (pit != players.end() && pit->second != nullptr)
+        {
+            const Player* player = pit->second.get();
+            notificationSnapshot.unlockedTechnologyCount = player->technologies.GetUnlocked().size();
+            notificationSnapshot.unlockedFocusCount = player->focuses.GetUnlocked().size();
+        }
+
+        for (const auto& [instanceId, unit] : game->GetDeployedUnits())
+        {
+            if (unit.ownerPlayerId != notificationSnapshot.localPlayerId &&
+                unit.routeToPlayerId == notificationSnapshot.localPlayerId &&
+                unit.state != BattleUnitState::Dying)
+                notificationSnapshot.incomingUnitIds.insert(instanceId);
+        }
+
+        // Do not touch the live world after this point. Audio playback and UI
+        // bookkeeping may run without the simulation mutex.
+        if (worldLock.owns_lock())
+            worldLock.unlock();
+
+        const int localId = notificationSnapshot.localPlayerId;
         for (const auto& result : commandResults)
         {
             if (result.playerId != localId)
@@ -416,26 +517,13 @@ void GameScene::Update(double dt)
                 audioSystem->PlaySound("error");
         }
 
-        auto pit = game->GetPlayerHandler().players.find(localId);
-        if (pit != game->GetPlayerHandler().players.end())
-        {
-            const Player* p = pit->second.get();
-            std::size_t techCount  = p->technologies.GetUnlocked().size();
-            std::size_t focusCount = p->focuses.GetUnlocked().size();
-            if (techCount > prevUnlockedTechCount || focusCount > prevUnlockedFocusCount)
-                audioSystem->PlaySound("notification");
-            prevUnlockedTechCount  = techCount;
-            prevUnlockedFocusCount = focusCount;
-        }
+        if (notificationSnapshot.unlockedTechnologyCount > prevUnlockedTechCount ||
+            notificationSnapshot.unlockedFocusCount > prevUnlockedFocusCount)
+            audioSystem->PlaySound("notification");
+        prevUnlockedTechCount = notificationSnapshot.unlockedTechnologyCount;
+        prevUnlockedFocusCount = notificationSnapshot.unlockedFocusCount;
 
-        std::set<int> incomingUnitIds;
-        for (const auto& [instanceId, unit] : game->GetDeployedUnits())
-        {
-            if (unit.ownerPlayerId != localId && unit.routeToPlayerId == localId &&
-                unit.state != BattleUnitState::Dying)
-                incomingUnitIds.insert(instanceId);
-        }
-        for (int instanceId : incomingUnitIds)
+        for (int instanceId : notificationSnapshot.incomingUnitIds)
         {
             if (!knownIncomingUnitIds.contains(instanceId))
             {
@@ -443,7 +531,7 @@ void GameScene::Update(double dt)
                 break;
             }
         }
-        knownIncomingUnitIds = std::move(incomingUnitIds);
+        knownIncomingUnitIds = std::move(notificationSnapshot.incomingUnitIds);
     }
 
     commandResults.clear();

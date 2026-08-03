@@ -34,9 +34,10 @@ add_executable(rts_tests
     RendererAnimationTests.cpp
     ResourceBufferTests.cpp
     RoadNetworkTests.cpp
+    GameSessionPauseTests.cpp
+    SimulationStateTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
-    TestResourcePoolIsolation.cpp
     TowerAttackSystemTests.cpp
     UtilityAIModelTests.cpp
     SimulationPerfTests.cpp

@@ -85,6 +85,11 @@ class GameWorld
         void EliminatePlayer(int defeatedPlayerId, int conquerorPlayerId);
         // Returns the authoritative simulation tick counter.
         std::uint64_t GetSimulationTick() const { return simulationTick; }
+        // Diagnostics for the resource lifecycle audit. These values are
+        // derived from world-owned player/building state and are not gameplay
+        // inputs.
+        std::size_t GetLiveShipmentCount() const;
+        int GetStoredResourceUnits() const;
         // Returns the global pathfinding service (ETAP 3.4 integration point)
         PathingService* GetPathingService() const { return pathingService.get(); }
 
@@ -132,9 +137,9 @@ class GameWorld
         // B5 (docs/work_plan_2026-07-13.md): generates terrain, HQ anchors
         // (B1) and the military road ring (B2) for `playerCount` players,
         // retrying with a deterministically perturbed seed (up to a bounded
-        // attempt count) if the resulting ring fails validation (not fully
-        // connected). Entirely before any Player/Building exists, so a retry
-        // never needs to undo player-visible state — each attempt just
+        // attempt count) if the resulting ring or starting-village layout
+        // fails validation. Entirely before any Player/Building exists, so a
+        // retry never needs to undo player-visible state — each attempt just
         // regenerates the tilemap terrain and ring from scratch. Returns the
         // (fixed) HQ footprint and writes the accepted anchors (one per
         // player id 0..playerCount-1) to `outAnchors`.

@@ -29,7 +29,6 @@ namespace
         struct Row { ResourceType resource; EquipmentCategory category; EquipmentMaterial material; };
         const Row rows[] = {
             // Swords (material progression)
-            {ResourceType::COPPER_SWORD,  EquipmentCategory::Sword,    EquipmentMaterial::Copper},
             {ResourceType::BRONZE_SWORD,  EquipmentCategory::Sword,    EquipmentMaterial::Bronze},
             {ResourceType::IRON_SWORD,    EquipmentCategory::Sword,    EquipmentMaterial::Iron},
             {ResourceType::STEEL_SWORD,   EquipmentCategory::Sword,    EquipmentMaterial::Steel},

@@ -7,6 +7,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -48,8 +49,9 @@ private:
     void Stop();
     void NetworkLoop();
     void QueueIncomingLine(const std::string& line);
-    void SendLine(const std::string& payload);
+    bool SendLine(const std::string& payload);
     std::vector<std::string> Drain(std::deque<std::string>& queue);
+    void SetStatus(std::string value);
 
     Mode mode;
     std::atomic<bool> running{false};
@@ -59,7 +61,10 @@ private:
     mutable std::mutex mutex;
     std::deque<std::string> hostCommands;
     std::deque<std::string> clientResults;
-    std::deque<std::string> clientFrames;
+    // Frames carrying command results are reliable events and are never
+    // coalesced. Tick/checksum-only frames are a latest-value stream.
+    std::deque<std::string> clientReliableFrames;
+    std::optional<std::string> clientLatestFrame;
     std::deque<std::string> clientSnapshots;
     std::deque<std::string> lobbyMessages;
     std::deque<std::string> outboundLines;

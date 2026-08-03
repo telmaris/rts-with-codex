@@ -1,13 +1,15 @@
 #include "scenes/Scenes.h"
 #include "scenes/SceneUtils.h"
 
+#include <algorithm>
 #include <chrono>
 
 // Initializes NewGameScene::NewGameScene.
 NewGameScene::NewGameScene()
 {
     backButton.ChangeText("Back");
-    backButton.ChangePositionAnchor(Vec2f{0.62f, 0.84f});
+    backButton.ChangePositionAnchor(Vec2f{0.63f, 0.84f});
+    backButton.ChangeSizeAnchor(Vec2f{0.18f, 0.065f});
     backButton.func = std::bind(&NewGameScene::OnBackPressed, this);
 
     gameName.ChangePositionAnchor(Vec2f{0.30f, 0.12f});
@@ -39,8 +41,14 @@ NewGameScene::NewGameScene()
     debugMode.ChangeSizeAnchor(Vec2f{0.20f, 0.045f});
 
     startGame.ChangeText("Start game");
-    startGame.ChangePositionAnchor(Vec2f{0.30f, 0.84f});
+    startGame.ChangePositionAnchor(Vec2f{0.19f, 0.84f});
+    startGame.ChangeSizeAnchor(Vec2f{0.18f, 0.065f});
     startGame.func = std::bind(&NewGameScene::OnStartPressed, this);
+
+    startTutorial.ChangeText("Tutorial");
+    startTutorial.ChangePositionAnchor(Vec2f{0.41f, 0.84f});
+    startTutorial.ChangeSizeAnchor(Vec2f{0.18f, 0.065f});
+    startTutorial.func = std::bind(&NewGameScene::OnTutorialPressed, this);
 
     tooltipWidget.func = [this](double)
     {
@@ -76,6 +84,8 @@ NewGameScene::NewGameScene()
             Tooltip::Draw("Debug mode", {"Forces a tiny 101x101 map with 1 AI opponent and preset resource values.", "Useful for rapid testing — skips the generation wait."});
         else if (startGame.ContainsPoint(mp))
             Tooltip::Draw("Start game", {"Generate the world and begin playing.", "Map generation may take several seconds for larger sizes."});
+        else if (startTutorial.ContainsPoint(mp))
+            Tooltip::Draw("Tutorial", {"Generate the world and begin the guided introduction.", "The tutorial pauses whenever an instruction window is open."});
         else if (backButton.ContainsPoint(mp))
             Tooltip::Draw("Back", {"Return to the main menu without starting a game."});
     };
@@ -86,6 +96,7 @@ NewGameScene::NewGameScene()
     backButton.UpdateSize(windowSize);
     gameName.UpdateSize(windowSize);
     startGame.UpdateSize(windowSize);
+    startTutorial.UpdateSize(windowSize);
     sizeButton.UpdateSize(windowSize);
     difficultyButton.UpdateSize(windowSize);
     resourceDensity.UpdateSize(windowSize);
@@ -110,6 +121,7 @@ void NewGameScene::Update(double dt)
                  &aiOpponents,
                  &debugMode,
                  &startGame,
+                 &startTutorial,
                  &backButton,
                  &tooltipWidget}, dt);
 }
@@ -130,7 +142,26 @@ void NewGameScene::OnStartPressed()
     auto msg = std::make_shared<NewGameEvent>();
     msg->sender = this;
     msg->name = gameName.GetText();
+    msg->params = BuildMapParameters();
+    broker->Broadcast(msg);
+}
 
+void NewGameScene::OnTutorialPressed()
+{
+    auto msg = std::make_shared<TutorialGameEvent>();
+    msg->sender = this;
+    msg->name = gameName.GetText();
+    msg->params = BuildMapParameters();
+    // The guided defence/counterattack stages require a scripted opponent.
+    msg->params.aiOpponentCount = std::max(1, msg->params.aiOpponentCount);
+    // The tutorial may intentionally inherit Debug mode from the New Game
+    // panel so its scripted steps can be tested quickly with the compact map
+    // and debug resource shortcuts.
+    broker->Broadcast(msg);
+}
+
+MapParameters NewGameScene::BuildMapParameters()
+{
     MapParameters params;
     params.sizePreset = selectedSize;
     params.sizeX = MapGenerator::SizeFromPreset(params.sizePreset);
@@ -153,8 +184,7 @@ void NewGameScene::OnStartPressed()
         params.resourceRichness = 120;
     }
 
-    msg->params = params;
-    broker->Broadcast(msg);
+    return params;
 }
 
 // Handles the UI action represented by OnSizePressed.
@@ -194,6 +224,7 @@ void NewGameScene::HandleEvent(std::shared_ptr<Event> e)
         backButton.UpdateSize(ptr->windowSize);
         gameName.UpdateSize(ptr->windowSize);
         startGame.UpdateSize(ptr->windowSize);
+        startTutorial.UpdateSize(ptr->windowSize);
         sizeButton.UpdateSize(ptr->windowSize);
         difficultyButton.UpdateSize(ptr->windowSize);
         resourceDensity.UpdateSize(ptr->windowSize);

@@ -1,5 +1,8 @@
 #include "ui/Renderer.h"
+#include "core/FogOfWar.h"
 #include "data/TextureConfig.h"
+
+#include <cmath>
 
 #include <gtest/gtest.h>
 
@@ -11,6 +14,8 @@ TEST(RendererLifecycleTests, ConstructorDoesNotAllocateWorldLayers)
     Renderer renderer;
 
     EXPECT_FALSE(renderer.HasWorldLayers());
+    EXPECT_TRUE(renderer.HasBuildingAnimation(BuildingType::Bakery));
+    EXPECT_FALSE(renderer.HasBuildingAnimation(BuildingType::StorageBuilding));
 }
 
 TEST(RendererLifecycleTests, RenderSettingsAreVisualOnlyAndConfigurableWithoutGpuResources)
@@ -115,7 +120,8 @@ TEST(RendererLifecycleTests, HeadquartersFogRevealIsMuchLargerThanAnOrdinaryBuil
     renderer.QueueBuildingFogReveal(BuildingType::Woodcutter, {1, 1}, {0.0f, 0.0f});
 
     ASSERT_EQ(renderer.fogReveals.size(), 2u);
-    EXPECT_NEAR(renderer.fogReveals[0].radiusWorld, 3072.0f, 0.001f);
+    EXPECT_NEAR(renderer.fogReveals[0].radiusWorld,
+                FogOfWar::HeadquartersRevealRadiusTiles * TILE_SIZE, 0.001f);
     EXPECT_GT(renderer.fogReveals[0].radiusWorld, renderer.fogReveals[1].radiusWorld * 4.0f);
 }
 
@@ -131,16 +137,37 @@ TEST(RendererLifecycleTests, FogSourceOutsideCameraIsKeptWhileItsRadiusTouchesTh
     EXPECT_FLOAT_EQ(renderer.fogReveals.front().worldPosition.x, -100.0f);
 }
 
-TEST(RendererLifecycleTests, OperationalBuildingLightExtendsBeyondItsFootprint)
+TEST(RendererLifecycleTests, CameraKeepsTileEdgesAndOriginOnRenderPixels)
+{
+    Renderer renderer;
+    renderer.camera.zoom = 1.17f;
+    renderer.camera.target = {123.456f, -456.789f};
+
+    renderer.ClampCameraToMap({200, 200});
+
+    const float pixelsPerTile = renderer.camera.zoom * static_cast<float>(TILE_SIZE);
+    EXPECT_NEAR(pixelsPerTile, std::round(pixelsPerTile), 0.0001f);
+    EXPECT_NEAR(renderer.camera.target.x * renderer.camera.zoom,
+                std::round(renderer.camera.target.x * renderer.camera.zoom), 0.0001f);
+    EXPECT_NEAR(renderer.camera.target.y * renderer.camera.zoom,
+                std::round(renderer.camera.target.y * renderer.camera.zoom), 0.0001f);
+}
+
+TEST(RendererLifecycleTests, OperationalBuildingsQueueAStableLight)
 {
     Renderer renderer;
     renderer.camera.zoom = 1.0f;
 
     renderer.QueueBuildingLight(BuildingType::Village, {4, 4}, {100.0f, 100.0f}, 17, true);
-
     ASSERT_EQ(renderer.dynamicLights.size(), 1u);
-    EXPECT_GT(renderer.dynamicLights.front().radiusWorld, 4.0f * TILE_SIZE);
-    EXPECT_GT(renderer.dynamicLights.front().flickerAmount, 0.0f);
+    EXPECT_GE(renderer.dynamicLights.front().radiusWorld, 4.0f * TILE_SIZE);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.front().flickerAmount, 0.0f);
+
+    renderer.QueueBuildingLight(BuildingType::Foundry, {3, 3}, {100.0f, 100.0f}, 18, true);
+
+    ASSERT_EQ(renderer.dynamicLights.size(), 2u);
+    EXPECT_GT(renderer.dynamicLights.back().radiusWorld, 4.0f * TILE_SIZE);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.back().flickerAmount, 0.0f);
 }
 
 TEST(RendererLifecycleTests, DebugViewCyclesThroughAllAvailableRenderTargets)
@@ -215,7 +242,7 @@ TEST(RendererAnimationTests, RegisteredBuildingAnimationAdvancesLeftToRight)
     EXPECT_EQ(ResolveAnimationFrame(clip, 0.54f), 0);
 }
 
-TEST(TextureConfigIntegrationTests, HeadquartersArtworkUsesTheAuthoredThreeFrameStrip)
+TEST(TextureConfigIntegrationTests, HeadquartersArtworkUsesTheAuthoredFiveFrame4x4Strip)
 {
     std::string error;
     const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
@@ -232,17 +259,58 @@ TEST(TextureConfigIntegrationTests, HeadquartersArtworkUsesTheAuthoredThreeFrame
     const TextureAtlasDefinition* atlas = config.FindAtlas(buildingIt->sprite.atlasId);
     ASSERT_NE(atlas, nullptr);
     EXPECT_EQ(atlas->path,
-              "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png");
-    EXPECT_EQ(atlas->cellWidth, 96);
-    EXPECT_EQ(atlas->cellHeight, 96);
+              "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_5x1_4x4.png");
+    EXPECT_EQ(atlas->cellWidth, 256);
+    EXPECT_EQ(atlas->cellHeight, 256);
     EXPECT_EQ(buildingIt->sprite.textureId, 0);
     EXPECT_TRUE(buildingIt->animation.enabled);
-    EXPECT_EQ(buildingIt->animation.frames, 3);
+    EXPECT_EQ(buildingIt->animation.frames, 5);
     EXPECT_DOUBLE_EQ(buildingIt->animation.frameTime, 0.18);
     EXPECT_TRUE(buildingIt->animation.looping);
 }
 
-TEST(TextureConfigIntegrationTests, TanneryArtworkUsesTheAuthoredTwoFrameStrip)
+TEST(TextureConfigIntegrationTests, StorageIsStaticAndBakeryUsesTheAuthoredFiveFrameStrip)
+{
+    std::string error;
+    const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
+    ASSERT_TRUE(error.empty()) << error;
+
+    const auto expectStaticBuilding = [&](const char* buildingName, const char* expectedPath)
+    {
+        const auto buildingIt = std::find_if(
+            config.buildings.begin(), config.buildings.end(),
+            [&](const BuildingTextureDefinition& definition)
+            {
+                return definition.buildingType == buildingName;
+            });
+        ASSERT_NE(buildingIt, config.buildings.end());
+        const TextureAtlasDefinition* atlas = config.FindAtlas(buildingIt->sprite.atlasId);
+        ASSERT_NE(atlas, nullptr);
+        EXPECT_EQ(atlas->path, expectedPath);
+        EXPECT_FALSE(buildingIt->animation.enabled);
+    };
+
+    expectStaticBuilding("StorageBuilding",
+                         "assets/textures/building/generated/storage_idle_v2/storage_style_v2_pixellab_3x3.png");
+
+    const auto bakeryIt = std::find_if(
+        config.buildings.begin(), config.buildings.end(),
+        [](const BuildingTextureDefinition& definition)
+        {
+            return definition.buildingType == "Bakery";
+        });
+    ASSERT_NE(bakeryIt, config.buildings.end());
+    const TextureAtlasDefinition* bakeryAtlas = config.FindAtlas(bakeryIt->sprite.atlasId);
+    ASSERT_NE(bakeryAtlas, nullptr);
+    EXPECT_EQ(bakeryAtlas->path,
+              "assets/textures/building/generated/bakery_idle_v3/bakery_idle_sheet_5x1.png");
+    EXPECT_TRUE(bakeryIt->animation.enabled);
+    EXPECT_EQ(bakeryIt->animation.frames, 5);
+    EXPECT_DOUBLE_EQ(bakeryIt->animation.frameTime, 0.18);
+    EXPECT_TRUE(bakeryIt->animation.looping);
+}
+
+TEST(TextureConfigIntegrationTests, TanneryArtworkUsesTheAuthoredStaticSprite)
 {
     std::string error;
     const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
@@ -259,17 +327,14 @@ TEST(TextureConfigIntegrationTests, TanneryArtworkUsesTheAuthoredTwoFrameStrip)
     const TextureAtlasDefinition* atlas = config.FindAtlas(buildingIt->sprite.atlasId);
     ASSERT_NE(atlas, nullptr);
     EXPECT_EQ(atlas->path,
-              "assets/textures/building/generated/tannery_idle/tannery_idle_sheet_2x1.png");
-    EXPECT_EQ(atlas->cellWidth, 96);
-    EXPECT_EQ(atlas->cellHeight, 96);
+              "assets/textures/building/generated/tannery_idle_v2/tannery_idle_4x4.png");
+    EXPECT_EQ(atlas->cellWidth, 256);
+    EXPECT_EQ(atlas->cellHeight, 256);
     EXPECT_EQ(buildingIt->sprite.textureId, 0);
-    EXPECT_TRUE(buildingIt->animation.enabled);
-    EXPECT_EQ(buildingIt->animation.frames, 2);
-    EXPECT_DOUBLE_EQ(buildingIt->animation.frameTime, 0.30);
-    EXPECT_TRUE(buildingIt->animation.looping);
+    EXPECT_FALSE(buildingIt->animation.enabled);
 }
 
-TEST(TextureConfigIntegrationTests, TailorArtworkUsesTheAuthoredTwoFrameStrip)
+TEST(TextureConfigIntegrationTests, TailorArtworkUsesTheAuthoredStaticSprite)
 {
     std::string error;
     const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
@@ -286,17 +351,14 @@ TEST(TextureConfigIntegrationTests, TailorArtworkUsesTheAuthoredTwoFrameStrip)
     const TextureAtlasDefinition* atlas = config.FindAtlas(buildingIt->sprite.atlasId);
     ASSERT_NE(atlas, nullptr);
     EXPECT_EQ(atlas->path,
-              "assets/textures/building/generated/tailor_idle/tailor_idle_sheet_2x1.png");
-    EXPECT_EQ(atlas->cellWidth, 96);
-    EXPECT_EQ(atlas->cellHeight, 96);
+              "assets/textures/building/generated/tailor_idle_v2/tailor_idle_3x3.png");
+    EXPECT_EQ(atlas->cellWidth, 192);
+    EXPECT_EQ(atlas->cellHeight, 192);
     EXPECT_EQ(buildingIt->sprite.textureId, 0);
-    EXPECT_TRUE(buildingIt->animation.enabled);
-    EXPECT_EQ(buildingIt->animation.frames, 2);
-    EXPECT_DOUBLE_EQ(buildingIt->animation.frameTime, 0.30);
-    EXPECT_TRUE(buildingIt->animation.looping);
+    EXPECT_FALSE(buildingIt->animation.enabled);
 }
 
-TEST(TextureConfigIntegrationTests, ArmorerArtworkUsesTheAuthoredTwoFrameStrip)
+TEST(TextureConfigIntegrationTests, ArmorerArtworkUsesTheAuthoredStaticSprite)
 {
     std::string error;
     const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
@@ -313,12 +375,75 @@ TEST(TextureConfigIntegrationTests, ArmorerArtworkUsesTheAuthoredTwoFrameStrip)
     const TextureAtlasDefinition* atlas = config.FindAtlas(buildingIt->sprite.atlasId);
     ASSERT_NE(atlas, nullptr);
     EXPECT_EQ(atlas->path,
-              "assets/textures/building/generated/armorer_idle/armorer_idle_sheet_2x1.png");
-    EXPECT_EQ(atlas->cellWidth, 96);
-    EXPECT_EQ(atlas->cellHeight, 96);
+              "assets/textures/building/generated/armorer_idle_v2/armorer_idle_3x3.png");
+    EXPECT_EQ(atlas->cellWidth, 192);
+    EXPECT_EQ(atlas->cellHeight, 192);
     EXPECT_EQ(buildingIt->sprite.textureId, 0);
-    EXPECT_TRUE(buildingIt->animation.enabled);
-    EXPECT_EQ(buildingIt->animation.frames, 2);
-    EXPECT_DOUBLE_EQ(buildingIt->animation.frameTime, 0.30);
-    EXPECT_TRUE(buildingIt->animation.looping);
+    EXPECT_FALSE(buildingIt->animation.enabled);
+}
+
+TEST(TextureConfigIntegrationTests, RoadAndBridgeUseCanonical64PixelAutotileAtlas)
+{
+    std::string error;
+    const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
+    ASSERT_TRUE(error.empty()) << error;
+
+    const auto findBuilding = [&](const char* buildingName)
+    {
+        return std::find_if(
+            config.buildings.begin(), config.buildings.end(),
+            [&](const BuildingTextureDefinition& definition)
+            {
+                return definition.buildingType == buildingName;
+            });
+    };
+
+    const auto roadIt = findBuilding("Road");
+    const auto bridgeIt = findBuilding("Bridge");
+    ASSERT_NE(roadIt, config.buildings.end());
+    ASSERT_NE(bridgeIt, config.buildings.end());
+    EXPECT_EQ(roadIt->sprite.atlasId, 19);
+    EXPECT_EQ(bridgeIt->sprite.atlasId, 19);
+
+    const TextureAtlasDefinition* atlas = config.FindAtlas(19);
+    ASSERT_NE(atlas, nullptr);
+    EXPECT_EQ(atlas->path,
+              "assets/textures/roads/generated/roads_bridges_4x8_64px.png");
+    EXPECT_EQ(atlas->cellWidth, 64);
+    EXPECT_EQ(atlas->cellHeight, 64);
+}
+
+TEST(TextureConfigIntegrationTests, MilitaryRoadUsesCanonical64PixelAutotileAtlas)
+{
+    std::string error;
+    const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
+    ASSERT_TRUE(error.empty()) << error;
+
+    const TextureAtlasDefinition* atlas = config.FindAtlas(144);
+    ASSERT_NE(atlas, nullptr);
+    EXPECT_EQ(atlas->path,
+              "assets/textures/military_roads/generated/military_road_autotiles_4x4_64px.png");
+    EXPECT_EQ(atlas->cellWidth, 64);
+    EXPECT_EQ(atlas->cellHeight, 64);
+}
+
+TEST(TextureConfigIntegrationTests, RoadsAndMilitaryRoadsExposeDeterministicMaterialVariants)
+{
+    std::string error;
+    const TextureConfig config = LoadTextureConfig("assets/data/textures.rtsdata", &error);
+    ASSERT_TRUE(error.empty()) << error;
+
+    const TextureAtlasDefinition* roadVariants = config.FindAtlas(145);
+    ASSERT_NE(roadVariants, nullptr);
+    EXPECT_EQ(roadVariants->path,
+              "assets/textures/roads/generated/roads_autotile_variants_3x4_64px.png");
+    EXPECT_EQ(roadVariants->cellWidth, 64);
+    EXPECT_EQ(roadVariants->cellHeight, 64);
+
+    const TextureAtlasDefinition* militaryRoadVariants = config.FindAtlas(146);
+    ASSERT_NE(militaryRoadVariants, nullptr);
+    EXPECT_EQ(militaryRoadVariants->path,
+              "assets/textures/military_roads/generated/military_road_variants_3x4_64px.png");
+    EXPECT_EQ(militaryRoadVariants->cellWidth, 64);
+    EXPECT_EQ(militaryRoadVariants->cellHeight, 64);
 }

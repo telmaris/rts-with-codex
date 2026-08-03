@@ -63,7 +63,8 @@ enum class ResourceType : uint8_t
     TOOLS = 21,
     FOOD_PROVISIONS = 22,
 
-    COPPER_SWORD = 24,
+    // Retired product slot kept so old saves retain their numeric layout.
+    ReservedCopperSwordSlot = 24,
     IRON_SWORD = 25,
     STEEL_SWORD = 26,
     BOW = 27,
@@ -121,7 +122,8 @@ enum class ResourceType : uint8_t
     COPPER_PIPE = 66,
     MECHANICAL_PARTS = 67,
     HEAVY_BOW = 68,
-    LIGHT_WEAPON = 69,
+    // Retired product slot kept so old saves retain their numeric layout.
+    ReservedWeaponSlot = 69,
     HEAVY_ARMOR = 70,
     BRICKS = 71,
     CLOTH = 72,
@@ -131,7 +133,7 @@ enum class ResourceType : uint8_t
 
 };
 
-// Resource types currently allocated by the fixed resource pool.
+// Resource types supported by the data-driven resource catalog.
 constexpr ResourceType resourceTypes[] = 
 {
     ResourceType::WOOD,
@@ -149,7 +151,6 @@ constexpr ResourceType resourceTypes[] =
     ResourceType::PAPER,
     ResourceType::TOOLS,
     ResourceType::FOOD_PROVISIONS,
-    ResourceType::COPPER_SWORD,
     ResourceType::IRON_SWORD,
     ResourceType::STEEL_SWORD,
     ResourceType::BOW,
@@ -202,7 +203,6 @@ constexpr ResourceType resourceTypes[] =
     ResourceType::COPPER_PIPE,
     ResourceType::MECHANICAL_PARTS,
     ResourceType::HEAVY_BOW,
-    ResourceType::LIGHT_WEAPON,
     ResourceType::HEAVY_ARMOR,
     ResourceType::BRICKS,
     ResourceType::CLOTH,
@@ -240,7 +240,6 @@ inline std::string rt2s(ResourceType s)
         case ResourceType::FOOD_PROVISIONS: return "FOOD_PROVISIONS";
         case ResourceType::PAPER: return "PAPER";
         case ResourceType::TOOLS: return "TOOLS";
-        case ResourceType::COPPER_SWORD: return "COPPER_SWORD";
         case ResourceType::IRON_SWORD: return "IRON_SWORD";
         case ResourceType::STEEL_SWORD: return "STEEL_SWORD";
         case ResourceType::BOW: return "BOW";
@@ -285,7 +284,6 @@ inline std::string rt2s(ResourceType s)
         case ResourceType::COPPER_PIPE: return "COPPER_PIPE";
         case ResourceType::MECHANICAL_PARTS: return "MECHANICAL_PARTS";
         case ResourceType::HEAVY_BOW: return "HEAVY_BOW";
-        case ResourceType::LIGHT_WEAPON: return "LIGHT_WEAPON";
         case ResourceType::HEAVY_ARMOR: return "HEAVY_ARMOR";
         case ResourceType::BRICKS: return "BRICKS";
         case ResourceType::CLOTH: return "CLOTH";
@@ -324,7 +322,7 @@ inline std::string ResourceDisplayName(ResourceType type)
 // buildings and bonuses reason about *classes* of goods instead of hard-coding
 // individual resource ids: a "+10% Metal production" bonus lifts every metal, a
 // "+5% Sword power" bonus lifts every sword tier, a supply hub can pack "the best
-// available Sword" without naming COPPER_SWORD/IRON_SWORD/… one by one.
+// available Sword" without naming each sword resource one by one.
 //
 // This is the authoritative economic tag layer. The finer combat role of a
 // weapon (slot, quality) still lives in Equipment.h's EquipmentCategory; the two
@@ -380,16 +378,40 @@ bool IsEquipmentCategory(ResourceCategory category);
 // True when the category is a primary weapon (Sword/Spear/Bow/Crossbow/Firearm).
 bool IsWeaponCategory(ResourceCategory category);
 
-// Transportable resource instance owned by the global resource pool.
+// Transportable resource instance. Gameplay-created instances are owned by a
+// ResourceBuffer while stored or by a transport carrier while in flight.
 struct Resource : Transportable
 {
     Resource() = default;
     Resource(ResourceType rtype) : type(rtype), category(ResourceCategoryOf(rtype)) {}
+    Resource(const Resource& other)
+        // A copied cargo value is not the same shipment. Do not duplicate
+        // transport endpoints, path state, or the network-owned ShipmentId.
+        : Transportable(), tag(other.tag), type(other.type), category(other.category)
+    {
+        ownedAllocation = false;
+    }
+    Resource& operator=(const Resource& other)
+    {
+        if (this == &other)
+            return *this;
+        // Assignment into a value object must also detach any previous
+        // shipment identity instead of aliasing the source's in-flight cargo.
+        static_cast<Transportable&>(*this) = Transportable{};
+        tag = other.tag;
+        type = other.type;
+        category = other.category;
+        ownedAllocation = false;
+        return *this;
+    }
     ~Resource() = default;
+    static Resource* CreateOwned(ResourceType type);
+    static void DestroyOwned(Resource* resource);
     std::string tag{"[Resource]"};
     ResourceType type{ResourceType::Null};
     // Broad economic/combat tag of this resource, derived from `type`.
     ResourceCategory category{ResourceCategory::None};
+    bool ownedAllocation{false};
 };
 
 // Single-resource-type FIFO/LIFO buffer used by buildings.
@@ -398,6 +420,11 @@ class ResourceBuffer
     public:
         ResourceBuffer(ResourceType t, int size) : type(t), bufferSize(size) {}
         ResourceBuffer() = default;
+        ~ResourceBuffer();
+        ResourceBuffer(const ResourceBuffer& other);
+        ResourceBuffer& operator=(const ResourceBuffer& other);
+        ResourceBuffer(ResourceBuffer&& other) noexcept;
+        ResourceBuffer& operator=(ResourceBuffer&& other) noexcept;
 
         int bufferSize{0};
         ResourceType type{ResourceType::Null};
@@ -407,73 +434,31 @@ class ResourceBuffer
         // Removes and returns one resource pointer when available.
         std::pair<bool, Resource*> GetResource();
         
-        // Pulls one resource instance from the pool and stores it in this buffer.
+        // Allocates one resource instance and stores it in this buffer.
         void GenerateResource(ResourceType type);
-        // Returns one stored resource instance to the pool.
+        // Releases one stored owned resource instance.
         void FreeResource();
-        // Returns all stored resources to the pool.
+        // Releases all stored owned resource instances.
         void Clear();
-        // Replaces stored amount with freshly generated pooled resources.
+        // Replaces stored amount with freshly generated owned resources.
         void SetStoredAmount(int amount);
 
         std::vector<Resource*> buffer;
 };
 
-// Free-list of available resource instances for one resource type.
-struct AddressPool
-{
-    std::deque<Resource*> addresses;
-};
-
-// Fixed-size resource allocator used to avoid per-resource heap allocations.
+// Compatibility facade for older callers. Resource allocation itself is lazy
+// and owned by each ResourceBuffer; no process-wide free-list is maintained.
 class ResourcePool
 {
 public:
 
-    ResourcePool()
-    {
-        for(auto& resType : resourceTypes)
-        {
-            auto& arr = pool[resType];
-            for (auto& x : arr)
-            {
-                x = Resource(resType);
-            }
-        }
+    ResourcePool() = default;
 
-        for(auto& [type, arr] : pool)
-        {
-            auto& addresses = addressPool[type];
-            for(int i = 0; i < arr.size(); i++)
-            {
-                addresses.addresses.push_back(&arr[i]);
-            }
-        }
-    }
-
-    // Returns an available resource instance of the requested type.
     Resource* GetResource(ResourceType);
-    // Returns a resource instance to its type-specific free-list.
     void FreeResource(Resource*);
-    // Rebuilds every type's free-list to full capacity, discarding whatever
-    // is currently checked out. This pool is a single process-wide static
-    // (see Resource.cpp) shared by every GameWorld in the process — real
-    // gameplay never needs a mid-run reset, but a test binary that
-    // constructs many short-lived GameWorlds in one process can leave a
-    // type's pool partially (or, given enough tests, mostly) checked out by
-    // the time a later test runs. A test that then builds two structurally
-    // identical worlds and expects identical starting stock breaks: whichever
-    // world's GenerateResource() calls run first gets first pick of what's
-    // left, so the second gets a silently truncated grant. See
-    // tests/TestResourcePoolIsolation.cpp, which resets between test cases.
-    void Reset();
-
-    std::map<ResourceType, std::array<Resource, 50000>> pool;
-    std::map<ResourceType, AddressPool> addressPool;
+    void Reset() noexcept {}
 };
 
-// Resets the process-wide resource pool (see ResourcePool::Reset). Exposed
-// as a free function because `resourcePool` itself has internal linkage.
-void ResetResourcePool();
+// Resource allocation is lazy and owned by individual buffers.
 
 #endif

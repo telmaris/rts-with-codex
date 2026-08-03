@@ -35,7 +35,7 @@ void InputProcessor::HandleInputs()
         controller->MakeAction("u");
     if (IsActionPressed(CENTER_CAMERA_ON_HEADQUARTERS))
         controller->MakeAction("space");
-    if (IsActionPressed(DEBUG_GRANT_RESOURCES))
+    if (debugActionsEnabled && IsActionPressed(DEBUG_GRANT_RESOURCES))
         controller->MakeAction("debug_resources");
     if (IsActionPressed(LEFT_BUTTON_DOWN))
         controller->MakeAction("lmbp");
@@ -141,6 +141,28 @@ void BasicMapViewSystem::ClearBuildingSelection()
     isBuildingSelected = false;
     buildingInfoPanel.SetBuilding(nullptr);
     researchPanel.SetBuilding(nullptr);
+    strategicHudWidget.SetTutorialHighlights(false, false);
+}
+
+void BasicMapViewSystem::SelectBuilding(Building* building)
+{
+    if (building == nullptr || scene == nullptr || building->owner != GuiLocalPlayer(scene))
+    {
+        ClearBuildingSelection();
+        return;
+    }
+
+    isBuildingSelected = true;
+    if (building->buildingType == BuildingType::University)
+    {
+        buildingInfoPanel.SetBuilding(nullptr);
+        researchPanel.SetBuilding(building);
+    }
+    else
+    {
+        researchPanel.SetBuilding(nullptr);
+        buildingInfoPanel.SetBuilding(building);
+    }
 }
 
 // Runs whenever GuiController switches to a different system. The existing
@@ -224,6 +246,7 @@ void BasicMapViewSystem::EscPressed()
     auto msg = std::make_shared<ChangeSceneEvent>();
     msg->sender = scene;
     msg->sceneName = "GameMenuScene";
+    msg->previousSceneName = scene->name;
     scene->broker->Broadcast(msg);
 
     Log::Msg("[Input]", "escape pressed");
@@ -361,17 +384,7 @@ void BasicMapViewSystem::LmbPressed()
     {
         if (building->owner == GuiLocalPlayer(scene))
         {
-            isBuildingSelected = true;
-            if (building->buildingType == BuildingType::University)
-            {
-                buildingInfoPanel.SetBuilding(nullptr);
-                researchPanel.SetBuilding(building);
-            }
-            else
-            {
-                researchPanel.SetBuilding(nullptr);
-                buildingInfoPanel.SetBuilding(building);
-            }
+            SelectBuilding(building);
             Log::Msg("[Input]", building->name, " selected!");
         }
         else

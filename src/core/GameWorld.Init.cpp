@@ -10,6 +10,14 @@ namespace
 {
     constexpr int MultiplayerHumanSlots = 2;
 
+    // Starting-village distance is measured on the actual road, not as a
+    // straight-line distance. Keeping a one-tile buffer from the immutable
+    // military track prevents the road from winding around it.
+    constexpr int kStartingVillageGap = 20;
+    constexpr int kMinStartingVillageRoadTiles = 20;
+    constexpr int kMaxStartingVillageRoadTiles = 30;
+    constexpr int kStartingVillageMilitaryRoadClearance = 1;
+
     // B5 (docs/work_plan_2026-07-13.md): deterministic reseed for a
     // regeneration retry — same inputs always produce the same sequence of
     // attempts, so a retried world is still fully reproducible from the
@@ -31,7 +39,7 @@ namespace
         // A 2-player "ring" is a single mutual edge, not a closed cycle — one
         // route, not `playerCount` (bug found 2026-07-14: this off-by-one
         // made validation fail on EVERY attempt for every 2-player world,
-        // silently wasting all 8 retries and falling through to "proceeding
+        // silently wasting every retry and falling through to "proceeding
         // with the last attempt" every single time. The actual generated
         // rings were fine throughout — MilitaryRoadNetworkTests.
         // TwoPlayersGetExactlyOneMutualRoute already asserts exactly 1 route
@@ -59,6 +67,43 @@ namespace
             current = next;
         }
         return visited.size() == static_cast<size_t>(playerCount);
+    }
+
+    // Keep the two gates of a multi-route HQ on meaningfully separated faces.
+    // This is part of the military-track contract too; without it, a village
+    // validation retry could accidentally accept a seed whose ring has two
+    // gates collapsing near the same corner.
+    bool ValidateMilitaryGateSpread(const MilitaryRoadNetwork& roads,
+                                    const TileMap& tilemap, int playerCount,
+                                    Vec2i hqFootprint)
+    {
+        const int minSeparation = hqFootprint.x - 1;
+        for (int playerId = 0; playerId < playerCount; playerId++)
+        {
+            std::vector<Vec2i> gates;
+            for (const MilitaryRoute& route : roads.GetRoutes())
+            {
+                int gateTile = -1;
+                if (route.playerA == playerId && !route.tiles.empty())
+                    gateTile = route.tiles.front();
+                else if (route.playerB == playerId && !route.tiles.empty())
+                    gateTile = route.tiles.back();
+                if (gateTile >= 0)
+                    gates.push_back(tilemap.GetCoordsFromId(gateTile));
+            }
+
+            if (gates.size() < 2)
+                continue;
+            if (gates.size() != 2)
+                return false;
+
+            const int chebyshev = std::max(
+                std::abs(gates[0].x - gates[1].x),
+                std::abs(gates[0].y - gates[1].y));
+            if (chebyshev < minSeparation)
+                return false;
+        }
+        return true;
     }
 
     Color PlayerSlotColor(int id)
@@ -127,6 +172,174 @@ namespace
                 matches++;
         }
         return matches;
+    }
+
+    struct StartingVillagePlan
+    {
+        bool haveBuildable{false};
+        Vec2i bestBuildableAnchor{};
+        bool bestBuildableDetached{false};
+        int bestBuildableExitMatches{std::numeric_limits<int>::max()};
+        int bestBuildableOppositeMatches{-1};
+
+        bool haveRoutable{false};
+        Vec2i bestRoutableAnchor{};
+        int bestRoadClearance{0};
+        std::size_t bestPathLength{std::numeric_limits<std::size_t>::max()};
+        bool bestWithinBudget{false};
+        int bestExitMatches{std::numeric_limits<int>::max()};
+        int bestOppositeMatches{-1};
+
+        bool IsValid() const
+        {
+            return haveRoutable && bestWithinBudget &&
+                   bestPathLength >= static_cast<std::size_t>(kMinStartingVillageRoadTiles) &&
+                   bestPathLength <= static_cast<std::size_t>(kMaxStartingVillageRoadTiles) &&
+                   bestRoadClearance >= kStartingVillageMilitaryRoadClearance;
+        }
+    };
+
+    // Chooses the same plan during map-generation preflight and during actual
+    // placement. The complete 4x5 candidate set is small; enumerating it
+    // avoids proving one random offset safe and then choosing another one.
+    StartingVillagePlan FindStartingVillagePlan(TileMap& tilemap,
+                                                const MilitaryRoadNetwork& militaryRoads,
+                                                Player* player, int playerId,
+                                                Vec2i hqAnchor)
+    {
+        StartingVillagePlan plan;
+        const Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
+        Village villagePreview{0};
+        const Vec2i villageFootprint = villagePreview.GetFootprint();
+        const std::vector<Vec2i> exitDirections = GetMilitaryExitDirections(
+            militaryRoads, tilemap, playerId, hqAnchor, hqFootprint);
+
+        struct VillageCandidate
+        {
+            Vec2i anchor{};
+            Vec2i direction{};
+        };
+
+        std::vector<VillageCandidate> candidates;
+        candidates.reserve(20);
+        for (int side = 0; side < 4; side++)
+        {
+            for (int offset = -2; offset <= 2; offset++)
+            {
+                switch (side)
+                {
+                    case 0:
+                        candidates.push_back({
+                            {hqAnchor.x - kStartingVillageGap - villageFootprint.x,
+                             hqAnchor.y + offset}, {-1, 0}});
+                        break;
+                    case 1:
+                        candidates.push_back({
+                            {hqAnchor.x + hqFootprint.x + kStartingVillageGap,
+                             hqAnchor.y + offset}, {1, 0}});
+                        break;
+                    case 2:
+                        candidates.push_back({
+                            {hqAnchor.x + offset,
+                             hqAnchor.y - kStartingVillageGap - villageFootprint.y}, {0, -1}});
+                        break;
+                    default:
+                        candidates.push_back({
+                            {hqAnchor.x + offset,
+                             hqAnchor.y + hqFootprint.y + kStartingVillageGap}, {0, 1}});
+                        break;
+                }
+            }
+        }
+
+        for (VillageCandidate candidate : candidates)
+        {
+            candidate.anchor = ClampAnchor(candidate.anchor, villageFootprint, tilemap.params);
+            if (!tilemap.CanBuildFootprint(candidate.anchor, villageFootprint, player,
+                                           BuildingType::Village))
+                continue;
+
+            const int exitMatches = CountMatchingDirections(candidate.direction, exitDirections, false);
+            const int oppositeMatches = CountMatchingDirections(candidate.direction, exitDirections, true);
+            const bool footprintDetached = HasMilitaryRoadClearance(
+                tilemap, candidate.anchor, villageFootprint,
+                kStartingVillageMilitaryRoadClearance);
+            const bool betterBuildable =
+                !plan.haveBuildable ||
+                (footprintDetached != plan.bestBuildableDetached && footprintDetached) ||
+                (footprintDetached == plan.bestBuildableDetached &&
+                 exitMatches != plan.bestBuildableExitMatches &&
+                 exitMatches < plan.bestBuildableExitMatches) ||
+                (footprintDetached == plan.bestBuildableDetached &&
+                 exitMatches == plan.bestBuildableExitMatches &&
+                 oppositeMatches > plan.bestBuildableOppositeMatches);
+            if (betterBuildable)
+            {
+                plan.haveBuildable = true;
+                plan.bestBuildableAnchor = candidate.anchor;
+                plan.bestBuildableDetached = footprintDetached;
+                plan.bestBuildableExitMatches = exitMatches;
+                plan.bestBuildableOppositeMatches = oppositeMatches;
+            }
+
+            // Only a route with a one-tile military-track buffer is accepted.
+            // If it does not fit the 20..30 tile budget, the whole map attempt
+            // is rejected and GenerateWorldLayout regenerates the world.
+            std::vector<int> path = FindRoadPathBetweenFootprints(
+                tilemap, player, candidate.anchor, villageFootprint,
+                hqAnchor, hqFootprint, kStartingVillageMilitaryRoadClearance);
+            if (path.empty())
+                continue;
+
+            const bool withinBudget =
+                path.size() >= static_cast<std::size_t>(kMinStartingVillageRoadTiles) &&
+                path.size() <= static_cast<std::size_t>(kMaxStartingVillageRoadTiles);
+            const bool betterRoutable =
+                !plan.haveRoutable ||
+                (withinBudget != plan.bestWithinBudget && withinBudget) ||
+                (withinBudget == plan.bestWithinBudget &&
+                 exitMatches != plan.bestExitMatches && exitMatches < plan.bestExitMatches) ||
+                (withinBudget == plan.bestWithinBudget &&
+                 exitMatches == plan.bestExitMatches &&
+                 oppositeMatches != plan.bestOppositeMatches &&
+                 oppositeMatches > plan.bestOppositeMatches) ||
+                (withinBudget == plan.bestWithinBudget &&
+                 exitMatches == plan.bestExitMatches &&
+                 oppositeMatches == plan.bestOppositeMatches &&
+                 path.size() < plan.bestPathLength);
+            if (betterRoutable)
+            {
+                plan.haveRoutable = true;
+                plan.bestRoutableAnchor = candidate.anchor;
+                plan.bestRoadClearance = kStartingVillageMilitaryRoadClearance;
+                plan.bestPathLength = path.size();
+                plan.bestWithinBudget = withinBudget;
+                plan.bestExitMatches = exitMatches;
+                plan.bestOppositeMatches = oppositeMatches;
+            }
+        }
+
+        return plan;
+    }
+
+    bool ValidateStartingVillagePlans(TileMap& tilemap,
+                                      const MilitaryRoadNetwork& militaryRoads,
+                                      const std::vector<Vec2i>& hqAnchors)
+    {
+        for (int playerId = 0; playerId < static_cast<int>(hqAnchors.size()); playerId++)
+        {
+            StartingVillagePlan plan = FindStartingVillagePlan(
+                tilemap, militaryRoads, nullptr, playerId, hqAnchors[playerId]);
+            if (!plan.IsValid())
+            {
+                Log::Msg("[MapGenerator]", "starting village validation failed for player ",
+                         playerId, " (road tiles ",
+                         plan.haveRoutable ? std::to_string(plan.bestPathLength) : "unroutable",
+                         "), retrying");
+                return false;
+            }
+        }
+        return true;
     }
 
     // Adds a debug resource package to the player's headquarters.
@@ -255,7 +468,7 @@ namespace
 // exists yet at this point in InitWorld/InitMultiplayerWorld).
 Vec2i GameWorld::GenerateWorldLayout(MapParameters& params, int playerCount, std::vector<Vec2i>& outAnchors)
 {
-    constexpr int kMaxAttempts = 8;
+    constexpr int kMaxAttempts = 32;
     Vec2i hqFootprint = MapGenerator::HeadquartersFootprint();
     unsigned int baseSeed = params.seed;
 
@@ -271,9 +484,16 @@ Vec2i GameWorld::GenerateWorldLayout(MapParameters& params, int playerCount, std
             hqAnchorsByPlayer[playerId] = outAnchors[playerId];
 
         militaryRoads = MilitaryRoadNetwork{};
-        militaryRoads.Generate(tilemap, hqAnchorsByPlayer, hqFootprint, MapGenerator::HeadquartersTerritorySize(), params.seed);
+        // Keep the route tie-break seed stable across village-layout retries.
+        // The terrain and HQ layout still change with params.seed, while a
+        // retry cannot introduce an unrelated gate-collapse variant merely
+        // because the village check asked for another map attempt.
+        militaryRoads.Generate(tilemap, hqAnchorsByPlayer, hqFootprint,
+                               MapGenerator::HeadquartersTerritorySize(), baseSeed);
 
-        if (ValidateMilitaryRing(militaryRoads, playerCount))
+        if (ValidateMilitaryRing(militaryRoads, playerCount) &&
+            ValidateMilitaryGateSpread(militaryRoads, tilemap, playerCount, hqFootprint) &&
+            ValidateStartingVillagePlans(tilemap, militaryRoads, outAnchors))
         {
             if (attempt > 0)
                 Log::Msg("[MapGenerator]", "world generation succeeded on retry attempt ", attempt,
@@ -332,27 +552,18 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
 
     Village villagePreview{0};
     Vec2i villageFootprint = villagePreview.GetFootprint();
-    std::mt19937 startRng(seed);
-    std::uniform_int_distribution<int> sideDist(0, 3);
-    std::uniform_int_distribution<int> offsetDist(-2, 2);
-    // Widened from 3 (2026-07-13), then from 6 (2026-07-17, user request):
-    // the starting village now sits 14 tiles out — past the 10-tile HQ build
-    // clearance (TileMap::CanBuildFootprint), leaving the HQ apron free for
-    // logistics. With the military road generated BEFORE the village (see
-    // CreateStartingHq/InitWorld ordering comment), overlap is structurally
-    // impossible regardless of distance.
-    int gap = 14;
+    // The village sits 20 tiles beyond the HQ footprint. The actual route is
+    // measured below, because a military-track detour must not be hidden by a
+    // harmless-looking straight-line distance.
+    const int gap = kStartingVillageGap;
 
-    // Playtest report (2026-07-20): a straight-line-legal candidate can still
-    // end up much farther than `gap` by actual ROAD path once BuildStartRoad
-    // detours around the military track. Sample a wide pool of candidates (up
-    // from 12) and measure each one's real road length up front — via
-    // FindRoadPathBetweenFootprints, read-only, nothing committed yet — so we
-    // never build a Village the road ends up dragging out past kMaxVillageRoadTiles.
+    // Measure each candidate's real road length up front via
+    // FindRoadPathBetweenFootprints. No route is committed until the actual
+    // road length and the military-track
+    // clearance have both passed the preflight check.
     // The budget counts only actual Road tiles (perimeter-to-perimeter, not
     // the HQ/Village footprints themselves) — matches CountOwnedBuildings(Road).
-    constexpr int kMaxVillageRoadTiles = 15;
-    constexpr int kCandidateAttempts = 30;
+    constexpr int kMaxVillageRoadTiles = kMaxStartingVillageRoadTiles;
 
     struct VillageCandidate
     {
@@ -384,25 +595,19 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
         }
     };
 
-    // Always include one centered candidate on every side. Random sampling
-    // below still varies the final layout, while these four guarantee that
-    // the side opposite the military exits is actually considered.
+    // Always include one centered candidate on every side, then enumerate
+    // every offset so the opposite side is guaranteed to be considered.
     for (int side = 0; side < 4; side++)
         addCandidate(side, 0);
 
-    for (int attempt = 0; attempt < kCandidateAttempts; attempt++)
-    {
-        int side = sideDist(startRng);
-        int offset = offsetDist(startRng);
-        addCandidate(side, offset);
-    }
+    // Enumerate every offset so the placement pass uses exactly the same
+    // candidate set as the map-generation preflight.
+    for (int side = 0; side < 4; side++)
+        for (int offset = -2; offset <= 2; offset++)
+            addCandidate(side, offset);
 
-    // Two fallback layers, matching the original guarantee that a legally
-    // buildable candidate is always used if one exists: prefer the shortest
-    // ROUTABLE candidate (ideally within budget), but if none of the
-    // buildable candidates can find a road at all (the road-net BFS's own
-    // "shouldn't happen short of fully boxed in" case), fall back to the
-    // first buildable candidate rather than placing nothing.
+    // Keep a buildable fallback only for diagnostics; GenerateWorldLayout
+    // should already have rejected any map without a valid routable plan.
     bool haveBuildable = false;
     Vec2i bestBuildableAnchor{};
     int bestBuildableExitMatches = std::numeric_limits<int>::max();
@@ -456,15 +661,10 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
             detached = !path.empty();
         }
         if (path.empty())
-        {
-            path = FindRoadPathBetweenFootprints(
-                tilemap, player, candidate.anchor, villageFootprint,
-                hqAnchor, hqFootprint);
-        }
-        if (path.empty())
             continue;
 
         const bool withinBudget =
+            path.size() >= static_cast<std::size_t>(kMinStartingVillageRoadTiles) &&
             path.size() <= static_cast<std::size_t>(kMaxVillageRoadTiles);
         const bool betterRoutable =
             !haveRoutable ||
@@ -491,20 +691,20 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
         }
     }
 
-    if (!haveBuildable)
+    if (!haveBuildable || !haveRoutable || !bestWithinBudget ||
+        bestPathLength < static_cast<std::size_t>(kMinStartingVillageRoadTiles))
+    {
+        Log::Msg("[MapGenerator]", "Starting village placement rejected: no detached road in range ",
+                 kMinStartingVillageRoadTiles, "..", kMaxVillageRoadTiles);
         return;
-    if (haveRoutable && bestPathLength > static_cast<std::size_t>(kMaxVillageRoadTiles))
-        Log::Msg("[MapGenerator]", "Starting village: no candidate found within ",
-                  kMaxVillageRoadTiles, " road tiles of HQ — using shortest found (",
-                  bestPathLength, " tiles)");
-
-    Vec2i villageAnchor = haveRoutable ? bestRoutableAnchor : bestBuildableAnchor;
+    }
+    Vec2i villageAnchor = bestRoutableAnchor;
     SetFootprintTerrain(tilemap, villageAnchor, villageFootprint, TileType::GRASS, resourceRng, 3);
     Building* village = player->Build<Village>(villageAnchor, false);
 
     if (village != nullptr)
         BuildStartRoad(player, villageAnchor, villageFootprint, hqAnchor, hqFootprint,
-                       haveRoutable ? bestRoadClearance : 0);
+                       bestRoadClearance);
 
     // WOOD/STONE stay on the original ring (17..23); COAL/IRON_ORE (user
     // request 2026-07-19: iron is often missing near spawn) sit on a wider
@@ -526,7 +726,8 @@ void GameWorld::CreateStartingVillageAndResources(Player* player, Vec2i hqAnchor
 // cut through the starting village or its resource-road network):
 //   1. Terrain, HQ anchors (B1) and the military road ring (B2) are
 //      generated together by GenerateWorldLayout, retrying on a perturbed
-//      seed if the ring fails validation (B5) — entirely before any player
+//      seed if the ring or starting-village layout fails validation (B5) —
+//      entirely before any player
 //      or building exists, so a retry never needs to undo anything.
 //   2. Every player is created and its Headquarters is placed
 //      (CreateStartingHq) at its now-final validated anchor.

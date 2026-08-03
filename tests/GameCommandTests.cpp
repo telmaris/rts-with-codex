@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <thread>
 
@@ -155,6 +156,65 @@ TEST(GameCommandTests, HostRejectsTransportCommandForWrongPlayerSlot)
     EXPECT_EQ(results.front().playerId, 0);
     EXPECT_FALSE(results.front().accepted);
     EXPECT_EQ(results.front().reason, "rejected: wrong player slot");
+    EXPECT_LT(results.front().targetTick, 999999u);
+}
+
+TEST(GameCommandTests, LocalhostTransportPreservesLargeFrameBacklog)
+{
+    LocalhostGameTransport transport;
+    constexpr int frameCount = 600;
+    for (int i = 0; i < frameCount; ++i)
+    {
+        GameServerFrame frame;
+        frame.tick = static_cast<std::uint64_t>(i + 1);
+        GameCommandResult result;
+        result.commandId = static_cast<std::uint64_t>(i + 1);
+        result.simulationTick = frame.tick;
+        result.playerId = 0;
+        result.type = GameCommandType::DestroyBuilding;
+        result.accepted = false;
+        frame.results.push_back(std::move(result));
+        transport.SendHostFrame(frame.Serialize());
+    }
+
+    const auto frames = transport.ReceiveClientFrames();
+    ASSERT_EQ(frames.size(), static_cast<std::size_t>(frameCount));
+    for (int i = 0; i < frameCount; ++i)
+    {
+        GameServerFrame frame;
+        ASSERT_TRUE(GameServerFrame::TryDeserialize(frames[static_cast<std::size_t>(i)], frame));
+        ASSERT_EQ(frame.results.size(), 1u);
+        EXPECT_EQ(frame.results.front().commandId, static_cast<std::uint64_t>(i + 1));
+    }
+}
+
+TEST(GameCommandTests, LocalhostTransportSupportsConcurrentSendAndDrain)
+{
+    LocalhostGameTransport transport;
+    constexpr int payloadCount = 1000;
+    std::atomic<bool> producerDone{false};
+    std::vector<std::string> received;
+    received.reserve(payloadCount);
+
+    std::thread producer([&]()
+    {
+        for (int i = 0; i < payloadCount; ++i)
+            transport.SendClientCommand(std::to_string(i));
+        producerDone = true;
+    });
+
+    while (!producerDone || received.size() < static_cast<std::size_t>(payloadCount))
+    {
+        auto batch = transport.ReceiveHostCommands();
+        received.insert(received.end(), batch.begin(), batch.end());
+        if (!producerDone)
+            std::this_thread::yield();
+    }
+    producer.join();
+
+    ASSERT_EQ(received.size(), static_cast<std::size_t>(payloadCount));
+    for (int i = 0; i < payloadCount; ++i)
+        EXPECT_EQ(received[static_cast<std::size_t>(i)], std::to_string(i));
 }
 
 TEST(GameCommandTests, MultiplayerWorldAssignsStableServerSlotsAndColors)

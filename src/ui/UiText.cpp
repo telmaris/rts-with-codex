@@ -3,6 +3,7 @@
 // helpers now forward here so its ~200 call sites stayed untouched.
 
 #include "ui/UiText.h"
+#include "ui/ControlIcons.h"
 #include "ui/UiTheme.h"
 
 #include <algorithm>
@@ -109,6 +110,33 @@ namespace
             return true;
         }
         return false;
+    }
+
+    float InlineRunWidth(const UiInlineRun& run, int fontSize, float iconSize)
+    {
+        if (run.icon)
+            return iconSize + 5.0f;
+        return static_cast<float>(UiText::Measure(run.value, fontSize));
+    }
+
+    const char* ShortcutIconName(const std::string& token)
+    {
+        if (token == "[Q]") return "key_q";
+        if (token == "[R]") return "key_r";
+        if (token == "[D]") return "key_d";
+        if (token == "[E]") return "key_e";
+        if (token == "[S]") return "key_s";
+        if (token == "[F]") return "key_f";
+        if (token == "[T]") return "key_t";
+        if (token == "[U]") return "key_u";
+        if (token == "[L]") return "key_l";
+        if (token == "[Space]") return "key_space";
+        if (token == "[ESC]") return "key_escape";
+        if (token == "[LMB]") return "mouse_lmb";
+        if (token == "[RMB]") return "mouse_rmb";
+        if (token == "[MMB]") return "mouse_mmb";
+        if (token == "[Scroll]") return "mouse_wheel";
+        return nullptr;
     }
 }
 
@@ -251,6 +279,127 @@ std::vector<std::string> UiText::Wrap(const std::string& text, int fontSize, flo
     return wrapped;
 }
 
+std::vector<std::vector<UiInlineRun>> UiText::WrapWithControlIcons(
+    const std::string& text, int fontSize, float maxWidth, float iconSize)
+{
+    std::istringstream words(text);
+    std::string token;
+    std::vector<UiInlineRun> currentLine;
+    std::vector<std::vector<UiInlineRun>> wrapped;
+    float currentWidth = 0.0f;
+    bool resourceHighlight = false;
+
+    auto flushLine = [&]()
+    {
+        if (!currentLine.empty())
+        {
+            wrapped.push_back(std::move(currentLine));
+            currentLine.clear();
+            currentWidth = 0.0f;
+        }
+    };
+
+    while (words >> token)
+    {
+        std::vector<UiInlineRun> tokenRuns;
+        constexpr const char* Prefix = "{icon:";
+        if (token.rfind(Prefix, 0) == 0)
+        {
+            const size_t closingBrace = token.find('}', 6);
+            if (closingBrace != std::string::npos && closingBrace > 6)
+            {
+                tokenRuns.push_back({token.substr(6, closingBrace - 6), true, false});
+                if (closingBrace + 1 < token.size())
+                    tokenRuns.push_back({token.substr(closingBrace + 1), false, resourceHighlight});
+            }
+        }
+        if (tokenRuns.empty())
+        {
+            if (const char* iconName = ShortcutIconName(token))
+                tokenRuns.push_back({iconName, true, false});
+        }
+        if (tokenRuns.empty())
+        {
+            // Tooltip-style inline markup is also accepted in tutorial prose.
+            // Keep the tags out of the measured/drawn text while preserving
+            // the resource highlight state across whitespace-separated words.
+            size_t cursor = 0;
+            while (cursor < token.size())
+            {
+                const size_t open = token.find("{resource}", cursor);
+                const size_t close = token.find("{/resource}", cursor);
+                size_t marker = std::min(open == std::string::npos ? token.size() : open,
+                                         close == std::string::npos ? token.size() : close);
+                if (marker > cursor)
+                    tokenRuns.push_back({token.substr(cursor, marker - cursor), false, resourceHighlight});
+                if (marker == token.size())
+                    break;
+                if (open != std::string::npos && open == marker)
+                {
+                    resourceHighlight = true;
+                    cursor = marker + 10;
+                }
+                else
+                {
+                    resourceHighlight = false;
+                    cursor = marker + 11;
+                }
+            }
+            if (tokenRuns.empty())
+                tokenRuns.push_back({token, false, resourceHighlight});
+        }
+
+        const float separatorWidth = currentLine.empty()
+            ? 0.0f
+            : static_cast<float>(Measure(" ", fontSize));
+        float tokenWidth = 0.0f;
+        for (const UiInlineRun& run : tokenRuns)
+            tokenWidth += InlineRunWidth(run, fontSize, iconSize);
+        if (!currentLine.empty() && currentWidth + separatorWidth + tokenWidth > maxWidth)
+            flushLine();
+
+        if (!currentLine.empty())
+        {
+            currentLine.push_back({" ", false, false});
+            currentWidth += static_cast<float>(Measure(" ", fontSize));
+        }
+        for (UiInlineRun& run : tokenRuns)
+            currentLine.push_back(std::move(run));
+        currentWidth += tokenWidth;
+    }
+
+    flushLine();
+    if (wrapped.empty())
+        wrapped.push_back({});
+    return wrapped;
+}
+
+void UiText::DrawWithControlIcons(const std::vector<UiInlineRun>& line,
+                                  float x, float y, int fontSize, Color color,
+                                  float iconSize)
+{
+    for (const UiInlineRun& run : line)
+    {
+        if (run.icon)
+        {
+            const float iconY = y + (fontSize - iconSize) * 0.5f;
+            if (!UiControlIcons::Draw(run.value, {x, iconY, iconSize, iconSize}))
+            {
+                const std::string fallback = "[" + run.value + "]";
+                Draw(fallback, x, y, fontSize, color);
+                x += static_cast<float>(Measure(fallback, fontSize));
+            }
+            else
+                x += iconSize + 5.0f;
+        }
+        else
+        {
+            Draw(run.value, x, y, fontSize, run.highlighted ? UiTheme::Gold : color);
+            x += static_cast<float>(Measure(run.value, fontSize));
+        }
+    }
+}
+
 std::string Utf8::Encode(int codepoint)
 {
     std::string encoded;
@@ -308,22 +457,32 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     width = std::min(width, 520.0f);
     float textWidth = width - padding * 2.0f;
 
-    std::vector<std::vector<std::string>> wrappedLines;
+    struct TooltipParagraph
+    {
+        bool separator{false};
+        std::vector<std::vector<UiInlineRun>> lines;
+        std::string source;
+    };
+
+    std::vector<TooltipParagraph> wrappedLines;
     wrappedLines.reserve(lines.size());
     int visualLineCount = 0;
     for (const auto& line : lines)
     {
         if (line == "{separator}")
         {
-            wrappedLines.push_back({line});
+            wrappedLines.push_back(TooltipParagraph{true, {}, line});
             visualLineCount++;
             continue;
         }
 
         std::string displayLine = StripTooltipInlineMarkup(StripTooltipLinePrefix(line));
 
-        wrappedLines.push_back(UiText::Wrap(displayLine, lineFont, textWidth));
-        visualLineCount += static_cast<int>(wrappedLines.back().size());
+        TooltipParagraph paragraph;
+        paragraph.source = line;
+        paragraph.lines = UiText::WrapWithControlIcons(displayLine, lineFont, textWidth, 24.0f);
+        visualLineCount += static_cast<int>(paragraph.lines.size());
+        wrappedLines.push_back(std::move(paragraph));
     }
 
     float height = padding * 2.0f + headerHeight + 8.0f +
@@ -345,10 +504,10 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
                  titleFont, UiTheme::Parchment);
 
     float y = bounds.y + padding + headerHeight + 6.0f;
-    for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
+        for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
     {
         const auto& paragraph = wrappedLines[paragraphIndex];
-        if (paragraph.size() == 1 && paragraph.front() == "{separator}")
+        if (paragraph.separator)
         {
             y += 5.0f;
             DrawLineEx(Vector2{bounds.x + padding, y}, Vector2{bounds.x + bounds.width - padding, y}, 1.0f, Fade(UiTheme::Bronze, 0.82f));
@@ -357,21 +516,21 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
         }
 
         Color lineColor = UiTheme::ParchmentDim;
-        const std::string& sourceLine = lines[paragraphIndex];
+        const std::string& sourceLine = paragraph.source;
         if (sourceLine.rfind("{penalty}", 0) == 0)
             lineColor = UiTheme::Rust;
         else if (sourceLine.rfind("{bonus}", 0) == 0)
             lineColor = UiTheme::Sage;
 
-        for (const auto& line : paragraph)
+        for (const auto& line : paragraph.lines)
         {
             // Marked names are intentionally kept on one visual line.  This
             // covers the compact modifier/cost rows; descriptive prose still
             // uses the regular wrapping path above.
-            if (paragraph.size() == 1 && HasTooltipInlineMarkup(sourceLine))
+            if (paragraph.lines.size() == 1 && HasTooltipInlineMarkup(sourceLine))
                 DrawTooltipInlineMarkup(sourceLine, bounds.x + padding, y, lineFont, lineColor);
             else
-                UiText::DrawFit(line, Rectangle{bounds.x + padding, y, bounds.width - padding * 2.0f, lineH}, lineFont, lineColor);
+                UiText::DrawWithControlIcons(line, bounds.x + padding, y, lineFont, lineColor, 24.0f);
             y += lineH;
         }
         y += paragraphGap;

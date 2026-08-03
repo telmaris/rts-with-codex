@@ -9,11 +9,12 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
+    // Save v31: transparent per-tile resource-overlay cells.
     // Save v30: settlement tiers and their household/urban supply buffers.
     // Save v29: added TowerCombatComponent target priority.
     // Save v28: added the UPG block (UpgradeComponent — generic per-instance
     // building upgrade progression, introduced for Road).
-    out << "RTS_SAVE 30\n";
+    out << "RTS_SAVE 31\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
@@ -76,7 +77,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     {
         int ownerId = tile.owner != nullptr ? tile.owner->id : -1;
         out << "T " << tile.id << ' ' << static_cast<int>(tile.tileType) << ' '
-            << tile.terrainTextureId << ' ' << ownerId << ' ' << tile.resourceRichness << ' '
+            << tile.terrainTextureId << ' ' << tile.resourceOverlayTextureId << ' ' << ownerId << ' ' << tile.resourceRichness << ' '
             << static_cast<int>(tile.biome) << '\n';
     }
 
@@ -276,10 +277,11 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v31: transparent per-tile resource-overlay cells.
     // v30: settlement tiers and advanced supply buffers.
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
-    if (tag != "RTS_SAVE" || version != 30)
+    if (tag != "RTS_SAVE" || (version != 30 && version != 31))
         return false;
 
     render = renderer;
@@ -447,14 +449,19 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         int id = 0;
         int tileType = 0;
         int terrainTextureId = 0;
+        int resourceOverlayTextureId = -1;
         int ownerId = -1;
-        in >> tag >> id >> tileType >> terrainTextureId >> ownerId;
+        in >> tag >> id >> tileType >> terrainTextureId;
+        if (version >= 31)
+            in >> resourceOverlayTextureId;
+        in >> ownerId;
         if (tag != "T")
             return false;
 
         Tile tile{id};
         tile.tileType = static_cast<TileType>(tileType);
         tile.terrainTextureId = terrainTextureId;
+        tile.resourceOverlayTextureId = resourceOverlayTextureId;
         if (version >= 3)
             in >> tile.resourceRichness;
         else

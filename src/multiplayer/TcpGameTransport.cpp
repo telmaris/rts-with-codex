@@ -82,7 +82,7 @@ bool TcpGameTransport::StartHost(unsigned short hostPort)
 {
     port = hostPort;
     running = true;
-    status = "Hosting on port " + std::to_string(port);
+    SetStatus("Hosting on port " + std::to_string(port));
     Log::Msg("[TCP]", "Starting host on port ", port);
     worker = std::thread(&TcpGameTransport::NetworkLoop, this);
     return true;
@@ -93,7 +93,7 @@ bool TcpGameTransport::StartClient(const std::string& hostAddress, unsigned shor
     address = hostAddress;
     port = hostPort;
     running = true;
-    status = "Connecting to " + address + ":" + std::to_string(port);
+    SetStatus("Connecting to " + address + ":" + std::to_string(port));
     Log::Msg("[TCP]", "Connecting to ", address, ":", port);
     worker = std::thread(&TcpGameTransport::NetworkLoop, this);
     return true;
@@ -112,6 +112,12 @@ std::string TcpGameTransport::GetStatus() const
 {
     std::lock_guard<std::mutex> lock(mutex);
     return status;
+}
+
+void TcpGameTransport::SetStatus(std::string value)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    status = std::move(value);
 }
 
 void TcpGameTransport::SendClientCommand(const std::string& payload)
@@ -155,7 +161,13 @@ void TcpGameTransport::SendHostFrame(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveClientFrames()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    return Drain(clientFrames);
+    std::vector<std::string> result = Drain(clientReliableFrames);
+    if (clientLatestFrame.has_value())
+    {
+        result.push_back(std::move(*clientLatestFrame));
+        clientLatestFrame.reset();
+    }
+    return result;
 }
 
 void TcpGameTransport::SendHostSnapshot(const std::string& payload)
@@ -185,12 +197,20 @@ std::vector<std::string> TcpGameTransport::ReceiveLobbyMessages()
     return Drain(lobbyMessages);
 }
 
-void TcpGameTransport::SendLine(const std::string& payload)
+bool TcpGameTransport::SendLine(const std::string& payload)
 {
     std::lock_guard<std::mutex> lock(mutex);
     constexpr size_t MaxOutboundLines = 1024;
-    if (outboundLines.size() < MaxOutboundLines)
-        outboundLines.push_back(payload + "\n");
+    if (outboundLines.size() >= MaxOutboundLines)
+    {
+        failed = true;
+        running = false;
+        status = "Outbound queue full; connection closed";
+        Log::Msg("[TCP]", status);
+        return false;
+    }
+    outboundLines.push_back(payload + "\n");
+    return true;
 }
 
 std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue)
@@ -222,9 +242,12 @@ void TcpGameTransport::QueueIncomingLine(const std::string& line)
     }
     else if (line[0] == 'F' && line[1] == ' ')
     {
-        clientFrames.push_back(line.substr(2));
-        while (clientFrames.size() > 120)
-            clientFrames.pop_front();
+        std::string payload = line.substr(2);
+        GameServerFrame frame;
+        if (!GameServerFrame::TryDeserialize(payload, frame) || !frame.results.empty())
+            clientReliableFrames.push_back(std::move(payload));
+        else
+            clientLatestFrame = std::move(payload);
     }
     else if (line[0] == 'L' && line[1] == ' ')
     {
@@ -259,16 +282,14 @@ void TcpGameTransport::NetworkLoop()
 {
 #ifndef _WIN32
         failed = true;
-        std::lock_guard<std::mutex> lock(mutex);
-        status = "TCP transport is currently implemented for Windows";
-        Log::Msg("[TCP]", status);
+        SetStatus("TCP transport is currently implemented for Windows");
+        Log::Msg("[TCP]", GetStatus());
 #else
     if (!EnsureWinsock())
     {
         failed = true;
-        std::lock_guard<std::mutex> lock(mutex);
-        status = "WSAStartup failed";
-        Log::Msg("[TCP]", status);
+        SetStatus("WSAStartup failed");
+        Log::Msg("[TCP]", GetStatus());
         return;
     }
 
@@ -281,8 +302,8 @@ void TcpGameTransport::NetworkLoop()
         if (listenSocket == INVALID_SOCKET)
         {
             failed = true;
-            status = "Host socket failed";
-            Log::Msg("[TCP]", status);
+            SetStatus("Host socket failed");
+            Log::Msg("[TCP]", GetStatus());
             return;
         }
 
@@ -295,8 +316,8 @@ void TcpGameTransport::NetworkLoop()
             listen(listenSocket, 1) == SOCKET_ERROR)
         {
             failed = true;
-            status = "Host bind/listen failed";
-            Log::Msg("[TCP]", status, " on port ", port);
+            SetStatus("Host bind/listen failed");
+            Log::Msg("[TCP]", GetStatus(), " on port ", port);
             CloseSocket(listenSocket);
             return;
         }
@@ -304,9 +325,8 @@ void TcpGameTransport::NetworkLoop()
         u_long nonBlocking = 1;
         ioctlsocket(listenSocket, FIONBIO, &nonBlocking);
         {
-            std::lock_guard<std::mutex> lock(mutex);
-            status = "Waiting for client on port " + std::to_string(port);
-            Log::Msg("[TCP]", status);
+            SetStatus("Waiting for client on port " + std::to_string(port));
+            Log::Msg("[TCP]", GetStatus());
         }
         while (running && socket == INVALID_SOCKET)
         {
@@ -323,8 +343,8 @@ void TcpGameTransport::NetworkLoop()
         if (socket == INVALID_SOCKET)
         {
             failed = true;
-            status = "Client socket failed";
-            Log::Msg("[TCP]", status);
+            SetStatus("Client socket failed");
+            Log::Msg("[TCP]", GetStatus());
             return;
         }
 
@@ -339,8 +359,8 @@ void TcpGameTransport::NetworkLoop()
         if (connectResult == SOCKET_ERROR && !WouldBlock())
         {
             failed = true;
-            status = "Connect failed";
-            Log::Msg("[TCP]", status, " to ", address, ":", port);
+            SetStatus("Connect failed");
+            Log::Msg("[TCP]", GetStatus(), " to ", address, ":", port);
             CloseSocket(socket);
             return;
         }
@@ -373,8 +393,8 @@ void TcpGameTransport::NetworkLoop()
             if (!connectedNow)
             {
                 failed = true;
-                status = "Connect timed out";
-                Log::Msg("[TCP]", status, " to ", address, ":", port);
+                SetStatus("Connect timed out");
+                Log::Msg("[TCP]", GetStatus(), " to ", address, ":", port);
                 CloseSocket(socket);
                 return;
             }
@@ -384,8 +404,8 @@ void TcpGameTransport::NetworkLoop()
     if (socket == INVALID_SOCKET)
     {
         failed = true;
-        status = "Socket closed before connection";
-        Log::Msg("[TCP]", status);
+        SetStatus("Socket closed before connection");
+        Log::Msg("[TCP]", GetStatus());
         return;
     }
 
@@ -394,11 +414,8 @@ void TcpGameTransport::NetworkLoop()
     int noDelay = 1;
     setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<char*>(&noDelay), sizeof(noDelay));
     connected = true;
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        status = "Connected";
-        Log::Msg("[TCP]", status);
-    }
+    SetStatus("Connected");
+    Log::Msg("[TCP]", GetStatus());
 
     std::string incoming;
     char buffer[16384];
@@ -497,11 +514,10 @@ void TcpGameTransport::NetworkLoop()
     connected = false;
     CloseSocket(socket);
     {
-        std::lock_guard<std::mutex> lock(mutex);
         if (!failed)
         {
-            status = "Disconnected";
-            Log::Msg("[TCP]", status);
+            SetStatus("Disconnected");
+            Log::Msg("[TCP]", GetStatus());
         }
     }
 #endif

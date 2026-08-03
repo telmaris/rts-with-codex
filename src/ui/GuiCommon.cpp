@@ -312,14 +312,34 @@ Rectangle LogisticsHudButtonRect(const StrategicResourceHudWidget& hud)
     return Rectangle{roster.x - 42.0f - 8.0f, roster.y, 42.0f, roster.height};
 }
 
+namespace
+{
+    bool TutorialDestroyLocked(const StrategicResourceHudWidget& hud)
+    {
+        return hud.scene != nullptr && hud.scene->AreTutorialDestroyLocked();
+    }
+
+    bool TutorialDecisionsLocked(const StrategicResourceHudWidget& hud)
+    {
+        return hud.scene != nullptr && hud.scene->AreTutorialDecisionsLocked();
+    }
+
+    bool TutorialStatisticsLocked(const StrategicResourceHudWidget& hud)
+    {
+        return hud.scene != nullptr && hud.scene->AreTutorialStatisticsLocked();
+    }
+}
+
 bool IsStatsHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
-    return CheckCollisionPointRec(GetMousePosition(), StatsHudButtonRect(hud));
+    return !hud.tutorialDisableStatistics && !TutorialStatisticsLocked(hud) &&
+           CheckCollisionPointRec(GetMousePosition(), StatsHudButtonRect(hud));
 }
 
 bool IsFocusHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
-    return CheckCollisionPointRec(GetMousePosition(), FocusHudButtonRect(hud));
+    return !hud.tutorialDisableDecisions && !TutorialDecisionsLocked(hud) &&
+           CheckCollisionPointRec(GetMousePosition(), FocusHudButtonRect(hud));
 }
 
 bool IsTechHudButtonHovered(const StrategicResourceHudWidget& hud)
@@ -329,7 +349,8 @@ bool IsTechHudButtonHovered(const StrategicResourceHudWidget& hud)
 
 bool IsDestroyHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
-    return CheckCollisionPointRec(GetMousePosition(), DestroyHudButtonRect(hud));
+    return !hud.tutorialDisableDestroy && !TutorialDestroyLocked(hud) &&
+           CheckCollisionPointRec(GetMousePosition(), DestroyHudButtonRect(hud));
 }
 
 bool IsRoadHudButtonHovered(const StrategicResourceHudWidget& hud)
@@ -354,7 +375,12 @@ bool IsLogisticsHudButtonHovered(const StrategicResourceHudWidget& hud)
 
 bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud)
 {
-    return IsBuildHudButtonHovered(hud) || IsRoadHudButtonHovered(hud) ||
+    const Vector2 mouse = GetMousePosition();
+    const bool disabledButtonHovered =
+        ((hud.tutorialDisableDestroy || TutorialDestroyLocked(hud)) && CheckCollisionPointRec(mouse, DestroyHudButtonRect(hud))) ||
+        ((hud.tutorialDisableDecisions || TutorialDecisionsLocked(hud)) && CheckCollisionPointRec(mouse, FocusHudButtonRect(hud))) ||
+        ((hud.tutorialDisableStatistics || TutorialStatisticsLocked(hud)) && CheckCollisionPointRec(mouse, StatsHudButtonRect(hud)));
+    return disabledButtonHovered || IsBuildHudButtonHovered(hud) || IsRoadHudButtonHovered(hud) ||
            IsDestroyHudButtonHovered(hud) || IsStatsHudButtonHovered(hud) ||
            IsFocusHudButtonHovered(hud) || IsTechHudButtonHovered(hud) ||
            IsRosterHudButtonHovered(hud) || IsLogisticsHudButtonHovered(hud);
@@ -362,6 +388,14 @@ bool IsAnyHudButtonHovered(const StrategicResourceHudWidget& hud)
 
 bool DispatchHudButtonClick(GuiSystem& system, const StrategicResourceHudWidget& hud)
 {
+    // Disabled tutorial controls still consume the click so it cannot fall
+    // through to map selection or camera interaction underneath the HUD.
+    const Vector2 mouse = GetMousePosition();
+    if (((hud.tutorialDisableDestroy || TutorialDestroyLocked(hud)) && CheckCollisionPointRec(mouse, DestroyHudButtonRect(hud))) ||
+        ((hud.tutorialDisableDecisions || TutorialDecisionsLocked(hud)) && CheckCollisionPointRec(mouse, FocusHudButtonRect(hud))) ||
+        ((hud.tutorialDisableStatistics || TutorialStatisticsLocked(hud)) && CheckCollisionPointRec(mouse, StatsHudButtonRect(hud))))
+        return true;
+
     if (IsLogisticsHudButtonHovered(hud))
     {
         SetLogisticsOverlayPreferenceEnabled(!IsLogisticsOverlayPreferenceEnabled());

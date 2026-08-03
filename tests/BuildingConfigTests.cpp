@@ -26,8 +26,8 @@ TEST(BuildingConfigTests, CoreDefinitionsAreLoaded)
 
     const auto& hq = GetBuildingDefinition(BuildingType::Headquarters);
     EXPECT_EQ(hq.type, BuildingType::Headquarters);
-    EXPECT_EQ(hq.footprint.x, 3);
-    EXPECT_EQ(hq.footprint.y, 3);
+    EXPECT_EQ(hq.footprint.x, 4);
+    EXPECT_EQ(hq.footprint.y, 4);
     EXPECT_FALSE(hq.storageBuffers.empty());
     auto paper = std::find_if(hq.storageBuffers.begin(), hq.storageBuffers.end(), [](const ResourceBufferDefinition& buffer)
     {
@@ -40,6 +40,16 @@ TEST(BuildingConfigTests, CoreDefinitionsAreLoaded)
     EXPECT_EQ(road.road.upgradeLevel, 1);
     EXPECT_GT(road.road.maxCapacity, 0);
     EXPECT_GT(road.road.speedModifier, 0.0);
+
+    // A bridge is the mandatory early-game crossing over the military track;
+    // it must not be hidden behind a late research prerequisite.
+    const auto& bridge = GetBuildingDefinition(BuildingType::Bridge);
+    EXPECT_TRUE(bridge.requiredTechnologies.empty());
+    ASSERT_EQ(bridge.buildCosts.size(), 2u);
+    EXPECT_EQ(bridge.buildCosts[0].type, ResourceType::PLANKS);
+    EXPECT_EQ(bridge.buildCosts[0].amount, 6);
+    EXPECT_EQ(bridge.buildCosts[1].type, ResourceType::STONE);
+    EXPECT_EQ(bridge.buildCosts[1].amount, 6);
 
     const auto& university = GetBuildingDefinition(BuildingType::University);
     EXPECT_EQ(university.production.workerCapacity, 40);
@@ -58,6 +68,36 @@ TEST(BuildingConfigTests, BuildPanelListsContainExpectedTypes)
     ASSERT_EQ(roads.size(), 2u);
     EXPECT_EQ(roads.front(), BuildingType::Road);
     EXPECT_NE(std::find(roads.begin(), roads.end(), BuildingType::Bridge), roads.end());
+}
+
+TEST(BuildingConfigTests, BridgeUsesTheSameUpgradeTiersAsRoad)
+{
+    const auto& road = GetBuildingDefinition(BuildingType::Road);
+    const auto& bridge = GetBuildingDefinition(BuildingType::Bridge);
+
+    ASSERT_EQ(bridge.upgradeLevels.size(), road.upgradeLevels.size());
+    ASSERT_FALSE(bridge.upgradeLevels.empty());
+    for (size_t i = 0; i < road.upgradeLevels.size(); ++i)
+    {
+        EXPECT_EQ(bridge.upgradeLevels[i].level, road.upgradeLevels[i].level);
+        EXPECT_EQ(bridge.upgradeLevels[i].cost.size(), road.upgradeLevels[i].cost.size());
+        EXPECT_DOUBLE_EQ(bridge.upgradeLevels[i].buildTime, road.upgradeLevels[i].buildTime);
+    }
+}
+
+TEST(BuildingConfigTests, WeaponAndMetalBuildingsUseRequestedDefaultRecipes)
+{
+    const auto& foundry = GetBuildingDefinition(BuildingType::Foundry);
+    ASSERT_FALSE(foundry.recipes.empty());
+    EXPECT_EQ(foundry.recipes.front().name, "Iron");
+    ASSERT_FALSE(foundry.recipes.front().production.outputs.empty());
+    EXPECT_EQ(foundry.recipes.front().production.outputs.front().type, ResourceType::IRON);
+
+    const auto& bowyer = GetBuildingDefinition(BuildingType::Bowyer);
+    ASSERT_FALSE(bowyer.recipes.empty());
+    EXPECT_EQ(bowyer.recipes.front().name, "Arrows");
+    ASSERT_FALSE(bowyer.recipes.front().production.outputs.empty());
+    EXPECT_EQ(bowyer.recipes.front().production.outputs.front().type, ResourceType::ARROWS);
 }
 
 TEST(BuildingConfigTests, TerrainSpecificProductionCanBeFound)

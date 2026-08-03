@@ -22,7 +22,6 @@ namespace
         if (value == "TOOLS") return ResourceType::TOOLS;
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
         if (value == "ARROWS") return ResourceType::ARROWS;
-        if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
         if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "BRONZE_SWORD") return ResourceType::BRONZE_SWORD;
         if (value == "STEEL_SWORD") return ResourceType::STEEL_SWORD;

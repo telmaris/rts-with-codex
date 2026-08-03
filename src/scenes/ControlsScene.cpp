@@ -1,4 +1,7 @@
 #include "scenes/Scenes.h"
+#include "ui/ControlIcons.h"
+
+#include <sstream>
 
 // Initializes ControlsScene::ControlsScene.
 ControlsScene::ControlsScene()
@@ -14,6 +17,63 @@ ControlsScene::ControlsScene()
 
 namespace
 {
+    const char* ControlIconForWord(const std::string& word)
+    {
+        if (word == "Q") return "key_q";
+        if (word == "R") return "key_r";
+        if (word == "D") return "key_d";
+        if (word == "E") return "key_e";
+        if (word == "S") return "key_s";
+        if (word == "F") return "key_f";
+        if (word == "T") return "key_t";
+        if (word == "U") return "key_u";
+        if (word == "L") return "key_l";
+        if (word == "Space") return "key_space";
+        if (word == "ESC") return "key_escape";
+        if (word == "LMB") return "mouse_lmb";
+        if (word == "RMB") return "mouse_rmb";
+        if (word == "MMB") return "mouse_mmb";
+        if (word == "Scroll") return "mouse_wheel";
+        return nullptr;
+    }
+
+    void DrawControlLabel(const std::string& label, float x, float y, float maxWidth)
+    {
+        if (!UiControlIcons::IsLoaded())
+        {
+            UiText::Draw(label, x, y, 18, Color{255, 220, 120, 255});
+            return;
+        }
+
+        std::istringstream tokens(label);
+        std::string token;
+        float cursor = x;
+        bool first = true;
+        while (tokens >> token)
+        {
+            if (!first)
+                cursor += 4.0f;
+
+            const char* iconName = ControlIconForWord(token);
+            if (iconName != nullptr)
+            {
+                constexpr float iconSize = 22.0f;
+                if (cursor + iconSize <= x + maxWidth &&
+                    !UiControlIcons::Draw(iconName, {cursor, y + 1.0f, iconSize, iconSize}))
+                {
+                    UiText::Draw(token, cursor, y + 2.0f, 16, Color{255, 220, 120, 255});
+                }
+                cursor += iconSize;
+            }
+            else
+            {
+                UiText::Draw(token, cursor, y + 2.0f, 16, Color{255, 220, 120, 255});
+                cursor += static_cast<float>(UiText::Measure(token, 16));
+            }
+            first = false;
+        }
+    }
+
     void DrawControlsSection(float x, float& y, const char* header,
                              const std::vector<std::pair<const char*, const char*>>& rows)
     {
@@ -22,7 +82,7 @@ namespace
         for (const auto& [key, desc] : rows)
         {
             float keyW = 130.0f;
-            UiText::Draw(key, x + 8.0f, y, 18, Color{255, 220, 120, 255});
+            DrawControlLabel(key, x + 8.0f, y, keyW - 8.0f);
             UiText::Draw(desc, x + keyW, y, 18, Color{190, 200, 216, 255});
             y += 24.0f;
         }

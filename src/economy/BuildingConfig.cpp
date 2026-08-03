@@ -31,10 +31,10 @@ namespace
                 BuildingType::Headquarters,
                 "Headquarters",
                 "[Headquarters]",
-                "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_3x1.png",
+                "assets/textures/building/generated/headquarters_idle/headquarters_idle_sheet_5x1_4x4.png",
                 "Starting building",
                 {},
-                {3, 3},
+                {4, 4},
                 4,
                 0.0,
                 0.0,
@@ -82,7 +82,7 @@ namespace
                 BuildingType::Village,
                 "Village",
                 "[Village]",
-                "assets/textures/building/cottage.png",
+                "assets/textures/building/generated/cottage_idle/cottage_idle_sheet_5x1_4x4_pixellab.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 45}, {ResourceType::STONE, 20}, {ResourceType::PLANKS, 12}},
                 {4, 4},
@@ -98,7 +98,7 @@ namespace
                 BuildingType::StorageBuilding,
                 "Storage Building",
                 "[StorageBuilding]",
-                "assets/textures/building/storage.png",
+                "assets/textures/building/generated/storage_idle_v2/storage_style_v2_pixellab_3x3.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 65}, {ResourceType::STONE, 40}, {ResourceType::PLANKS, 20}},
                 {3, 3},
@@ -147,7 +147,7 @@ namespace
                 BuildingType::Woodcutter,
                 "Woodcutter",
                 "[Woodcutter]",
-                "assets/textures/building/woodcutter.png",
+                "assets/textures/building/generated/woodcutter_idle/woodcutter_pixellab_2x2.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 25}, {ResourceType::STONE, 10}},
                 {2, 2},
@@ -163,8 +163,8 @@ namespace
             BuildingDefinition{
                 BuildingType::LumberMill,
                 "Lumber Mill",
-                "[Lumber Mill]",
-                "assets/textures/building/lumbermill.png",
+                "[LumberMill]",
+                "assets/textures/building/generated/lumbermill_idle/lumbermill_idle_sheet_5x1_waterwheel.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 55}, {ResourceType::STONE, 25}, {ResourceType::PLANKS, 15}},
                 {3, 3},
@@ -181,7 +181,7 @@ namespace
                 BuildingType::Mine,
                 "Mine",
                 "[Mine]",
-                "assets/textures/building/mine.png",
+                "assets/textures/building/generated/mine_idle_v2/mine_idle_2x2.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 45}, {ResourceType::STONE, 25}, {ResourceType::PLANKS, 10}},
                 {2, 2},
@@ -213,7 +213,7 @@ namespace
                 BuildingType::Foundry,
                 "Foundry",
                 "[Foundry]",
-                "assets/textures/building/foundry.png",
+                "assets/textures/building/generated/foundry_idle_v2/foundry_idle_sheet_5x1.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 90}, {ResourceType::STONE, 70}, {ResourceType::PLANKS, 35}, {ResourceType::IRON, 20}},
                 {3, 3},
@@ -245,7 +245,7 @@ namespace
                 BuildingType::DefenseTower,
                 "Defense Tower",
                 "[DefenseTower]",
-                "assets/textures/building/guard_tower.png",
+                "assets/textures/building/generated/guard_tower_idle/guard_tower_idle_sheet_2x1.png",
                 "Cost TBD",
                 {{ResourceType::WOOD, 60}, {ResourceType::STONE, 80}, {ResourceType::PLANKS, 20}},
                 {2, 2},
@@ -314,7 +314,6 @@ namespace
         if (value == "Ropery") return BuildingType::Ropery;
         if (value == "Weaver") return BuildingType::Weaver;
         if (value == "Bowyer") return BuildingType::Bowyer;
-        if (value == "Fletchery") return BuildingType::Fletchery;
         if (value == "SpearWorkshop") return BuildingType::SpearWorkshop;
         if (value == "SiegeWorkshop") return BuildingType::SiegeWorkshop;
         return BuildingType::Building;
@@ -359,7 +358,6 @@ namespace
         if (value == "FOOD_PROVISIONS") return ResourceType::FOOD_PROVISIONS;
         if (value == "PAPER") return ResourceType::PAPER;
         if (value == "TOOLS") return ResourceType::TOOLS;
-        if (value == "COPPER_SWORD") return ResourceType::COPPER_SWORD;
         if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "STEEL_SWORD") return ResourceType::STEEL_SWORD;
         if (value == "BOW") return ResourceType::BOW;
@@ -404,7 +402,7 @@ namespace
         if (value == "COPPER_PIPE") return ResourceType::COPPER_PIPE;
         if (value == "MECHANICAL_PARTS") return ResourceType::MECHANICAL_PARTS;
         if (value == "HEAVY_BOW") return ResourceType::HEAVY_BOW;
-        if (value == "LIGHT_WEAPON") return ResourceType::LIGHT_WEAPON;
+        if (value == "IRON_SWORD") return ResourceType::IRON_SWORD;
         if (value == "HEAVY_ARMOR") return ResourceType::HEAVY_ARMOR;
         if (value == "BRICKS") return ResourceType::BRICKS;
         if (value == "CLOTH") return ResourceType::CLOTH;
@@ -778,7 +776,6 @@ const std::vector<BuildingType>& GetBuildableBuildingTypes()
         BuildingType::Ropery,
         BuildingType::Weaver,
         BuildingType::Bowyer,
-        BuildingType::Fletchery,
         BuildingType::SpearWorkshop,
         BuildingType::SiegeWorkshop,
         BuildingType::University,

@@ -17,8 +17,8 @@ struct SerializationVersion
     static constexpr int GameCommandVersion = 13;  // WireVersion from GameCommand::WireVersion
     static constexpr int GameCommandResultVersion = 3;  // WireVersion from GameCommandResult::WireVersion
     static constexpr int GameServerFrameVersion = 1;  // WireVersion from GameServerFrame::WireVersion
-    static constexpr int GameSnapshotVersion = 13; // Adds recent road-saturation telemetry.
-    static constexpr int GameWorldSaveVersion = 29;  // SaveVersion from GameWorld (file format "RTS_SAVE 29")
+    static constexpr int GameSnapshotVersion = 14; // Adds visual resource-overlay cells.
+    static constexpr int GameWorldSaveVersion = 31;  // SaveVersion from GameWorld (file format "RTS_SAVE 31")
 };
 
 // Archive: bidirectional serialization (write to string, read from string)

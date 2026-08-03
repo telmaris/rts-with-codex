@@ -20,11 +20,44 @@ namespace
     constexpr float PanelMargin = 24.0f;
     constexpr float HeaderHeight = 54.0f;
     constexpr float SummaryHeight = 96.0f;
-    constexpr int PreferredColumns = 5;
+    constexpr int MaximumColumns = 5;
     constexpr float CardGap = 12.0f;
     // Leave permanent space for raygui's vertical scrollbar so a long list
     // never causes a surprise horizontal scrollbar.
     constexpr float ScrollbarReserve = 24.0f;
+
+    // Presentation order only. Numeric ResourceType values stay stable for
+    // save files and network serialization.
+    const std::vector<ResourceType>& StockpilePresentationOrder()
+    {
+        static const std::vector<ResourceType> order{
+            ResourceType::WOOD, ResourceType::STONE, ResourceType::COAL,
+            ResourceType::COPPER_ORE, ResourceType::IRON_ORE, ResourceType::TIN_ORE,
+            ResourceType::SILVER_ORE, ResourceType::GOLD_ORE, ResourceType::SAND,
+            ResourceType::CLAY, ResourceType::SULFUR, ResourceType::SALTPETER,
+            ResourceType::PLANKS, ResourceType::COPPER, ResourceType::IRON,
+            ResourceType::TIN, ResourceType::BRONZE, ResourceType::STEEL,
+            ResourceType::SILVER, ResourceType::GOLD, ResourceType::COKE,
+            ResourceType::GLASS, ResourceType::BRICKS,
+            ResourceType::WHEAT, ResourceType::FLOUR, ResourceType::BREAD,
+            ResourceType::MEAT, ResourceType::WATER, ResourceType::BEER,
+            ResourceType::CATTLE, ResourceType::LEATHER, ResourceType::RAW_HIDE,
+            ResourceType::TALLOW, ResourceType::FOOD_PROVISIONS,
+            ResourceType::HEMP, ResourceType::FIBRE, ResourceType::ROPE,
+            ResourceType::CLOTH, ResourceType::CLOTHES, ResourceType::POTTERY,
+            ResourceType::SOAP, ResourceType::PAPER, ResourceType::INK,
+            ResourceType::BOOKS, ResourceType::COPPERWARE, ResourceType::HOUSEHOLD_GOODS,
+            ResourceType::URBAN_GOODS, ResourceType::TOOLS, ResourceType::COINS,
+            ResourceType::BRONZE_SWORD, ResourceType::IRON_SWORD,
+            ResourceType::STEEL_SWORD, ResourceType::BOW, ResourceType::ARROWS,
+            ResourceType::HEAVY_BOW, ResourceType::CROSSBOW, ResourceType::BOLTS,
+            ResourceType::MUSKET, ResourceType::CARTRIDGE, ResourceType::WOODEN_SHIELD,
+            ResourceType::IRON_SHIELD, ResourceType::LEATHER_ARMOR,
+            ResourceType::IRON_ARMOR, ResourceType::HEAVY_ARMOR, ResourceType::HORSE,
+            ResourceType::SPEAR, ResourceType::BALLISTA, ResourceType::BATTERING_RAM,
+            ResourceType::CATAPULT};
+        return order;
+    }
 
     // One card per resource, sized so the amount stays readable at a glance
     // and the capacity bar has room underneath it.
@@ -33,7 +66,7 @@ namespace
         DrawRectangleRounded(cell, 0.10f, 8, hovered ? Color{62, 46, 32, 242} : Color{40, 29, 21, 232});
         DrawRectangleRoundedLines(cell, 0.10f, 8, 1.0f, hovered ? UiTheme::Gold : Color{112, 88, 58, 255});
 
-        float iconSize = std::clamp(cell.height * 0.48f, 48.0f, 70.0f);
+        float iconSize = std::clamp(cell.height * 0.58f, 64.0f, 92.0f);
         float iconY = cell.y + 14.0f;
         GuiPanel::DrawResourceIcon(type, Rectangle{cell.x + 14.0f, iconY, iconSize, iconSize});
 
@@ -140,6 +173,19 @@ void StockpilePanelWidget::Update(double dt)
         if (entry.second.amount > 0)
             cards.push_back(entry);
 
+    const auto& presentationOrder = StockpilePresentationOrder();
+    std::stable_sort(cards.begin(), cards.end(), [&](const auto& left, const auto& right)
+    {
+        auto rank = [&](ResourceType type)
+        {
+            auto it = std::find(presentationOrder.begin(), presentationOrder.end(), type);
+            return it == presentationOrder.end()
+                ? static_cast<int>(presentationOrder.size()) + static_cast<int>(type)
+                : static_cast<int>(std::distance(presentationOrder.begin(), it));
+        };
+        return rank(left.first) < rank(right.first);
+    });
+
     Rectangle grid = GetGridRect();
     if (cards.empty())
     {
@@ -150,26 +196,27 @@ void StockpilePanelWidget::Update(double dt)
         return;
     }
 
-    const int columns = grid.width >= 720.0f ? PreferredColumns : 4;
+    // The full stockpile gets the same readable density as HQ/storage:
+    // 3 columns on compact windows, then 4 and 5 as space permits.
+    const int columns = grid.width >= 1100.0f ? MaximumColumns
+                      : grid.width >= 720.0f ? 4
+                                               : 3;
     const float contentWidth = std::max(120.0f, grid.width - ScrollbarReserve);
     const float cardWidth = (contentWidth - CardGap * (columns - 1)) / columns;
-    const float cardHeight = std::clamp(cardWidth * 0.56f, 112.0f, 156.0f);
+    const float cardHeight = std::clamp(cardWidth * 0.60f, 132.0f, 176.0f);
     int rows = static_cast<int>((cards.size() + columns - 1) / columns);
     float contentHeight = rows * cardHeight + std::max(0, rows - 1) * CardGap;
-    Rectangle content{0.0f, 0.0f, contentWidth, contentHeight};
-    Vector2 scroll{0.0f, -scrollOffset};
-    Rectangle view{};
-    GuiScrollPanel(grid, nullptr, content, &scroll, &view);
-    scrollOffset = std::max(0.0f, -scroll.y);
+    Rectangle view{grid.x, grid.y, contentWidth, grid.height};
     maxScrollOffset = std::max(0.0f, contentHeight - view.height);
+    scrollOffset = std::clamp(scrollOffset, 0.0f, maxScrollOffset);
 
     int hoveredIndex = -1;
     BeginScissorMode(static_cast<int>(view.x), static_cast<int>(view.y),
                      static_cast<int>(view.width), static_cast<int>(view.height));
     for (int i = 0; i < static_cast<int>(cards.size()); i++)
     {
-        float x = view.x + scroll.x + (i % columns) * (cardWidth + CardGap);
-        float y = view.y + scroll.y + (i / columns) * (cardHeight + CardGap);
+        float x = view.x + (i % columns) * (cardWidth + CardGap);
+        float y = view.y + (i / columns) * (cardHeight + CardGap) - scrollOffset;
         if (y > view.y + view.height)
             break;
         if (y + cardHeight < view.y)
@@ -182,6 +229,37 @@ void StockpilePanelWidget::Update(double dt)
             hoveredIndex = i;
     }
     EndScissorMode();
+
+    if (maxScrollOffset > 0.0f)
+    {
+        Rectangle track{grid.x + contentWidth + 7.0f, grid.y, 9.0f, grid.height};
+        DrawRectangleRounded(track, 0.5f, 6, Color{24, 17, 12, 210});
+        float thumbH = std::max(30.0f, track.height * (track.height / (track.height + maxScrollOffset)));
+        float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
+        Rectangle thumb{track.x, thumbY, track.width, thumbH};
+        Vector2 mouse = GetMousePosition();
+        if (InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+            CheckCollisionPointRec(mouse, thumb))
+        {
+            scrollbarDragging = true;
+            scrollbarDragOffset = mouse.y - thumb.y;
+        }
+        if (scrollbarDragging && InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+        {
+            float thumbRange = track.height - thumbH;
+            float targetThumbY = std::clamp(mouse.y - scrollbarDragOffset,
+                                           track.y, track.y + thumbRange);
+            float normalized = thumbRange > 0.0f
+                ? (targetThumbY - track.y) / thumbRange
+                : 0.0f;
+            scrollOffset = normalized * maxScrollOffset;
+            thumbY = targetThumbY;
+        }
+        if (scrollbarDragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+            scrollbarDragging = false;
+        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 6,
+                             Color{174, 128, 67, 245});
+    }
 
     // Drawn last so it is never clipped by the scroll viewport or overdrawn by
     // a neighbouring card.
@@ -319,8 +397,8 @@ void StockpileGuiSystem::RmbReleased()
 
 void StockpileGuiSystem::Scroll()
 {
-    // GuiScrollPanel handles both wheel input and dragging its real scrollbar
-    // while the pointer is over the panel. Elsewhere retain camera zoom.
+    // Scroll the stockpile only while the pointer is over its panel. Elsewhere
+    // retain camera zoom.
     Rectangle panelBounds{
         static_cast<float>(stockpilePanel.pos.x),
         static_cast<float>(stockpilePanel.pos.y),
@@ -331,5 +409,12 @@ void StockpileGuiSystem::Scroll()
         ZoomCamera(scene);
         return;
     }
+    stockpilePanel.Scroll(InputManager::GetMouseWheelMove());
+}
 
+void StockpilePanelWidget::Scroll(float wheel)
+{
+    if (wheel == 0.0f || maxScrollOffset <= 0.0f)
+        return;
+    scrollOffset = std::clamp(scrollOffset - wheel * 42.0f, 0.0f, maxScrollOffset);
 }

@@ -57,7 +57,6 @@ namespace GameWorldInternal
             case BuildingType::Ropery:
             case BuildingType::Weaver:
             case BuildingType::Bowyer:
-            case BuildingType::Fletchery:
             case BuildingType::SpearWorkshop:
             case BuildingType::SiegeWorkshop:
                 return std::make_unique<ConfiguredProductionBuilding>(id, type);
@@ -118,6 +117,7 @@ namespace GameWorldInternal
                 auto& tile = tilemap[pos];
                 tile.tileType = type;
                 tile.terrainTextureId = tilemap.PickTerrainTexture(type, rng);
+                tile.resourceOverlayTextureId = -1;
                 tile.resourceRichness = type == TileType::GRASS ? 0 : std::max(1, tilemap.params.resourceRichness);
             }
         }
@@ -354,7 +354,11 @@ namespace GameWorldInternal
                 continue;
 
             tile.tileType = type;
-            tile.terrainTextureId = tilemap.PickTerrainTexture(type, rng);
+            const bool usesOverlay = tilemap.HasResourceOverlay(type);
+            tile.terrainTextureId = tilemap.PickTerrainTexture(usesOverlay ? TileType::GRASS : type, rng);
+            tile.resourceOverlayTextureId = usesOverlay
+                ? tilemap.PickResourceOverlayTexture(type, ResourceOverlayEdgeDirection::None, rng)
+                : -1;
             tile.resourceRichness = std::max(1, tilemap.params.resourceRichness);
             painted++;
         }

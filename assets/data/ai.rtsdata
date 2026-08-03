@@ -79,7 +79,6 @@ ai_economy_bias
     priority COAL 40
     priority IRON 40
     priority TOOLS 40
-    priority COPPER_SWORD 40
     priority IRON_SWORD 40
     priority BRONZE_SWORD 40
     priority STEEL_SWORD 40

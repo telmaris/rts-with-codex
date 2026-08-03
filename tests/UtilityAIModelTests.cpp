@@ -785,11 +785,8 @@ TEST(UtilityAIModelTests, SubmitRoadPathReusesJustPlacedCorridor)
     params.sizeY = 81;
     // No AI opponent: this test only drives the human player directly
     // through AIActions::SubmitRoadPath and needs no military ring. A live
-    // AI opponent would independently churn the shared, process-wide
-    // ResourcePool for its own economy across many resource types during
-    // every UpdateSimulation tick below — pure noise here, and enough by
-    // itself to have tipped an unrelated, later test
-    // (TwoWorldsSameSeedWithNoisyAIStayInSync) into a real flake.
+    // AI opponent would independently churn its own economy across many
+    // resource types during every UpdateSimulation tick below — pure noise here.
     params.aiOpponentCount = 0;
     params.seed = 6;
 
@@ -808,11 +805,7 @@ TEST(UtilityAIModelTests, SubmitRoadPathReusesJustPlacedCorridor)
     // (buildings.rtsdata: Road costs STONE 2) — TryPayBuildCost pulls from
     // any of the player's storage, so stocking the HQ is enough. Kept to
     // just above what the ~13 road tiles this test carves actually need
-    // (26 STONE): SetStoredAmount draws real instances from the process-wide
-    // ResourcePool (10000/type, shared by every test in the suite) — an
-    // earlier 300 was enough to tip a LATER, unrelated test
-    // (TwoWorldsSameSeedWithNoisyAIStayInSync) into a real flake by shifting
-    // how much pool headroom its two GameWorlds had left.
+    // (26 STONE): SetStoredAmount allocates only the requested live instances.
     auto* hqStorage = hq->GetComponent<StorageComponent>();
     ASSERT_NE(hqStorage, nullptr);
     auto stoneIt = hqStorage->buffers.find(ResourceType::STONE);
@@ -1101,14 +1094,8 @@ TEST(UtilityAIModelTests, HigherDifficultyGrantsStartingAdvantage)
     ASSERT_NE(aiHard, nullptr);
     ASSERT_NE(humanHard, nullptr);
 
-    // Deliberately asserted through MANPOWER only: the resource half of the
-    // grant fills buffers from the process-wide fixed ResourcePool, which
-    // the heavier tests earlier in a full-suite run can exhaust —
-    // GenerateResource then silently no-ops, so any stored-amount (or
-    // capacity, config already exceeds the grant) comparison is
-    // test-order-dependent. Manpower is plain arithmetic. The resource head
-    // start is covered functionally by the behavior harness, which runs on
-    // Hard and visibly spends the granted stock on its opening.
+    // Deliberately asserted through MANPOWER only: this comparison isolates
+    // the strategic bonus from the resource stock used by the behavior setup.
     EXPECT_GT(aiHard->strategicResources.Get(StrategicResourceType::Manpower),
               aiPrimitive->strategicResources.Get(StrategicResourceType::Manpower))
         << "Hard AI should start with a manpower cushion a Primitive AI lacks";

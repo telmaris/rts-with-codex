@@ -83,6 +83,44 @@ namespace
         return std::round(std::clamp(trend, 0.0f, 1.0f) * QuantizationSteps) / QuantizationSteps;
     }
 
+    int GetRoadConnectionMask(const TileMap& tilemap, int x, int y)
+    {
+        const auto isConnectionAt = [&](int checkX, int checkY)
+        {
+            if (checkX < 0 || checkY < 0 || checkX >= tilemap.params.sizeX || checkY >= tilemap.params.sizeY)
+                return false;
+            const auto& neighbour = tilemap.tilemap[checkY * tilemap.params.sizeX + checkX];
+            // Roads visually continue into an adjacent building's footprint.
+            // Otherwise an endpoint connected to (for example) HQ stops in
+            // the middle of its tile and leaves an artificial grass gap.
+            return neighbour.building != nullptr;
+        };
+
+        int mask = 0;
+        if (isConnectionAt(x - 1, y)) mask |= 1;
+        if (isConnectionAt(x + 1, y)) mask |= 2;
+        if (isConnectionAt(x, y - 1)) mask |= 4;
+        if (isConnectionAt(x, y + 1)) mask |= 8;
+        return mask;
+    }
+
+    int GetMilitaryRoadConnectionMask(const TileMap& tilemap, int x, int y)
+    {
+        const auto isTrackAt = [&](int checkX, int checkY)
+        {
+            if (checkX < 0 || checkY < 0 || checkX >= tilemap.params.sizeX || checkY >= tilemap.params.sizeY)
+                return false;
+            return tilemap.tilemap[checkY * tilemap.params.sizeX + checkX].isMilitaryRoad;
+        };
+
+        int mask = 0;
+        if (isTrackAt(x - 1, y)) mask |= 1;
+        if (isTrackAt(x + 1, y)) mask |= 2;
+        if (isTrackAt(x, y - 1)) mask |= 4;
+        if (isTrackAt(x, y + 1)) mask |= 8;
+        return mask;
+    }
+
     bool IsRoadRecentlySaturated(const Building& building)
     {
         const auto* road = building.GetComponent<RoadComponent>();
@@ -328,6 +366,7 @@ GameSnapshot GameWorld::BuildSnapshot() const
     {
         GameSnapshotTile view;
         view.terrainTextureId = tile.terrainTextureId;
+        view.resourceOverlayTextureId = tile.resourceOverlayTextureId;
         // tile.owner is a relic of the removed territory system (ETAP 1) —
         // always nullptr in production today, so hasOwner/ownerColor are
         // effectively dead wire fields. Left in place to avoid a snapshot
@@ -484,18 +523,18 @@ void GameWorld::DrawMap()
             if (building == nullptr || !IsRoadLike(building->buildingType))
                 continue;
             const Vec2i tilePosition = tilemap.GetCoordsFromId(building->positionId);
-            const auto isRoadAt = [&](int checkX, int checkY)
+            const auto isConnectionAt = [&](int checkX, int checkY)
             {
                 if (checkX < 0 || checkY < 0 || checkX >= tilemap.params.sizeX || checkY >= tilemap.params.sizeY)
                     return false;
                 const Tile& neighbor = tilemap.tilemap[checkY * tilemap.params.sizeX + checkX];
-                return neighbor.building != nullptr && IsRoadLike(neighbor.building->buildingType);
+                return neighbor.building != nullptr;
             };
             DrawRoadUtilizationOverlay(position, GetRoadUtilization(*building),
-                                       isRoadAt(tilePosition.x - 1, tilePosition.y),
-                                       isRoadAt(tilePosition.x + 1, tilePosition.y),
-                                       isRoadAt(tilePosition.x, tilePosition.y - 1),
-                                       isRoadAt(tilePosition.x, tilePosition.y + 1));
+                                       isConnectionAt(tilePosition.x - 1, tilePosition.y),
+                                       isConnectionAt(tilePosition.x + 1, tilePosition.y),
+                                       isConnectionAt(tilePosition.x, tilePosition.y - 1),
+                                       isConnectionAt(tilePosition.x, tilePosition.y + 1));
         }
         render->EndLayer();
     }
@@ -528,6 +567,30 @@ void GameWorld::DrawMap()
         }
         render->EndLayer();
 
+        render->ClearLayer(WorldRenderLayer::ResourceOverlays);
+        render->BeginLayer(WorldRenderLayer::ResourceOverlays);
+        for(int x = minTileX; x <= maxTileX; x++)
+        {
+            for(int y = minTileY; y <= maxTileY; y++)
+            {
+                const auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
+                if (tile.resourceOverlayTextureId < 0)
+                    continue;
+                render->DrawAtlasTile(41, tile.resourceOverlayTextureId,
+                                      {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+            }
+        }
+        render->EndLayer();
+
+        tilemap.terrainDirty = false;
+    }
+
+    // Military tracks are cached separately from buildings and are composed
+    // below StaticObjects. Keep the track on every military-road tile,
+    // including a tile occupied by a Bridge; the bridge sprite is rendered in
+    // StaticObjects and therefore naturally appears one layer above it.
+    if (redrawTerrain || redrawBuildings)
+    {
         render->ClearLayer(WorldRenderLayer::MilitaryRoads);
         render->BeginLayer(WorldRenderLayer::MilitaryRoads);
         for (int x = minTileX; x <= maxTileX; x++)
@@ -536,12 +599,12 @@ void GameWorld::DrawMap()
             {
                 const auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
                 if (tile.isMilitaryRoad)
-                    DrawRectangle(x * TILE_SIZE, RENDER_HEIGHT - TILE_SIZE - y * TILE_SIZE,
-                                  TILE_SIZE, TILE_SIZE, Color{139, 90, 43, 150});
+                    render->DrawMilitaryRoadTexture(
+                        {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)},
+                        GetMilitaryRoadConnectionMask(tilemap, x, y));
             }
         }
         render->EndLayer();
-        tilemap.terrainDirty = false;
     }
 
     if (redrawBuildings)
@@ -561,7 +624,11 @@ void GameWorld::DrawMap()
                     const Color tint = tile.building->IsUnderConstruction()
                         ? Color{118, 122, 132, 215}
                         : WHITE;
-                    render->DrawBuildingTexture(tile.building.get(), pos, tint);
+                    if (IsRoadLike(tile.building->buildingType))
+                        render->DrawRoadTexture(tile.building->buildingType, pos,
+                                                GetRoadConnectionMask(tilemap, x, y), tint);
+                    else
+                        render->DrawBuildingTexture(tile.building.get(), pos, tint);
                 }
             }
         }
