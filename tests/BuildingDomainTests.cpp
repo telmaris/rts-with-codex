@@ -663,6 +663,18 @@ TEST(BuildingDomainTests, VillageGeneratesManpowerAndFoodShortageReducesProducti
     village->population.foodBuffer.Clear();
 }
 
+TEST(BuildingDomainTests, VillageKeepsOnlyOneFoodProvisionInReserve)
+{
+    Village village{41};
+
+    EXPECT_EQ(village.population.foodBuffer.bufferSize, 2)
+        << "one provision is for the next upkeep and one is the local reserve";
+    EXPECT_EQ(village.population.GetFoodDemand(), 2);
+
+    village.population.foodBuffer.SetStoredAmount(1);
+    EXPECT_EQ(village.population.GetFoodDemand(), 1);
+}
+
 TEST(BuildingDomainTests, VillageRequestsFoodProvisionsFromOwnedStorage)
 {
     TileMap map;

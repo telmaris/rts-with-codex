@@ -224,25 +224,22 @@ TEST(UnitCombatSystemTests, SimultaneousLethalSetupResolvesToSingleSurvivorViaId
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(900));
     DuelSetup duel = DeployDuel(world, "militia", "militia");
 
-    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
-    // separation on this tiny test map, so contact can take longer than it
-    // used to for a given seed — budget bumped with generous headroom.
-    bool locked = false;
-    for (int i = 0; i < 15000 && !locked; i++)
-    {
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
-        const auto& units = world.GetDeployedUnits();
-        auto itA = units.find(duel.attackerId);
-        auto itB = units.find(duel.defenderId);
-        if (itA != units.end() && itB != units.end() && itA->second.state == BattleUnitState::FightingUnit &&
-            itB->second.state == BattleUnitState::FightingUnit)
-            locked = true;
-    }
-    ASSERT_TRUE(locked) << "the two spearheads never made contact within the time budget";
-
     auto& units = world.GetDeployedUnits();
     BattleUnit& attacker = units.at(duel.attackerId);
     BattleUnit& defender = units.at(duel.defenderId);
+
+    // Exercise road combat directly. Waiting for a full simulated march made
+    // this setup depend on generated-route details instead of the ID-order
+    // tie-break it is intended to cover.
+    const std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(0, 1);
+    ASSERT_GE(route.size(), 2u);
+    const int attackerTileIndex = static_cast<int>(route.size() / 2);
+    attacker.tileIndex = attackerTileIndex;
+    defender.tileIndex = static_cast<int>(route.size()) - 1 - attackerTileIndex;
+    attacker.tileProgress = 0.0;
+    defender.tileProgress = 0.0;
+    attacker.state = BattleUnitState::FightingUnit;
+    defender.state = BattleUnitState::FightingUnit;
     attacker.attackTimer = 0.0;
     defender.attackTimer = 0.0;
     // Both units enter this tick lethally weak ("simultaneous death" setup) —
@@ -250,7 +247,7 @@ TEST(UnitCombatSystemTests, SimultaneousLethalSetupResolvesToSingleSurvivorViaId
     attacker.currentHp = 1.0;
     defender.currentHp = 1.0;
 
-    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+    UnitCombatSystem::Update(world, FixedSimulationClock::FixedDt);
 
     // The ascending-instanceId tie-break means only one attack is ever
     // resolved per pair per tick: attacker (lower id) acts first and kills

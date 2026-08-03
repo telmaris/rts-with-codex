@@ -5,7 +5,7 @@
 #include <string>
 #include <utility>
 
-// Thread-safe logger writing tagged messages to stdout and logs/rts.log.
+// Thread-safe logger writing tagged messages to logs/rts.log.
 class Log
 {
 public:

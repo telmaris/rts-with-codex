@@ -405,29 +405,30 @@ namespace
         std::string amount = view.capacity > 0
             ? std::to_string(view.amount) + "/" + std::to_string(view.capacity)
             : std::to_string(view.amount);
-        int fontSize = std::max(10, static_cast<int>(bounds.height * 0.16f));
+        int fontSize = std::clamp(static_cast<int>(bounds.height * 0.22f), 14, 18);
         int textWidth = MeasureUiText(amount, fontSize);
+        constexpr float badgePadding = 5.0f;
         Rectangle badge{
-            bounds.x + bounds.width - textWidth - 12.0f,
-            bounds.y + bounds.height - fontSize - 8.0f,
-            static_cast<float>(textWidth + 8),
-            static_cast<float>(fontSize + 4)};
+            bounds.x + bounds.width - textWidth - badgePadding * 2.0f - 1.0f,
+            bounds.y + bounds.height - fontSize - badgePadding * 2.0f - 1.0f,
+            static_cast<float>(textWidth) + badgePadding * 2.0f,
+            static_cast<float>(fontSize) + badgePadding * 2.0f};
 
         DrawRectangleRounded(badge, 0.25f, 6, Color{18, 13, 10, 230});
-        DrawUiText(amount, badge.x + 4.0f, badge.y + 2.0f, fontSize, UiTheme::Parchment);
+        DrawUiText(amount, badge.x + badgePadding, badge.y + badgePadding, fontSize, UiTheme::Parchment);
 
         if (view.recipeAmount > 0)
         {
             std::string recipe = "x" + std::to_string(view.recipeAmount);
-            int recipeFont = std::max(10, static_cast<int>(bounds.height * 0.15f));
+            int recipeFont = std::clamp(static_cast<int>(bounds.height * 0.20f), 13, 17);
             int recipeWidth = MeasureUiText(recipe, recipeFont);
             Rectangle recipeBadge{
-                bounds.x + 5.0f,
-                bounds.y + 5.0f,
-                static_cast<float>(recipeWidth + 8),
-                static_cast<float>(recipeFont + 4)};
+                bounds.x + 1.0f,
+                bounds.y + 1.0f,
+                static_cast<float>(recipeWidth) + badgePadding * 2.0f,
+                static_cast<float>(recipeFont) + badgePadding * 2.0f};
             DrawRectangleRounded(recipeBadge, 0.25f, 6, Color{24, 17, 12, 232});
-            DrawUiText(recipe, recipeBadge.x + 4.0f, recipeBadge.y + 2.0f, recipeFont, UiTheme::Parchment);
+            DrawUiText(recipe, recipeBadge.x + badgePadding, recipeBadge.y + badgePadding, recipeFont, UiTheme::Parchment);
         }
     }
 
@@ -465,7 +466,7 @@ namespace
     // `panelBuilding` is only used to enrich the hover tooltip: for a warehouse
     // it adds the player-wide total, so "this panel is local stock" reads as a
     // deliberate choice rather than a number that might or might not be global.
-    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float* scrollOffset = nullptr, float* maxScrollOffset = nullptr, const Building* panelBuilding = nullptr, bool* scrollbarDragging = nullptr, float* scrollbarDragOffset = nullptr)
+    void DrawResourceIconGrid(const std::vector<ResourceBufferView>& views, Rectangle bounds, int columns, float* scrollOffset = nullptr, float* maxScrollOffset = nullptr, const Building* panelBuilding = nullptr, bool* scrollbarDragging = nullptr, float* scrollbarDragOffset = nullptr, float fixedCellSize = 0.0f, float fixedGap = 0.0f, float leadingPadding = 0.0f)
     {
         if (maxScrollOffset != nullptr)
             *maxScrollOffset = 0.0f;
@@ -476,15 +477,21 @@ namespace
             return;
         }
 
-        constexpr float gap = 8.0f;
+        constexpr float defaultGap = 8.0f;
         const bool canScroll = scrollOffset != nullptr;
+        const bool hasFixedCellSize = fixedCellSize > 0.0f;
+        const float gap = hasFixedCellSize ? std::max(0.0f, fixedGap) : defaultGap;
         const float minimumCellWidth = canScroll ? 96.0f : 80.0f;
         const float scrollbarReserve = canScroll ? 18.0f : 0.0f;
 
         // Three columns are the narrow-panel baseline.  Wider panels gain a
         // fourth/fifth column, up to the caller's requested maximum, without
         // ever compromising texture legibility.
-        if (canScroll)
+        if (hasFixedCellSize)
+        {
+            columns = std::max(1, columns);
+        }
+        else if (canScroll)
         {
             int responsiveColumns = static_cast<int>((bounds.width - scrollbarReserve + gap) /
                                                       (minimumCellWidth + gap));
@@ -500,15 +507,22 @@ namespace
             columns = std::max(1, columns);
         }
         float contentWidth = std::max(1.0f, bounds.width - scrollbarReserve);
-        float cellW = (contentWidth - gap * (columns - 1)) / columns;
         int rows = static_cast<int>((views.size() + columns - 1) / columns);
+        float cellW = 0.0f;
         float cellH = 0.0f;
-        if (canScroll)
+        if (hasFixedCellSize)
         {
+            cellW = fixedCellSize;
+            cellH = fixedCellSize;
+        }
+        else if (canScroll)
+        {
+            cellW = (contentWidth - gap * (columns - 1)) / columns;
             cellH = std::clamp(cellW * 0.88f, 82.0f, 118.0f);
         }
         else
         {
+            cellW = (contentWidth - gap * (columns - 1)) / columns;
             // The production section is clipped to its measured height. Fit
             // every row into that height instead of drawing an 82 px cell into
             // a 50–70 px viewport and cutting off the icon at the bottom.
@@ -519,7 +533,8 @@ namespace
         // Resource cards are icon slots, not stretchable banners. Keep the
         // actual card square even when a production column is wider than its
         // short vertical viewport; center it inside that column.
-        cellH = std::min(cellW, cellH);
+        if (!hasFixedCellSize)
+            cellH = std::min(cellW, cellH);
         float contentHeight = rows * cellH + std::max(0, rows - 1) * gap;
         float resolvedMaxScrollOffset = canScroll
             ? std::max(0.0f, contentHeight - bounds.height)
@@ -534,7 +549,9 @@ namespace
         {
             int col = i % columns;
             int row = i / columns;
-            float x = bounds.x + col * (cellW + gap) + (cellW - cellH) * 0.5f;
+            float x = hasFixedCellSize
+                ? bounds.x + leadingPadding + col * (cellW + gap)
+                : bounds.x + col * (cellW + gap) + (cellW - cellH) * 0.5f;
             float y = bounds.y + row * (cellH + gap) - resolvedScrollOffset;
 
             if (y > bounds.y + bounds.height)
@@ -2250,18 +2267,25 @@ void GuiPanel::Update(double dt)
 
     auto* panelProduction = building->GetComponent<ProductionComponent>();
     auto* panelRecipes = building->GetComponent<RecipeComponent>();
-    int buttonSpace = destroyButton.size.y + margin +
-                      (building->CanBlockProduction() ? lockButton.size.y + margin : 0) +
-                      (panelRecipes != nullptr && panelRecipes->HasSelectableRecipes() ? recipeButton.size.y + margin : 0);
     int connectionsH = std::max(48, size.y / 9);
     int statsH = std::max(92, size.y / 5);
     int progressH = std::max(16, std::min(20, progressBar.size.y));
-    int resourcesBottom = bottom - buttonSpace - statsH - connectionsH - progressH - margin * 4;
-    int resourcesH = std::max(74, resourcesBottom - y);
-
     int headerH = 22;
     int columnGap = std::max(8, margin / 2);
     int columnW = (contentW - columnGap) / 2;
+    // Production slots stay fixed-size; reserve precisely as many rows as
+    // each side needs, so the cycle bar always follows the last icon row.
+    constexpr float productionIconSize = 76.0f;
+    constexpr float productionIconGap = 15.0f;
+    constexpr float productionIconLeadingPadding = 8.0f;
+    const auto inputBuffers = building->GetInputBufferViews();
+    const auto outputBuffers = building->GetOutputBufferViews();
+    const int inputRows = static_cast<int>((inputBuffers.size() + 2) / 3);
+    const int outputRows = static_cast<int>((outputBuffers.size() + 1) / 2);
+    const int iconRows = std::max(1, std::max(inputRows, outputRows));
+    const int iconGridH = static_cast<int>(iconRows * productionIconSize +
+                                           (iconRows - 1) * productionIconGap);
+    const int resourcesH = headerH + iconGridH;
 
     UiText::Draw("Input", contentX, y, 20, Color{224, 204, 168, 255});
     UiText::Draw("Output", contentX + columnW + columnGap, y, 20, Color{224, 204, 168, 255});
@@ -2277,8 +2301,14 @@ void GuiPanel::Update(double dt)
         static_cast<float>(y),
         static_cast<float>(columnW),
         static_cast<float>(resourcesH - headerH)};
-    DrawResourceIconGrid(building->GetInputBufferViews(), inputGrid, 3, nullptr);
-    DrawResourceIconGrid(building->GetOutputBufferViews(), outputGrid, 3, nullptr);
+    // Fixed production slots: three inputs and two outputs always use the
+    // same Inn-sized icon, independently of how many buffers this recipe has.
+    DrawResourceIconGrid(inputBuffers, inputGrid, 3, nullptr,
+                         nullptr, nullptr, nullptr, nullptr, productionIconSize,
+                         productionIconGap, productionIconLeadingPadding);
+    DrawResourceIconGrid(outputBuffers, outputGrid, 2, nullptr,
+                         nullptr, nullptr, nullptr, nullptr, productionIconSize,
+                         productionIconGap, productionIconLeadingPadding);
 
     y = static_cast<int>(inputGrid.y + inputGrid.height + margin);
     progressBar.pos = Vec2i{contentX, y};
@@ -2313,7 +2343,7 @@ void GuiPanel::Update(double dt)
         leftY += connectionLine;
     }
 
-    if (receivers.empty() && !building->GetOutputBufferViews().empty())
+    if (receivers.empty() && !outputBuffers.empty())
     {
         DrawTextFit("No receiver", Rectangle{static_cast<float>(contentX + connectionColumnW + connectionGap), static_cast<float>(rightY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, Color{238, 184, 84, 255});
         rightY += connectionLine;

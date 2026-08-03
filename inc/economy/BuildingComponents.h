@@ -283,7 +283,9 @@ struct PopulationComponent : IBuildingComponent
     bool hasFood{true};
     double foodSupplyLevel{1.0};
     double foodSupplyDropPerMissedUpkeep{0.25};
-    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 12};
+    // One package covers the next upkeep payment; one more is the village's
+    // only local reserve, so a fresh village never monopolizes food logistics.
+    ResourceBuffer foodBuffer{ResourceType::FOOD_PROVISIONS, 2};
     ResourceBuffer householdGoodsBuffer{ResourceType::HOUSEHOLD_GOODS, 6};
     ResourceBuffer urbanGoodsBuffer{ResourceType::URBAN_GOODS, 3};
     double householdSupplyLevel{1.0};

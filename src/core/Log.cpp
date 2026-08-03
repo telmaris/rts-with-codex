@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <mutex>
 
 namespace
@@ -57,11 +56,7 @@ void Log::WriteLine(std::string line)
     std::lock_guard<std::mutex> lock(GetLogMutex());
     line += " | " + CurrentTime();
 
-    std::cout << line << '\n';
     auto& file = GetLogFile();
     if (file.is_open())
-    {
         file << line << '\n';
-        file.flush();
-    }
 }
