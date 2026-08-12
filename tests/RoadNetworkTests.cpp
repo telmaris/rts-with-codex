@@ -128,10 +128,169 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     EXPECT_FALSE(wood.transportPath.empty());
     EXPECT_NE(wood.shipmentId, 0u);
     EXPECT_EQ(network.GetLiveShipmentCount(), 1u);
+    EXPECT_DOUBLE_EQ(wood.transportTime, 0.1);
+
+    source->UpdateTransportables(0.09);
+    EXPECT_EQ(wood.currentPathStep, 0);
+    ASSERT_EQ(source->transportables.size(), 1u);
+    EXPECT_EQ(source->transportables.front(), &wood);
 
     wood.ReleaseShipment();
     EXPECT_EQ(network.GetLiveShipmentCount(), 0u);
     EXPECT_EQ(wood.shipmentId, 0u);
+    source->transportables.clear();
+}
+
+TEST(RoadNetworkTests, DispatchDelayIsBalanceModifiableForBuildingAndResource)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedMap(map, &player);
+    RoadNetwork network{map};
+
+    auto* source = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
+    auto* destination = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
+    auto* roadA = PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4), nullptr);
+
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::TransportDispatchDelay,
+        0.0,
+        2.0,
+        BalanceModifierScope::Global(),
+        BuildingType::StorageBuilding,
+        ResourceType::WOOD,
+        "test:dispatch_delay"});
+
+    EXPECT_DOUBLE_EQ(source->GetModifiedDispatchDelay(ResourceType::WOOD), 0.2);
+    EXPECT_DOUBLE_EQ(source->GetModifiedDispatchDelay(ResourceType::STONE), 0.1);
+
+    Resource wood{ResourceType::WOOD};
+    ASSERT_TRUE(network.BeginTransport(source, destination, &wood));
+    EXPECT_DOUBLE_EQ(wood.transportTime, 0.2);
+
+    source->UpdateTransportables(0.19);
+    EXPECT_EQ(wood.currentPathStep, 0);
+    EXPECT_EQ(source->transportables.size(), 1u);
+
+    source->UpdateTransportables(0.02);
+    EXPECT_EQ(wood.currentPathStep, 1);
+    EXPECT_TRUE(source->transportables.empty());
+    ASSERT_EQ(roadA->transportables.size(), 1u);
+    EXPECT_EQ(roadA->transportables.front(), &wood);
+    EXPECT_EQ(network.GetLiveShipmentCount(), 1u);
+
+    wood.ReleaseShipment();
+    roadA->transportables.clear();
+}
+
+TEST(RoadNetworkTests, DispatchDelaySerializesResourcesCreatedInTheSameTick)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedMap(map, &player);
+    RoadNetwork network{map};
+
+    auto* source = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
+    auto* destination = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
+    auto* roadA = PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(roadA, nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4), nullptr);
+
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 3};
+
+    Resource first{ResourceType::WOOD};
+    Resource second{ResourceType::WOOD};
+    ASSERT_TRUE(network.BeginTransport(source, destination, &first));
+    ASSERT_TRUE(network.BeginTransport(source, destination, &second));
+
+    source->UpdateTransportables(0.11);
+    EXPECT_EQ(first.currentPathStep, 1);
+    EXPECT_EQ(second.currentPathStep, 0);
+    EXPECT_DOUBLE_EQ(second.elapsedTime, 0.0);
+    ASSERT_EQ(roadA->transportables.size(), 1u);
+    ASSERT_EQ(source->transportables.size(), 1u);
+
+    source->UpdateTransportables(0.09);
+    EXPECT_EQ(second.currentPathStep, 0);
+    source->UpdateTransportables(0.02);
+    EXPECT_EQ(second.currentPathStep, 1);
+    ASSERT_EQ(roadA->transportables.size(), 2u);
+
+    first.ReleaseShipment();
+    second.ReleaseShipment();
+    roadA->transportables.clear();
+}
+
+TEST(RoadNetworkTests, ProjectsInFlightResourceForRenderingWithoutPointers)
+{
+    TileMap map;
+    Player player{7, map};
+    FillOwnedMap(map, &player);
+    RoadNetwork network{map};
+
+    auto* source = PlaceAndRegister<StorageBuilding>(map, network, &player, {0, 1}, 1);
+    auto* destination = PlaceAndRegister<StorageBuilding>(map, network, &player, {5, 1}, 2);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(destination, nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {3, 2}, 3), nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4), nullptr);
+
+    destination->storage.buffers.clear();
+    destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
+    source->dispatchDelay.SetBase(2.0);
+
+    Resource wood{ResourceType::WOOD};
+    ASSERT_TRUE(network.BeginTransport(source, destination, &wood));
+    ASSERT_GT(wood.transportTime, 0.0);
+
+    wood.elapsedTime = wood.transportTime * 0.5;
+    std::vector<ShipmentRenderState> views;
+    network.AppendShipmentRenderStates(views);
+
+    ASSERT_EQ(views.size(), 1u);
+    EXPECT_EQ(views.front().ownerPlayerId, 7);
+    EXPECT_EQ(views.front().shipmentId, wood.shipmentId);
+    EXPECT_EQ(views.front().resourceType, ResourceType::WOOD);
+    EXPECT_EQ(views.front().previousTileId, -1);
+    EXPECT_EQ(views.front().fromTileId, wood.transportPath[0]);
+    EXPECT_EQ(views.front().toTileId, wood.transportPath[1]);
+    EXPECT_FLOAT_EQ(views.front().progress, 0.5f);
+    EXPECT_FALSE(views.front().waitingForCapacity);
+
+    source->UpdateTransportables(wood.transportTime * 0.5 + 0.01);
+    EXPECT_EQ(network.GetLiveShipmentCount(), 1u)
+        << "a road-tile hand-off must not end the world-owned shipment";
+    ASSERT_EQ(wood.currentPathStep, 1);
+    views.clear();
+    network.AppendShipmentRenderStates(views);
+    ASSERT_EQ(views.size(), 1u);
+    EXPECT_EQ(views.front().previousTileId, wood.transportPath[0]);
+    EXPECT_EQ(views.front().fromTileId, wood.transportPath[1]);
+    EXPECT_EQ(views.front().toTileId, wood.transportPath[2]);
+
+    wood.elapsedTime = wood.transportTime;
+    views.clear();
+    network.AppendShipmentRenderStates(views);
+    ASSERT_EQ(views.size(), 1u);
+    EXPECT_FLOAT_EQ(views.front().progress, 1.0f);
+    EXPECT_TRUE(views.front().waitingForCapacity);
+
+    wood.ReleaseShipment();
+    views.clear();
+    network.AppendShipmentRenderStates(views);
+    EXPECT_TRUE(views.empty());
+    Building* carrier = map.GetBuilding(wood.transportPath[wood.currentPathStep]);
+    ASSERT_NE(carrier, nullptr);
+    carrier->transportables.clear();
 }
 
 TEST(RoadNetworkTests, RoadCapacityLimitsEntryAndQueuesOverflowAtSource)
@@ -166,6 +325,7 @@ TEST(RoadNetworkTests, RoadCapacityLimitsEntryAndQueuesOverflowAtSource)
 
     EXPECT_EQ(roadA->transportables.size(), 1u);
     EXPECT_EQ(source->transportables.size(), 2u);
+    EXPECT_EQ(network.GetLiveShipmentCount(), 3u);
 }
 
 TEST(RoadNetworkTests, OpposingFullRoadSegmentsSwapToBreakDeadlock)
@@ -289,7 +449,7 @@ TEST(RoadNetworkTests, TransportableCancelsWhenPathRoadChangesOwner)
     wood.currentPathStep = static_cast<int>(std::distance(wood.transportPath.begin(), roadStepIt));
 
     roadA->owner = &enemy;
-    EXPECT_TRUE(wood.Update(0.1));
+    EXPECT_EQ(wood.Update(0.1), TransportUpdateResult::Finished);
     EXPECT_EQ(source->storage.buffers[ResourceType::WOOD].buffer.size(), 1u);
     // Plain vector clear, NOT ResourceBuffer::Clear(): the cancellation
     // returned the stack-local wood into this buffer. ResourceBuffer now

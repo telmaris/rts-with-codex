@@ -79,6 +79,7 @@ public:
     bool UpdateActiveFocus(double dt);
     bool UnlockFocus(const std::string& id);
     void RestoreFocus(const std::string& id);
+    bool RestoreActiveFocus(const std::string& id, double remaining);
     void Clear();
     void CollectModifiers(BalanceModifierSet& target) const;
     const std::set<std::string>& GetUnlocked() const { return unlocked; }

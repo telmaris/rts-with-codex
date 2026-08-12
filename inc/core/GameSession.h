@@ -10,9 +10,11 @@
 #include <chrono>
 #include <condition_variable>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -131,6 +133,7 @@ public:
 private:
     void SendInitialSnapshot();
     void SendCorrectionSnapshot();
+    void RememberRemoteCommandResult(const GameCommandResult& result);
     void Stop();
     void RunSimulation();
     // One locked iteration of the simulation loop: transport commands, remote-sync
@@ -155,6 +158,10 @@ private:
     GameSnapshot lastSentSnapshot;
     double checksumTimer{0.0};
     double correctionSnapshotCooldown{0.0};
+    static constexpr std::size_t MaxRememberedRemoteCommands = 2048;
+    std::set<std::uint64_t> pendingRemoteCommandIds;
+    std::map<std::uint64_t, GameCommandResult> completedRemoteCommandResults;
+    std::deque<std::uint64_t> completedRemoteCommandOrder;
 
     // Background simulation thread
     mutable std::recursive_mutex worldMutex;
@@ -191,13 +198,17 @@ public:
     std::vector<GameCommandResult> ConsumeCommandResults() override;
 
 private:
+    static constexpr size_t MaxInitialSnapshotBytes = 64u * 1024u * 1024u;
+    static constexpr size_t MaxInitialSnapshotChunks = 6000u;
     void HandleSnapshotPayload(const std::string& payload);
+    void HandleAuthoritativeResult(const GameCommandResult& result);
 
     GameWorld* observedWorld{nullptr};
     std::shared_ptr<IGameTransport> transport;
     std::uint64_t nextClientCommandId{1};
     int assignedPlayerId{0};
     bool hadConnection{false};
+    bool wasConnected{false};
     FixedSimulationClock clock;
     GameSnapshot latestNetworkSnapshot;
     bool hasNetworkSnapshot{false};
@@ -206,11 +217,18 @@ private:
     size_t expectedInitialSnapshotBytes{0};
     size_t expectedInitialSnapshotChunks{0};
     size_t receivedInitialSnapshotChunks{0};
+    size_t receivedInitialSnapshotBytes{0};
+    std::uint64_t expectedInitialSnapshotTick{0};
+    bool initialSnapshotFailed{false};
     std::string initialSnapshotBuffer;
     std::vector<std::string> initialSnapshotChunks;
     std::vector<bool> initialSnapshotChunkReceived;
     double resyncRequestCooldown{0.0};
     std::vector<GameCommandResult> commandResults;
+    static constexpr std::size_t MaxObservedCommandResults = 4096;
+    std::set<std::pair<int, std::uint64_t>> observedCommandResults;
+    std::deque<std::pair<int, std::uint64_t>> observedCommandResultOrder;
+    std::map<std::uint64_t, std::string> pendingClientCommandPayloads;
 };
 
 // Backward compatibility alias

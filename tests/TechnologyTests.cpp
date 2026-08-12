@@ -125,6 +125,27 @@ end
     EXPECT_EQ(definitions[1].name, "invalid_only_name");
 }
 
+TEST(TechnologyTests, ParsesTransportDispatchDelayAsLogisticsModifier)
+{
+    const auto path = WriteTechnologyFixture(R"DATA(
+technology rapid_dispatch
+    name "Rapid Dispatch"
+    modifier TransportDispatchDelay multiplier 0.75 building StorageBuilding resource WOOD
+end
+)DATA");
+
+    const auto definitions = LoadTechnologyDefinitionsFromFile(path.string());
+    ASSERT_EQ(definitions.size(), 1u);
+    ASSERT_EQ(definitions.front().modifiers.size(), 1u);
+
+    const auto& modifier = definitions.front().modifiers.front();
+    EXPECT_EQ(modifier.stat, BalanceStat::TransportDispatchDelay);
+    EXPECT_DOUBLE_EQ(modifier.multiplier, 0.75);
+    EXPECT_EQ(modifier.buildingType, BuildingType::StorageBuilding);
+    EXPECT_EQ(modifier.resourceType, ResourceType::WOOD);
+    EXPECT_TRUE(ContainsTag(definitions.front(), "logistics"));
+}
+
 TEST(TechnologyTests, ParsesTowerDefenseCombatStatsAndUnitFilter)
 {
     const auto path = WriteTechnologyFixture(R"DATA(

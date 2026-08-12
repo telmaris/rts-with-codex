@@ -572,6 +572,8 @@ namespace
                 definition.buildTime = std::stod(tokens[1]);
             else if (command == "transport_time" && tokens.size() >= 2)
                 definition.transportTime = std::stod(tokens[1]);
+            else if (command == "dispatch_delay" && tokens.size() >= 2)
+                definition.dispatchDelay = std::max(0.0, std::stod(tokens[1]));
             else if (command == "storage" && tokens.size() >= 3)
             {
                 int initialAmount = tokens.size() >= 4 ? std::stoi(tokens[3]) : 0;
@@ -821,6 +823,7 @@ void ApplyBuildingDefinition(Building& building, const BuildingDefinition& defin
     building.textureId = definition.textureId;
     building.footprint = definition.footprint;
     building.transportTime = definition.transportTime;
+    building.dispatchDelay = definition.dispatchDelay;
     building.buildTime = definition.buildTime;
 }
 

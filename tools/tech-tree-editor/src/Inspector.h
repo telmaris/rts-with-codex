@@ -64,6 +64,7 @@ private:
     DropdownWidget categoryDropdown;
     std::vector<DropdownWidget> tagDropdowns;
     std::vector<CostRow> costRows;
+    std::vector<DropdownWidget> buildingUnlockDropdowns;
     std::vector<ModifierRow> modifierRows;
 
     float scroll{0.0f};

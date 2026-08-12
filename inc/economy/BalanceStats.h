@@ -47,7 +47,11 @@ enum class BalanceStat
     TowerDamage,
     TowerRange,
     TowerAttackSpeed,
-    TowerAmmoEfficiency
+    TowerAmmoEfficiency,
+
+    // Time between reserving one resource at a source building and releasing
+    // it onto the first road tile. Appended to preserve existing enum values.
+    TransportDispatchDelay
 };
 
 #endif

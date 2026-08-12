@@ -28,6 +28,9 @@ struct ResearchNodeView
     std::vector<std::string> prerequisites;
     std::vector<ResourceAmountDefinition> costs;
     std::vector<BalanceModifier> modifiers;
+    // Building names gated by this technology. Kept in the view model so
+    // every research UI can explain the practical effect consistently.
+    std::vector<std::string> unlockedBuildings;
     std::vector<std::string> tags;
     std::string layoutLane;
     int layoutOrder{0};

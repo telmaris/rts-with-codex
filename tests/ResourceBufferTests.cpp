@@ -2,6 +2,32 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+
+TEST(ResourceBufferTests, PresentationCatalogContainsEveryActiveTypeExactlyOnce)
+{
+    std::set<ResourceType> catalog{std::begin(resourceTypes), std::end(resourceTypes)};
+
+    EXPECT_EQ(catalog.size(), std::size(resourceTypes));
+    EXPECT_EQ(catalog.size(), 73u);
+    EXPECT_LT(ResourcePresentationRank(ResourceType::WOOD),
+              ResourcePresentationRank(ResourceType::PLANKS));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::PLANKS),
+              ResourcePresentationRank(ResourceType::STONE));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::BRICKS),
+              ResourcePresentationRank(ResourceType::COAL));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::TOOLS),
+              ResourcePresentationRank(ResourceType::WHEAT));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::FOOD_PROVISIONS),
+              ResourcePresentationRank(ResourceType::CATTLE));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::HORSE),
+              ResourcePresentationRank(ResourceType::HEMP));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::BRONZE_SWORD),
+              ResourcePresentationRank(ResourceType::IRON_SWORD));
+    EXPECT_LT(ResourcePresentationRank(ResourceType::IRON_SWORD),
+              ResourcePresentationRank(ResourceType::STEEL_SWORD));
+}
+
 TEST(ResourceBufferTests, AddResourceRespectsCapacity)
 {
     Resource woodA{ResourceType::WOOD};

@@ -53,6 +53,9 @@ target_sources(game
                warfare/UnitCombatSystem.cpp
                warfare/HqCombatSystem.cpp
                warfare/TowerAttackSystem.cpp
+               multiplayer/FaultInjectingGameTransport.cpp
+               multiplayer/NetworkProtocol.cpp
+               multiplayer/SnapshotTransfer.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
                scenes/SceneUtils.cpp
@@ -108,7 +111,7 @@ source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/TextureConfi
 source_group("warfare" FILES warfare/UnitDefinition.cpp warfare/BattleUnit.cpp warfare/UnitMarchSystem.cpp
              warfare/CombatPipeline.cpp warfare/UnitCombatSystem.cpp warfare/HqCombatSystem.cpp
              warfare/TowerAttackSystem.cpp)
-source_group("multiplayer" FILES multiplayer/TcpGameTransport.cpp)
+source_group("multiplayer" FILES multiplayer/FaultInjectingGameTransport.cpp multiplayer/NetworkProtocol.cpp multiplayer/SnapshotTransfer.cpp multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
              scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp

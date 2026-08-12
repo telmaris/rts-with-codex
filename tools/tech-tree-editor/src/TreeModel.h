@@ -16,6 +16,8 @@
 #include "research/ResearchCatalog.h"
 #include "research/Technology.h"
 
+#include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -54,6 +56,7 @@ public:
     // Returns false when the new id is empty or already taken.
     bool RenameNode(const std::string& oldId, const std::string& newId);
     void SetLanePosition(const std::string& id, const std::string& lane, int layoutOrder);
+    void DeleteNodes(const std::vector<std::string>& ids);
 
     TechnologyDefinition* Find(const std::string& id);
     const TechnologyDefinition* Find(const std::string& id) const;
@@ -67,22 +70,91 @@ public:
     // Serializes to GetPath() and verifies the round trip; see TreeSerializer.
     SaveResult Save();
 
+    // Command history. A command stores the full editable document state,
+    // including pending building-unlock relations, so undo is safe across
+    // coupled technologies.rtsdata / buildings.rtsdata edits.
+    void BeginHistoryFrame();
+    void CommitHistoryFrame();
+    void BeginHistoryTransaction();
+    void CommitHistoryTransaction();
+    void CancelHistoryTransaction();
+    bool Undo();
+    bool Redo();
+    bool CanUndo() const { return !undoHistory.empty(); }
+    bool CanRedo() const { return !redoHistory.empty(); }
+    void ClearHistory();
+
     TreeKind GetKind() const { return kind; }
     const std::string& GetPath() const { return path; }
     // Short "loaded N nodes" / failure text for the status line.
     const std::string& GetStatus() const { return status; }
     size_t GetNodeCount() const { return definitions.size(); }
     const std::vector<TechnologyDefinition>& GetDefinitions() const { return definitions; }
+    // Display names of buildings whose construction lists this technology as a
+    // requirement. This is the same relationship the game exposes as
+    // "Unlocks <building>" in technology tooltips.
+    const std::vector<std::string>& GetUnlockedBuildings(const std::string& technologyId) const;
+    // Editor labels for buildings that are not technology-gated yet, plus
+    // buildings already unlocked by `technologyId`.
+    std::vector<std::string> GetBuildingUnlockOptions(const std::string& technologyId) const;
+    // Stable building ids corresponding to the selected technology's Unlocks
+    // rows. Used by the inspector; display labels are intentionally separate.
+    std::vector<std::string> GetUnlockedBuildingIds(const std::string& technologyId) const;
+    std::string GetBuildingUnlockLabel(const std::string& buildingId) const;
+    std::string GetBuildingUnlockIdForLabel(const std::string& label) const;
+    // Replaces this technology's building-unlock rows. The relation is stored
+    // as top-level `requires_tech` in buildings.rtsdata, not as a faux stat
+    // modifier inside technologies.rtsdata.
+    void SetBuildingUnlocks(const std::string& technologyId, const std::vector<std::string>& buildingIds);
 
 private:
     bool ArePrerequisitesTaken(const TechnologyDefinition& definition) const;
+    void LoadBuildingUnlocks();
+    bool SaveBuildingUnlocks();
 
     TreeKind kind;
     std::string path;
     std::vector<TechnologyDefinition> definitions;
+    std::map<std::string, std::vector<std::string>> buildingUnlocks;
+    struct BuildingUnlockDefinition
+    {
+        std::string id;
+        std::string name;
+        std::vector<std::string> requiredTechnologies;
+    };
+    std::vector<BuildingUnlockDefinition> buildings;
+    std::string buildingsPath;
     std::set<std::string> taken;
     std::string status;
     bool dirty{false};
+    bool buildingUnlocksDirty{false};
+
+    struct EditSnapshot
+    {
+        std::vector<TechnologyDefinition> definitions;
+        std::map<std::string, std::vector<std::string>> buildingUnlocks;
+        std::vector<BuildingUnlockDefinition> buildings;
+        std::set<std::string> taken;
+        bool dirty{false};
+        bool buildingUnlocksDirty{false};
+    };
+    // A reversible editor command: before/after snapshots make every command
+    // deterministic even when it spans both data files.
+    struct EditCommand
+    {
+        EditSnapshot before;
+        EditSnapshot after;
+    };
+    EditSnapshot CaptureSnapshot() const;
+    void RestoreSnapshot(const EditSnapshot& snapshot);
+    bool MatchesSnapshot(const EditSnapshot& snapshot) const;
+    void CommitPendingHistory();
+
+    static constexpr size_t HistoryCapacity = 128;
+    std::vector<EditCommand> undoHistory;
+    std::vector<EditCommand> redoHistory;
+    std::optional<EditSnapshot> pendingHistory;
+    bool historyTransaction{false};
 };
 
 #endif

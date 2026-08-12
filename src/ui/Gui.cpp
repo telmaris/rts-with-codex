@@ -1,4 +1,5 @@
 #include "ui/Gui.h"
+#include "ui/ControlIcons.h"
 #include "ui/UiTheme.h"
 #include "economy/Building.h"
 #include "economy/BuildingConfig.h"
@@ -72,8 +73,8 @@ namespace
             Rectangle rect{x, bounds.y, width, bounds.height};
             bool selected = selectedTag == value;
             bool hover = CheckCollisionPointRec(mouse, rect);
-            DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{92, 74, 38, 235} : hover ? Color{69, 55, 42, 235} : Color{40, 29, 21, 220});
-            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? UiTheme::Gold : Color{112, 92, 66, 230});
+            DrawRectangleRounded(rect, 0.20f, 6, selected ? UiTheme::SelectedFill : hover ? UiTheme::SurfaceHover : UiTheme::Inset);
+            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? UiTheme::SageBright : UiTheme::Iron);
             DrawTextFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? UiTheme::Parchment : UiTheme::ParchmentDim);
             if (hover && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
@@ -343,8 +344,8 @@ namespace
     // Draws one resource buffer as a wide card with amount and capacity.
     void DrawResourceCard(const ResourceBufferView& view, Rectangle bounds)
     {
-        DrawRectangleRounded(bounds, 0.08f, 6, Color{46, 34, 24, 230});
-        DrawRectangleRoundedLines(bounds, 0.08f, 6, 1.0f, Color{112, 88, 58, 255});
+        DrawRectangleRounded(bounds, 0.08f, 6, UiTheme::Inset);
+        DrawRectangleRoundedLines(bounds, 0.08f, 6, 1.0f, UiTheme::Iron);
 
         float iconSize = std::min(bounds.width * 0.38f, bounds.height * 0.64f);
         Rectangle icon{
@@ -372,7 +373,7 @@ namespace
             std::string recipe = "x" + std::to_string(view.recipeAmount);
             int fontSize = 14;
             int textWidth = UiText::Measure(recipe, fontSize);
-            DrawRectangleRounded({icon.x + icon.width - textWidth - 8.0f, icon.y + icon.height - 18.0f, static_cast<float>(textWidth + 8), 18.0f}, 0.25f, 4, Color{24, 17, 12, 230});
+            DrawRectangleRounded({icon.x + icon.width - textWidth - 8.0f, icon.y + icon.height - 18.0f, static_cast<float>(textWidth + 8), 18.0f}, 0.25f, 4, UiTheme::Ink);
             UiText::Draw(recipe, icon.x + icon.width - textWidth - 4.0f, icon.y + icon.height - 16.0f, fontSize, UiTheme::Parchment);
         }
     }
@@ -380,8 +381,19 @@ namespace
     // Draws one compact resource icon with an amount badge.
     void DrawResourceIcon(const ResourceBufferView& view, Rectangle bounds)
     {
-        DrawRectangleRounded(bounds, 0.10f, 8, Color{40, 29, 21, 230});
-        DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, Color{112, 88, 58, 255});
+        const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+        if (!UiControlIcons::DrawRoyalResourceSlot(bounds))
+        {
+            DrawRectangleRounded(bounds, 0.10f, 8, UiTheme::Inset);
+            DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, UiTheme::Iron);
+        }
+        if (hovered)
+        {
+            DrawRectangleRounded(Rectangle{bounds.x + 5.0f, bounds.y + 5.0f,
+                                           bounds.width - 10.0f, bounds.height - 10.0f},
+                                 0.10f, 8, Fade(UiTheme::Cyan, 0.18f));
+            DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.5f, UiTheme::SteelHover);
+        }
 
         float padding = std::max(6.0f, std::min(bounds.width, bounds.height) * 0.10f);
         float iconSize = std::max(1.0f, std::min(bounds.width, bounds.height) - padding * 2.0f);
@@ -414,7 +426,7 @@ namespace
             static_cast<float>(textWidth) + badgePadding * 2.0f,
             static_cast<float>(fontSize) + badgePadding * 2.0f};
 
-        DrawRectangleRounded(badge, 0.25f, 6, Color{18, 13, 10, 230});
+        DrawRectangleRounded(badge, 0.25f, 6, UiTheme::Ink);
         DrawUiText(amount, badge.x + badgePadding, badge.y + badgePadding, fontSize, UiTheme::Parchment);
 
         if (view.recipeAmount > 0)
@@ -427,7 +439,7 @@ namespace
                 bounds.y + 1.0f,
                 static_cast<float>(recipeWidth) + badgePadding * 2.0f,
                 static_cast<float>(recipeFont) + badgePadding * 2.0f};
-            DrawRectangleRounded(recipeBadge, 0.25f, 6, Color{24, 17, 12, 232});
+            DrawRectangleRounded(recipeBadge, 0.25f, 6, UiTheme::Panel);
             DrawUiText(recipe, recipeBadge.x + badgePadding, recipeBadge.y + badgePadding, recipeFont, UiTheme::Parchment);
         }
     }
@@ -477,6 +489,17 @@ namespace
             return;
         }
 
+        // Storage buffers use a std::map for deterministic simulation order;
+        // that numeric enum order is not a helpful order for players.  Sort
+        // only this display copy by the shared economic progression instead.
+        std::vector<ResourceBufferView> orderedViews = views;
+        std::stable_sort(orderedViews.begin(), orderedViews.end(),
+                         [](const ResourceBufferView& left, const ResourceBufferView& right)
+                         {
+                             return ResourcePresentationRank(left.type) <
+                                    ResourcePresentationRank(right.type);
+                         });
+
         constexpr float defaultGap = 8.0f;
         const bool canScroll = scrollOffset != nullptr;
         const bool hasFixedCellSize = fixedCellSize > 0.0f;
@@ -507,7 +530,7 @@ namespace
             columns = std::max(1, columns);
         }
         float contentWidth = std::max(1.0f, bounds.width - scrollbarReserve);
-        int rows = static_cast<int>((views.size() + columns - 1) / columns);
+        int rows = static_cast<int>((orderedViews.size() + columns - 1) / columns);
         float cellW = 0.0f;
         float cellH = 0.0f;
         if (hasFixedCellSize)
@@ -545,7 +568,7 @@ namespace
         int hoveredIndex = -1;
 
         BeginScissorMode(static_cast<int>(bounds.x), static_cast<int>(bounds.y), static_cast<int>(bounds.width), static_cast<int>(bounds.height));
-        for (int i = 0; i < views.size(); i++)
+        for (int i = 0; i < orderedViews.size(); i++)
         {
             int col = i % columns;
             int row = i / columns;
@@ -560,7 +583,7 @@ namespace
                 continue;
 
             Rectangle cell{x, y, cellH, cellH};
-            DrawResourceIcon(views[i], cell);
+            DrawResourceIcon(orderedViews[i], cell);
             if (CheckCollisionPointRec(GetMousePosition(), cell))
                 hoveredIndex = i;
         }
@@ -572,7 +595,7 @@ namespace
         if (resolvedMaxScrollOffset > 0.0f)
         {
             Rectangle track{bounds.x + contentWidth + 5.0f, bounds.y, 9.0f, bounds.height};
-            DrawRectangleRounded(track, 0.5f, 6, Color{24, 17, 12, 210});
+            DrawRectangleRounded(track, 0.5f, 6, UiTheme::Inset);
             float thumbH = std::max(30.0f, track.height * (track.height / contentHeight));
             float normalizedOffset = std::clamp(resolvedScrollOffset / resolvedMaxScrollOffset, 0.0f, 1.0f);
             float thumbY = track.y + (track.height - thumbH) * normalizedOffset;
@@ -602,12 +625,12 @@ namespace
                     *scrollbarDragging = false;
             }
             DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 6,
-                                 Color{174, 128, 67, 245});
+                                 UiTheme::Iron);
         }
 
         if (hoveredIndex >= 0)
         {
-            const auto& view = views[hoveredIndex];
+            const auto& view = orderedViews[hoveredIndex];
             std::vector<std::string> lines{
                 "In this building: " + std::to_string(view.amount) +
                 (view.capacity > 0 ? " / " + std::to_string(view.capacity) : "")};
@@ -660,6 +683,7 @@ namespace
             case BalanceStat::ProductionOutputAmount: return "Output";
             case BalanceStat::WorkerCapacity: return "Workers";
             case BalanceStat::TransportTime: return "Transport time";
+            case BalanceStat::TransportDispatchDelay: return "Cargo dispatch delay";
             case BalanceStat::RoadCapacity: return "Road capacity";
             case BalanceStat::RoadSpeed: return "Road speed";
             case BalanceStat::ManpowerRate: return "Manpower growth";
@@ -678,6 +702,7 @@ namespace
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::WorkerCapacity:
             case BalanceStat::TransportTime:
+            case BalanceStat::TransportDispatchDelay:
                 return true;
             default:
                 return false;
@@ -701,6 +726,7 @@ namespace
             case BalanceStat::BuildTime: return "Build speed";
             case BalanceStat::ProductionCycleTime: return "Production speed";
             case BalanceStat::TransportTime: return "Transport speed";
+            case BalanceStat::TransportDispatchDelay: return "Cargo dispatch speed";
             default: return BalanceStatLabel(stat);
         }
     }
@@ -769,7 +795,8 @@ namespace
         bool showAsRate = lowerIsBetter && std::abs(modifier.multiplier - 1.0) > 0.0001 &&
                           (modifier.stat == BalanceStat::BuildTime ||
                            modifier.stat == BalanceStat::ProductionCycleTime ||
-                           modifier.stat == BalanceStat::TransportTime);
+                           modifier.stat == BalanceStat::TransportTime ||
+                           modifier.stat == BalanceStat::TransportDispatchDelay);
         text += showAsRate ? ImprovedRateLabel(modifier.stat) : BalanceStatLabel(modifier.stat);
         if (std::abs(modifier.additive) > 0.0001)
         {
@@ -854,6 +881,8 @@ namespace
         lines.push_back(std::string("Time: ") + std::to_string(static_cast<int>(technology.researchTime)) + "s | " + technology.stateText);
         if (!technology.costs.empty())
             lines.push_back(FormatTechnologyCosts(technology.costs));
+        for (const auto& building : technology.unlockedBuildings)
+            lines.push_back("Unlocks {building}" + building + "{/building}");
         if (technology.active)
             lines.push_back("Remaining: " + std::to_string(static_cast<int>(std::round(technology.remainingTime))) + "s");
         lines.push_back(TooltipSeparatorLine());
@@ -921,9 +950,9 @@ namespace
                 Vector2 a{parent.x + parent.width * 0.5f, parent.y + parent.height};
                 Vector2 b{child.x + child.width * 0.5f, child.y};
                 float midY = (a.y + b.y) * 0.5f;
-                DrawLineEx(a, Vector2{a.x, midY}, 2.0f, Color{104, 84, 58, 255});
-                DrawLineEx(Vector2{a.x, midY}, Vector2{b.x, midY}, 2.0f, Color{104, 84, 58, 255});
-                DrawLineEx(Vector2{b.x, midY}, b, 2.0f, Color{104, 84, 58, 255});
+                DrawLineEx(a, Vector2{a.x, midY}, 2.0f, UiTheme::Iron);
+                DrawLineEx(Vector2{a.x, midY}, Vector2{b.x, midY}, 2.0f, UiTheme::Iron);
+                DrawLineEx(Vector2{b.x, midY}, b, 2.0f, UiTheme::Iron);
             }
         }
 
@@ -934,17 +963,20 @@ namespace
             Rectangle node = nodeBounds[technology->id];
             bool hovered = CheckCollisionPointRec(mouse, node);
 
-            Color fill = technology->researched ? Color{52, 74, 40, 245}
-                       : technology->available ? Color{74, 56, 34, 245}
-                       : technology->prerequisitesMet ? Color{72, 60, 42, 245}
-                       : Color{34, 26, 19, 235};
+            Color fill = technology->researched ? UiTheme::SelectedFill
+                       : technology->available ? UiTheme::Surface
+                       : technology->prerequisitesMet ? UiTheme::SurfaceHover
+                       : UiTheme::Inset;
             Color line = hovered ? Color{214, 178, 96, 255}
                        : technology->researched ? Color{140, 176, 96, 255}
                        : technology->available ? Color{176, 132, 68, 255}
-                       : Color{96, 82, 66, 255};
+                       : UiTheme::Iron;
 
-            DrawRectangleRounded(node, 0.08f, 8, fill);
-            DrawRectangleRoundedLines(node, 0.08f, 8, 1.0f, line);
+            DrawRectangleRounded(node, 0.08f, 8, UiTheme::Ink);
+            Rectangle inner{node.x + 2.0f, node.y + 2.0f, node.width - 4.0f, node.height - 4.0f};
+            DrawRectangleRounded(inner, 0.07f, 8, fill);
+            DrawRectangleRoundedLines(node, 0.08f, 8, 1.2f, line);
+            DrawRectangleRounded(Rectangle{node.x + 5.0f, node.y + 5.0f, 3.0f, node.height - 10.0f}, 0.5f, 4, line);
             DrawTextFit(technology->name, Rectangle{node.x + 8.0f, node.y + 8.0f, node.width - 16.0f, 26.0f}, 17, UiTheme::Parchment);
 
             Color stateColor = technology->researched ? Color{162, 214, 122, 255}
@@ -973,8 +1005,8 @@ namespace
         if (university == nullptr || workers == nullptr)
             return;
 
-        DrawRectangleRounded(bounds, 0.045f, 8, Color{30, 22, 16, 224});
-        DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, Color{130, 98, 60, 245});
+        DrawRectangleRounded(bounds, 0.045f, 8, UiTheme::Inset);
+        DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, UiTheme::Iron);
 
         std::string label = "Workers: " + std::to_string(workers->assigned) + "/" + std::to_string(workers->GetModifiedCapacity(*university));
         int workerPct = static_cast<int>(std::round(workers->GetRatio() * 100.0f));
@@ -1227,9 +1259,9 @@ namespace
         BeginScissorMode(static_cast<int>(treeArea.x), static_cast<int>(treeArea.y), static_cast<int>(treeArea.width), static_cast<int>(treeArea.height));
         for (const auto& [lane, header] : laneHeaders)
         {
-            DrawRectangleRounded(header, 0.14f, 8, Color{44, 33, 23, 215});
-            DrawRectangleRoundedLines(header, 0.14f, 8, 1.0f, Color{120, 92, 58, 235});
-            DrawTextFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), Color{224, 204, 168, 255});
+            DrawRectangleRounded(header, 0.14f, 8, UiTheme::Surface);
+            DrawRectangleRoundedLines(header, 0.14f, 8, 1.0f, UiTheme::Iron);
+            DrawTextFit(lane, Rectangle{header.x + 12.0f, header.y + 4.0f, header.width - 24.0f, header.height - 8.0f}, std::max(20, static_cast<int>(27 * zoom)), UiTheme::Parchment);
         }
 
         for (const auto& technology : nodes)
@@ -1249,7 +1281,7 @@ namespace
                 Vector2 a{parent.x + parent.width * 0.5f, parent.y + parent.height};
                 Vector2 b{child.x + child.width * 0.5f, child.y};
                 bool highlighted = highlightedPath.contains(technology.id) && highlightedPath.contains(prerequisite);
-                Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{96, 80, 60, 150};
+                Color edgeColor = highlighted ? UiTheme::Gold : Fade(UiTheme::Iron, 0.60f);
                 float edgeWidth = highlighted ? 4.0f : 1.5f;
                 Vector2 midA{a.x, a.y + rowGap * 0.34f};
                 Vector2 midB{b.x, b.y - rowGap * 0.34f};
@@ -1268,25 +1300,31 @@ namespace
             bool selectedUniversityBusy = research != nullptr && !research->technologyId.empty();
             bool localAvailable = technology.available && !selectedUniversityBusy;
 
-            Color fill = technology.researched ? Color{52, 74, 40, 245}
-                       : technology.active ? Color{70, 65, 38, 245}
-                       : localAvailable ? Color{74, 56, 34, 245}
-                       : technology.available && selectedUniversityBusy ? Color{40, 32, 26, 235}
-                       : technology.prerequisitesMet ? Color{72, 60, 42, 245}
-                       : Color{34, 26, 19, 235};
+            Color fill = technology.researched ? UiTheme::SelectedFill
+                       : technology.active ? UiTheme::SurfaceHover
+                       : localAvailable ? UiTheme::Surface
+                       : technology.available && selectedUniversityBusy ? UiTheme::Panel
+                       : technology.prerequisitesMet ? UiTheme::SurfaceHover
+                       : UiTheme::Inset;
             Color line = hovered ? Color{214, 178, 96, 255}
                        : technology.researched ? Color{140, 176, 96, 255}
                        : technology.active ? Color{214, 178, 84, 255}
                        : localAvailable ? Color{176, 132, 68, 255}
-                       : Color{96, 82, 66, 255};
+                       : UiTheme::Iron;
             if (!selectedTagFilter.empty() && !tagMatched)
             {
                 fill.a = 110;
                 line.a = 120;
             }
 
-            DrawRectangleRounded(node, 0.08f, 8, fill);
-            DrawRectangleRoundedLines(node, 0.08f, 8, 1.0f, tagMatched && !selectedTagFilter.empty() ? Color{150, 210, 130, 255} : highlightedPath.contains(technology.id) ? Color{232, 202, 104, 255} : line);
+            Color border = tagMatched && !selectedTagFilter.empty() ? UiTheme::SageBright
+                         : highlightedPath.contains(technology.id) ? UiTheme::Gold
+                         : line;
+            DrawRectangleRounded(node, 0.08f, 8, UiTheme::Ink);
+            Rectangle inner{node.x + 2.0f, node.y + 2.0f, node.width - 4.0f, node.height - 4.0f};
+            DrawRectangleRounded(inner, 0.07f, 8, fill);
+            DrawRectangleRoundedLines(node, 0.08f, 8, 1.2f, border);
+            DrawRectangleRounded(Rectangle{node.x + 5.0f, node.y + 5.0f, 3.0f, node.height - 10.0f}, 0.5f, 4, line);
             DrawTextWrappedCentered(technology.name, Rectangle{node.x + 8.0f * zoom, node.y + 7.0f * zoom, node.width - 16.0f * zoom, 39.0f * zoom}, std::max(13, static_cast<int>(20 * zoom)), UiTheme::Parchment, 2);
 
             Color stateColor = technology.researched ? Color{162, 214, 122, 255}
@@ -1305,7 +1343,7 @@ namespace
             if (technology.active || technology.researched)
             {
                 Rectangle progress{node.x + 10.0f, node.y + node.height - 9.0f, node.width - 20.0f, 5.0f};
-                DrawRectangleRounded(progress, 0.5f, 4, Color{22, 16, 12, 230});
+                DrawRectangleRounded(progress, 0.5f, 4, UiTheme::Ink);
                 Rectangle fillBar = progress;
                 fillBar.width *= static_cast<float>(std::clamp(technology.progress, 0.0, 1.0));
                 DrawRectangleRounded(fillBar, 0.5f, 4, technology.researched ? Color{140, 176, 96, 255} : Color{214, 178, 84, 255});
@@ -1329,18 +1367,26 @@ void UiButton::Update(double dt)
     bool hovered = CheckCollisionPointRec(mouse, bounds);
     bool pressed = hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
-    if ((hovered && hasHoverTexture) || (!hovered && hasNormalTexture))
+    if (!UiControlIcons::DrawRoyalButtonFrame(bounds, hovered))
     {
-        Texture2D tex = (hovered && hasHoverTexture) ? hoverTexture : normalTexture;
-        Rectangle src{0.0f, 0.0f, static_cast<float>(tex.width), static_cast<float>(tex.height)};
-        DrawTexturePro(tex, src, bounds, {0.0f, 0.0f}, 0.0f, WHITE);
-    }
-    else
-    {
-        Color fill = hovered ? Color{78, 62, 44, 255} : Color{40, 29, 21, 255};
-        Color line = hovered ? Color{176, 138, 82, 255} : Color{96, 82, 66, 255};
-        DrawRectangleRounded(bounds, 0.08f, 8, fill);
-        DrawRectangleRoundedLines(bounds, 0.08f, 8, 1.0f, line);
+        const Color fill = hovered ? UiTheme::SurfaceHover : UiTheme::Surface;
+        const Color line = hovered ? UiTheme::SteelHover : UiTheme::Iron;
+        // A separate steel bezel keeps large action buttons from reading as
+        // a clipped piece of the panel directly behind them.
+        DrawRectangleRounded(bounds, 0.06f, 8, UiTheme::Ink);
+        DrawRectangleRoundedLines(bounds, 0.06f, 8, 1.4f, line);
+        const float inset = std::min(4.0f, std::max(2.0f, bounds.height * 0.08f));
+        Rectangle face{bounds.x + inset, bounds.y + inset,
+                       std::max(0.0f, bounds.width - inset * 2.0f),
+                       std::max(0.0f, bounds.height - inset * 2.0f)};
+        DrawRectangleRounded(face, 0.05f, 8, fill);
+        DrawRectangleRoundedLines(face, 0.05f, 8, 1.0f, Fade(line, hovered ? 0.88f : 0.62f));
+        DrawLineEx({face.x + 7.0f, face.y + 2.0f},
+                   {face.x + face.width - 7.0f, face.y + 2.0f},
+                   1.0f, Fade(UiTheme::Bronze, hovered ? 0.82f : 0.50f));
+        DrawLineEx({face.x + 7.0f, face.y + face.height - 2.0f},
+                   {face.x + face.width - 7.0f, face.y + face.height - 2.0f},
+                   1.0f, Fade(UiTheme::Ink, 0.85f));
     }
 
     if (drawText)
@@ -1369,7 +1415,6 @@ void UiButton::Update(double dt)
 // Initializes UiButton::UiButton.
 UiButton::UiButton()
 {
-    LoadTextures("assets/ui/button_plain.png", "assets/ui/button_hover.png");
 }
 
 // Loads the requested data into runtime state.
@@ -1391,25 +1436,79 @@ void UiButton::LoadTextures(const std::string& normalPath, const std::string& ho
 // Advances this object's state for one frame.
 void CheckBox::Update(double dt)
 {
-    GuiCheckBox(WidgetBounds(*this), text.c_str(), &currentState);
+    (void)dt;
+    const Rectangle bounds = WidgetBounds(*this);
+    const float boxSize = std::clamp(bounds.height * 0.78f, 22.0f, 30.0f);
+    Rectangle box{bounds.x, bounds.y + (bounds.height - boxSize) * 0.5f, boxSize, boxSize};
+    const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+    if (hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        currentState = !currentState;
+
+    DrawRectangleRounded(box, 0.13f, 8, UiTheme::Ink);
+    DrawRectangleRoundedLines(box, 0.13f, 8, hovered ? 1.6f : 1.0f,
+                              hovered ? UiTheme::SteelHover : UiTheme::Iron);
+    Rectangle inset{box.x + 3.0f, box.y + 3.0f, box.width - 6.0f, box.height - 6.0f};
+    DrawRectangleRounded(inset, 0.10f, 8, currentState ? UiTheme::SelectedFill : UiTheme::Inset);
+    if (currentState)
+    {
+        const Color check = UiTheme::Cyan;
+        DrawLineEx({inset.x + inset.width * 0.20f, inset.y + inset.height * 0.54f},
+                   {inset.x + inset.width * 0.43f, inset.y + inset.height * 0.76f},
+                   2.4f, check);
+        DrawLineEx({inset.x + inset.width * 0.43f, inset.y + inset.height * 0.76f},
+                   {inset.x + inset.width * 0.80f, inset.y + inset.height * 0.25f},
+                   2.4f, check);
+    }
+    UiText::DrawFit(text, Rectangle{box.x + box.width + 10.0f, bounds.y,
+                                    std::max(0.0f, bounds.width - box.width - 10.0f), bounds.height},
+                    std::clamp(static_cast<int>(bounds.height * 0.54f), 16, 21),
+                    hovered ? UiTheme::Parchment : UiTheme::ParchmentDim);
 }
 
 // Advances this object's state for one frame.
 void SliderBar::Update(double dt)
 {
-    GuiSliderBar(WidgetBounds(*this), text.c_str(), nullptr, &currentValue, 0.0f, 1.0f);
+    (void)dt;
+    const Rectangle bounds = WidgetBounds(*this);
+    const float labelWidth = std::clamp(bounds.width * 0.34f, 108.0f, 190.0f);
+    Rectangle label{bounds.x, bounds.y, labelWidth - 10.0f, bounds.height};
+    Rectangle track{bounds.x + labelWidth, bounds.y + bounds.height * 0.35f,
+                    std::max(40.0f, bounds.width - labelWidth), std::max(10.0f, bounds.height * 0.30f)};
+    const float knobSize = std::clamp(bounds.height * 0.78f, 20.0f, 28.0f);
+    Rectangle hitArea{track.x - knobSize * 0.5f, bounds.y, track.width + knobSize, bounds.height};
+    const bool hovered = CheckCollisionPointRec(GetMousePosition(), hitArea);
+    if (hovered && (InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT)))
+        currentValue = std::clamp((GetMousePosition().x - track.x) / track.width, 0.0f, 1.0f);
+
+    UiText::DrawFit(text, label, std::clamp(static_cast<int>(bounds.height * 0.54f), 16, 21), UiTheme::ParchmentDim);
+    DrawRectangleRounded(track, 0.5f, 8, UiTheme::Ink);
+    DrawRectangleRoundedLines(track, 0.5f, 8, hovered ? 1.4f : 1.0f,
+                              hovered ? UiTheme::SteelHover : UiTheme::Iron);
+    Rectangle filled{track.x + 2.0f, track.y + 2.0f,
+                     std::max(0.0f, (track.width - 4.0f) * currentValue), track.height - 4.0f};
+    DrawRectangleRounded(filled, 0.5f, 8, UiTheme::SelectedFill);
+    const float knobX = track.x + track.width * currentValue;
+    Rectangle knob{knobX - knobSize * 0.5f, bounds.y + (bounds.height - knobSize) * 0.5f, knobSize, knobSize};
+    DrawRectangleRounded(knob, 0.18f, 8, UiTheme::Ink);
+    DrawRectangleRoundedLines(knob, 0.18f, 8, hovered ? 1.8f : 1.2f,
+                              hovered ? UiTheme::Cyan : UiTheme::Bronze);
+    Rectangle knobInset{knob.x + 3.0f, knob.y + 3.0f, knob.width - 6.0f, knob.height - 6.0f};
+    DrawRectangleRounded(knobInset, 0.16f, 8, hovered ? UiTheme::SurfaceHover : UiTheme::Surface);
+    const std::string percent = std::to_string(static_cast<int>(std::round(currentValue * 100.0f))) + "%";
+    UiText::DrawFit(percent, Rectangle{knob.x, knob.y + 1.0f, knob.width, knob.height - 2.0f},
+                    std::clamp(static_cast<int>(knob.height * 0.50f), 11, 15), UiTheme::Parchment);
 }
 
 // Advances this object's state for one frame.
 void ProgressBar::Update(double dt)
 {
     Rectangle bounds = WidgetBounds(*this);
-    DrawRectangleRounded(bounds, 0.12f, 6, Color{34, 26, 19, 255});
+    DrawRectangleRounded(bounds, 0.12f, 6, UiTheme::Inset);
 
     Rectangle fill = bounds;
     fill.width *= value;
     DrawRectangleRounded(fill, 0.12f, 6, Color{140, 176, 96, 255});
-    DrawRectangleRoundedLines(bounds, 0.12f, 6, 1.0f, Color{112, 92, 68, 255});
+    DrawRectangleRoundedLines(bounds, 0.12f, 6, 1.0f, UiTheme::Iron);
 
     std::string label = text + " " + std::to_string(static_cast<int>(value * 100.0f)) + "%";
     int fontSize = std::max(12, std::min(17, static_cast<int>(bounds.height) - 3));
@@ -1473,13 +1572,13 @@ void TextBox::Update(double dt)
         SyncTextBoxBuffer(text, textOutput, sizeof(textOutput));
     }
 
-    DrawRectangleRec(bounds, active ? Color{46, 34, 24, 245} : Color{34, 26, 19, 235});
-    DrawRectangleLinesEx(bounds, active ? 2.0f : 1.0f, active ? UiTheme::Gold : Color{96, 82, 66, 255});
+    DrawRectangleRec(bounds, active ? UiTheme::InsetHover : UiTheme::Inset);
+    DrawRectangleLinesEx(bounds, active ? 2.0f : 1.0f, active ? UiTheme::SteelHover : UiTheme::Iron);
     Rectangle textBounds{bounds.x + 10.0f, bounds.y + 7.0f, bounds.width - 20.0f, bounds.height - 14.0f};
     int textWidth = UiText::Measure(text, 22);
     float textOffset = std::max(0.0f, static_cast<float>(textWidth) - textBounds.width + 8.0f);
     BeginScissorMode(static_cast<int>(textBounds.x), static_cast<int>(textBounds.y), static_cast<int>(textBounds.width), static_cast<int>(textBounds.height));
-    UiText::Draw(text, textBounds.x - textOffset, textBounds.y + (textBounds.height - 22.0f) * 0.5f, 22, text.empty() ? Color{138, 120, 96, 255} : UiTheme::Parchment);
+    UiText::Draw(text, textBounds.x - textOffset, textBounds.y + (textBounds.height - 22.0f) * 0.5f, 22, text.empty() ? UiTheme::ParchmentFaint : UiTheme::Parchment);
     EndScissorMode();
     if (active && (static_cast<int>(GetTime() * 2.0) % 2 == 0))
     {
@@ -1560,15 +1659,15 @@ void PopupWindowWidget::Update(double dt)
         return;
 
     if (dimBackground)
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{8, 6, 4, 190});
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{4, 9, 17, 190});
 
     Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
                     static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(panel, 0.035f, 10, Color{34, 25, 18, 252});
+    DrawRectangleRounded(panel, 0.035f, 10, UiTheme::Panel);
     DrawRectangleRoundedLines(panel, 0.035f, 10, 2.0f, UiTheme::Bronze);
 
     Rectangle titleBar{panel.x + 2.0f, panel.y + 2.0f, panel.width - 4.0f, 68.0f};
-    DrawRectangleRounded(titleBar, 0.08f, 8, UiTheme::Oak);
+    DrawRectangleRounded(titleBar, 0.08f, 8, UiTheme::Surface);
     UiText::DrawTitleBar(titleBar, title, 0.0f);
 
     constexpr int bodyFontSize = 22;
@@ -1680,8 +1779,8 @@ void UiImage::Update(double dt)
     }
     else
     {
-        DrawRectangleRounded(bounds, 0.04f, 8, Color{30, 22, 16, 255});
-        DrawRectangleRoundedLines(bounds, 0.04f, 8, 1.0f, Color{96, 82, 66, 255});
+        DrawRectangleRounded(bounds, 0.04f, 8, UiTheme::Inset);
+        DrawRectangleRoundedLines(bounds, 0.04f, 8, 1.0f, UiTheme::Iron);
     }
 }
 
@@ -1721,8 +1820,11 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
     int margin = std::max(10, size.x / 24);
     int titleBar = std::max(34, size.y / 12);
 
-    DrawRectangleRounded(bounds, 0.02f, 8, Fade(UiTheme::Bark, 0.93f));
-    DrawRectangleRoundedLines(bounds, 0.02f, 8, 2.0f, UiTheme::Bronze);
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.02f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, UiTheme::Iron);
+    }
 
     Rectangle titleBounds{
         bounds.x,
@@ -1730,28 +1832,35 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
         bounds.width,
         static_cast<float>(titleBar)};
     Vector2 mouse = GetMousePosition();
-    DrawRectangleRounded(titleBounds, 0.02f, 8, UiTheme::Oak);
-    // Draws this widget or render element.
-    DrawLine(static_cast<int>(bounds.x), static_cast<int>(bounds.y + titleBar),
-             static_cast<int>(bounds.x + bounds.width), static_cast<int>(bounds.y + titleBar),
-             UiTheme::Bronze);
+    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle titleVisual{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
+                          std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
+                          std::max(0.0f, titleBounds.height - 8.0f)};
+    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
+    {
+        DrawRectangleRounded(titleVisual, 0.02f, 8, UiTheme::Surface);
+        DrawRectangleRoundedLines(titleVisual, 0.02f, 8, 1.0f, UiTheme::Iron);
+    }
 
-    int closeSize = std::max(20, titleBar - 14);
+    const int closeHeight = std::clamp(titleBar - 31, 28, 40);
+    const float closeWidth = static_cast<float>(closeHeight);
+    const float closeEndGap = std::clamp(titleVisual.height * 0.22f, 12.0f, 18.0f);
     Rectangle closeBounds{
-        bounds.x + bounds.width - closeSize - margin,
-        bounds.y + (titleBar - closeSize) * 0.5f,
-        static_cast<float>(closeSize),
-        static_cast<float>(closeSize)};
+        titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
+        titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
+        closeWidth,
+        static_cast<float>(closeHeight)};
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
-    DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? UiTheme::DangerFill : UiTheme::Timber);
-    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? UiTheme::DangerBorder : UiTheme::Bronze);
-    int xFont = std::max(13, closeSize / 2);
-    int xWidth = UiText::Measure("X", xFont);
-    UiText::Draw("X",
-                 closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
-                 closeBounds.y + (closeBounds.height - xFont) * 0.5f,
-                 xFont,
-                 UiTheme::Parchment);
+    if (!UiControlIcons::DrawPanelCloseButton(closeBounds, closeHovered))
+    {
+        DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{55, 94, 128, 245} : Color{31, 46, 66, 245});
+        DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? UiTheme::Cyan : UiTheme::Iron);
+        int xFont = std::max(13, closeHeight / 2);
+        int xWidth = UiText::Measure("X", xFont);
+        UiText::Draw("X", closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
+                     closeBounds.y + (closeBounds.height - xFont) * 0.5f,
+                     xFont, UiTheme::Parchment);
+    }
 
     if (closeHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -1771,11 +1880,15 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = {static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
         titleBounds = {bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+        titleVisual = {titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
+                       std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
+                       std::max(0.0f, titleBounds.height - 8.0f)};
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
-    UiText::DrawTitleBar(titleBounds, text, static_cast<float>((closeSize + margin) * 2 + margin));
+    UiText::DrawTitleBar(titleVisual, text,
+                         closeWidth + closeEndGap + 10.0f);
 
     outContentArea = Rectangle{
         static_cast<float>(pos.x + margin),
@@ -2010,8 +2123,8 @@ void GuiPanel::Update(double dt)
             }
             else
             {
-                DrawRectangleRounded(rowRect, 0.08f, 8, Color{46, 34, 24, 210});
-                DrawRectangleRoundedLines(rowRect, 0.08f, 8, 1.0f, Color{100, 84, 64, 210});
+                DrawRectangleRounded(rowRect, 0.08f, 8, UiTheme::Inset);
+                DrawRectangleRoundedLines(rowRect, 0.08f, 8, 1.0f, UiTheme::Iron);
                 DrawTextFit(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText,
                     {rowRect.x + 12.0f, rowRect.y, rowRect.width - 24.0f, rowRect.height},
                     15, UiTheme::ParchmentDim);
@@ -2044,7 +2157,7 @@ void GuiPanel::Update(double dt)
                     ? std::clamp(static_cast<float>(1.0 - entry.remaining / entry.total), 0.0f, 1.0f)
                     : 0.0f;
                 Rectangle bar{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 8.0f};
-                DrawRectangleRounded(bar, 0.2f, 4, Color{22, 16, 12, 255});
+                DrawRectangleRounded(bar, 0.2f, 4, UiTheme::Ink);
                 Rectangle fill = bar;
                 fill.width *= progress;
                 DrawRectangleRounded(fill, 0.2f, 4, entry.resourcesReady ? Color{140, 176, 96, 255} : Color{150, 120, 60, 255});
@@ -2135,8 +2248,8 @@ void GuiPanel::Update(double dt)
                         int rowCount = static_cast<int>(levelIt->cost.size()) + (levelIt->buildTime > 0.0 ? 1 : 0);
                         float boxH = std::max(1, rowCount) * rowH + 12.0f;
                         Rectangle box{upgradeRect.x, upgradeRect.y - boxH - 6.0f, upgradeRect.width, boxH};
-                        DrawRectangleRounded(box, 0.08f, 8, Color{30, 22, 16, 250});
-                        DrawRectangleRoundedLines(box, 0.08f, 8, 1.0f, Color{150, 108, 58, 255});
+                        DrawRectangleRounded(box, 0.08f, 8, UiTheme::Inset);
+                        DrawRectangleRoundedLines(box, 0.08f, 8, 1.0f, UiTheme::Iron);
                         float rowY = box.y + 6.0f;
                         for (const auto& cost : levelIt->cost)
                         {
@@ -2174,8 +2287,8 @@ void GuiPanel::Update(double dt)
                 auto* resource = dynamic_cast<Resource*>(transportable);
                 ResourceType type = resource != nullptr ? resource->type : ResourceType::Null;
                 Rectangle row{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), static_cast<float>(rowH - 6)};
-                DrawRectangleRounded(row, 0.08f, 6, Color{46, 34, 24, 235});
-                DrawRectangleRoundedLines(row, 0.08f, 6, 1.0f, Color{112, 88, 58, 255});
+                DrawRectangleRounded(row, 0.08f, 6, UiTheme::Inset);
+                DrawRectangleRoundedLines(row, 0.08f, 6, 1.0f, UiTheme::Iron);
 
                 Rectangle icon{row.x + 6.0f, row.y + 5.0f, 26.0f, 26.0f};
                 if (resourceIconAtlas.IsLoaded())
@@ -2194,7 +2307,7 @@ void GuiPanel::Update(double dt)
                     ? std::clamp(static_cast<float>(transportable->elapsedTime / transportable->transportTime), 0.0f, 1.0f)
                     : 0.0f;
                 Rectangle bar{row.x + 40.0f, row.y + 23.0f, row.width - 48.0f, 8.0f};
-                DrawRectangleRounded(bar, 0.2f, 4, Color{22, 16, 12, 255});
+                DrawRectangleRounded(bar, 0.2f, 4, UiTheme::Ink);
                 Rectangle fill = bar;
                 fill.width *= progress;
                 DrawRectangleRounded(fill, 0.2f, 4, Color{140, 176, 96, 255});
@@ -2269,7 +2382,9 @@ void GuiPanel::Update(double dt)
     auto* panelRecipes = building->GetComponent<RecipeComponent>();
     int connectionsH = std::max(48, size.y / 9);
     int statsH = std::max(92, size.y / 5);
-    int progressH = std::max(16, std::min(20, progressBar.size.y));
+    // Production is the primary live signal in this panel, not a separator.
+    // Keep it comfortably readable even after a player resizes the window.
+    int progressH = std::clamp(size.y / 14, 28, 36);
     int headerH = 22;
     int columnGap = std::max(8, margin / 2);
     int columnW = (contentW - columnGap) / 2;
@@ -2578,32 +2693,42 @@ void ResearchPanel::Update(double dt)
     int titleBar = std::max(42, size.y / 14);
     Vector2 mouse = GetMousePosition();
 
-    DrawRectangleRounded(bounds, 0.018f, 8, Color{30, 22, 16, 242});
-    DrawRectangleRoundedLines(bounds, 0.018f, 8, 1.0f, Color{150, 108, 58, 255});
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.018f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.018f, 8, 1.0f, UiTheme::Iron);
+    }
 
     Rectangle titleBounds{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
-    DrawRectangleRounded(titleBounds, 0.018f, 8, Color{56, 41, 29, 255});
-    DrawLine(static_cast<int>(bounds.x), static_cast<int>(bounds.y + titleBar),
-             static_cast<int>(bounds.x + bounds.width), static_cast<int>(bounds.y + titleBar),
-             Color{150, 108, 58, 255});
+    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle titleVisual{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
+                          std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
+                          std::max(0.0f, titleBounds.height - 8.0f)};
+    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
+    {
+        DrawRectangleRounded(titleVisual, 0.018f, 8, UiTheme::Surface);
+        DrawRectangleRoundedLines(titleVisual, 0.018f, 8, 1.0f, UiTheme::Iron);
+    }
 
-    int closeSize = std::max(24, titleBar - 16);
+    const int closeHeight = std::clamp(titleBar - 29, 30, 40);
+    const float closeWidth = static_cast<float>(closeHeight);
+    const float closeEndGap = std::clamp(titleVisual.height * 0.22f, 12.0f, 18.0f);
     Rectangle closeBounds{
-        bounds.x + bounds.width - closeSize - margin,
-        bounds.y + (titleBar - closeSize) * 0.5f,
-        static_cast<float>(closeSize),
-        static_cast<float>(closeSize)};
+        titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
+        titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
+        closeWidth,
+        static_cast<float>(closeHeight)};
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
-    DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{132, 58, 42, 255} : Color{78, 58, 41, 255});
-    DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? Color{214, 128, 92, 255} : Color{150, 108, 58, 255});
-
-    int xFont = std::max(14, closeSize / 2);
-    int xWidth = UiText::Measure("X", xFont);
-    UiText::Draw("X",
-                 closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
-                 closeBounds.y + (closeBounds.height - xFont) * 0.5f,
-                 xFont,
-                 UiTheme::Parchment);
+    if (!UiControlIcons::DrawPanelCloseButton(closeBounds, closeHovered))
+    {
+        DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{55, 94, 128, 245} : Color{31, 46, 66, 245});
+        DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? UiTheme::Cyan : UiTheme::Iron);
+        int xFont = std::max(14, closeHeight / 2);
+        int xWidth = UiText::Measure("X", xFont);
+        UiText::Draw("X", closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
+                     closeBounds.y + (closeBounds.height - xFont) * 0.5f,
+                     xFont, UiTheme::Parchment);
+    }
 
     if (closeHovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -2626,23 +2751,21 @@ void ResearchPanel::Update(double dt)
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = Rectangle{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
         titleBounds = Rectangle{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+        titleVisual = Rectangle{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
+                                std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
+                                std::max(0.0f, titleBounds.height - 8.0f)};
         closeBounds = Rectangle{
-            bounds.x + bounds.width - closeSize - margin,
-            bounds.y + (titleBar - closeSize) * 0.5f,
-            static_cast<float>(closeSize),
-            static_cast<float>(closeSize)};
+            titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
+            titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
+            closeWidth,
+            static_cast<float>(closeHeight)};
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
     const std::string title = "Research";
-    int titleFont = std::max(26, std::min(36, titleBar / 2 + 4));
-    int titleWidth = UiText::Measure(title, titleFont);
-    UiText::Draw(title,
-                 bounds.x + (bounds.width - titleWidth) * 0.5f,
-                 bounds.y + (titleBar - titleFont) * 0.5f,
-                 titleFont,
-                 UiTheme::Parchment);
+    UiText::DrawTitleBar(titleVisual, title,
+                         closeWidth + closeEndGap + 10.0f);
 
     Rectangle treeBounds{
         bounds.x + margin,

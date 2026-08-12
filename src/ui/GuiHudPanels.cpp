@@ -5,6 +5,7 @@
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
 #include "economy/StockpileIndex.h"
+#include "ui/ControlIcons.h"
 #include "ui/Renderer.h"
 
 #include <algorithm>
@@ -151,70 +152,127 @@ void StrategicResourceHudWidget::Update(double dt)
     const bool disableDecisions = tutorialDisableDecisions || scene->AreTutorialDecisionsLocked();
     const bool disableStatistics = tutorialDisableStatistics || scene->AreTutorialStatisticsLocked();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{26, 19, 14, 238});
-    DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), Color{52, 40, 28, 230}, Color{22, 16, 12, 238});
-    DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, Color{150, 108, 58, 235});
+    Rectangle hudChrome{0.0f, 0.0f, static_cast<float>(GetScreenWidth()), bounds.height};
+    if (!UiControlIcons::DrawRoyalPanel(hudChrome))
+    {
+        DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), UiTheme::Ink);
+        DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), UiTheme::Surface, UiTheme::Panel);
+        DrawRectangle(0, 0, GetScreenWidth(), 1, Fade(UiTheme::SteelHover, 0.82f));
+        DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, UiTheme::Bronze);
+    }
 
-    float iconSize = std::max(26.0f, bounds.height - 20.0f);
-    float y = bounds.y + (bounds.height - iconSize) * 0.5f;
-    Rectangle manpowerIcon{bounds.x + 18.0f, y, iconSize, iconSize};
-    Rectangle foodIcon{bounds.x + 150.0f, y, iconSize, iconSize};
+    const float crestHeight = std::max(62.0f, bounds.height - 4.0f);
+    const float crestWidth = crestHeight * (766.0f / 888.0f);
+    Rectangle crestRect{bounds.x + 6.0f,
+                        bounds.y + (bounds.height - crestHeight) * 0.5f,
+                        crestWidth, crestHeight};
+    UiControlIcons::DrawRoyalCrest(crestRect);
+
+    const float chipWidth = std::clamp(bounds.height * 1.55f, 118.0f, 138.0f);
+    const float chipGap = std::clamp(bounds.height * 0.07f, 4.0f, 6.0f);
+    const float resourceChipWidth = chipWidth - 8.0f;
+    const float resourceChipGap = chipGap;
+    const float chipHeight = std::max(56.0f, bounds.height - 12.0f);
+    const float chipY = bounds.y + (bounds.height - chipHeight) * 0.5f;
+    const float chipStartX = crestRect.x + crestRect.width + 8.0f;
+    auto chipAt = [&](int index)
+    {
+        return Rectangle{chipStartX + static_cast<float>(index) * (chipWidth + chipGap),
+                         chipY, chipWidth, chipHeight};
+    };
+    auto chipIconRect = [](Rectangle chip)
+    {
+        const float iconSize = std::max(40.0f, chip.height - 16.0f);
+        return Rectangle{chip.x + 10.0f, chip.y + (chip.height - iconSize) * 0.5f,
+                         iconSize, iconSize};
+    };
+
+    Rectangle manpowerChip = chipAt(0);
+    Rectangle foodChip = chipAt(1);
+    Rectangle buildersChip = chipAt(2);
+    Rectangle ammoChip = chipAt(3);
+    Rectangle manpowerIcon = chipIconRect(manpowerChip);
+    Rectangle foodIcon = chipIconRect(foodChip);
+    Rectangle buildersIcon = chipIconRect(buildersChip);
+    Rectangle ammoIcon = chipIconRect(ammoChip);
 
     auto drawManpowerIcon = [&](Rectangle icon)
     {
+        if (UiControlIcons::DrawHudGlyph(UiControlIcons::HudIcon::Manpower, icon))
+            return;
         DrawCircle(static_cast<int>(icon.x + icon.width * 0.5f), static_cast<int>(icon.y + icon.height * 0.28f), icon.width * 0.16f, Color{224, 208, 178, 255});
         DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.46f, icon.width * 0.44f, icon.height * 0.38f}, 0.30f, 8, Color{224, 208, 178, 255});
     };
 
-    auto drawStatChip = [&](Rectangle icon, const std::string& text, Color accent,
+    auto drawStatChip = [&](Rectangle chip, Rectangle icon, const std::string& text, Color accent,
                             std::function<void(Rectangle)> drawIcon, bool pulseHighlight = false)
     {
-        Rectangle chip{icon.x - 6.0f, icon.y - 4.0f, 120.0f, icon.height + 8.0f};
         const float pulse = pulseHighlight
             ? 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.5f)
             : 0.0f;
-        DrawRectangleRounded(chip, 0.16f, 8, Color{44, 33, 23, 232});
-        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f + pulse * 1.2f,
-                                  Color{accent.r, accent.g, accent.b,
-                                        static_cast<unsigned char>(170.0f + pulse * 85.0f)});
-        DrawRectangleRounded(icon, 0.16f, 8, Color{50, 38, 27, 238});
+        if (!UiControlIcons::DrawRoyalChip(chip))
+        {
+            DrawRectangleRounded(chip, 0.16f, 8, UiTheme::Surface);
+            DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, UiTheme::Iron);
+        }
+        if (pulseHighlight)
+            DrawRectangleRoundedLines(Rectangle{chip.x + 3.0f, chip.y + 3.0f,
+                                                 chip.width - 6.0f, chip.height - 6.0f},
+                                      0.16f, 8, 1.0f + pulse * 1.2f,
+                                      Color{accent.r, accent.g, accent.b,
+                                            static_cast<unsigned char>(170.0f + pulse * 85.0f)});
         drawIcon(icon);
-        UiText::DrawFit(text, Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 14.0f, chip.height - 10.0f}, 22, UiTheme::Parchment);
+        const float textX = icon.x + icon.width + 7.0f;
+        UiText::DrawFit(text, Rectangle{textX, chip.y + 8.0f,
+                                        chip.x + chip.width - textX - 10.0f,
+                                        chip.height - 16.0f},
+                        22, UiTheme::Parchment);
     };
 
     auto drawResourceChip = [&](ResourceType type, float x)
     {
-        Rectangle chip{x, y - 4.0f, 116.0f, iconSize + 8.0f};
-        Rectangle icon{chip.x + 6.0f, y, iconSize, iconSize};
+        Rectangle chip{x, chipY, resourceChipWidth, chipHeight};
+        Rectangle icon = chipIconRect(chip);
         int amount = 0;
         auto it = stats.storedResources.find(type);
         if (it != stats.storedResources.end())
             amount = it->second;
 
         bool hovered = CheckCollisionPointRec(GetMousePosition(), chip);
-        DrawRectangleRounded(chip, 0.16f, 8, hovered ? Color{58, 43, 30, 236} : Color{42, 31, 22, 228});
-        DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, hovered ? UiTheme::Gold : Color{120, 92, 58, 220});
-        GuiPanel::DrawResourceIcon(type, Rectangle{icon.x + 3.0f, icon.y + 3.0f, icon.width - 6.0f, icon.height - 6.0f});
-        UiText::DrawFit(std::to_string(amount), Rectangle{icon.x + icon.width + 8.0f, chip.y + 5.0f, chip.width - icon.width - 16.0f, chip.height - 10.0f}, 21, Color{228, 210, 180, 255});
+        if (!UiControlIcons::DrawRoyalChip(chip))
+            DrawRectangleRounded(chip, 0.16f, 8, UiTheme::Surface);
+        if (hovered)
+            DrawRectangleRounded(Rectangle{chip.x + 8.0f, chip.y + 8.0f,
+                                           chip.width - 16.0f, chip.height - 16.0f},
+                                 0.16f, 8, Fade(UiTheme::Cyan, 0.30f));
+        GuiPanel::DrawResourceIcon(type, Rectangle{icon.x + 2.0f, icon.y + 2.0f,
+                                                   icon.width - 4.0f, icon.height - 4.0f});
+        const float textX = icon.x + icon.width + 7.0f;
+        UiText::DrawFit(std::to_string(amount),
+                        Rectangle{textX, chip.y + 8.0f,
+                                  chip.x + chip.width - textX - 10.0f, chip.height - 16.0f},
+                        21, Color{228, 210, 180, 255});
     };
 
-    drawStatChip(manpowerIcon, std::to_string(stats.freeManpower),
+    drawStatChip(manpowerChip, manpowerIcon, std::to_string(stats.freeManpower),
                  highlightManpower ? UiTheme::Gold : Color{188, 150, 96, 255}, drawManpowerIcon,
                  highlightManpower);
 
-    drawStatChip(foodIcon, std::to_string(stats.foodSupplyPercent) + "%",
+    drawStatChip(foodChip, foodIcon, std::to_string(stats.foodSupplyPercent) + "%",
                  highlightFood ? UiTheme::Gold : Color{145, 198, 118, 255}, [&](Rectangle icon)
     {
         GuiPanel::DrawResourceIcon(ResourceType::MEAT, Rectangle{icon.x + 4.0f, icon.y + 4.0f, icon.width - 8.0f, icon.height - 8.0f});
     }, highlightFood);
 
     // Builders chip: free / total construction builders available to the player.
-    Rectangle buildersIcon{foodIcon.x + 132.0f, y, iconSize, iconSize};
     int totalBuilders = player->construction.EffectiveBuilders(*player);
     int freeBuilders = std::max(0, totalBuilders - player->construction.ActiveCount());
-    drawStatChip(buildersIcon, std::to_string(freeBuilders) + "/" + std::to_string(totalBuilders),
+    drawStatChip(buildersChip, buildersIcon,
+                 std::to_string(freeBuilders) + "/" + std::to_string(totalBuilders),
                  Color{201, 174, 122, 255}, [&](Rectangle icon)
     {
+        if (UiControlIcons::DrawHudGlyph(UiControlIcons::HudIcon::Builders, icon))
+            return;
         float cx = icon.x + icon.width * 0.5f;
         DrawRectangleRounded(Rectangle{icon.x + icon.width * 0.28f, icon.y + icon.height * 0.22f, icon.width * 0.46f, icon.height * 0.20f}, 0.35f, 6, Color{224, 208, 178, 255});
         DrawRectangleRounded(Rectangle{cx - icon.width * 0.06f, icon.y + icon.height * 0.36f, icon.width * 0.12f, icon.height * 0.44f}, 0.40f, 6, Color{201, 174, 122, 255});
@@ -226,12 +284,13 @@ void StrategicResourceHudWidget::Update(double dt)
     // without this the player has no HUD-level read on it at all. Hidden
     // entirely with no towers built — an "ammo 100%" chip for a player who
     // has no towers is noise.
-    Rectangle ammoIcon{buildersIcon.x + 132.0f, y, iconSize, iconSize};
-    bool showAmmo = stats.towerCount > 0;
+    const float actionStripLeft = BuildHudButtonRect(*this).x;
+    bool showAmmo = stats.towerCount > 0 &&
+                    ammoChip.x + ammoChip.width <= actionStripLeft - 12.0f;
     if (showAmmo)
     {
         bool ammoLow = stats.ammunitionSupplyPercent < 35;
-        drawStatChip(ammoIcon, std::to_string(stats.ammunitionSupplyPercent) + "%",
+        drawStatChip(ammoChip, ammoIcon, std::to_string(stats.ammunitionSupplyPercent) + "%",
                      ammoLow ? UiTheme::RustBright : Color{188, 150, 96, 255}, [&](Rectangle icon)
         {
             GuiPanel::DrawResourceIcon(ResourceType::ARROWS, Rectangle{icon.x + 4.0f, icon.y + 4.0f, icon.width - 8.0f, icon.height - 8.0f});
@@ -247,17 +306,22 @@ void StrategicResourceHudWidget::Update(double dt)
     Rectangle rosterButton = RosterHudButtonRect(*this);
     Rectangle logisticsButton = LogisticsHudButtonRect(*this);
 
-    float resourceX = (showAmmo ? ammoIcon.x : buildersIcon.x) + 130.0f;
-    float resourceRightLimit = logisticsButton.x - 12.0f;
-    bool showWood = resourceX + 116.0f <= resourceRightLimit;
-    bool showStone = resourceX + 242.0f <= resourceRightLimit;
-    bool showPlanks = resourceX + 368.0f <= resourceRightLimit;
+    float resourceX = (showAmmo ? ammoChip.x + ammoChip.width
+                                : buildersChip.x + buildersChip.width) + 8.0f;
+    // Build is the left-most item in the revised right-aligned icon strip.
+    // Resource chips must stop before it rather than before Logistics, which
+    // used to occupy the strip's left edge in the text-button layout.
+    float resourceRightLimit = buildButton.x - 12.0f;
+    bool showWood = resourceX + resourceChipWidth <= resourceRightLimit;
+    bool showStone = resourceX + resourceChipWidth * 2.0f + resourceChipGap <= resourceRightLimit;
+    bool showPlanks = resourceX + resourceChipWidth * 3.0f + resourceChipGap * 2.0f <= resourceRightLimit;
     if (showWood)
         drawResourceChip(ResourceType::WOOD, resourceX);
     if (showStone)
-        drawResourceChip(ResourceType::STONE, resourceX + 126.0f);
+        drawResourceChip(ResourceType::STONE, resourceX + resourceChipWidth + resourceChipGap);
     if (showPlanks)
-        drawResourceChip(ResourceType::PLANKS, resourceX + 252.0f);
+        drawResourceChip(ResourceType::PLANKS,
+                         resourceX + (resourceChipWidth + resourceChipGap) * 2.0f);
 
     bool statsHovered = IsStatsHudButtonHovered(*this);
     bool focusHovered = IsFocusHudButtonHovered(*this);
@@ -270,7 +334,6 @@ void StrategicResourceHudWidget::Update(double dt)
     bool logisticsEnabled = IsLogisticsOverlayPreferenceEnabled();
     bool focusAvailable = player->focuses.GetActiveFocusId().empty();
     float focusProgress = static_cast<float>(player->focuses.GetActiveFocusProgress());
-    float pulse = focusAvailable ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.0f)) : 0.0f;
 
     // TD(etap-8.5): roster summary + "HQ under attack" warning. Derived
     // live from simulation state rather than a stored flag — no besieging
@@ -291,96 +354,86 @@ void StrategicResourceHudWidget::Update(double dt)
     }
     float warningPulse = incomingAttack ? (0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 6.0f)) : 0.0f;
 
-    auto drawHudButton = [&](Rectangle rect, const std::string& label, bool hovered,
-                             Color base, Color line, Color textColor = UiTheme::Parchment)
+    // The text labels are now deliberately in tooltips; the bar itself stays
+    // compact and uses the generated icon atlas.
+    auto drawHudButton = [&](Rectangle rect, UiControlIcons::HudIcon icon, bool hovered,
+                             Color fallbackFill, Color outline, bool enabled = true)
     {
-        DrawRectangleRounded(rect, 0.14f, 8, hovered ? Color{
-            static_cast<unsigned char>(std::min(255, base.r + 24)),
-            static_cast<unsigned char>(std::min(255, base.g + 24)),
-            static_cast<unsigned char>(std::min(255, base.b + 24)),
-            246} : base);
-        DrawRectangleRoundedLines(rect, 0.14f, 8, 1.1f, hovered ? Color{
-            static_cast<unsigned char>(std::min(255, line.r + 30)),
-            static_cast<unsigned char>(std::min(255, line.g + 30)),
-            static_cast<unsigned char>(std::min(255, line.b + 30)),
-            248} : line);
-        UiText::DrawFit(label, Rectangle{rect.x + 10.0f, rect.y + 4.0f, rect.width - 20.0f, rect.height - 8.0f}, 20, textColor);
+        if (!UiControlIcons::DrawHud(icon, rect, hovered))
+        {
+            const Color fill = hovered
+                ? Color{static_cast<unsigned char>(std::min(255, fallbackFill.r + 24)),
+                        static_cast<unsigned char>(std::min(255, fallbackFill.g + 24)),
+                        static_cast<unsigned char>(std::min(255, fallbackFill.b + 24)),
+                        fallbackFill.a}
+                : fallbackFill;
+            DrawRectangleRounded(rect, 0.12f, 8, fill);
+            DrawRectangleRoundedLines(rect, 0.12f, 8, 1.0f, outline);
+        }
+
+        if (!enabled)
+            DrawRectangleRounded(rect, 0.12f, 8, Color{7, 11, 18, 150});
     };
 
-    drawHudButton(buildButton, "Build", buildHovered, Color{43, 60, 52, 238}, Color{92, 151, 118, 230});
-    drawHudButton(roadButton, "Road", roadHovered, Color{54, 46, 34, 238}, Color{140, 112, 74, 230});
+    drawHudButton(buildButton, UiControlIcons::HudIcon::Build, buildHovered,
+                  Color{24, 55, 67, 242}, UiTheme::Bronze);
+    drawHudButton(roadButton, UiControlIcons::HudIcon::Road, roadHovered,
+                  Color{26, 43, 61, 242}, UiTheme::Bronze);
     if (disableDestroy)
     {
-        drawHudButton(destroyButton, "Destroy", false, Color{48, 44, 39, 220}, Color{104, 96, 84, 190}, Color{150, 140, 124, 210});
+        drawHudButton(destroyButton, UiControlIcons::HudIcon::Destroy, false,
+                      Color{76, 39, 51, 242}, UiTheme::DangerBorder, false);
     }
     else
-        drawHudButton(destroyButton, "Destroy", destroyHovered, Color{62, 45, 48, 238}, Color{157, 92, 100, 230});
-    drawHudButton(logisticsButton, "L", logisticsHovered,
-                  logisticsEnabled ? Color{42, 76, 57, 238} : Color{43, 39, 31, 238},
-                  logisticsEnabled ? Color{102, 214, 145, 255} : Color{117, 98, 70, 230});
+        drawHudButton(destroyButton, UiControlIcons::HudIcon::Destroy, destroyHovered,
+                      Color{76, 39, 51, 242}, UiTheme::DangerBorder);
+    drawHudButton(logisticsButton, UiControlIcons::HudIcon::Logistics, logisticsHovered,
+                  logisticsEnabled ? Color{27, 66, 62, 242} : Color{26, 43, 61, 242},
+                  logisticsEnabled ? UiTheme::SelectedBorder : UiTheme::Bronze);
 
     // Roster button — pulses red border when this player's HQ is under siege.
-    Color rosterBase = incomingAttack
-        ? Color{static_cast<unsigned char>(90 + warningPulse * 60.0f), 45, 48, 238}
-        : Color{46, 34, 24, 238};
-    Color rosterLine = incomingAttack ? Color{244, 132, 142, 255} : Color{128, 108, 80, 230};
-    drawHudButton(rosterButton, "Roster (" + std::to_string(rosterCount) + ")", rosterHovered, rosterBase, rosterLine);
+    const Color rosterLine = incomingAttack ? Color{244, 132, 142, 255} : UiTheme::Bronze;
+    drawHudButton(rosterButton, UiControlIcons::HudIcon::Roster, rosterHovered,
+                  Color{40, 42, 62, 242}, rosterLine);
+    const float badgeRadius = std::max(8.0f, rosterButton.height * 0.145f);
+    const Vector2 badgeCenter{rosterButton.x + rosterButton.width * 0.50f,
+                              rosterButton.y + rosterButton.height * 0.65f};
+    DrawCircleV(badgeCenter, badgeRadius,
+                incomingAttack ? Color{88, 35, 49, 235} : Color{8, 17, 30, 238});
+    DrawCircleLines(static_cast<int>(badgeCenter.x), static_cast<int>(badgeCenter.y),
+                    badgeRadius, incomingAttack ? rosterLine : UiTheme::Iron);
+    const std::string rosterCountText = std::to_string(rosterCount);
+    const int rosterCountFont = std::max(13, static_cast<int>(badgeRadius * 1.45f));
+    const int rosterCountWidth = UiText::Measure(rosterCountText, rosterCountFont);
+    const float rosterCountX = badgeCenter.x - static_cast<float>(rosterCountWidth) * 0.5f;
+    const float rosterCountY = badgeCenter.y - static_cast<float>(rosterCountFont) * 0.54f;
+    UiText::Draw(rosterCountText, rosterCountX + 1.0f, rosterCountY + 1.0f,
+                 rosterCountFont, Color{0, 0, 0, 220});
+    UiText::Draw(rosterCountText, rosterCountX, rosterCountY,
+                 rosterCountFont, UiTheme::Parchment);
     if (incomingAttack)
     {
-        UiText::DrawFit(hqUnderAttack ? "HQ UNDER ATTACK" : "INCOMING ATTACK",
-                        Rectangle{rosterButton.x, rosterButton.y - 18.0f, rosterButton.width, 15.0f},
-                        13, Color{255, 140, 140, 255});
+        DrawRectangleRoundedLines(rosterButton, 0.12f, 8, 1.2f + warningPulse * 1.8f, rosterLine);
     }
 
-    Color focusFill = disableDecisions
-        ? Color{48, 44, 39, 220}
-        : focusAvailable
-        ? Color{static_cast<unsigned char>(88 + pulse * 34.0f), static_cast<unsigned char>(68 + pulse * 36.0f), static_cast<unsigned char>(134 + pulse * 52.0f), 246}
-        : Color{61, 48, 91, 238};
-    Color focusLine = disableDecisions
-        ? Color{104, 96, 84, 190}
-        : focusAvailable
-        ? Color{210, 170, 255, 255}
-        : Color{147, 120, 205, 238};
-    if (focusHovered)
-        focusFill = Color{112, 86, 166, 250};
-    DrawRectangleRounded(focusButton, 0.14f, 8, focusFill);
-    DrawRectangleRoundedLines(focusButton, 0.14f, 8, 1.5f, focusLine);
-    if (focusAvailable && !disableDecisions)
-        DrawRectangleRounded(Rectangle{focusButton.x + 4.0f, focusButton.y + 4.0f, focusButton.width - 8.0f, focusButton.height - 8.0f}, 0.14f, 8, Color{255, 221, 120, static_cast<unsigned char>(22 + pulse * 48.0f)});
-    UiText::DrawFit("Decisions", Rectangle{focusButton.x + 14.0f, focusButton.y + 4.0f, focusButton.width - 28.0f, focusButton.height - 14.0f}, 21,
-                    disableDecisions ? Color{150, 140, 124, 210} : UiTheme::Parchment);
-    Rectangle focusBar{focusButton.x + 12.0f, focusButton.y + focusButton.height - 9.0f, focusButton.width - 24.0f, 4.0f};
-    DrawRectangleRounded(focusBar, 0.6f, 6, Color{26, 22, 34, 170});
-    Rectangle focusFillBar = focusBar;
-    focusFillBar.width *= std::clamp(focusProgress, 0.0f, 1.0f);
-    if (focusFillBar.width >= 1.0f)
-        DrawRectangleRounded(focusFillBar, 0.6f, 6,
-                             disableDecisions ? Color{116, 108, 96, 180}
-                             : focusAvailable ? Color{255, 220, 116, 210} : Color{178, 140, 248, 235});
+    const Color focusLine = disableDecisions ? UiTheme::Iron
+        : focusAvailable ? Color{210, 170, 255, 255} : Color{158, 132, 218, 255};
+    drawHudButton(focusButton, UiControlIcons::HudIcon::Decisions, focusHovered,
+                  Color{66, 44, 98, 245}, focusLine, !disableDecisions);
+    Rectangle focusBar{focusButton.x + 7.0f, focusButton.y + focusButton.height - 8.0f,
+                       focusButton.width - 14.0f, 2.0f};
+    DrawRectangleRounded(focusBar, 0.6f, 4, Color{11, 10, 22, 200});
+    focusBar.width *= std::clamp(focusProgress, 0.0f, 1.0f);
+    if (focusBar.width >= 1.0f)
+        DrawRectangleRounded(focusBar, 0.6f, 4, focusAvailable ? UiTheme::Gold : Color{179, 142, 248, 235});
 
-    if (techUnlocked)
-        drawHudButton(techButton, "Technology", techHovered, Color{46, 40, 30, 238}, Color{130, 100, 66, 230});
-    else
-    {
-        DrawRectangleRounded(techButton, 0.14f, 8, Color{30, 24, 19, 220});
-        DrawRectangleRoundedLines(techButton, 0.14f, 8, 1.1f, Color{96, 82, 66, 200});
-        UiText::DrawFit("Technology", Rectangle{techButton.x + 10.0f, techButton.y + 4.0f, techButton.width - 20.0f, techButton.height - 8.0f}, 20, Color{150, 132, 108, 230});
-    }
-
-    const Color statsFill = disableStatistics
-        ? Color{48, 44, 39, 220}
-        : statsHovered ? Color{66, 50, 36, 245} : Color{46, 34, 24, 238};
-    const Color statsLine = disableStatistics
-        ? Color{104, 96, 84, 190}
-        : statsHovered ? Color{176, 138, 82, 245} : Color{112, 88, 58, 230};
-    DrawRectangleRounded(statsButton, 0.14f, 8, statsFill);
-    DrawRectangleRoundedLines(statsButton, 0.14f, 8, 1.2f, statsLine);
-    UiText::DrawFit("Resources", Rectangle{statsButton.x + 12.0f, statsButton.y + 4.0f, statsButton.width - 24.0f, statsButton.height - 8.0f}, 21,
-                    disableStatistics ? Color{150, 140, 124, 210} : UiTheme::Parchment);
+    drawHudButton(techButton, UiControlIcons::HudIcon::Technology, techHovered,
+                  Color{26, 43, 61, 242}, UiTheme::Bronze, techUnlocked);
+    drawHudButton(statsButton, UiControlIcons::HudIcon::Resources, statsHovered,
+                  Color{26, 43, 61, 242}, UiTheme::Bronze, !disableStatistics);
 
     Vector2 mouse = GetMousePosition();
-    if (CheckCollisionPointRec(mouse, Rectangle{manpowerIcon.x, bounds.y, 125.0f, bounds.height}))
+    if (CheckCollisionPointRec(mouse, manpowerChip))
     {
         Tooltip::Draw("Manpower", {
             "Free: " + std::to_string(stats.freeManpower),
@@ -389,7 +442,7 @@ void StrategicResourceHudWidget::Update(double dt)
             "Gain: +" + FormatOneDecimal(stats.manpowerGainPerMinute) + " / min"
         }, 280.0f);
     }
-    else if (CheckCollisionPointRec(mouse, Rectangle{foodIcon.x, bounds.y, 155.0f, bounds.height}))
+    else if (CheckCollisionPointRec(mouse, foodChip))
     {
         Tooltip::Draw("Food Supply", {
             "Supply: " + std::to_string(stats.foodSupplyPercent) + "%",
@@ -397,7 +450,15 @@ void StrategicResourceHudWidget::Update(double dt)
             "Village consumption: " + FormatOneDecimal(stats.villageFoodConsumptionPerMinute) + " / min"
         }, 290.0f);
     }
-    else if (showAmmo && CheckCollisionPointRec(mouse, Rectangle{ammoIcon.x - 6.0f, bounds.y, 125.0f, bounds.height}))
+    else if (CheckCollisionPointRec(mouse, buildersChip))
+    {
+        Tooltip::Draw("Builders", {
+            "Free: " + std::to_string(freeBuilders),
+            "Working: " + std::to_string(player->construction.ActiveCount()),
+            "Total: " + std::to_string(totalBuilders)
+        }, 250.0f);
+    }
+    else if (showAmmo && CheckCollisionPointRec(mouse, ammoChip))
     {
         Tooltip::Draw("Ammunition", {
             "Average fill across " + std::to_string(stats.towerCount) + " tower(s): " +
@@ -409,15 +470,21 @@ void StrategicResourceHudWidget::Update(double dt)
     // Warehouse chips: the total, plus which warehouse holds how much (user
     // request, 2026-07-25) — StockpileTooltipLines is shared with the
     // stockpile panel so the two always word it identically.
-    else if (showWood && CheckCollisionPointRec(mouse, Rectangle{resourceX, bounds.y, 116.0f, bounds.height}))
+    else if (showWood && CheckCollisionPointRec(mouse,
+                                                Rectangle{resourceX, chipY,
+                                                          resourceChipWidth, chipHeight}))
     {
         DrawResourceTooltip(ResourceType::WOOD, StockpileTooltipLines(player, ResourceType::WOOD), 280.0f);
     }
-    else if (showStone && CheckCollisionPointRec(mouse, Rectangle{resourceX + 126.0f, bounds.y, 116.0f, bounds.height}))
+    else if (showStone && CheckCollisionPointRec(
+                 mouse, Rectangle{resourceX + resourceChipWidth + resourceChipGap, chipY,
+                                  resourceChipWidth, chipHeight}))
     {
         DrawResourceTooltip(ResourceType::STONE, StockpileTooltipLines(player, ResourceType::STONE), 280.0f);
     }
-    else if (showPlanks && CheckCollisionPointRec(mouse, Rectangle{resourceX + 252.0f, bounds.y, 116.0f, bounds.height}))
+    else if (showPlanks && CheckCollisionPointRec(
+                 mouse, Rectangle{resourceX + (resourceChipWidth + resourceChipGap) * 2.0f,
+                                  chipY, resourceChipWidth, chipHeight}))
     {
         DrawResourceTooltip(ResourceType::PLANKS, StockpileTooltipLines(player, ResourceType::PLANKS), 280.0f);
     }
@@ -482,13 +549,15 @@ void StrategicResourceHudWidget::UpdateSize(Vec2i windowSize)
 // Time-window spinner in the title bar.
 Rectangle StatsPanelWidget::GetWindowSpinnerRect() const
 {
-    return Rectangle{pos.x + size.x - 244.0f, pos.y + 10.0f, 190.0f, 34.0f};
+    const float closeReserve = 86.0f;
+    return Rectangle{pos.x + size.x - closeReserve - 202.0f, pos.y + 10.0f, 190.0f, 34.0f};
 }
 
 // Production/consumption toggle in the title bar.
 Rectangle StatsPanelWidget::GetFlowModeToggleRect() const
 {
-    return Rectangle{pos.x + size.x - 500.0f, pos.y + 10.0f, 220.0f, 34.0f};
+    const float closeReserve = 86.0f;
+    return Rectangle{pos.x + size.x - closeReserve - 448.0f, pos.y + 10.0f, 220.0f, 34.0f};
 }
 
 // Chart column (right of the population/army column).
@@ -497,7 +566,7 @@ Rectangle StatsPanelWidget::GetChartRect() const
     float colGap = 22.0f;
     float top = pos.y + 78.0f;
     float bottom = pos.y + size.y - 22.0f;
-    float leftWidth = size.x * 0.31f;
+    float leftWidth = size.x * 0.29f;
     float chartX = pos.x + 24.0f + leftWidth + colGap;
     return Rectangle{chartX, top, pos.x + size.x - chartX - 24.0f, bottom - top};
 }
@@ -536,20 +605,31 @@ void StatsPanelWidget::Update(double dt)
     double historyTime = player->economyTelemetry.elapsedTime;
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{30, 22, 16, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{150, 108, 58, 255});
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
+    }
 
     Rectangle title{bounds.x, bounds.y, bounds.width, 54.0f};
-    DrawRectangleRounded(title, 0.025f, 8, Color{50, 38, 27, 255});
-    UiText::DrawTitleBar(title, "Statistics", PanelTitleCloseReserve(bounds));
+    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle titleVisual{title.x + frameInset + 2.0f, title.y + 4.0f,
+                          std::max(0.0f, title.width - (frameInset + 2.0f) * 2.0f),
+                          title.height - 8.0f};
+    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
+        DrawRectangleRounded(titleVisual, 0.025f, 8, UiTheme::Surface);
+    UiText::DrawTitleBar(titleVisual, "Statistics", PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 
     constexpr std::array<int, 3> windows{15, 60, 300};
     const char* windowLabels[] = {"15 sec", "1 min", "5 min"};
     // Right edge is at title.width - 54, giving a 10px gap before the close button (at title.width - 44).
     Rectangle spin = GetWindowSpinnerRect();
-    DrawRectangleRounded(spin, 0.12f, 8, Color{30, 22, 16, 255});
-    DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, Color{118, 92, 62, 255});
+    if (!UiControlIcons::DrawRoyalButtonFrame(spin, CheckCollisionPointRec(GetMousePosition(), spin)))
+    {
+        DrawRectangleRounded(spin, 0.12f, 8, UiTheme::Inset);
+        DrawRectangleRoundedLines(spin, 0.12f, 8, 1.0f, UiTheme::Iron);
+    }
     UiText::DrawFit("<", Rectangle{spin.x + 8.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, UiTheme::Parchment);
     UiText::DrawFit(windowLabels[selectedWindowIndex], Rectangle{spin.x + 42.0f, spin.y + 5.0f, spin.width - 84.0f, 24.0f}, 22, UiTheme::Parchment);
     UiText::DrawFit(">", Rectangle{spin.x + spin.width - 32.0f, spin.y + 4.0f, 24.0f, 24.0f}, 24, UiTheme::Parchment);
@@ -560,8 +640,13 @@ void StatsPanelWidget::Update(double dt)
     {
         Rectangle half{modeToggle.x + i * modeToggle.width * 0.5f, modeToggle.y, modeToggle.width * 0.5f, modeToggle.height};
         bool selected = selectedFlowMode == i;
-        DrawRectangleRounded(half, 0.10f, 8, selected ? Color{66, 60, 32, 245} : Color{30, 22, 16, 235});
-        DrawRectangleRoundedLines(half, 0.10f, 8, 1.0f, selected ? UiTheme::Gold : Color{100, 84, 64, 220});
+        if (!UiControlIcons::DrawRoyalButtonFrame(half, CheckCollisionPointRec(GetMousePosition(), half)))
+        {
+            DrawRectangleRounded(half, 0.10f, 8, selected ? UiTheme::SelectedFill : UiTheme::Inset);
+            DrawRectangleRoundedLines(half, 0.10f, 8, 1.0f, selected ? UiTheme::SageBright : UiTheme::Iron);
+        }
+        if (selected)
+            DrawRectangleRounded(Rectangle{half.x + 6.0f, half.y + half.height - 5.0f, half.width - 12.0f, 2.0f}, 0.5f, 4, UiTheme::Cyan);
         UiText::DrawFit(modeLabels[i], Rectangle{half.x + 8.0f, half.y + 6.0f, half.width - 16.0f, 22.0f}, 18, UiTheme::Parchment);
     }
 
@@ -572,8 +657,10 @@ void StatsPanelWidget::Update(double dt)
 
     auto drawColumn = [](Rectangle col, const std::string& titleText)
     {
-        DrawRectangleRounded(col, 0.035f, 8, Color{38, 28, 20, 232});
-        DrawRectangleRoundedLines(col, 0.035f, 8, 1.0f, Color{120, 92, 58, 255});
+        DrawRectangleRounded(col, 0.035f, 8, UiTheme::Ink);
+        Rectangle inner{col.x + 3.0f, col.y + 3.0f, col.width - 6.0f, col.height - 6.0f};
+        DrawRectangleRounded(inner, 0.035f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(col, 0.035f, 8, 1.2f, UiTheme::Iron);
         UiText::DrawFit(titleText, Rectangle{col.x + 14.0f, col.y + 12.0f, col.width - 28.0f, 26.0f}, 23, UiTheme::Parchment);
     };
 
@@ -599,11 +686,12 @@ void StatsPanelWidget::Update(double dt)
 
     drawColumn(chart, showingConsumption ? "Consumption graph" : "Production graph");
     Rectangle plot{chart.x + 46.0f, chart.y + 64.0f, chart.width - 72.0f, chart.height - 142.0f};
-    DrawRectangleRounded(plot, 0.02f, 8, Color{22, 16, 12, 255});
+    DrawRectangleRounded(plot, 0.02f, 8, UiTheme::Ink);
+    DrawRectangleRounded(Rectangle{plot.x + 2.0f, plot.y + 2.0f, plot.width - 4.0f, plot.height - 4.0f}, 0.02f, 8, UiTheme::Inset);
     for (int i = 1; i <= 4; i++)
     {
         float y = plot.y + plot.height * i / 5.0f;
-        DrawLineEx(Vector2{plot.x, y}, Vector2{plot.x + plot.width, y}, 1.0f, Color{74, 58, 42, 180});
+        DrawLineEx(Vector2{plot.x, y}, Vector2{plot.x + plot.width, y}, 1.0f, Fade(UiTheme::Iron, 0.42f));
     }
 
     double windowSeconds = static_cast<double>(windows[selectedWindowIndex]);
@@ -614,7 +702,7 @@ void StatsPanelWidget::Update(double dt)
     {
         float age = static_cast<float>((historyTime - tick) / windowSeconds);
         float x = plot.x + plot.width - std::clamp(age, 0.0f, 1.0f) * plot.width;
-        Color tickColor = std::fmod(tick, tickSeconds * 5.0) < 0.001 ? Color{120, 92, 58, 185} : Color{52, 40, 30, 150};
+        Color tickColor = std::fmod(tick, tickSeconds * 5.0) < 0.001 ? Fade(UiTheme::Iron, 0.72f) : Fade(UiTheme::Iron, 0.42f);
         DrawLineEx(Vector2{x, plot.y}, Vector2{x, plot.y + plot.height}, 1.0f, tickColor);
     }
 
@@ -725,7 +813,7 @@ void StatsPanelWidget::Update(double dt)
         float labelWidth = std::min(104.0f, std::max(58.0f, static_cast<float>(MeasureText(label.c_str(), 13) + 18)));
         Rectangle chip{plot.x + plot.width - labelWidth - 6.0f, labelY, labelWidth, 18.0f};
         DrawLineEx(endpoint.point, Vector2{chip.x, chip.y + chip.height * 0.5f}, 1.0f, Color{endpoint.color.r, endpoint.color.g, endpoint.color.b, 180});
-        DrawRectangleRounded(chip, 0.16f, 8, Color{26, 19, 14, 228});
+        DrawRectangleRounded(chip, 0.16f, 8, UiTheme::Inset);
         DrawRectangleRoundedLines(chip, 0.16f, 8, 1.0f, endpoint.color);
         DrawRectangleRounded(Rectangle{chip.x + 5.0f, chip.y + 5.0f, 7.0f, 7.0f}, 0.35f, 4, endpoint.color);
         UiText::DrawFit(label, Rectangle{chip.x + 15.0f, chip.y + 2.0f, chip.width - 19.0f, 14.0f}, 13, UiTheme::Parchment);
@@ -734,8 +822,9 @@ void StatsPanelWidget::Update(double dt)
 
     Rectangle allButton = GetAllFilterButtonRect(chart);
     bool allActive = selectedResources.empty();
-    DrawRectangleRounded(allButton, 0.16f, 8, allActive ? Color{55, 80, 64, 245} : Color{40, 29, 21, 240});
-    DrawRectangleRoundedLines(allButton, 0.16f, 8, 1.0f, allActive ? Color{118, 226, 150, 230} : Color{100, 84, 64, 230});
+    UiControlIcons::DrawRoyalButtonFrame(allButton, CheckCollisionPointRec(GetMousePosition(), allButton));
+    if (allActive)
+        DrawRectangleRounded(Rectangle{allButton.x + 6.0f, allButton.y + allButton.height - 5.0f, allButton.width - 12.0f, 2.0f}, 0.5f, 4, UiTheme::Cyan);
     UiText::DrawFit("All", Rectangle{allButton.x + 4.0f, allButton.y + 6.0f, allButton.width - 8.0f, 18.0f}, 18, UiTheme::Parchment);
 
     int shown = 0;
@@ -747,10 +836,11 @@ void StatsPanelWidget::Update(double dt)
         Color color = ResourceChartColor(type);
         bool active = std::find(activeResources.begin(), activeResources.end(), type) != activeResources.end();
         bool selected = selectedResources.empty() || selectedResources.contains(type);
-        DrawRectangleRounded(slot, 0.12f, 8, selected && active ? Color{54, 44, 28, 245} : Color{30, 22, 16, 210});
-        DrawRectangleRoundedLines(slot, 0.12f, 8, 1.0f, selected && active ? color : Color{100, 84, 64, 210});
+        UiControlIcons::DrawRoyalButtonFrame(slot, CheckCollisionPointRec(GetMousePosition(), slot));
+        if (selected && active)
+            DrawRectangleRounded(Rectangle{slot.x + 5.0f, slot.y + slot.height - 5.0f, slot.width - 10.0f, 2.0f}, 0.5f, 4, color);
         GuiPanel::DrawResourceIcon(type, Rectangle{slot.x + 5.0f, slot.y + 5.0f, 24.0f, 24.0f});
-        DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : Color{100, 84, 64, 210});
+        DrawRectangleRounded(Rectangle{slot.x + 4.0f, slot.y + slot.height - 6.0f, slot.width - 8.0f, 3.0f}, 0.4f, 4, active ? color : UiTheme::Iron);
         if (CheckCollisionPointRec(GetMousePosition(), slot))
             DrawResourceTooltip(type, {
                 active ? (showingConsumption ? "Consumed in selected window" : "Produced in selected window")

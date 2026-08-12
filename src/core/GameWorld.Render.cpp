@@ -654,6 +654,18 @@ void GameWorld::DrawMap()
                 DrawRoadSaturationIndicator(position, IsRoadRecentlySaturated(*building));
         }
     }
+    // In-flight goods are physical world objects, not a diagnostics overlay.
+    // Keep them visible during ordinary play; the logistics preference still
+    // controls only utilization heatmaps and saturation indicators.
+    std::vector<ShipmentRenderState> shipmentViews;
+    shipmentViews.reserve(GetLiveShipmentCount());
+    for (const auto& [playerId, player] : playerHandler.players)
+    {
+        (void)playerId;
+        if (player != nullptr && player->GetRoadNetwork() != nullptr)
+            player->GetRoadNetwork()->AppendShipmentRenderStates(shipmentViews);
+    }
+    render->DrawShipments(shipmentViews, {tilemap.params.sizeX, tilemap.params.sizeY});
     const WorldLightingFrame dynamicLighting = ComputeWorldLighting(simulationTick);
     const unsigned char unitShadowAlpha = static_cast<unsigned char>(std::clamp(
         45.0f + (1.0f - dynamicLighting.ambientIntensity) * 55.0f, 45.0f, 100.0f));

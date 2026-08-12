@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -151,6 +152,8 @@ inline bool TryDeserializeSnapshotTile(std::istringstream& in, GameSnapshotTile&
 
 struct GameSnapshot
 {
+    static constexpr int MaxMapDimension = 1024;
+    static constexpr std::size_t MaxTileCount = 1'100'000;
     std::uint64_t simulationTick{0};
     int localPlayerId{0};
     Vec2i mapSize{0, 0};
@@ -159,7 +162,8 @@ struct GameSnapshot
 
     bool IsValid() const
     {
-        return mapSize.x > 0 && mapSize.y > 0 && tiles.size() == static_cast<size_t>(mapSize.x * mapSize.y);
+        std::size_t tileCount = 0;
+        return TryGetTileCount(mapSize, tileCount) && tiles.size() == tileCount;
     }
 
     std::string Serialize() const
@@ -187,7 +191,8 @@ struct GameSnapshot
         if (!in || version != SerializationVersion::GameSnapshotVersion)
             return false;
         constexpr int MaxSnapshotPlayers = 64;
-        if (parsed.mapSize.x <= 0 || parsed.mapSize.y <= 0 || playerCount < 0 || playerCount > MaxSnapshotPlayers)
+        std::size_t tileCount = 0;
+        if (!TryGetTileCount(parsed.mapSize, tileCount) || playerCount < 0 || playerCount > MaxSnapshotPlayers)
             return false;
 
         parsed.players.reserve(static_cast<size_t>(playerCount));
@@ -198,8 +203,8 @@ struct GameSnapshot
                 return false;
             parsed.players.push_back(player);
         }
-        parsed.tiles.reserve(static_cast<size_t>(parsed.mapSize.x * parsed.mapSize.y));
-        for (int i = 0; i < parsed.mapSize.x * parsed.mapSize.y; i++)
+        parsed.tiles.reserve(tileCount);
+        for (std::size_t i = 0; i < tileCount; i++)
         {
             GameSnapshotTile tile;
             if (!TryDeserializeSnapshotTile(in, tile))
@@ -208,6 +213,20 @@ struct GameSnapshot
         }
 
         snapshot = std::move(parsed);
+        return true;
+    }
+
+    static bool TryGetTileCount(Vec2i size, std::size_t& tileCount)
+    {
+        if (size.x <= 0 || size.y <= 0 || size.x > MaxMapDimension || size.y > MaxMapDimension)
+            return false;
+
+        const std::size_t width = static_cast<std::size_t>(size.x);
+        const std::size_t height = static_cast<std::size_t>(size.y);
+        if (width > MaxTileCount / height)
+            return false;
+
+        tileCount = width * height;
         return true;
     }
 };
@@ -260,11 +279,11 @@ struct GameSnapshotDelta
         size_t changeCount = 0;
         if (!(in >> parsed.simulationTick >> parsed.mapSize.x >> parsed.mapSize.y >> changeCount))
             return false;
-        if (parsed.mapSize.x <= 0 || parsed.mapSize.y <= 0)
+        std::size_t tileCount = 0;
+        if (!GameSnapshot::TryGetTileCount(parsed.mapSize, tileCount) || changeCount > GameSnapshot::MaxTileCount)
             return false;
 
         parsed.changes.reserve(changeCount);
-        size_t tileCount = static_cast<size_t>(parsed.mapSize.x * parsed.mapSize.y);
         for (size_t i = 0; i < changeCount; i++)
         {
             GameSnapshotDeltaTile change;

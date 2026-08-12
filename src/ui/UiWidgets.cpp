@@ -11,6 +11,13 @@ namespace
     constexpr float rowHeight = 26.0f;
     constexpr int maxVisibleRows = 10;
 
+    constexpr UiWidgetPalette defaultPalette{
+        UiTheme::Surface, UiTheme::SurfaceHover, UiTheme::InsetHover,
+        UiTheme::Iron, UiTheme::SteelHover, UiTheme::Bronze,
+        UiTheme::Parchment, UiTheme::ParchmentDim, UiTheme::ParchmentFaint,
+        UiTheme::Inset, UiTheme::SurfaceHover, UiTheme::Surface};
+    UiWidgetPalette activePalette = defaultPalette;
+
     // At most one dropdown may be expanded at a time; DrawOpenList() renders
     // this one after every panel has drawn.
     DropdownWidget* openDropdown = nullptr;
@@ -43,6 +50,16 @@ namespace
     {
         return (codepoint >= '0' && codepoint <= '9') || codepoint == '.' || codepoint == '-' || codepoint == '+';
     }
+}
+
+void SetUiWidgetPalette(const UiWidgetPalette& palette)
+{
+    activePalette = palette;
+}
+
+void ResetUiWidgetPalette()
+{
+    activePalette = defaultPalette;
 }
 
 // --- DropdownWidget ---------------------------------------------------------
@@ -95,8 +112,8 @@ void DropdownWidget::Draw(Rectangle bounds, const std::string& placeholder)
     bool hover = CheckCollisionPointRec(mouse, bounds);
     bool isOpen = openDropdown == this;
 
-    DrawRectangleRounded(bounds, 0.18f, 6, isOpen ? UiTheme::Timber : hover ? UiTheme::Oak : UiTheme::Bark);
-    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, isOpen ? UiTheme::Gold : hover ? UiTheme::AmberBright : UiTheme::Bronze);
+    DrawRectangleRounded(bounds, 0.18f, 6, isOpen ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
+    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, isOpen ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
 
     const std::string& label = SelectedText();
     float arrowWidth = 18.0f;
@@ -105,15 +122,15 @@ void DropdownWidget::Draw(Rectangle bounds, const std::string& placeholder)
                  textArea.x,
                  textArea.y + (textArea.height - fontSize) * 0.5f,
                  fontSize,
-                 label.empty() ? UiTheme::ParchmentFaint : UiTheme::Parchment);
+                 label.empty() ? activePalette.faintText : activePalette.text);
 
     // Caret triangle, flipped while the list is expanded.
     float cx = bounds.x + bounds.width - arrowWidth * 0.5f - 4.0f;
     float cy = bounds.y + bounds.height * 0.5f;
     if (isOpen)
-        DrawTriangle({cx - 5.0f, cy + 3.0f}, {cx + 5.0f, cy + 3.0f}, {cx, cy - 4.0f}, UiTheme::Gold);
+        DrawTriangle({cx - 5.0f, cy + 3.0f}, {cx + 5.0f, cy + 3.0f}, {cx, cy - 4.0f}, activePalette.focusedBorder);
     else
-        DrawTriangle({cx - 5.0f, cy - 3.0f}, {cx, cy + 4.0f}, {cx + 5.0f, cy - 3.0f}, UiTheme::ParchmentDim);
+        DrawTriangle({cx - 5.0f, cy - 3.0f}, {cx, cy + 4.0f}, {cx + 5.0f, cy - 3.0f}, activePalette.mutedText);
 
     if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -179,8 +196,8 @@ bool DropdownWidget::DrawOpenList()
         dropdown->listScroll = std::clamp(dropdown->listScroll, 0.0f, maxScroll);
     }
 
-    DrawRectangleRounded(list, 0.06f, 6, Color{26, 19, 14, 250});
-    DrawRectangleRoundedLines(list, 0.06f, 6, 1.0f, UiTheme::Gold);
+    DrawRectangleRounded(list, 0.06f, 6, activePalette.listFill);
+    DrawRectangleRoundedLines(list, 0.06f, 6, 1.0f, activePalette.focusedBorder);
 
     BeginScissorMode(static_cast<int>(list.x), static_cast<int>(list.y), static_cast<int>(list.width), static_cast<int>(list.height));
     int clickedIndex = -1;
@@ -197,15 +214,15 @@ bool DropdownWidget::DrawOpenList()
         bool isSelected = i == dropdown->selectedIndex;
         bool isHighlighted = i == dropdown->highlightedIndex;
         if (isHighlighted)
-            DrawRectangleRec(row, Color{78, 62, 40, 255});
+            DrawRectangleRec(row, activePalette.listHighlight);
         else if (isSelected)
-            DrawRectangleRec(row, Color{54, 44, 30, 255});
+            DrawRectangleRec(row, activePalette.listSelected);
 
         UiText::Draw(FitTail(options[i], row.width - 16.0f, dropdown->fontSize),
                      row.x + 8.0f,
                      row.y + (rowHeight - dropdown->fontSize) * 0.5f,
                      dropdown->fontSize,
-                     isSelected ? UiTheme::Gold : UiTheme::Parchment);
+                     isSelected ? activePalette.focusedBorder : activePalette.text);
 
         if (rowHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             clickedIndex = i;
@@ -217,7 +234,7 @@ bool DropdownWidget::DrawOpenList()
         Rectangle track{list.x + list.width - 4.0f, list.y + 2.0f, 3.0f, list.height - 4.0f};
         float thumbH = std::max(20.0f, track.height * (listHeight / contentHeight));
         float thumbY = track.y + (track.height - thumbH) * (dropdown->listScroll / maxScroll);
-        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, UiTheme::Bronze);
+        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, activePalette.border);
     }
 
     bool committed = false;
@@ -290,15 +307,50 @@ bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
 
     if (focused)
     {
-        int codepoint = GetCharPressed();
-        while (codepoint > 0)
+        const bool controlHeld = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        const bool copyRequested = controlHeld && IsKeyPressed(KEY_C);
+        const bool pasteRequested = controlHeld && IsKeyPressed(KEY_V);
+
+        // The widget currently has an end-only caret and no highlighted range,
+        // so copying the whole field and pasting at the end is the useful,
+        // unambiguous clipboard behaviour. Handle these before character input
+        // so Ctrl+C/Ctrl+V can never also insert a literal c/v into the value.
+        if (copyRequested)
         {
-            if (!numericOnly || IsNumericChar(codepoint))
+            SetClipboardText(text.c_str());
+        }
+        else if (pasteRequested)
+        {
+            const char* clipboard = GetClipboardText();
+            if (clipboard != nullptr)
             {
-                text += Utf8::Encode(codepoint);
-                changed = true;
+                std::string pasted = clipboard;
+                if (numericOnly)
+                {
+                    pasted.erase(std::remove_if(pasted.begin(), pasted.end(), [](unsigned char character)
+                    {
+                        return !IsNumericChar(character);
+                    }), pasted.end());
+                }
+                if (!pasted.empty())
+                {
+                    text += pasted;
+                    changed = true;
+                }
             }
-            codepoint = GetCharPressed();
+        }
+        else
+        {
+            int codepoint = GetCharPressed();
+            while (codepoint > 0)
+            {
+                if (!numericOnly || IsNumericChar(codepoint))
+                {
+                    text += Utf8::Encode(codepoint);
+                    changed = true;
+                }
+                codepoint = GetCharPressed();
+            }
         }
 
         // Manual key repeat: hold backspace to keep deleting.
@@ -321,21 +373,21 @@ bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
             focusedField = nullptr;
     }
 
-    DrawRectangleRounded(bounds, 0.18f, 6, focused ? UiTheme::Timber : hover ? UiTheme::Oak : UiTheme::Bark);
-    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, focused ? UiTheme::Gold : hover ? UiTheme::AmberBright : UiTheme::Bronze);
+    DrawRectangleRounded(bounds, 0.18f, 6, focused ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
+    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, focused ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
 
     float padding = 8.0f;
     float textWidth = bounds.width - padding * 2.0f;
     bool showPlaceholder = text.empty() && !focused;
     std::string shown = FitTail(showPlaceholder ? placeholder : text, textWidth, fontSize);
     float textY = bounds.y + (bounds.height - fontSize) * 0.5f;
-    UiText::Draw(shown, bounds.x + padding, textY, fontSize, showPlaceholder ? UiTheme::ParchmentFaint : UiTheme::Parchment);
+    UiText::Draw(shown, bounds.x + padding, textY, fontSize, showPlaceholder ? activePalette.faintText : activePalette.text);
 
     if (focused && std::fmod(GetTime(), 1.0) < 0.5)
     {
         float caretX = bounds.x + padding + UiText::Measure(shown, fontSize) + 1.0f;
         caretX = std::min(caretX, bounds.x + bounds.width - 4.0f);
-        DrawLineEx({caretX, textY}, {caretX, textY + fontSize}, 1.0f, UiTheme::Gold);
+        DrawLineEx({caretX, textY}, {caretX, textY + fontSize}, 1.0f, activePalette.focusedBorder);
     }
 
     return changed;

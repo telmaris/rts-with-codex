@@ -153,11 +153,11 @@ namespace
         }
         if (std::abs(modifier.multiplier - 1.0) > 0.001)
         {
+            if (hasValue)
+                stream << ", ";
             double percent = showAsRate
                 ? (1.0 / modifier.multiplier - 1.0) * 100.0
                 : (modifier.multiplier - 1.0) * 100.0;
-            if (hasValue)
-                stream << ", ";
             stream << (percent > 0.0 ? "+" : "") << static_cast<int>(std::round(percent)) << "%";
             hasValue = true;
         }
@@ -205,6 +205,12 @@ Rectangle TreeView::GetTreeArea(Rectangle bounds) const
 bool TreeView::ContainsTreeArea(Rectangle bounds, Vector2 point) const
 {
     return CheckCollisionPointRec(point, GetTreeArea(bounds));
+}
+
+void TreeView::ClearNodeSelection()
+{
+    selectedNodeId.clear();
+    selectedNodeIds.clear();
 }
 
 void TreeView::ResetCamera()
@@ -258,6 +264,25 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
     DrawTagFilterBar(tagBar, visibleTags, selectedTagFilter);
 
     Rectangle treeArea = GetTreeArea(bounds);
+    const bool ctrlHeld = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+
+    // Start and update the marquee before the draw pass, so its very first
+    // frame is visible and the release hit-test always uses the current mouse
+    // position rather than a rectangle left over from a previous frame.
+    if (!IsPlacing() && ctrlHeld && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        CheckCollisionPointRec(mouse, treeArea))
+    {
+        marqueeSelecting = true;
+        marqueeOrigin = mouse;
+        marqueeRect = {mouse.x, mouse.y, 1.0f, 1.0f};
+        pressedNodeId.clear();
+    }
+    if (marqueeSelecting)
+    {
+        marqueeRect = {std::min(marqueeOrigin.x, mouse.x), std::min(marqueeOrigin.y, mouse.y),
+                       std::max(1.0f, std::abs(mouse.x - marqueeOrigin.x)),
+                       std::max(1.0f, std::abs(mouse.y - marqueeOrigin.y))};
+    }
 
     // A right press either adds a child (when it lands on a node) or pans (when
     // it does not). Which one is only known after the node rects exist, so the
@@ -520,8 +545,9 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
             std::max(10, static_cast<int>(15 * zoom)),
             node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{150, 132, 104, 255});
 
-        // Selection ring for whichever node the inspector is editing.
-        if (node.id == selectedNodeId)
+        // A gold ring marks every node in the editor selection; the final
+        // clicked one remains the inspector target.
+        if (selectedNodeIds.contains(node.id))
             DrawRectangleLinesEx(Rectangle{rect.x - 3.0f, rect.y - 3.0f, rect.width + 6.0f, rect.height + 6.0f},
                                  2.0f, UiTheme::Gold);
         // The node currently following the mouse is drawn ghosted.
@@ -535,6 +561,14 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
             clickedNodeId = node.id;
         if (hover && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
             rightClickedNodeId = node.id;
+    }
+    if (marqueeSelecting)
+    {
+        DrawRectangleLinesEx(Rectangle{marqueeRect.x - 1.0f, marqueeRect.y - 1.0f,
+                                      marqueeRect.width + 2.0f, marqueeRect.height + 2.0f},
+                             3.0f, Fade(BLACK, 0.75f));
+        DrawRectangleRec(marqueeRect, Fade(UiTheme::Gold, 0.14f));
+        DrawRectangleLinesEx(marqueeRect, 2.0f, UiTheme::Gold);
     }
     EndScissorMode();
 
@@ -555,7 +589,28 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
     if (IsPlacing())
     {
         placement = ResolvePlacement(mouse, rowTop, rowStep);
-        document.SetLanePosition(placingNodeId, placement.lane, placement.ToLayoutOrder());
+        if (groupPlacementUndo.empty())
+        {
+            document.SetLanePosition(placingNodeId, placement.lane, placement.ToLayoutOrder());
+        }
+        else
+        {
+            const auto anchor = groupPlacementUndo.find(placingNodeId);
+            const int anchorOrder = anchor != groupPlacementUndo.end() ? anchor->second.second : placement.ToLayoutOrder();
+            const int anchorLayer = anchorOrder >= 1000 ? anchorOrder / 1000 - 1 : 0;
+            const int anchorSlot = ((anchorOrder % 1000) + 1000) % 1000;
+            const int layerDelta = placement.layer - anchorLayer;
+            const int orderDelta = placement.order - anchorSlot;
+            for (const auto& [id, original] : groupPlacementUndo)
+            {
+                const int originalLayer = original.second >= 1000 ? original.second / 1000 - 1 : 0;
+                const int originalSlot = ((original.second % 1000) + 1000) % 1000;
+                const int newLayer = std::max(0, originalLayer + layerDelta);
+                const int newSlot = std::clamp(originalSlot + orderDelta, 0, 999);
+                const std::string& newLane = groupSharesLane ? placement.lane : original.first;
+                document.SetLanePosition(id, newLane, (newLayer + 1) * 1000 + newSlot);
+            }
+        }
 
         std::string hint = placement.lane + "  |  layer " + std::to_string(placement.layer + 1) +
                            "  order " + std::to_string(placement.order) +
@@ -570,6 +625,8 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
         {
             placingNodeId.clear();
             placementIsNew = false;
+            groupPlacementUndo.clear();
+            document.CommitHistoryTransaction();
         }
         else if (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
         {
@@ -578,8 +635,25 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
         return;
     }
 
+    // Ctrl+drag draws a marquee that adds every touched node to the current
+    // editor selection. It intentionally does not toggle the bonus calculator
+    // selection, which remains a plain-click action.
+    if (marqueeSelecting && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    {
+        for (const auto& [id, rect] : nodeRects)
+        {
+            if (CheckCollisionRecs(marqueeRect, rect))
+            {
+                selectedNodeIds.insert(id);
+                selectedNodeId = id;
+            }
+        }
+        marqueeSelecting = false;
+        return;
+    }
+
     // --- Left button: click selects/toggles, drag repositions -----------------
-    if (!clickedNodeId.empty())
+    if (!marqueeSelecting && !clickedNodeId.empty())
     {
         pressedNodeId = clickedNodeId;
         pressOrigin = mouse;
@@ -598,6 +672,26 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
             placementUndoOrder = definition != nullptr ? definition->layoutOrder : 0;
             placementIsNew = false;
             placingNodeId = pressedNodeId;
+            if (!selectedNodeIds.contains(pressedNodeId))
+            {
+                selectedNodeIds.clear();
+                selectedNodeIds.insert(pressedNodeId);
+            }
+            groupPlacementUndo.clear();
+            for (const auto& id : selectedNodeIds)
+            {
+                const auto* selected = document.Find(id);
+                if (selected != nullptr)
+                    groupPlacementUndo[id] = {selected->layoutLane, selected->layoutOrder};
+            }
+            groupSharesLane = true;
+            if (!groupPlacementUndo.empty())
+            {
+                const std::string& firstLane = groupPlacementUndo.begin()->second.first;
+                for (const auto& [id, original] : groupPlacementUndo)
+                    groupSharesLane = groupSharesLane && original.first == firstLane;
+            }
+            document.BeginHistoryTransaction();
             selectedNodeId = pressedNodeId;
         }
     }
@@ -608,6 +702,8 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
             // Plain click: select for the inspector and toggle the calculator
             // selection in one gesture.
             selectedNodeId = pressedNodeId;
+            selectedNodeIds.clear();
+            selectedNodeIds.insert(pressedNodeId);
             document.ToggleTaken(pressedNodeId);
         }
         pressedNodeId.clear();
@@ -632,9 +728,12 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
         if (parentDepth != depthById.end())
             target.layer = std::max(target.layer, parentDepth->second + 1);
 
+        document.BeginHistoryTransaction();
         std::string newId = document.AddNode(rightClickedNodeId, target.lane, target.ToLayoutOrder());
         placingNodeId = newId;
         selectedNodeId = newId;
+        selectedNodeIds.clear();
+        selectedNodeIds.insert(newId);
         placement = target;
         placementIsNew = true;
     }
@@ -651,6 +750,8 @@ void TreeView::Draw(Rectangle bounds, TreeDocument& document)
         lines.push_back("Time: " + FormatDuration(hovered->researchTime) + " | " + hovered->stateText);
         if (!hovered->costs.empty())
             lines.push_back(FormatResearchCosts(hovered->costs));
+        for (const auto& building : hovered->unlockedBuildings)
+            lines.push_back("Unlocks {building}" + building + "{/building}");
         lines.push_back("id: " + hovered->id + "  |  layout_order " + std::to_string(hovered->layoutOrder));
         if (!hovered->available && !hovered->researched)
         {
@@ -704,16 +805,14 @@ void TreeView::CancelPlacement(TreeDocument& document)
 
     if (placementIsNew)
     {
-        document.DeleteNode(placingNodeId);
+        selectedNodeIds.erase(placingNodeId);
         if (selectedNodeId == placingNodeId)
             selectedNodeId.clear();
     }
-    else
-    {
-        document.SetLanePosition(placingNodeId, placementUndoLane, placementUndoOrder);
-    }
+    document.CancelHistoryTransaction();
     placingNodeId.clear();
     placementIsNew = false;
+    groupPlacementUndo.clear();
     dragging = false;
     pressedNodeId.clear();
 }

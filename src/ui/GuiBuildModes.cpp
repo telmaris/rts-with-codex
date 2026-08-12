@@ -3,6 +3,7 @@
 
 #include "GuiInternal.h"
 
+#include "ui/ControlIcons.h"
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
 #include "economy/StockpileIndex.h"
@@ -250,8 +251,8 @@ namespace
             width,
             height};
 
-        DrawRectangleRounded(box, 0.06f, 8, Color{30, 22, 16, 242});
-        DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, Color{150, 108, 58, 255});
+        DrawRectangleRounded(box, 0.06f, 8, UiTheme::Inset);
+        DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, UiTheme::Iron);
         UiText::DrawFit(option.name, Rectangle{box.x + 12.0f, box.y + 9.0f, box.width - 24.0f, 24.0f}, 22, UiTheme::Parchment);
 
         float y = box.y + titleH + 8.0f;
@@ -396,14 +397,21 @@ void BuildPanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     Vector2 mouse = GetMousePosition();
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{40, 29, 21, 238});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{150, 108, 58, 255});
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
+    }
 
     int margin = std::max(7, size.x / 64);
     int titleBar = std::max(30, size.y / 17);
-    Rectangle titleBounds{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+    const float chromeInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle titleBounds{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
+                          bounds.width - (chromeInset + 2.0f) * 2.0f,
+                          std::max(22.0f, static_cast<float>(titleBar) - 8.0f)};
     Rectangle closeButton = PanelCloseButtonRect(bounds);
-    DrawRectangleRounded(titleBounds, 0.025f, 8, Color{56, 41, 29, 255});
+    if (!UiControlIcons::DrawRoyalTitleBar(titleBounds))
+        DrawRectangleRounded(titleBounds, 0.025f, 8, UiTheme::Surface);
     if (CheckCollisionPointRec(mouse, titleBounds) &&
         !CheckCollisionPointRec(mouse, closeButton) &&
         InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -416,7 +424,9 @@ void BuildPanelWidget::Update(double dt)
         pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = Rectangle{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-        titleBounds = Rectangle{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
+        titleBounds = Rectangle{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
+                                bounds.width - (chromeInset + 2.0f) * 2.0f,
+                                std::max(22.0f, static_cast<float>(titleBar) - 8.0f)};
         closeButton = PanelCloseButtonRect(bounds);
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
@@ -424,7 +434,9 @@ void BuildPanelWidget::Update(double dt)
 
     int titleFont = std::max(17, std::min(23, titleBar / 2 + 2));
     int titleWidth = UiText::Measure(title, titleFont);
-    UiText::Draw(title, bounds.x + (bounds.width - titleWidth) * 0.5f, bounds.y + (titleBar - titleFont) * 0.5f, titleFont, UiTheme::Parchment);
+    UiText::Draw(title, titleBounds.x + (titleBounds.width - titleWidth) * 0.5f,
+                 titleBounds.y + (titleBounds.height - titleFont) * 0.5f,
+                 titleFont, UiTheme::Parchment);
     DrawCloseButton(bounds);
 
     int columns = 3;
@@ -460,14 +472,14 @@ void BuildPanelWidget::Update(double dt)
                 headerH};
             if (header.y + header.height >= viewportTop && header.y <= viewportBottom)
             {
-                DrawRectangleRounded(header, 0.12f, 6, Color{46, 34, 24, 215});
+                DrawRectangleRounded(header, 0.12f, 6, UiTheme::Surface);
                 int headerFont = 17;
                 int headerWidth = UiText::Measure(currentCategory, headerFont);
                 UiText::Draw(currentCategory,
                     header.x + (header.width - headerWidth) * 0.5f,
                     header.y + (header.height - headerFont) * 0.5f,
                     headerFont,
-                    Color{224, 204, 168, 255});
+                    UiTheme::Parchment);
             }
             contentBottom = std::max(contentBottom, header.y + header.height + scrollOffset);
             yCursor += headerH + categoryGap;
@@ -495,8 +507,8 @@ void BuildPanelWidget::Update(double dt)
         bool selected = selectedIndex < options->size() && static_cast<size_t>(i) == selectedIndex;
         auto lockReasons = BuildLockReasons(scene, option);
         bool locked = !lockReasons.empty();
-        DrawRectangleRounded(card, 0.04f, 8, locked ? Color{24, 18, 13, 226} : (selected ? Color{48, 68, 58, 245} : Color{46, 34, 24, 235}));
-        DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? Color{74, 64, 54, 240} : (selected ? Color{112, 230, 150, 210} : Color{112, 88, 58, 255}));
+        DrawRectangleRounded(card, 0.04f, 8, locked ? UiTheme::Ink : (selected ? UiTheme::SelectedFill : UiTheme::Inset));
+        DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? UiTheme::Iron : (selected ? UiTheme::SageBright : UiTheme::Iron));
 
         // Every card gets the same square icon box. Animated horizontal
         // strips use their first frame; static building artwork keeps its
@@ -525,7 +537,7 @@ void BuildPanelWidget::Update(double dt)
         }
         else
         {
-            DrawRectangleRounded(iconBox, 0.08f, 6, locked ? Color{54, 42, 32, 220} : Color{96, 78, 56, 255});
+            DrawRectangleRounded(iconBox, 0.08f, 6, locked ? UiTheme::Panel : UiTheme::Surface);
         }
 
         int nameFont = 15;
@@ -568,7 +580,7 @@ void BuildPanelWidget::Update(double dt)
     if (maxScrollOffset > 0.0f)
     {
         Rectangle track{bounds.x + bounds.width - margin - scrollbarW * 0.5f, viewportTop, scrollbarW, viewportBottom - viewportTop};
-        DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
+        DrawRectangleRounded(track, 0.5f, 4, UiTheme::Inset);
         float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
         Rectangle thumb{track.x, thumbY, track.width, thumbH};
@@ -591,7 +603,7 @@ void BuildPanelWidget::Update(double dt)
         }
         if (scrollbarDragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
             scrollbarDragging = false;
-        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
+        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, UiTheme::Iron);
     }
 
     if (hoveredOption >= 0)

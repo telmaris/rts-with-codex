@@ -143,6 +143,9 @@ struct BuildingDefinition
     // safe to add without touching those (defaults to empty).
     std::vector<BuildingUpgradeLevelDefinition> upgradeLevels;
     BuildingPlacementCategory placementCategory{BuildingPlacementCategory::None};
+    // Loading/unloading cadence at the source edge. Kept separate from road
+    // traversal time so logistics bonuses may tune either independently.
+    double dispatchDelay{0.3};
 };
 
 // Returns all configured building definitions.

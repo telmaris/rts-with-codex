@@ -50,6 +50,8 @@ set(RTS_SHARED_SOURCES
     # Shared UI: text metrics and input widgets. Extracted out of Gui.cpp exactly
     # so the tool renders with the game's code instead of a hand-mirrored copy.
     "${RTS_ROOT}/src/ui/UiText.cpp"
+    # UiText renders inline control icons when its caller uses that markup.
+    "${RTS_ROOT}/src/ui/ControlIcons.cpp"
     "${RTS_ROOT}/src/ui/UiWidgets.cpp"
     # Which direction of a stat is an improvement. Shared because a drifting copy
     # renders a nerf green here and red in the game (it already happened once).

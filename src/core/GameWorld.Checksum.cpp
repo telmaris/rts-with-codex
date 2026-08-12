@@ -245,8 +245,8 @@ std::uint64_t GameWorld::BuildChecksum() const
             HashInt(hash, unitInstanceId);
     }
 
-    // TD(etap-7.2): in-flight tower projectiles. Never saved (short-lived),
-    // but included here so host/client never silently disagree about their
+    // TD(etap-7.2): in-flight tower projectiles. Persisted in SimulationState
+    // and included here so host/client never silently disagree about their
     // existence/position mid-flight. std::map<int, ...> keyed by an
     // allocation-order id is already deterministically ordered.
     HashValue(hash, static_cast<std::uint64_t>(projectiles.size()));

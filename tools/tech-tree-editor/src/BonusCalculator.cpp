@@ -1,12 +1,12 @@
 #include "BonusCalculator.h"
 
+#include "EditorTheme.h"
 #include "TreeModel.h"
 #include "TreeSerializer.h"
 
 #include "economy/BalanceStatDisplay.h"
 #include "data/Resource.h"
 #include "ui/UiText.h"
-#include "ui/UiTheme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,7 +38,17 @@ namespace
 
     std::string StatLabel(BalanceStat stat)
     {
-        return RtsDataNames::NameOf(stat);
+        const bool isRate = stat == BalanceStat::BuildTime ||
+                            stat == BalanceStat::ProductionCycleTime ||
+                            stat == BalanceStat::TransportTime;
+        return isRate ? ImprovedRateLabel(stat) : BalanceStatLabel(stat);
+    }
+
+    bool UsesRateDisplay(BalanceStat stat)
+    {
+        return stat == BalanceStat::BuildTime ||
+               stat == BalanceStat::ProductionCycleTime ||
+               stat == BalanceStat::TransportTime;
     }
 
     std::string BuildLabel(const GroupKey& key)
@@ -90,6 +100,7 @@ namespace
 std::vector<BonusGroup> AggregateTakenBonuses(const TreeDocument& document)
 {
     std::map<GroupKey, BonusGroup> groups;
+    std::map<std::string, BonusGroup> unlocks;
 
     for (const auto& definition : document.GetDefinitions())
     {
@@ -109,9 +120,19 @@ std::vector<BonusGroup> AggregateTakenBonuses(const TreeDocument& document)
             key.unit = modifier.unitDefId.value_or("");
 
             auto& group = groups[key];
+            group.stat = key.stat;
             group.additive += modifier.additive;
             group.multiplier *= modifier.multiplier;
             group.sourceCount++;
+        }
+
+        for (const auto& building : document.GetUnlockedBuildings(definition.id))
+        {
+            auto& group = unlocks[building];
+            group.kind = BonusGroupKind::BuildingUnlock;
+            group.label = "Unlock " + building;
+            group.sourceCount++;
+            group.positive = true;
         }
     }
 
@@ -131,6 +152,8 @@ std::vector<BonusGroup> AggregateTakenBonuses(const TreeDocument& document)
 
         result.push_back(group);
     }
+    for (auto& [building, group] : unlocks)
+        result.push_back(group);
 
     std::sort(result.begin(), result.end(), [](const BonusGroup& a, const BonusGroup& b)
     {
@@ -141,11 +164,11 @@ std::vector<BonusGroup> AggregateTakenBonuses(const TreeDocument& document)
 
 void BonusCalculatorPanel::Draw(Rectangle bounds, const TreeDocument& document)
 {
-    DrawRectangleRounded(bounds, 0.02f, 8, Color{30, 22, 16, 250});
-    DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, UiTheme::Bronze);
-    Rectangle title{bounds.x, bounds.y, bounds.width, 40.0f};
-    DrawRectangleRounded(title, 0.05f, 8, UiTheme::Oak);
-    UiText::DrawFit("Bonus Total", title, 17, UiTheme::Parchment);
+    DrawRectangleRounded(bounds, 0.02f, 8, EditorTheme::Panel);
+    DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, EditorTheme::Border);
+    Rectangle title{bounds.x, bounds.y, bounds.width, 44.0f};
+    DrawRectangleRounded(title, 0.05f, 8, EditorTheme::PanelHeader);
+    UiText::DrawFit("Bonus Total", title, 19, EditorTheme::Text);
 
     auto groups = AggregateTakenBonuses(document);
 
@@ -155,10 +178,10 @@ void BonusCalculatorPanel::Draw(Rectangle bounds, const TreeDocument& document)
             takenCount++;
 
     std::string summary = std::to_string(takenCount) + (takenCount == 1 ? " node selected, " : " nodes selected, ") +
-                          std::to_string(groups.size()) + (groups.size() == 1 ? " stat group" : " stat groups");
-    UiText::Draw(summary, bounds.x + 16.0f, bounds.y + 46.0f, 12, UiTheme::ParchmentDim);
+                          std::to_string(groups.size()) + (groups.size() == 1 ? " effect" : " effects");
+    UiText::Draw(summary, bounds.x + 24.0f, bounds.y + 52.0f, 14, EditorTheme::TextMuted);
 
-    Rectangle content{bounds.x + 16.0f, bounds.y + 66.0f, bounds.width - 32.0f, bounds.height - 78.0f};
+    Rectangle content{bounds.x + 24.0f, bounds.y + 76.0f, bounds.width - 48.0f, bounds.height - 90.0f};
 
     Vector2 mouse = GetMousePosition();
     if (CheckCollisionPointRec(mouse, content))
@@ -174,47 +197,52 @@ void BonusCalculatorPanel::Draw(Rectangle bounds, const TreeDocument& document)
     float y = content.y - scroll;
     if (groups.empty())
     {
-        UiText::Draw("Left click nodes in the tree to add them.", content.x + 2.0f, y + 4.0f, 13, UiTheme::ParchmentFaint);
-        y += 26.0f;
+        UiText::Draw("Left click nodes in the tree to add them.", content.x + 2.0f, y + 4.0f, 15, EditorTheme::TextFaint);
+        y += 30.0f;
     }
 
     for (const auto& group : groups)
     {
-        Rectangle row{content.x, y, content.width, 38.0f};
-        DrawRectangleRounded(row, 0.08f, 6, Color{38, 28, 20, 210});
+        Rectangle row{content.x, y, content.width, 46.0f};
+        DrawRectangleRounded(row, 0.08f, 6, EditorTheme::Surface);
 
-        UiText::Draw(FitWidth(group.label, row.width - 42.0f, 13), row.x + 8.0f, row.y + 4.0f, 13, UiTheme::Parchment);
+        UiText::Draw(FitWidth(group.label, row.width - 50.0f, 15), row.x + 10.0f, row.y + 6.0f, 15, EditorTheme::Text);
 
-        std::string effect;
-        if (std::abs(group.additive) > 0.001)
+        std::string effect = group.kind == BonusGroupKind::BuildingUnlock ? "Building available" : "";
+        if (group.kind == BonusGroupKind::Modifier && std::abs(group.additive) > 0.001)
             effect += (group.additive > 0.0 ? "+" : "") + FormatNumber(group.additive);
-        if (std::abs(group.multiplier - 1.0) > 0.001)
+        if (group.kind == BonusGroupKind::Modifier && std::abs(group.multiplier - 1.0) > 0.001)
         {
             if (!effect.empty())
                 effect += "  ";
-            double percent = (group.multiplier - 1.0) * 100.0;
-            effect += "x" + FormatNumber(group.multiplier, 4) +
-                      " (" + (percent > 0.0 ? "+" : "") + FormatNumber(percent, 1) + "%)";
+            double percent = UsesRateDisplay(group.stat)
+                ? (1.0 / group.multiplier - 1.0) * 100.0
+                : (group.multiplier - 1.0) * 100.0;
+            effect += (percent > 0.0 ? "+" : "") + FormatNumber(percent, 1) + "%";
         }
-        if (effect.empty())
+        if (group.kind == BonusGroupKind::Modifier && effect.empty())
             effect = "no numeric effect";
 
-        UiText::Draw(effect, row.x + 8.0f, row.y + 20.0f, 14,
-                     group.positive ? UiTheme::SageBright : UiTheme::RustBright);
+        UiText::Draw(effect, row.x + 10.0f, row.y + 25.0f, 16,
+                     group.positive ? EditorTheme::Positive : EditorTheme::Negative);
 
         std::string sources = std::to_string(group.sourceCount) + "x";
-        UiText::Draw(sources, row.x + row.width - UiText::Measure(sources, 12) - 8.0f, row.y + 21.0f, 12,
-                     UiTheme::ParchmentFaint);
-        y += 42.0f;
+        UiText::Draw(sources, row.x + row.width - UiText::Measure(sources, 13) - 10.0f, row.y + 27.0f, 13,
+                     EditorTheme::TextFaint);
+        y += 52.0f;
     }
 
-    // The exact formula the game uses, spelled out so the numbers above are
-    // interpretable without opening BalanceModifiers.h.
-    if (!groups.empty())
+    // Time-based stats are intentionally converted to speed/rate here, just
+    // like the game tooltip and the inspector's percentage input.
+    const bool hasModifiers = std::any_of(groups.begin(), groups.end(), [](const BonusGroup& group)
+    {
+        return group.kind == BonusGroupKind::Modifier;
+    });
+    if (hasModifiers)
     {
         y += 4.0f;
-        UiText::Draw("applied as: (base + additive) * multiplier", content.x + 2.0f, y, 12, UiTheme::ParchmentFaint);
-        y += 22.0f;
+        UiText::Draw("Displayed in the same units as the tooltip.", content.x + 2.0f, y, 14, EditorTheme::TextFaint);
+        y += 26.0f;
     }
 
     EndScissorMode();

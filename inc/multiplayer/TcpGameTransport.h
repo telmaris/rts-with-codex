@@ -2,6 +2,7 @@
 #define TCP_GAME_TRANSPORT_H
 
 #include "core/GameSession.h"
+#include "multiplayer/NetworkProtocol.h"
 
 #include <atomic>
 #include <deque>
@@ -48,8 +49,9 @@ private:
     bool StartClient(const std::string& address, unsigned short port);
     void Stop();
     void NetworkLoop();
-    void QueueIncomingLine(const std::string& line);
-    bool SendLine(const std::string& payload);
+    void QueueIncomingFrame(const NetworkFrame& frame);
+    bool SendFrame(NetworkMessageType type, NetworkChannel channel, const std::string& payload,
+                   bool priority = false);
     std::vector<std::string> Drain(std::deque<std::string>& queue);
     void SetStatus(std::string value);
 
@@ -67,7 +69,8 @@ private:
     std::optional<std::string> clientLatestFrame;
     std::deque<std::string> clientSnapshots;
     std::deque<std::string> lobbyMessages;
-    std::deque<std::string> outboundLines;
+    std::deque<std::string> outboundFrames;
+    std::uint64_t nextOutboundSequence{1};
     std::string status{"Idle"};
     std::atomic<int> pingMs{-1};
 

@@ -125,7 +125,7 @@ void TcpGameTransport::SendClientCommand(const std::string& payload)
     if (mode == Mode::Client)
     {
         Log::Msg("[TCP]", "Queue client command payload");
-        SendLine("C " + payload);
+        SendFrame(NetworkMessageType::ClientCommand, NetworkChannel::Command, payload);
     }
 }
 
@@ -140,7 +140,7 @@ void TcpGameTransport::SendHostResult(const std::string& payload)
     if (mode == Mode::Host)
     {
         Log::Msg("[TCP]", "Queue host result payload");
-        SendLine("R " + payload);
+        SendFrame(NetworkMessageType::CommandResult, NetworkChannel::Event, payload);
     }
 }
 
@@ -154,7 +154,7 @@ void TcpGameTransport::SendHostFrame(const std::string& payload)
 {
     if (mode == Mode::Host)
     {
-        SendLine("F " + payload);
+        SendFrame(NetworkMessageType::ServerFrame, NetworkChannel::Event, payload);
     }
 }
 
@@ -175,7 +175,15 @@ void TcpGameTransport::SendHostSnapshot(const std::string& payload)
     if (mode == Mode::Host)
     {
         Log::Msg("[TCP]", "Queue host snapshot payload bytes=", payload.size());
-        SendLine("S " + payload);
+        // The current session envelope remains textual for compatibility with
+        // GameSession, while the outer protocol makes its begin/chunk/end
+        // boundaries explicit and imposes a strict per-frame payload limit.
+        NetworkMessageType type = NetworkMessageType::SnapshotChunk;
+        if (payload.rfind("INIT_BEGIN ", 0) == 0)
+            type = NetworkMessageType::SnapshotBegin;
+        else if (payload == "INIT_END")
+            type = NetworkMessageType::SnapshotEnd;
+        SendFrame(type, NetworkChannel::Snapshot, payload);
     }
 }
 
@@ -188,7 +196,7 @@ std::vector<std::string> TcpGameTransport::ReceiveClientSnapshots()
 void TcpGameTransport::SendLobbyMessage(const std::string& payload)
 {
     Log::Msg("[TCP]", "Queue lobby message: ", payload);
-    SendLine("L " + payload);
+    SendFrame(NetworkMessageType::LobbyChat, NetworkChannel::Lobby, payload);
 }
 
 std::vector<std::string> TcpGameTransport::ReceiveLobbyMessages()
@@ -197,11 +205,12 @@ std::vector<std::string> TcpGameTransport::ReceiveLobbyMessages()
     return Drain(lobbyMessages);
 }
 
-bool TcpGameTransport::SendLine(const std::string& payload)
+bool TcpGameTransport::SendFrame(NetworkMessageType type, NetworkChannel channel, const std::string& payload,
+                                 bool priority)
 {
     std::lock_guard<std::mutex> lock(mutex);
-    constexpr size_t MaxOutboundLines = 1024;
-    if (outboundLines.size() >= MaxOutboundLines)
+    constexpr size_t MaxOutboundFrames = 1024;
+    if (outboundFrames.size() >= MaxOutboundFrames)
     {
         failed = true;
         running = false;
@@ -209,7 +218,28 @@ bool TcpGameTransport::SendLine(const std::string& payload)
         Log::Msg("[TCP]", status);
         return false;
     }
-    outboundLines.push_back(payload + "\n");
+
+    NetworkFrame frame;
+    frame.type = type;
+    frame.channel = channel;
+    frame.sequence = nextOutboundSequence++;
+    frame.payload = payload;
+
+    std::string encoded;
+    std::string error;
+    if (!NetworkProtocolCodec::Encode(frame, encoded, error))
+    {
+        failed = true;
+        running = false;
+        status = "Protocol encode failed: " + error;
+        Log::Msg("[TCP]", status);
+        return false;
+    }
+
+    if (priority)
+        outboundFrames.push_front(std::move(encoded));
+    else
+        outboundFrames.push_back(std::move(encoded));
     return true;
 }
 
@@ -224,50 +254,55 @@ std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue)
     return result;
 }
 
-void TcpGameTransport::QueueIncomingLine(const std::string& line)
+void TcpGameTransport::QueueIncomingFrame(const NetworkFrame& frame)
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (line.size() < 3)
-        return;
-
-    if (line[0] == 'C' && line[1] == ' ')
+    if (frame.type == NetworkMessageType::ClientCommand)
     {
         Log::Msg("[TCP]", "Received client command payload");
-        hostCommands.push_back(line.substr(2));
+        std::lock_guard<std::mutex> lock(mutex);
+        hostCommands.push_back(frame.payload);
     }
-    else if (line[0] == 'R' && line[1] == ' ')
+    else if (frame.type == NetworkMessageType::CommandResult)
     {
         Log::Msg("[TCP]", "Received host result payload");
-        clientResults.push_back(line.substr(2));
+        std::lock_guard<std::mutex> lock(mutex);
+        clientResults.push_back(frame.payload);
     }
-    else if (line[0] == 'F' && line[1] == ' ')
+    else if (frame.type == NetworkMessageType::ServerFrame)
     {
-        std::string payload = line.substr(2);
-        GameServerFrame frame;
-        if (!GameServerFrame::TryDeserialize(payload, frame) || !frame.results.empty())
-            clientReliableFrames.push_back(std::move(payload));
+        GameServerFrame serverFrame;
+        if (!GameServerFrame::TryDeserialize(frame.payload, serverFrame) || !serverFrame.results.empty())
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            clientReliableFrames.push_back(frame.payload);
+        }
         else
-            clientLatestFrame = std::move(payload);
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            clientLatestFrame = frame.payload;
+        }
     }
-    else if (line[0] == 'L' && line[1] == ' ')
+    else if (frame.channel == NetworkChannel::Lobby)
     {
-        Log::Msg("[TCP]", "Received lobby message: ", line.substr(2));
-        lobbyMessages.push_back(line.substr(2));
+        Log::Msg("[TCP]", "Received lobby message");
+        std::lock_guard<std::mutex> lock(mutex);
+        lobbyMessages.push_back(frame.payload);
     }
-    else if (line[0] == 'S' && line[1] == ' ')
+    else if (frame.channel == NetworkChannel::Snapshot)
     {
         Log::Msg("[TCP]", "Received host snapshot payload");
-        clientSnapshots.push_back(line.substr(2));
+        std::lock_guard<std::mutex> lock(mutex);
+        clientSnapshots.push_back(frame.payload);
     }
-    else if (line[0] == 'P' && line[1] == ' ')
+    else if (frame.type == NetworkMessageType::Ping)
     {
-        outboundLines.push_front("O " + line.substr(2) + "\n");
+        SendFrame(NetworkMessageType::Pong, NetworkChannel::Control, frame.payload, true);
     }
-    else if (line[0] == 'O' && line[1] == ' ')
+    else if (frame.type == NetworkMessageType::Pong)
     {
         try
         {
-            long long sentAt = std::stoll(line.substr(2));
+            long long sentAt = std::stoll(frame.payload);
             int measuredPing = static_cast<int>(std::max<long long>(0, NowMillis() - sentAt));
             pingMs = measuredPing;
         }
@@ -417,25 +452,30 @@ void TcpGameTransport::NetworkLoop()
     SetStatus("Connected");
     Log::Msg("[TCP]", GetStatus());
 
-    std::string incoming;
+    NetworkFrameDecoder decoder;
+    std::vector<NetworkFrame> receivedFrames;
     char buffer[16384];
     auto lastPingSent = std::chrono::steady_clock::now() - std::chrono::seconds(1);
     std::deque<std::string> outgoing;
-    std::string activeOutgoingLine;
+    std::string activeOutgoingFrame;
     size_t activeOutgoingOffset = 0;
     while (running)
     {
         int received = recv(socket, buffer, sizeof(buffer), 0);
         if (received > 0)
         {
-            incoming.append(buffer, buffer + received);
-            size_t newline = std::string::npos;
-            while ((newline = incoming.find('\n')) != std::string::npos)
+            receivedFrames.clear();
+            FrameDecodeResult decodeResult = decoder.Push(
+                std::string_view(buffer, static_cast<size_t>(received)), receivedFrames);
+            if (!decodeResult)
             {
-                std::string line = incoming.substr(0, newline);
-                incoming.erase(0, newline + 1);
-                QueueIncomingLine(line);
+                Log::Msg("[TCP]", "Protocol decode failed, error=", static_cast<int>(decodeResult.error));
+                failed = true;
+                running = false;
+                break;
             }
+            for (const NetworkFrame& receivedFrame : receivedFrames)
+                QueueIncomingFrame(receivedFrame);
         }
         else if (received == 0)
         {
@@ -454,20 +494,17 @@ void TcpGameTransport::NetworkLoop()
         auto now = std::chrono::steady_clock::now();
         if (now - lastPingSent >= std::chrono::seconds(1))
         {
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                outboundLines.push_front("P " + std::to_string(NowMillis()) + "\n");
-            }
+            SendFrame(NetworkMessageType::Ping, NetworkChannel::Control, std::to_string(NowMillis()), true);
             lastPingSent = now;
         }
 
         {
             std::lock_guard<std::mutex> lock(mutex);
-            constexpr size_t MaxBufferedLines = 256;
-            while (!outboundLines.empty() && outgoing.size() < MaxBufferedLines)
+            constexpr size_t MaxBufferedFrames = 256;
+            while (!outboundFrames.empty() && outgoing.size() < MaxBufferedFrames)
             {
-                outgoing.push_back(std::move(outboundLines.front()));
-                outboundLines.pop_front();
+                outgoing.push_back(std::move(outboundFrames.front()));
+                outboundFrames.pop_front();
             }
         }
 
@@ -475,20 +512,20 @@ void TcpGameTransport::NetworkLoop()
         size_t sendBudget = SendBudgetBytes;
         while (sendBudget > 0 && running)
         {
-            if (activeOutgoingLine.empty())
+            if (activeOutgoingFrame.empty())
             {
                 if (outgoing.empty())
                     break;
-                activeOutgoingLine = std::move(outgoing.front());
+                activeOutgoingFrame = std::move(outgoing.front());
                 activeOutgoingOffset = 0;
                 outgoing.pop_front();
-                if (activeOutgoingLine.size() > 2048)
-                    Log::Msg("[TCP]", "Sending large line bytes=", activeOutgoingLine.size());
+                if (activeOutgoingFrame.size() > 2048)
+                    Log::Msg("[TCP]", "Sending large frame bytes=", activeOutgoingFrame.size());
             }
 
-            size_t remaining = activeOutgoingLine.size() - activeOutgoingOffset;
+            size_t remaining = activeOutgoingFrame.size() - activeOutgoingOffset;
             int requested = static_cast<int>(std::min(remaining, sendBudget));
-            int sent = send(socket, activeOutgoingLine.c_str() + activeOutgoingOffset, requested, 0);
+            int sent = send(socket, activeOutgoingFrame.data() + activeOutgoingOffset, requested, 0);
             if (sent <= 0)
             {
                 if (WouldBlock())
@@ -501,9 +538,9 @@ void TcpGameTransport::NetworkLoop()
 
             activeOutgoingOffset += static_cast<size_t>(sent);
             sendBudget -= static_cast<size_t>(sent);
-            if (activeOutgoingOffset >= activeOutgoingLine.size())
+            if (activeOutgoingOffset >= activeOutgoingFrame.size())
             {
-                activeOutgoingLine.clear();
+                activeOutgoingFrame.clear();
                 activeOutgoingOffset = 0;
             }
         }

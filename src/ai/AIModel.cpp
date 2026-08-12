@@ -268,6 +268,7 @@ namespace
             case BalanceStat::BuildCost:
             case BalanceStat::ProductionCycleTime:
             case BalanceStat::TransportTime:
+            case BalanceStat::TransportDispatchDelay:
             case BalanceStat::UnitRecruitTime:
             case BalanceStat::UnitRecruitManpowerCost:
             case BalanceStat::TowerAmmoEfficiency:
@@ -313,6 +314,7 @@ namespace
             case BalanceStat::WorkerCapacity:
                 return 30.0 * priorities.economy;
             case BalanceStat::TransportTime:
+            case BalanceStat::TransportDispatchDelay:
             case BalanceStat::RoadCapacity:
             case BalanceStat::RoadSpeed:
                 return 36.0 * priorities.logistics;

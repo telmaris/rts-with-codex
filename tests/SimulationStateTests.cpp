@@ -1,4 +1,6 @@
 #include "core/SimulationState.h"
+#include "core/GameSession.h"
+#include "core/GameWorld.h"
 
 #include <gtest/gtest.h>
 
@@ -41,4 +43,119 @@ TEST(SimulationStateTests, NonFiniteDoublesAreNormalized)
     zeroState.FixedDouble3(0.0);
 
     EXPECT_EQ(nanState.Finish(), zeroState.Finish());
+}
+
+TEST(SimulationStateTests, FullStateRoundTripRestoresAuthoritativeWorldForClientSlot)
+{
+    MapParameters params;
+    params.seed = 1701;
+    params.aiOpponentCount = 1;
+
+    GameWorld host;
+    host.InitMultiplayerWorld("network-state", nullptr, nullptr, params, 0, true);
+    for (int i = 0; i < 5; ++i)
+        host.UpdateSimulation(FixedSimulationClock::FixedDt);
+    AttackEmission projectile;
+    projectile.sourcePlayerId = 0;
+    projectile.sourceUnitInstanceId = 42;
+    projectile.targetUnitInstanceId = 77;
+    projectile.position = {17.5f, 9.25f};
+    projectile.damage = 13.75;
+    projectile.ticksRemaining = 12;
+    projectile.speed = 4.0;
+    const int projectileId = host.AllocateProjectileId();
+    host.GetProjectiles()[projectileId] = projectile;
+
+    const std::string payload = host.SerializeSimulationState();
+    ASSERT_FALSE(payload.empty());
+
+    GameWorld client;
+    client.InitMultiplayerWorld("different-client-world", nullptr, nullptr, params, 1, false);
+    ASSERT_TRUE(client.RestoreSimulationState(payload, 1));
+
+    EXPECT_EQ(client.GetSimulationTick(), host.GetSimulationTick());
+    EXPECT_EQ(client.BuildChecksum(), host.BuildChecksum());
+    EXPECT_EQ(client.GetLocalPlayerId(), 1);
+    ASSERT_TRUE(client.GetPlayerHandler().players.contains(0));
+    ASSERT_TRUE(client.GetPlayerHandler().players.contains(1));
+    EXPECT_EQ(client.GetPlayerHandler().players.at(0)->controllerType, PlayerControllerType::Remote);
+    EXPECT_EQ(client.GetPlayerHandler().players.at(1)->controllerType, PlayerControllerType::LocalHuman);
+    EXPECT_EQ(client.GetPlayerHandler().players.at(2)->controllerType, PlayerControllerType::Remote);
+    ASSERT_TRUE(client.GetProjectiles().contains(projectileId));
+    EXPECT_DOUBLE_EQ(client.GetProjectiles().at(projectileId).damage, projectile.damage);
+    EXPECT_EQ(client.GetProjectiles().at(projectileId).targetUnitInstanceId, projectile.targetUnitInstanceId);
+}
+
+TEST(SimulationStateTests, ClientSessionAppliesChunkedInitialAndCorrectionState)
+{
+    MapParameters params;
+    params.seed = 8128;
+    params.aiOpponentCount = 1;
+
+    GameWorld host;
+    host.InitMultiplayerWorld("authoritative", nullptr, nullptr, params, 0, true);
+    for (int i = 0; i < 5; ++i)
+        host.UpdateSimulation(FixedSimulationClock::FixedDt);
+
+    GameWorld client;
+    client.InitMultiplayerWorld("stale-mirror", nullptr, nullptr, params, 1, false);
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    ClientSession session(&client, transport, 1);
+
+    const auto queueState = [&transport](const GameWorld& source)
+    {
+        const std::string state = source.SerializeSimulationState();
+        ASSERT_FALSE(state.empty());
+        constexpr std::size_t ChunkSize = 12000;
+        const std::size_t chunkCount = (state.size() + ChunkSize - 1) / ChunkSize;
+        transport->SendHostSnapshot("INIT_BEGIN " + std::to_string(source.GetSimulationTick()) + " " +
+                                    std::to_string(state.size()) + " " + std::to_string(chunkCount));
+        for (std::size_t index = 0; index < chunkCount; ++index)
+            transport->SendHostSnapshot("INIT_CHUNK " + std::to_string(index) + " " +
+                                        state.substr(index * ChunkSize, ChunkSize));
+        transport->SendHostSnapshot("INIT_END");
+    };
+
+    queueState(host);
+    session.Update(0.0);
+    ASSERT_TRUE(session.IsReadyForGameplay());
+    EXPECT_EQ(client.GetSimulationTick(), host.GetSimulationTick());
+    EXPECT_EQ(client.BuildChecksum(), host.BuildChecksum());
+    EXPECT_EQ(transport->ReceiveHostCommands(), (std::vector<std::string>{"SYNC_READY"}));
+
+    for (int i = 0; i < 3; ++i)
+        host.UpdateSimulation(FixedSimulationClock::FixedDt);
+    queueState(host);
+    GameServerFrame correctionFrame;
+    correctionFrame.tick = host.GetSimulationTick();
+    correctionFrame.hasChecksum = true;
+    correctionFrame.checksum = host.BuildChecksum();
+    transport->SendHostFrame(correctionFrame.Serialize());
+    session.Update(0.0);
+    EXPECT_TRUE(session.IsReadyForGameplay());
+    EXPECT_EQ(client.GetSimulationTick(), host.GetSimulationTick());
+    EXPECT_EQ(client.BuildChecksum(), host.BuildChecksum());
+    // The frame follows the snapshot on the host wire. If ClientSession were
+    // to drain frames first it would compare against the stale mirror and
+    // enqueue RESYNC_REQUEST here.
+    EXPECT_EQ(transport->ReceiveHostCommands(), (std::vector<std::string>{"SYNC_READY"}));
+}
+
+TEST(SimulationStateTests, ClientSessionRejectsUnsafeOrConflictingSnapshotChunks)
+{
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    ClientSession session(nullptr, transport, 1);
+
+    transport->SendHostSnapshot("INIT_BEGIN 0 67108865 1");
+    session.Update(0.0);
+    EXPECT_FALSE(session.IsReadyForGameplay());
+    EXPECT_NE(session.GetConnectionStatus().find("invalid manifest"), std::string::npos);
+
+    transport->SendHostSnapshot("INIT_BEGIN 0 3 1");
+    transport->SendHostSnapshot("INIT_CHUNK 0 abc");
+    transport->SendHostSnapshot("INIT_CHUNK 0 abd");
+    transport->SendHostSnapshot("INIT_END");
+    session.Update(0.0);
+    EXPECT_FALSE(session.IsReadyForGameplay());
+    EXPECT_NE(session.GetConnectionStatus().find("conflicting duplicate"), std::string::npos);
 }

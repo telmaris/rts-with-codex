@@ -32,11 +32,13 @@ w `TreeSerializer.cpp`.
 | Akcja | Wejście |
 |---|---|
 | Zaznacz node (inspector + sumator) | LPM na nodzie |
+| Zaznacz grupę nodów | `Ctrl` + przeciągnięcie LPM (prostokąt zaznaczenia) |
 | **Dodaj node-dziecko** | **PPM na nodzie** — nowy node łapie się myszy |
-| Przesuń istniejący node | LPM przeciągnięcie (próg ~6 px, więc klik dalej zaznacza) |
+| Przesuń istniejący node / grupę | LPM przeciągnięcie zaznaczonego node'a (próg ~6 px) |
 | Zatwierdź pozycję | LPM |
 | Anuluj wstawianie/przesuwanie | ESC lub PPM |
-| Usuń zaznaczony node | `Delete` albo przycisk w inspectorze |
+| Usuń zaznaczone nody | `Delete` albo przycisk w inspectorze |
+| Cofnij / ponów edycję | `Ctrl+Z` / `Ctrl+Y` |
 | Pan | PPM przeciągnięcie po pustym miejscu |
 | Zoom | kółko |
 | Scroll pionowy | Ctrl + kółko |

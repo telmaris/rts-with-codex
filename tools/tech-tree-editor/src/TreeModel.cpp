@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 
 namespace
@@ -52,6 +53,7 @@ void TreeDocument::Reload()
     }
 
     dirty = false;
+    LoadBuildingUnlocks();
 
     // Drop selections whose node disappeared from the file.
     for (auto it = taken.begin(); it != taken.end();)
@@ -60,6 +62,335 @@ void TreeDocument::Reload()
             [&](const TechnologyDefinition& definition) { return definition.id == *it; });
         it = stillExists ? std::next(it) : taken.erase(it);
     }
+    ClearHistory();
+}
+
+TreeDocument::EditSnapshot TreeDocument::CaptureSnapshot() const
+{
+    return {definitions, buildingUnlocks, buildings, taken, dirty, buildingUnlocksDirty};
+}
+
+void TreeDocument::RestoreSnapshot(const EditSnapshot& snapshot)
+{
+    definitions = snapshot.definitions;
+    buildingUnlocks = snapshot.buildingUnlocks;
+    buildings = snapshot.buildings;
+    taken = snapshot.taken;
+    dirty = snapshot.dirty;
+    buildingUnlocksDirty = snapshot.buildingUnlocksDirty;
+}
+
+bool TreeDocument::MatchesSnapshot(const EditSnapshot& snapshot) const
+{
+    if (SerializeTree(definitions) != SerializeTree(snapshot.definitions) ||
+        buildings.size() != snapshot.buildings.size() ||
+        buildingUnlocksDirty != snapshot.buildingUnlocksDirty)
+        return false;
+    for (size_t i = 0; i < buildings.size(); i++)
+    {
+        if (buildings[i].id != snapshot.buildings[i].id ||
+            buildings[i].name != snapshot.buildings[i].name ||
+            buildings[i].requiredTechnologies != snapshot.buildings[i].requiredTechnologies)
+            return false;
+    }
+    return true;
+}
+
+void TreeDocument::CommitPendingHistory()
+{
+    if (!pendingHistory.has_value())
+        return;
+    if (!MatchesSnapshot(pendingHistory.value()))
+    {
+        undoHistory.push_back({std::move(pendingHistory.value()), CaptureSnapshot()});
+        if (undoHistory.size() > HistoryCapacity)
+            undoHistory.erase(undoHistory.begin());
+        redoHistory.clear();
+    }
+    pendingHistory.reset();
+}
+
+void TreeDocument::BeginHistoryFrame()
+{
+    if (!historyTransaction && !pendingHistory.has_value())
+        pendingHistory = CaptureSnapshot();
+}
+
+void TreeDocument::CommitHistoryFrame()
+{
+    if (!historyTransaction)
+        CommitPendingHistory();
+}
+
+void TreeDocument::BeginHistoryTransaction()
+{
+    if (!pendingHistory.has_value())
+        pendingHistory = CaptureSnapshot();
+    historyTransaction = true;
+}
+
+void TreeDocument::CommitHistoryTransaction()
+{
+    if (!historyTransaction)
+        return;
+    historyTransaction = false;
+    CommitPendingHistory();
+}
+
+void TreeDocument::CancelHistoryTransaction()
+{
+    if (pendingHistory.has_value())
+        RestoreSnapshot(pendingHistory.value());
+    pendingHistory.reset();
+    historyTransaction = false;
+}
+
+bool TreeDocument::Undo()
+{
+    if (historyTransaction || undoHistory.empty())
+        return false;
+    EditCommand command = std::move(undoHistory.back());
+    undoHistory.pop_back();
+    RestoreSnapshot(command.before);
+    redoHistory.push_back(std::move(command));
+    return true;
+}
+
+bool TreeDocument::Redo()
+{
+    if (historyTransaction || redoHistory.empty())
+        return false;
+    EditCommand command = std::move(redoHistory.back());
+    redoHistory.pop_back();
+    RestoreSnapshot(command.after);
+    undoHistory.push_back(std::move(command));
+    return true;
+}
+
+void TreeDocument::ClearHistory()
+{
+    undoHistory.clear();
+    redoHistory.clear();
+    pendingHistory.reset();
+    historyTransaction = false;
+}
+
+void TreeDocument::LoadBuildingUnlocks()
+{
+    buildingUnlocks.clear();
+    buildings.clear();
+    buildingUnlocksDirty = false;
+    if (kind != TreeKind::Technology)
+        return;
+
+    buildingsPath = (std::filesystem::path(path).parent_path() / "buildings.rtsdata").string();
+    std::string buildingId;
+    std::string buildingName;
+    std::vector<std::string> requiredTechnologies;
+    int blockDepth = 0;
+
+    // Only top-level `requires_tech` belongs to a building itself. Recipe and
+    // terrain-production blocks may have their own requirements, but those
+    // unlock products rather than construction and must stay out of this list.
+    for (const auto& tokens : ReadRtsDataLines(buildingsPath))
+    {
+        if (blockDepth == 0)
+        {
+            if (tokens.size() >= 2 && tokens[0] == "building")
+            {
+                buildingId = tokens[1];
+                buildingName = buildingId;
+                requiredTechnologies.clear();
+                blockDepth = 1;
+            }
+            continue;
+        }
+
+        if (tokens[0] == "end")
+        {
+            if (--blockDepth == 0)
+            {
+                buildings.push_back({buildingId, buildingName, requiredTechnologies});
+                for (const auto& technologyId : requiredTechnologies)
+                {
+                    auto& buildings = buildingUnlocks[technologyId];
+                    if (std::find(buildings.begin(), buildings.end(), buildingName) == buildings.end())
+                        buildings.push_back(buildingName);
+                }
+            }
+            continue;
+        }
+
+        if (tokens[0] == "production" || tokens[0] == "recipe" || tokens[0] == "terrain_production")
+        {
+            blockDepth++;
+            continue;
+        }
+
+        if (blockDepth == 1 && tokens.size() >= 2)
+        {
+            if (tokens[0] == "name")
+                buildingName = tokens[1];
+            else if (tokens[0] == "requires_tech")
+                requiredTechnologies.push_back(tokens[1]);
+        }
+    }
+}
+
+const std::vector<std::string>& TreeDocument::GetUnlockedBuildings(const std::string& technologyId) const
+{
+    static const std::vector<std::string> none;
+    const auto it = buildingUnlocks.find(technologyId);
+    return it == buildingUnlocks.end() ? none : it->second;
+}
+
+std::vector<std::string> TreeDocument::GetBuildingUnlockOptions(const std::string& technologyId) const
+{
+    std::vector<std::string> result;
+    if (kind != TreeKind::Technology)
+        return result;
+
+    for (const auto& building : buildings)
+    {
+        const bool unlockedHere = std::find(building.requiredTechnologies.begin(), building.requiredTechnologies.end(), technologyId) !=
+                                  building.requiredTechnologies.end();
+        if (building.requiredTechnologies.empty() || unlockedHere)
+            result.push_back(building.name);
+    }
+    return result;
+}
+
+std::vector<std::string> TreeDocument::GetUnlockedBuildingIds(const std::string& technologyId) const
+{
+    std::vector<std::string> result;
+    for (const auto& building : buildings)
+    {
+        if (std::find(building.requiredTechnologies.begin(), building.requiredTechnologies.end(), technologyId) !=
+            building.requiredTechnologies.end())
+            result.push_back(building.id);
+    }
+    return result;
+}
+
+std::string TreeDocument::GetBuildingUnlockLabel(const std::string& buildingId) const
+{
+    const auto it = std::find_if(buildings.begin(), buildings.end(), [&](const BuildingUnlockDefinition& building)
+    {
+        return building.id == buildingId;
+    });
+    return it == buildings.end() ? buildingId : it->name;
+}
+
+std::string TreeDocument::GetBuildingUnlockIdForLabel(const std::string& label) const
+{
+    const auto it = std::find_if(buildings.begin(), buildings.end(), [&](const BuildingUnlockDefinition& building)
+    {
+        return building.name == label;
+    });
+    return it == buildings.end() ? std::string() : it->id;
+}
+
+void TreeDocument::SetBuildingUnlocks(const std::string& technologyId, const std::vector<std::string>& buildingIds)
+{
+    if (kind != TreeKind::Technology)
+        return;
+
+    for (auto& building : buildings)
+    {
+        const bool selected = std::find(buildingIds.begin(), buildingIds.end(), building.id) != buildingIds.end();
+        auto tech = std::find(building.requiredTechnologies.begin(), building.requiredTechnologies.end(), technologyId);
+        if (selected && tech == building.requiredTechnologies.end())
+        {
+            building.requiredTechnologies.push_back(technologyId);
+            buildingUnlocksDirty = true;
+        }
+        else if (!selected && tech != building.requiredTechnologies.end())
+        {
+            building.requiredTechnologies.erase(tech);
+            buildingUnlocksDirty = true;
+        }
+    }
+
+    if (!buildingUnlocksDirty)
+        return;
+
+    buildingUnlocks.clear();
+    for (const auto& building : buildings)
+        for (const auto& requiredTech : building.requiredTechnologies)
+            buildingUnlocks[requiredTech].push_back(building.name);
+    dirty = true;
+}
+
+bool TreeDocument::SaveBuildingUnlocks()
+{
+    if (!buildingUnlocksDirty)
+        return true;
+
+    std::ifstream input(buildingsPath, std::ios::binary);
+    if (!input.is_open())
+        return false;
+
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(input, line))
+        lines.push_back(line);
+
+    std::ofstream output(buildingsPath, std::ios::binary | std::ios::trunc);
+    if (!output.is_open())
+        return false;
+
+    std::string currentId;
+    int blockDepth = 0;
+    bool wroteRequirements = false;
+    auto writeRequirements = [&]()
+    {
+        const auto it = std::find_if(buildings.begin(), buildings.end(), [&](const BuildingUnlockDefinition& building)
+        {
+            return building.id == currentId;
+        });
+        if (it != buildings.end())
+            for (const auto& technologyId : it->requiredTechnologies)
+                output << "    requires_tech " << technologyId << "\n";
+        wroteRequirements = true;
+    };
+
+    for (const auto& sourceLine : lines)
+    {
+        const auto tokens = TokenizeRtsDataLine(sourceLine);
+        if (blockDepth == 0 && tokens.size() >= 2 && tokens[0] == "building")
+        {
+            currentId = tokens[1];
+            blockDepth = 1;
+            wroteRequirements = false;
+            output << sourceLine << "\n";
+            continue;
+        }
+        if (blockDepth == 1 && !tokens.empty() && tokens[0] == "requires_tech")
+        {
+            if (!wroteRequirements)
+                writeRequirements();
+            continue;
+        }
+        if (blockDepth == 1 && !tokens.empty() && tokens[0] == "end")
+        {
+            if (!wroteRequirements)
+                writeRequirements();
+            blockDepth = 0;
+            output << sourceLine << "\n";
+            continue;
+        }
+        if (blockDepth > 0 && !tokens.empty() &&
+            (tokens[0] == "production" || tokens[0] == "recipe" || tokens[0] == "terrain_production"))
+            blockDepth++;
+        else if (blockDepth > 1 && !tokens.empty() && tokens[0] == "end")
+            blockDepth--;
+        output << sourceLine << "\n";
+    }
+
+    if (!output.good())
+        return false;
+    buildingUnlocksDirty = false;
+    return true;
 }
 
 bool TreeDocument::ArePrerequisitesTaken(const TechnologyDefinition& definition) const
@@ -86,6 +417,7 @@ std::vector<ResearchNodeView> TreeDocument::BuildNodes() const
         node.prerequisites = definition.prerequisites;
         node.costs = definition.costs;
         node.modifiers = definition.modifiers;
+        node.unlockedBuildings = GetUnlockedBuildings(definition.id);
         node.tags = definition.tags;
         // Same fallbacks as ResearchCatalog: an unset lane falls back to the
         // category, an unset order to the file position.
@@ -169,6 +501,32 @@ void TreeDocument::DeleteNode(const std::string& id)
     dirty = true;
 }
 
+void TreeDocument::DeleteNodes(const std::vector<std::string>& ids)
+{
+    if (ids.empty())
+        return;
+
+    std::set<std::string> removed(ids.begin(), ids.end());
+    definitions.erase(
+        std::remove_if(definitions.begin(), definitions.end(), [&](const TechnologyDefinition& definition)
+        {
+            return removed.contains(definition.id);
+        }),
+        definitions.end());
+    for (auto& definition : definitions)
+    {
+        definition.prerequisites.erase(
+            std::remove_if(definition.prerequisites.begin(), definition.prerequisites.end(), [&](const std::string& prerequisite)
+            {
+                return removed.contains(prerequisite);
+            }),
+            definition.prerequisites.end());
+    }
+    for (const auto& id : removed)
+        taken.erase(id);
+    dirty = true;
+}
+
 bool TreeDocument::RenameNode(const std::string& oldId, const std::string& newId)
 {
     if (newId.empty() || oldId == newId || Find(newId) != nullptr)
@@ -228,6 +586,8 @@ std::vector<std::string> TreeDocument::CollectLanes() const
 SaveResult TreeDocument::Save()
 {
     SaveResult result = SaveTree(path, definitions, kind == TreeKind::Focus);
+    if (result.ok && !SaveBuildingUnlocks())
+        result = {false, "Technology tree saved, but cannot update building unlocks: " + buildingsPath};
     status = result.message;
     if (result.ok)
         dirty = false;

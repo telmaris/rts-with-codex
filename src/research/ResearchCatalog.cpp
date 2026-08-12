@@ -1,6 +1,8 @@
 #include "research/ResearchCatalog.h"
+#include "economy/BuildingConfig.h"
 #include "economy/Player.h"
 
+#include <algorithm>
 #include <limits>
 
 // Returns all technology nodes decorated with player-specific availability state.
@@ -23,6 +25,12 @@ std::vector<ResearchNodeView> ResearchCatalog::BuildView(const Player& player)
         node.prerequisites = definition.prerequisites;
         node.costs = definition.costs;
         node.modifiers = definition.modifiers;
+        for (const auto& building : GetBuildingDefinitions())
+        {
+            if (std::find(building.requiredTechnologies.begin(), building.requiredTechnologies.end(), definition.id) !=
+                building.requiredTechnologies.end())
+                node.unlockedBuildings.push_back(building.name);
+        }
         node.tags = definition.tags;
         node.layoutLane = definition.layoutLane.empty() ? definition.category : definition.layoutLane;
         node.layoutOrder = definition.layoutOrder == std::numeric_limits<int>::max() ? static_cast<int>(i) : definition.layoutOrder;

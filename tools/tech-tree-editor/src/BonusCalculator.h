@@ -22,9 +22,17 @@
 
 class TreeDocument;
 
+enum class BonusGroupKind
+{
+    Modifier,
+    BuildingUnlock
+};
+
 // One aggregated row.
 struct BonusGroup
 {
+    BonusGroupKind kind{BonusGroupKind::Modifier};
+    BalanceStat stat{BalanceStat::BuildTime};
     std::string label;       // human-readable stat + filters
     double additive{0.0};    // Σ additive
     double multiplier{1.0};  // Π multiplier

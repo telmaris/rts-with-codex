@@ -196,9 +196,12 @@ void HostSession::SendInitialSnapshot()
     if (world == nullptr || transport == nullptr)
         return;
 
-    lastSentSnapshot = world->BuildSnapshot();
-    hasLastSentSnapshot = lastSentSnapshot.IsValid();
-    std::string payload = lastSentSnapshot.Serialize();
+    std::string payload = world->SerializeSimulationState();
+    if (payload.empty())
+    {
+        Log::Msg("[Session]", "Initial simulation-state serialization failed");
+        return;
+    }
     constexpr size_t ChunkSize = 12000;
     size_t totalChunks = payload.empty() ? 0 : (payload.size() + ChunkSize - 1) / ChunkSize;
     transport->SendHostSnapshot("INIT_BEGIN " + std::to_string(world->GetSimulationTick()) + " " +
@@ -218,9 +221,44 @@ void HostSession::SendCorrectionSnapshot()
     if (world == nullptr || transport == nullptr)
         return;
 
-    std::string payload = world->BuildSnapshot().Serialize();
-    transport->SendHostSnapshot(payload);
-    Log::Msg("[Session]", "Correction snapshot queued: bytes=", payload.size());
+    // The TCP protocol limits each snapshot frame to 32 KiB. Reuse the
+    // established initial-sync envelope so a corrective snapshot cannot turn
+    // into one unbounded transport message on a larger map.
+    std::string payload = world->SerializeSimulationState();
+    if (payload.empty())
+    {
+        Log::Msg("[Session]", "Correction simulation-state serialization failed");
+        return;
+    }
+    constexpr size_t ChunkSize = 12000;
+    size_t totalChunks = payload.empty() ? 0 : (payload.size() + ChunkSize - 1) / ChunkSize;
+    transport->SendHostSnapshot("INIT_BEGIN " + std::to_string(world->GetSimulationTick()) + " " +
+                                std::to_string(payload.size()) + " " + std::to_string(totalChunks));
+    for (size_t i = 0; i < totalChunks; ++i)
+    {
+        size_t offset = i * ChunkSize;
+        transport->SendHostSnapshot("INIT_CHUNK " + std::to_string(i) + " " + payload.substr(offset, ChunkSize));
+    }
+    transport->SendHostSnapshot("INIT_END");
+    Log::Msg("[Session]", "Correction snapshot queued: bytes=", payload.size(), " chunks=", totalChunks);
+}
+
+void HostSession::RememberRemoteCommandResult(const GameCommandResult& result)
+{
+    if (pendingRemoteCommandIds.erase(result.commandId) == 0 &&
+        !completedRemoteCommandResults.contains(result.commandId))
+        return;
+
+    if (!completedRemoteCommandResults.contains(result.commandId))
+        completedRemoteCommandOrder.push_back(result.commandId);
+    completedRemoteCommandResults[result.commandId] = result;
+
+    while (completedRemoteCommandOrder.size() > MaxRememberedRemoteCommands)
+    {
+        const std::uint64_t expiredId = completedRemoteCommandOrder.front();
+        completedRemoteCommandOrder.pop_front();
+        completedRemoteCommandResults.erase(expiredId);
+    }
 }
 
 void HostSession::RunSimulationTick()
@@ -266,6 +304,32 @@ void HostSession::RunSimulationTick()
             {
                 const std::uint64_t authoritativeTargetTick = world->GetSimulationTick() + inputDelayTicks;
                 command.targetTick = authoritativeTargetTick;
+                if (command.commandId == 0)
+                {
+                    GameCommandResult rejected{
+                        command.commandId,
+                        world->GetSimulationTick(),
+                        authoritativeTargetTick,
+                        command.playerId,
+                        command.type,
+                        false,
+                        "rejected: missing command id",
+                        command.Serialize()};
+                    RememberRemoteCommandResult(rejected);
+                    commandResults.push_back(rejected);
+                    transport->SendHostResult(rejected.Serialize());
+                    continue;
+                }
+                if (const auto completed = completedRemoteCommandResults.find(command.commandId);
+                    completed != completedRemoteCommandResults.end())
+                {
+                    // Replayed input gets the original answer; the world
+                    // mutation must happen at most once.
+                    transport->SendHostResult(completed->second.Serialize());
+                    continue;
+                }
+                if (pendingRemoteCommandIds.contains(command.commandId))
+                    continue;
                 if (command.playerId != remotePlayerId)
                 {
                     GameCommandResult rejected{
@@ -277,10 +341,13 @@ void HostSession::RunSimulationTick()
                         false,
                         "rejected: wrong player slot",
                         command.Serialize()};
+                    pendingRemoteCommandIds.insert(command.commandId);
+                    RememberRemoteCommandResult(rejected);
                     commandResults.push_back(rejected);
                     transport->SendHostResult(rejected.Serialize());
                     continue;
                 }
+                pendingRemoteCommandIds.insert(command.commandId);
                 world->SubmitCommand(command, authoritativeTargetTick);
             }
         }
@@ -308,6 +375,7 @@ void HostSession::RunSimulationTick()
 
         for (const auto& result : results)
         {
+            RememberRemoteCommandResult(result);
             commandResults.push_back(result);
             frame.results.push_back(result);
         }
@@ -361,14 +429,47 @@ ClientSession::ClientSession(GameWorld* observedWorld, std::shared_ptr<IGameTran
 {
 }
 
+void ClientSession::HandleAuthoritativeResult(const GameCommandResult& result)
+{
+    const auto key = std::make_pair(result.playerId, result.commandId);
+    if (!observedCommandResults.insert(key).second)
+        return;
+    observedCommandResultOrder.push_back(key);
+    while (observedCommandResultOrder.size() > MaxObservedCommandResults)
+    {
+        observedCommandResults.erase(observedCommandResultOrder.front());
+        observedCommandResultOrder.pop_front();
+    }
+
+    if (result.accepted && observedWorld != nullptr && !result.commandPayload.empty())
+    {
+        GameCommand command;
+        if (GameCommand::TryDeserialize(result.commandPayload, command))
+        {
+            if (observedWorld->GetSimulationTick() < result.simulationTick)
+                observedWorld->SubmitCommand(command, command.targetTick);
+            else
+                observedWorld->ApplyAuthoritativeCommand(command);
+        }
+    }
+    if (result.playerId == assignedPlayerId)
+        pendingClientCommandPayloads.erase(result.commandId);
+    commandResults.push_back(result);
+}
+
 std::uint64_t ClientSession::SubmitCommand(const GameCommand& command)
 {
     GameCommand outbound = command;
     outbound.playerId = assignedPlayerId;
     if (outbound.commandId == 0)
         outbound.commandId = nextClientCommandId++;
+    const std::string payload = outbound.Serialize();
+    pendingClientCommandPayloads[outbound.commandId] = payload;
     if (transport != nullptr)
-        transport->SendClientCommand(outbound.Serialize());
+    {
+        transport->SendClientCommand(payload);
+        wasConnected = transport->IsConnected();
+    }
     return outbound.commandId;
 }
 
@@ -380,7 +481,24 @@ void ClientSession::Update(double dt)
     if (resyncRequestCooldown > 0.0)
         resyncRequestCooldown = std::max(0.0, resyncRequestCooldown - dt);
 
-    hadConnection = hadConnection || transport->IsConnected();
+    const bool connectedNow = transport->IsConnected();
+    hadConnection = hadConnection || connectedNow;
+    if (connectedNow && !wasConnected)
+    {
+        for (const auto& [commandId, payload] : pendingClientCommandPayloads)
+        {
+            (void)commandId;
+            transport->SendClientCommand(payload);
+        }
+    }
+    wasConnected = connectedNow;
+    // TCP preserves wire order, but IGameTransport exposes snapshot and event
+    // queues separately. Drain/apply the recovery state first so frames sent
+    // by the host after INIT_END are applied to the restored world, never the
+    // stale mirror that existed before correction.
+    for (const auto& payload : transport->ReceiveClientSnapshots())
+        HandleSnapshotPayload(payload);
+
     for (const auto& payload : transport->ReceiveClientFrames())
     {
         GameServerFrame frame;
@@ -388,20 +506,7 @@ void ClientSession::Update(double dt)
             continue;
 
         for (const auto& result : frame.results)
-        {
-            if (result.accepted && observedWorld != nullptr && !result.commandPayload.empty())
-            {
-                GameCommand command;
-                if (GameCommand::TryDeserialize(result.commandPayload, command))
-                {
-                    if (observedWorld->GetSimulationTick() < result.simulationTick)
-                        observedWorld->SubmitCommand(command, command.targetTick);
-                    else
-                        observedWorld->ApplyAuthoritativeCommand(command);
-                }
-            }
-            commandResults.push_back(result);
-        }
+            HandleAuthoritativeResult(result);
 
         if (observedWorld != nullptr && initialSnapshotReceived)
         {
@@ -436,25 +541,7 @@ void ClientSession::Update(double dt)
     {
         GameCommandResult result;
         if (GameCommandResult::TryDeserialize(payload, result))
-        {
-            if (result.accepted && observedWorld != nullptr && !result.commandPayload.empty())
-            {
-                GameCommand command;
-                if (GameCommand::TryDeserialize(result.commandPayload, command))
-                {
-                    if (observedWorld->GetSimulationTick() < result.simulationTick)
-                        observedWorld->SubmitCommand(command, command.targetTick);
-                    else
-                        observedWorld->ApplyAuthoritativeCommand(command);
-                }
-            }
-            commandResults.push_back(std::move(result));
-        }
-    }
-
-    for (const auto& payload : transport->ReceiveClientSnapshots())
-    {
-        HandleSnapshotPayload(payload);
+            HandleAuthoritativeResult(result);
     }
 
     (void)dt;
@@ -513,6 +600,16 @@ void ClientSession::HandleSnapshotPayload(const std::string& payload)
         size_t totalChunks = 0;
         if (in >> tick >> totalBytes >> totalChunks)
         {
+            if (totalBytes > MaxInitialSnapshotBytes || totalChunks > MaxInitialSnapshotChunks ||
+                (totalBytes == 0 && totalChunks != 0) || (totalBytes != 0 && totalChunks == 0))
+            {
+                initialSnapshotFailed = true;
+                initialSnapshotReceived = false;
+                syncStatus = "Map sync failed: invalid manifest";
+                Log::Msg("[Session]", "Rejected initial snapshot manifest: bytes=", totalBytes,
+                         " chunks=", totalChunks);
+                return;
+            }
             initialSnapshotBuffer.clear();
             initialSnapshotChunks.clear();
             initialSnapshotChunks.resize(totalChunks);
@@ -520,8 +617,18 @@ void ClientSession::HandleSnapshotPayload(const std::string& payload)
             expectedInitialSnapshotBytes = totalBytes;
             expectedInitialSnapshotChunks = totalChunks;
             receivedInitialSnapshotChunks = 0;
+            receivedInitialSnapshotBytes = 0;
+            expectedInitialSnapshotTick = tick;
+            initialSnapshotReceived = false;
+            initialSnapshotFailed = false;
             syncStatus = "Syncing map 0/" + std::to_string(totalChunks);
             Log::Msg("[Session]", "Receiving initial snapshot: bytes=", totalBytes, " chunks=", totalChunks);
+        }
+        else
+        {
+            initialSnapshotFailed = true;
+            initialSnapshotReceived = false;
+            syncStatus = "Map sync failed: malformed manifest";
         }
         return;
     }
@@ -538,24 +645,48 @@ void ClientSession::HandleSnapshotPayload(const std::string& payload)
         }
         catch (...)
         {
+            initialSnapshotFailed = true;
             syncStatus = "Map sync failed";
             return;
         }
         if (index >= initialSnapshotChunks.size())
-            return;
-        if (!initialSnapshotChunkReceived[index])
         {
-            initialSnapshotChunkReceived[index] = true;
-            receivedInitialSnapshotChunks++;
+            initialSnapshotFailed = true;
+            syncStatus = "Map sync failed: chunk index out of range";
+            return;
         }
-        initialSnapshotChunks[index] = payload.substr(firstSpace + 1);
+        std::string chunk = payload.substr(firstSpace + 1);
+        if (chunk.size() > expectedInitialSnapshotBytes ||
+            (!initialSnapshotChunkReceived[index] &&
+             chunk.size() > expectedInitialSnapshotBytes - receivedInitialSnapshotBytes))
+        {
+            initialSnapshotFailed = true;
+            syncStatus = "Map sync failed: chunk exceeds manifest";
+            return;
+        }
+        if (initialSnapshotChunkReceived[index])
+        {
+            if (initialSnapshotChunks[index] != chunk)
+            {
+                initialSnapshotFailed = true;
+                syncStatus = "Map sync failed: conflicting duplicate chunk";
+            }
+            return;
+        }
+        initialSnapshotChunkReceived[index] = true;
+        receivedInitialSnapshotChunks++;
+        receivedInitialSnapshotBytes += chunk.size();
+        initialSnapshotChunks[index] = std::move(chunk);
         syncStatus = "Syncing map " + std::to_string(receivedInitialSnapshotChunks) + "/" + std::to_string(expectedInitialSnapshotChunks);
         return;
     }
 
     if (payload == "INIT_END")
     {
-        if (receivedInitialSnapshotChunks != expectedInitialSnapshotChunks)
+        if (initialSnapshotFailed)
+            return;
+        if (receivedInitialSnapshotChunks != expectedInitialSnapshotChunks ||
+            receivedInitialSnapshotBytes != expectedInitialSnapshotBytes)
         {
             syncStatus = "Waiting for map chunks";
             return;
@@ -565,11 +696,11 @@ void ClientSession::HandleSnapshotPayload(const std::string& payload)
         for (const auto& chunk : initialSnapshotChunks)
             initialSnapshotBuffer += chunk;
 
-        GameSnapshot snapshot;
-        if (initialSnapshotBuffer.size() == expectedInitialSnapshotBytes &&
-            GameSnapshot::TryDeserialize(initialSnapshotBuffer, snapshot))
+        if (initialSnapshotBuffer.size() == expectedInitialSnapshotBytes && observedWorld != nullptr &&
+            observedWorld->RestoreSimulationState(initialSnapshotBuffer, assignedPlayerId) &&
+            observedWorld->GetSimulationTick() == expectedInitialSnapshotTick)
         {
-            latestNetworkSnapshot = std::move(snapshot);
+            latestNetworkSnapshot = observedWorld->BuildSnapshot();
             hasNetworkSnapshot = true;
             initialSnapshotReceived = true;
             syncStatus = "Map synchronized";
@@ -582,6 +713,7 @@ void ClientSession::HandleSnapshotPayload(const std::string& payload)
             initialSnapshotChunks.shrink_to_fit();
             initialSnapshotChunkReceived.clear();
             initialSnapshotChunkReceived.shrink_to_fit();
+            receivedInitialSnapshotBytes = 0;
         }
         else
         {

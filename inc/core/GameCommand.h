@@ -27,6 +27,9 @@ enum class GameCommandType
 
 struct GameCommand
 {
+    static constexpr std::size_t MaxSerializedBytes = 64 * 1024;
+    static constexpr int MaxUnitInstanceIds = 1024;
+    static constexpr std::size_t MaxResearchIdBytes = 256;
     // TD(etap-1): dropped the old war system's command types (IssueMilitaryOrder,
     // MoveDivision, FormArmy, AttackTile, AssignToArmy, RecruitUnit) and their wire
     // fields (militaryOrderType, militaryUnitType, divisionId) — replacements land
@@ -174,6 +177,8 @@ struct GameCommand
 
     static bool TryDeserialize(const std::string& payload, GameCommand& command)
     {
+        if (payload.size() > MaxSerializedBytes)
+            return false;
         Archive ar(payload, WireVersion);
         if (!ar.IsValid())
             return false;
@@ -205,7 +210,8 @@ struct GameCommand
            >> researchId
            >> unitInstanceIdCount;
 
-        if (!ar.IsValid() || !IsValidType(type) || unitInstanceIdCount < 0)
+        if (!ar.IsValid() || !IsValidType(type) || unitInstanceIdCount < 0 ||
+            unitInstanceIdCount > MaxUnitInstanceIds || researchId.size() > MaxResearchIdBytes)
             return false;
 
         std::vector<int> unitInstanceIds;
@@ -271,6 +277,8 @@ struct GameCommand
 
 struct GameCommandResult
 {
+    static constexpr std::size_t MaxSerializedBytes = 256 * 1024;
+    static constexpr std::size_t MaxReasonBytes = 1024;
     static constexpr int WireVersion = 3;
 
     std::uint64_t commandId{0};
@@ -298,6 +306,8 @@ struct GameCommandResult
 
     static bool TryDeserialize(const std::string& payload, GameCommandResult& result)
     {
+        if (payload.size() > MaxSerializedBytes)
+            return false;
         Archive ar(payload, WireVersion);
         if (!ar.IsValid())
             return false;
@@ -320,7 +330,8 @@ struct GameCommandResult
            >> reason
            >> commandPayload;
 
-        if (!ar.IsValid() || !GameCommand::IsValidType(type))
+        if (!ar.IsValid() || !GameCommand::IsValidType(type) ||
+            reason.size() > MaxReasonBytes || commandPayload.size() > GameCommand::MaxSerializedBytes)
             return false;
 
         GameCommandResult parsed;
@@ -340,6 +351,8 @@ struct GameCommandResult
 struct GameServerFrame
 {
     static constexpr int WireVersion = 1;
+    static constexpr std::size_t MaxSerializedBytes = 256 * 1024;
+    static constexpr std::size_t MaxResults = 256;
 
     std::uint64_t tick{0};
     std::uint64_t checksum{0};
@@ -364,13 +377,15 @@ struct GameServerFrame
 
     static bool TryDeserialize(const std::string& payload, GameServerFrame& frame)
     {
+        if (payload.size() > MaxSerializedBytes)
+            return false;
         std::istringstream stream(payload);
         int version = 0;
         int hasChecksum = 0;
         size_t resultCount = 0;
         GameServerFrame parsed;
         stream >> version >> parsed.tick >> hasChecksum >> parsed.checksum >> resultCount;
-        if (!stream || version != SerializationVersion::GameServerFrameVersion)
+        if (!stream || version != SerializationVersion::GameServerFrameVersion || resultCount > MaxResults)
             return false;
 
         parsed.hasChecksum = hasChecksum != 0;

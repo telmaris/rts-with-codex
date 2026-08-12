@@ -8,22 +8,33 @@
 // and can be retuned from one place instead of scattered Color literals.
 namespace UiTheme
 {
-    // Wood / leather neutrals, darkest to lightest.
-    constexpr Color Ink    {20, 14, 10, 255};  // deepest background (game viewport clear)
-    constexpr Color Bark   {40, 29, 21, 255};  // panel body
-    constexpr Color Oak    {56, 41, 29, 255};  // title bars, header strips, cards
-    constexpr Color Timber {78, 58, 41, 255};  // hover / raised surfaces
+    // Neutral castle metals, darkest to lightest. Blue is deliberately not a
+    // base surface; it is reserved for small interactive accents.
+    // Historic names are kept for source compatibility with existing widgets.
+    constexpr Color Ink    {8, 9, 11, 255};    // near-black background
+    constexpr Color Bark   {17, 18, 21, 255};  // charcoal panel body
+    constexpr Color Oak    {29, 31, 35, 255};  // graphite title bars/cards
+    constexpr Color Timber {53, 56, 61, 255};  // raised neutral surface
+
+    // Shared UI surfaces. Use these rather than local brown literals so the
+    // menu, in-game widgets and large strategic panels belong to one system.
+    constexpr Color Panel        {17, 18, 21, 245};
+    constexpr Color Surface      {31, 33, 38, 245};
+    constexpr Color SurfaceHover {44, 48, 55, 250};
+    constexpr Color Inset        {9, 10, 12, 238};
+    constexpr Color InsetHover   {23, 25, 29, 245};
 
     // Metal accents.
-    constexpr Color Bronze {150, 108, 58, 255}; // default borders, dividers
-    constexpr Color Iron   {96, 82, 66, 255};   // muted / disabled borders
-    constexpr Color Gold   {214, 170, 86, 255}; // selection, hover accents, highlights
-    constexpr Color Cyan   {96, 202, 210, 255}; // category / taxonomy label
+    constexpr Color Bronze {180, 181, 178, 255}; // steel borders, dividers
+    constexpr Color Iron   {103, 107, 113, 255}; // muted / disabled borders
+    constexpr Color Gold   {218, 202, 145, 255}; // restrained royal highlights
+    constexpr Color Cyan   {96, 174, 190, 255}; // the restrained blue accent
+    constexpr Color SteelHover {210, 212, 214, 255};
 
     // Text.
-    constexpr Color Parchment      {236, 220, 190, 255}; // primary text (replaces RAYWHITE)
-    constexpr Color ParchmentDim   {184, 162, 128, 255}; // muted / secondary text
-    constexpr Color ParchmentFaint {138, 120, 96, 255};  // disabled / locked text
+    constexpr Color Parchment      {238, 234, 218, 255}; // primary text (replaces RAYWHITE)
+    constexpr Color ParchmentDim   {195, 195, 188, 255}; // muted / secondary text
+    constexpr Color ParchmentFaint {139, 141, 143, 255}; // disabled / locked text
 
     // Status.
     constexpr Color Sage {150, 180, 98, 255};  // positive / affordable / ok
@@ -35,10 +46,12 @@ namespace UiTheme
     constexpr Color AmberBright {224, 188, 120, 255}; // informational highlight (replaces cool blue accents)
 
     // Pre-alpha'd fills/borders for specific chrome states.
-    constexpr Color SelectedFill   {66, 82, 52, 245};
-    constexpr Color SelectedBorder {182, 214, 120, 220};
-    constexpr Color DangerFill     {132, 58, 42, 255};
-    constexpr Color DangerBorder   {214, 128, 92, 255};
+    constexpr Color SelectedFill   {38, 56, 61, 245};
+    constexpr Color SelectedBorder {132, 211, 180, 220};
+    constexpr Color DangerFill     {104, 43, 54, 255};
+    constexpr Color DangerBorder   {208, 110, 124, 255};
+    constexpr Color Oxblood        {82, 24, 34, 255};
+    constexpr Color OxbloodHover   {118, 36, 49, 255};
 }
 
 #endif

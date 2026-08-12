@@ -13,7 +13,7 @@ void GameWindow::LaunchGame()
     SetWindowSize(GetMonitorWidth(monitor), GetMonitorHeight(monitor));
     SetWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
     SetWindowMinSize(960, 540);
-    GuiPanel::LoadUiFont("assets/fonts/MarcellusSC-Regular.ttf");
+    GuiPanel::LoadUiFont("assets/fonts/EBGaramond-VariableFont_wght.ttf");
     UiControlIcons::Load();
 
     InitAudioDevice();

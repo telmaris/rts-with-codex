@@ -15,8 +15,8 @@
 // Which typeface subsequent UiText calls use.
 enum class UiFontRole
 {
-    // The game's decorative face (MarcellusSC). Small-caps serif: right for
-    // titles and map/tree chrome, hard to read at small sizes.
+    // The game's primary serif face (Crimson Pro), used for titles, panel
+    // chrome and ordinary UI text.
     Display,
     // A plain UI face for dense forms and long value strings. Falls back to
     // raylib's built-in font when none is loaded, so this is always safe.

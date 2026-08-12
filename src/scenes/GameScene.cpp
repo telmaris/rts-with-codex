@@ -31,7 +31,7 @@ namespace
             {
                 // These atlases are tile-sized and used by the world pass;
                 // standalone building art stays on its dedicated renderer path.
-                if ((atlas.id != 0 && atlas.id != 19 && atlas.id != 41 && atlas.id != 144 && atlas.id != 145 && atlas.id != 146) || atlas.path.empty() ||
+                if ((atlas.id != 0 && atlas.id != 1 && atlas.id != 19 && atlas.id != 41 && atlas.id != 144 && atlas.id != 145 && atlas.id != 146) || atlas.path.empty() ||
                     !FileExists(atlas.path.c_str()))
                     continue;
                 renderer.atlasMap[atlas.id] = TextureAtlas{};
@@ -373,7 +373,8 @@ namespace
                 scene.networkStatusLabel.ChangeText("Ping " + std::to_string(pingMs) + " ms");
                 widgets.push_back(&scene.networkStatusLabel);
             }
-            else if (!connectionStatus.empty() && connectionStatus != "Connected")
+            else if (!connectionStatus.empty() && connectionStatus != "Connected" &&
+                     connectionStatus != "Single player")
             {
                 scene.networkStatusLabel.ChangeText(connectionStatus);
                 widgets.push_back(&scene.networkStatusLabel);

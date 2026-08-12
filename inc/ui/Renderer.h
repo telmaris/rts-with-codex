@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "core/GameSnapshot.h"
 #include "raylib.h"
+#include "simulation/ShipmentRenderState.h"
 #include "ui/Gui.h"
 #include "ui/ShaderLibrary.h"
 #include "ui/WorldLighting.h"
@@ -248,6 +249,9 @@ class Renderer
     // position-stable material variants in atlas 146. It uses the same
     // West=1, East=2, North=4, South=8 canonical mask order as resource roads.
     void DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint = WHITE);
+    // Draws pointer-free in-flight resource views on the currently active
+    // dynamic layer. The caller owns BeginLayer/EndLayer.
+    void DrawShipments(const std::vector<ShipmentRenderState>& shipments, Vec2i mapSize);
     // Same, picking the frame from the type's registered animation clip and elapsed time.
     void DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos, Color tint, float elapsedTime,
                              Color ownerColor = WHITE, bool applyTeamColor = false);

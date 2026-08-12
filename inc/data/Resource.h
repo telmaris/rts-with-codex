@@ -133,83 +133,117 @@ enum class ResourceType : uint8_t
 
 };
 
-// Resource types supported by the data-driven resource catalog.
+// Resource types supported by the data-driven resource catalog, in their
+// player-facing presentation order.  Keep this separate from the numeric
+// ResourceType ids: ids are serialized in saves and multiplayer snapshots,
+// while this order is safe to tune for coherent storage/UI panels.
+//
+// The order is grouped by material family, then by processing stage within a
+// family. This makes a full warehouse read as distinct thematic blocks rather
+// than one long production-chain timeline.
 constexpr ResourceType resourceTypes[] = 
 {
+    // Timber
     ResourceType::WOOD,
     ResourceType::PLANKS,
-    ResourceType::LEATHER,
-    ResourceType::COAL,
+
+    // Stone, clay and sand products
     ResourceType::STONE,
-    ResourceType::WHEAT,
-    ResourceType::FLOUR,
-    ResourceType::BREAD,
-    ResourceType::MEAT,
-    ResourceType::WATER,
-    ResourceType::BEER,
-    ResourceType::COINS,
-    ResourceType::PAPER,
-    ResourceType::TOOLS,
-    ResourceType::FOOD_PROVISIONS,
-    ResourceType::IRON_SWORD,
-    ResourceType::STEEL_SWORD,
-    ResourceType::BOW,
-    ResourceType::ARROWS,
-    ResourceType::HORSE,
-    ResourceType::BRONZE_SWORD,
-    ResourceType::SPEAR,
-    ResourceType::CROSSBOW,
-    ResourceType::BOLTS,
-    ResourceType::WOODEN_SHIELD,
-    ResourceType::IRON_SHIELD,
-    ResourceType::LEATHER_ARMOR,
-    ResourceType::IRON_ARMOR,
+    ResourceType::CLAY,
+    ResourceType::SAND,
+    ResourceType::BRICKS,
+    ResourceType::POTTERY,
+    ResourceType::GLASS,
+
+    // Fuel and chemical inputs
+    ResourceType::COAL,
+    ResourceType::SULFUR,
+    ResourceType::SALTPETER,
+    ResourceType::COKE,
+    ResourceType::GUNPOWDER,
+
+    // Metals and metalworking
     ResourceType::COPPER_ORE,
     ResourceType::COPPER,
+    ResourceType::COPPERWARE,
+    ResourceType::COPPER_VESSEL,
+    ResourceType::COPPER_PIPE,
+    ResourceType::TIN_ORE,
+    ResourceType::TIN,
+    ResourceType::BRONZE,
     ResourceType::IRON_ORE,
     ResourceType::IRON,
+    ResourceType::STEEL,
     ResourceType::SILVER_ORE,
     ResourceType::SILVER,
     ResourceType::GOLD_ORE,
     ResourceType::GOLD,
-    ResourceType::TIN_ORE,
-    ResourceType::SAND,
-    ResourceType::SULFUR,
-    ResourceType::SALTPETER,
-    ResourceType::TIN,
-    ResourceType::BRONZE,
-    ResourceType::COKE,
-    ResourceType::STEEL,
-    ResourceType::GLASS,
-    ResourceType::GUNPOWDER,
-    ResourceType::MUSKET,
-    ResourceType::CARTRIDGE,
-    ResourceType::CLAY,
+    ResourceType::TOOLS,
+    ResourceType::MECHANICAL_PARTS,
+
+    // Food and consumables
+    ResourceType::WHEAT,
+    ResourceType::FLOUR,
+    ResourceType::BREAD,
+    ResourceType::WATER,
+    ResourceType::BEER,
+    ResourceType::MEAT,
+    ResourceType::FOOD_PROVISIONS,
+
+    // Animals and their by-products
     ResourceType::CATTLE,
     ResourceType::RAW_HIDE,
+    ResourceType::LEATHER,
     ResourceType::TALLOW,
-    ResourceType::CLOTHES,
-    ResourceType::POTTERY,
-    ResourceType::HOUSEHOLD_GOODS,
-    ResourceType::SOAP,
-    ResourceType::INK,
-    ResourceType::BOOKS,
-    ResourceType::COPPERWARE,
-    ResourceType::URBAN_GOODS,
+    ResourceType::HORSE,
+
+    // Plant fibres and textiles
     ResourceType::HEMP,
     ResourceType::FIBRE,
     ResourceType::ROPE,
-    ResourceType::COPPER_VESSEL,
-    ResourceType::COPPER_PIPE,
-    ResourceType::MECHANICAL_PARTS,
-    ResourceType::HEAVY_BOW,
-    ResourceType::HEAVY_ARMOR,
-    ResourceType::BRICKS,
     ResourceType::CLOTH,
+    ResourceType::CLOTHES,
+
+    // Settlement, knowledge and trade goods
+    ResourceType::PAPER,
+    ResourceType::INK,
+    ResourceType::BOOKS,
+    ResourceType::SOAP,
+    ResourceType::HOUSEHOLD_GOODS,
+    ResourceType::URBAN_GOODS,
+    ResourceType::COINS,
+
+    // Weapons, ammunition, protection and siege equipment
+    ResourceType::SPEAR,
+    ResourceType::BRONZE_SWORD,
+    ResourceType::IRON_SWORD,
+    ResourceType::STEEL_SWORD,
+    ResourceType::BOW,
+    ResourceType::ARROWS,
+    ResourceType::HEAVY_BOW,
+    ResourceType::CROSSBOW,
+    ResourceType::BOLTS,
+    ResourceType::MUSKET,
+    ResourceType::CARTRIDGE,
+    ResourceType::WOODEN_SHIELD,
+    ResourceType::IRON_SHIELD,
+    ResourceType::LEATHER_ARMOR,
+    ResourceType::IRON_ARMOR,
+    ResourceType::HEAVY_ARMOR,
     ResourceType::BALLISTA,
     ResourceType::BATTERING_RAM,
     ResourceType::CATAPULT
 };
+
+// Sort key for UI lists.  Unknown/retired values intentionally appear after
+// the catalog rather than disappearing from a loaded legacy save.
+inline int ResourcePresentationRank(ResourceType type)
+{
+    for (int index = 0; index < static_cast<int>(std::size(resourceTypes)); ++index)
+        if (resourceTypes[index] == type)
+            return index;
+    return static_cast<int>(std::size(resourceTypes)) + static_cast<int>(type);
+}
 
 // Converts resource type to a readable debug label.
 inline std::string rt2s(ResourceType s)

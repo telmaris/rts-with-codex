@@ -24,11 +24,13 @@ add_executable(rts_tests
     EliminationTests.cpp
     EconomyExpansionTests.cpp
     FogOfWarTests.cpp
+    FaultInjectingGameTransportTests.cpp
     GameCommandTests.cpp
     GameSnapshotTests.cpp
     HqCombatSystemTests.cpp
     MapGeneratorTests.cpp
     MilitaryRoadNetworkTests.cpp
+    NetworkProtocolTests.cpp
     PathingServiceTests.cpp
     PlayerEconomyTests.cpp
     RendererAnimationTests.cpp
@@ -36,6 +38,8 @@ add_executable(rts_tests
     RoadNetworkTests.cpp
     GameSessionPauseTests.cpp
     SimulationStateTests.cpp
+    SnapshotTransferTests.cpp
+    TcpGameTransportTests.cpp
     TileMapDomainTests.cpp
     TechnologyTests.cpp
     TowerAttackSystemTests.cpp

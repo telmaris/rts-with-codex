@@ -201,6 +201,7 @@ public:
     bool IsUnderConstruction() const { return constructionRemaining > 0.0; }
     float GetConstructionProgress() const;
     double GetModifiedTransportTime() const;
+    double GetModifiedDispatchDelay(ResourceType resourceType = ResourceType::Null) const;
 
     // Component registry — subclass constructors call RegisterComponent for each owned component.
     template<typename T>
@@ -257,6 +258,7 @@ public:
     std::string tag;
     std::vector<Transportable*> transportables;
     Stat<double> transportTime{BalanceStat::TransportTime, 0.0};
+    Stat<double> dispatchDelay{BalanceStat::TransportDispatchDelay, 0.3};
     Vec2i footprint{1, 1};
     int textureId{0};
     bool productionBlocked{false};

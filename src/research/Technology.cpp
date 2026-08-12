@@ -29,6 +29,7 @@ namespace
         if (value == "ProductionOutputAmount") return BalanceStat::ProductionOutputAmount;
         if (value == "WorkerCapacity") return BalanceStat::WorkerCapacity;
         if (value == "TransportTime") return BalanceStat::TransportTime;
+        if (value == "TransportDispatchDelay") return BalanceStat::TransportDispatchDelay;
         if (value == "RoadCapacity") return BalanceStat::RoadCapacity;
         if (value == "RoadSpeed") return BalanceStat::RoadSpeed;
         if (value == "ManpowerRate") return BalanceStat::ManpowerRate;
@@ -168,6 +169,7 @@ namespace
                     AddTag(definition.tags, "production");
                     break;
                 case BalanceStat::TransportTime:
+                case BalanceStat::TransportDispatchDelay:
                 case BalanceStat::RoadCapacity:
                 case BalanceStat::RoadSpeed:
                     AddTag(definition.tags, "logistics");
@@ -784,6 +786,21 @@ void FocusState::RestoreFocus(const std::string& id)
 {
     if (FindFocusDefinition(id) != nullptr)
         unlocked.insert(id);
+}
+
+bool FocusState::RestoreActiveFocus(const std::string& id, double remaining)
+{
+    if (id.empty())
+    {
+        activeFocusId.clear();
+        activeFocusRemaining = 0.0;
+        return remaining == 0.0;
+    }
+    if (FindFocusDefinition(id) == nullptr || !std::isfinite(remaining) || remaining < 0.0 || HasFocus(id))
+        return false;
+    activeFocusId = id;
+    activeFocusRemaining = remaining;
+    return true;
 }
 
 void FocusState::Clear()

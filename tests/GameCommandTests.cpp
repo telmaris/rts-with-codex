@@ -1,6 +1,7 @@
 ﻿#include "core/GameCommand.h"
 #include "core/GameSession.h"
 #include "core/GameWorld.h"
+#include "multiplayer/FaultInjectingGameTransport.h"
 
 #include <gtest/gtest.h>
 
@@ -157,6 +158,124 @@ TEST(GameCommandTests, HostRejectsTransportCommandForWrongPlayerSlot)
     EXPECT_FALSE(results.front().accepted);
     EXPECT_EQ(results.front().reason, "rejected: wrong player slot");
     EXPECT_LT(results.front().targetTick, 999999u);
+}
+
+TEST(GameCommandTests, HostReplaysCachedResultForDuplicateRemoteCommandWithoutSecondExecution)
+{
+    GameWorld world;
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    HostSession host(world, transport, 1);
+
+    GameCommand command = GameCommand::DestroyBuilding(0, 123);
+    command.commandId = 901;
+    transport->SendClientCommand(command.Serialize());
+
+    std::vector<GameCommandResult> firstResults;
+    for (int i = 0; i < 30 && firstResults.empty(); ++i)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        firstResults = host.ConsumeCommandResults();
+    }
+    ASSERT_EQ(firstResults.size(), 1u);
+
+    std::vector<std::string> firstReplies;
+    for (int i = 0; i < 30 && firstReplies.empty(); ++i)
+    {
+        firstReplies = transport->ReceiveClientResults();
+        if (firstReplies.empty())
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(firstReplies.size(), 1u);
+
+    transport->SendClientCommand(command.Serialize());
+    std::vector<std::string> replayReplies;
+    for (int i = 0; i < 30 && replayReplies.empty(); ++i)
+    {
+        replayReplies = transport->ReceiveClientResults();
+        if (replayReplies.empty())
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(replayReplies.size(), 1u);
+    EXPECT_EQ(replayReplies.front(), firstReplies.front());
+    EXPECT_TRUE(host.ConsumeCommandResults().empty());
+}
+
+TEST(GameCommandTests, ClientSessionSuppressesDuplicateAuthoritativeResult)
+{
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    ClientSession client(nullptr, transport, 1);
+
+    GameCommandResult result;
+    result.commandId = 77;
+    result.simulationTick = 12;
+    result.targetTick = 12;
+    result.playerId = 1;
+    result.type = GameCommandType::DestroyBuilding;
+    result.accepted = false;
+    result.reason = "rejected";
+    transport->SendHostResult(result.Serialize());
+    transport->SendHostResult(result.Serialize());
+
+    client.Update(0.0);
+    const auto received = client.ConsumeCommandResults();
+    ASSERT_EQ(received.size(), 1u);
+    EXPECT_EQ(received.front().commandId, result.commandId);
+}
+
+TEST(GameCommandTests, ClientSessionReplaysOnlyUnacknowledgedCommandsAfterReconnect)
+{
+    auto transport = std::make_shared<FaultInjectingGameTransport>();
+    ClientSession client(nullptr, transport, 1);
+
+    transport->SetConnected(false);
+    client.Update(0.0);
+    const std::uint64_t commandId = client.SubmitCommand(GameCommand::DestroyBuilding(0, 123));
+    EXPECT_TRUE(transport->ReceiveHostCommands().empty());
+
+    transport->SetConnected(true);
+    client.Update(0.0);
+    const auto replayed = transport->ReceiveHostCommands();
+    ASSERT_EQ(replayed.size(), 1u);
+    GameCommand replayedCommand;
+    ASSERT_TRUE(GameCommand::TryDeserialize(replayed.front(), replayedCommand));
+    EXPECT_EQ(replayedCommand.commandId, commandId);
+    EXPECT_EQ(replayedCommand.playerId, 1);
+
+    GameCommandResult acknowledgement;
+    acknowledgement.commandId = commandId;
+    acknowledgement.simulationTick = 10;
+    acknowledgement.targetTick = 10;
+    acknowledgement.playerId = 1;
+    acknowledgement.type = GameCommandType::DestroyBuilding;
+    acknowledgement.accepted = false;
+    acknowledgement.reason = "rejected";
+    transport->SendHostResult(acknowledgement.Serialize());
+    client.Update(0.0);
+
+    transport->SetConnected(false);
+    client.Update(0.0);
+    transport->SetConnected(true);
+    client.Update(0.0);
+    EXPECT_TRUE(transport->ReceiveHostCommands().empty());
+}
+
+TEST(GameCommandTests, RejectsCommandWithTooManyUnitIdsBeforeReservingMemory)
+{
+    GameCommand command = GameCommand::DeployUnits(1, 2, {});
+    std::string payload = command.Serialize();
+    ASSERT_EQ(payload.back(), '0');
+    payload.back() = '1';
+    payload += "025";
+
+    GameCommand parsed;
+    EXPECT_FALSE(GameCommand::TryDeserialize(payload, parsed));
+}
+
+TEST(GameCommandTests, RejectsServerFrameWithTooManyResultsBeforeReservingMemory)
+{
+    GameServerFrame frame;
+    GameServerFrame parsed;
+    EXPECT_FALSE(GameServerFrame::TryDeserialize("1 0 0 0 257", parsed));
 }
 
 TEST(GameCommandTests, LocalhostTransportPreservesLargeFrameBacklog)

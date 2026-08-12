@@ -271,7 +271,7 @@ public:
     float scrollOffset{0.0f};
     float maxScrollOffset{0.0f};
     Vec2f panOffset{0.0f, 0.0f};
-    float zoom{0.78f};
+    float zoom{0.90f};
     bool panning{false};
     Vec2f lastPanMouse{0.0f, 0.0f};
     std::string selectedTagFilter;

@@ -5,17 +5,18 @@
 // See README.md for what is shared with the game and what was copied.
 
 #include "BonusCalculator.h"
+#include "EditorTheme.h"
 #include "Inspector.h"
 #include "TreeModel.h"
 #include "TreeView.h"
 
 #include "ui/UiText.h"
-#include "ui/UiTheme.h"
 #include "ui/UiWidgets.h"
 
 #include "raylib.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -23,7 +24,7 @@
 namespace
 {
     constexpr const char* assetsDir = RTS_ASSETS_DIR;
-    constexpr float sidebarWidth = 520.0f;
+    constexpr float sidebarWidth = 540.0f;
 
     std::string AssetPath(const std::string& relative)
     {
@@ -35,14 +36,14 @@ namespace
     {
         Vector2 mouse = GetMousePosition();
         bool hover = CheckCollisionPointRec(mouse, rect);
-        Color fill = active ? Color{92, 74, 38, 245} : hover ? UiTheme::Timber : UiTheme::Oak;
-        Color border = active ? UiTheme::Gold : hover ? accent : UiTheme::Bronze;
+        Color fill = active ? EditorTheme::SurfaceFocus : hover ? EditorTheme::SurfaceHover : EditorTheme::Surface;
+        Color border = active ? EditorTheme::Accent : hover ? accent : EditorTheme::Border;
         DrawRectangleRounded(rect, 0.18f, 8, fill);
         DrawRectangleRoundedLines(rect, 0.18f, 8, 1.0f, border);
         UiText::DrawFit(label,
             Rectangle{rect.x + 10.0f, rect.y + 5.0f, rect.width - 20.0f, rect.height - 10.0f},
             15,
-            active ? UiTheme::Parchment : UiTheme::ParchmentDim);
+            active ? EditorTheme::Text : EditorTheme::TextMuted);
         return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     }
 }
@@ -70,6 +71,57 @@ static int RunSelfTest(const std::string& outputDir)
         if (!result.ok)
             failures++;
     }
+
+    // Building unlocks deliberately live in buildings.rtsdata. Exercise that
+    // second save path in an isolated copy so an editor change can never leave
+    // a tooltip-only pseudo effect that the game build gate does not respect.
+    const std::filesystem::path sourceData = std::filesystem::path(assetsDir) / "data";
+    const std::filesystem::path unlockData = std::filesystem::path(outputDir) / "unlock_check";
+    std::filesystem::create_directories(unlockData);
+    std::filesystem::copy_file(sourceData / "technologies.rtsdata", unlockData / "technologies.rtsdata",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file(sourceData / "buildings.rtsdata", unlockData / "buildings.rtsdata",
+                               std::filesystem::copy_options::overwrite_existing);
+    TreeDocument unlockDocument(TreeKind::Technology, (unlockData / "technologies.rtsdata").string());
+    auto unlocks = unlockDocument.GetUnlockedBuildingIds("standard_coinage");
+    unlocks.push_back("Armorer");
+    unlockDocument.SetBuildingUnlocks("standard_coinage", unlocks);
+    SaveResult unlockResult = unlockDocument.Save();
+    TreeDocument rereadUnlockDocument(TreeKind::Technology, (unlockData / "technologies.rtsdata").string());
+    const auto rereadUnlocks = rereadUnlockDocument.GetUnlockedBuildings("standard_coinage");
+    const bool armorerUnlocked = std::find(rereadUnlocks.begin(), rereadUnlocks.end(), "Armorer") != rereadUnlocks.end();
+    printf("%-24s %s: %s\n", "building unlocks", unlockResult.ok && armorerUnlocked ? "OK  " : "FAIL",
+           unlockResult.ok && armorerUnlocked ? "Saved and reloaded" : unlockResult.message.c_str());
+    if (!unlockResult.ok || !armorerUnlocked)
+        failures++;
+
+    // Command-history smoke test: additions, bulk delete, undo and redo all
+    // operate on a single transaction snapshot rather than per-frame state.
+    const std::filesystem::path historyData = std::filesystem::path(outputDir) / "history_check";
+    std::filesystem::create_directories(historyData);
+    std::filesystem::copy_file(sourceData / "technologies.rtsdata", historyData / "technologies.rtsdata",
+                               std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file(sourceData / "buildings.rtsdata", historyData / "buildings.rtsdata",
+                               std::filesystem::copy_options::overwrite_existing);
+    TreeDocument historyDocument(TreeKind::Technology, (historyData / "technologies.rtsdata").string());
+    const size_t originalCount = historyDocument.GetNodeCount();
+    historyDocument.BeginHistoryTransaction();
+    const std::string historyNode = historyDocument.AddNode("field_herbals", "Biology", 9000);
+    historyDocument.CommitHistoryTransaction();
+    const bool addUndoRedo = historyDocument.GetNodeCount() == originalCount + 1 &&
+                             historyDocument.Undo() && historyDocument.Find(historyNode) == nullptr &&
+                             historyDocument.Redo() && historyDocument.Find(historyNode) != nullptr;
+    historyDocument.BeginHistoryTransaction();
+    historyDocument.DeleteNodes({historyNode, "comparative_anatomy"});
+    historyDocument.CommitHistoryTransaction();
+    const bool bulkDeleteUndo = historyDocument.Find(historyNode) == nullptr &&
+                                historyDocument.Undo() && historyDocument.Find(historyNode) != nullptr &&
+                                historyDocument.Find("comparative_anatomy") != nullptr;
+    printf("%-24s %s: %s\n", "undo / redo", addUndoRedo && bulkDeleteUndo ? "OK  " : "FAIL",
+           addUndoRedo && bulkDeleteUndo ? "Transactions restored" : "History state mismatch");
+    if (!addUndoRedo || !bulkDeleteUndo)
+        failures++;
+
     printf("%s\n", failures == 0 ? "self-test passed" : "self-test FAILED");
     return failures == 0 ? 0 : 1;
 }
@@ -92,6 +144,7 @@ int main(int argc, char** argv)
     // and get a plain UI face. A system font is fine here — this is a dev tool,
     // nothing ships with it. Missing file just falls back to the display face.
     UiTextFont::LoadPlain("C:/Windows/Fonts/segoeui.ttf", 32);
+    SetUiWidgetPalette(EditorTheme::Widgets);
 
     std::vector<TreeDocument> documents;
     documents.emplace_back(TreeKind::Technology, AssetPath("data/technologies.rtsdata"));
@@ -136,25 +189,45 @@ int main(int argc, char** argv)
 
         // Typing in a field must not also fire single-key shortcuts.
         bool typing = Inspector::IsEditing();
+        const bool ctrlHeld = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
         bool reloadRequested = !typing && IsKeyPressed(KEY_F5);
-        bool saveRequested = !typing && IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S);
+        bool saveRequested = !typing && ctrlHeld && IsKeyPressed(KEY_S);
+
+        if (!typing && !view.IsPlacing() && ctrlHeld && IsKeyPressed(KEY_Z))
+        {
+            if (document.Undo())
+                view.ClearNodeSelection();
+        }
+        if (!typing && !view.IsPlacing() && ctrlHeld && IsKeyPressed(KEY_Y))
+        {
+            if (document.Redo())
+                view.ClearNodeSelection();
+        }
 
         if (!typing && !view.IsPlacing() && IsKeyPressed(KEY_TAB))
             activeDocument = (activeDocument + 1) % documents.size();
-        if (!typing && !view.IsPlacing() && IsKeyPressed(KEY_DELETE) && !view.selectedNodeId.empty())
+        if (!typing && !view.IsPlacing() && IsKeyPressed(KEY_DELETE) &&
+            (!view.selectedNodeIds.empty() || !view.selectedNodeId.empty()))
         {
-            documents[activeDocument].DeleteNode(views[activeDocument].selectedNodeId);
-            views[activeDocument].selectedNodeId.clear();
+            std::vector<std::string> ids(view.selectedNodeIds.begin(), view.selectedNodeIds.end());
+            if (ids.empty())
+                ids.push_back(view.selectedNodeId);
+            document.BeginHistoryTransaction();
+            document.DeleteNodes(ids);
+            document.CommitHistoryTransaction();
+            view.ClearNodeSelection();
         }
 
+        document.BeginHistoryFrame();
+
         BeginDrawing();
-        ClearBackground(UiTheme::Ink);
+        ClearBackground(EditorTheme::Canvas);
 
         // -- Toolbar ----------------------------------------------------------
         // Everything outside the tree draws with the plain face.
         UiText::SetRole(UiFontRole::Plain);
-        DrawRectangleRec(toolbar, UiTheme::Bark);
-        DrawLineEx({0.0f, toolbar.height}, {width, toolbar.height}, 1.0f, UiTheme::Bronze);
+        DrawRectangleRec(toolbar, EditorTheme::PanelHeader);
+        DrawLineEx({0.0f, toolbar.height}, {width, toolbar.height}, 1.0f, EditorTheme::Border);
 
         float x = 12.0f;
         for (size_t i = 0; i < documents.size(); i++)
@@ -162,33 +235,33 @@ int main(int argc, char** argv)
             std::string label = documents[i].GetKind() == TreeKind::Focus ? "Decisions" : "Technologies";
             if (documents[i].IsDirty())
                 label += " *";
-            if (DrawToolbarButton({x, 11.0f, 150.0f, 34.0f}, label, i == activeDocument, UiTheme::AmberBright))
+            if (DrawToolbarButton({x, 11.0f, 150.0f, 34.0f}, label, i == activeDocument, EditorTheme::Accent))
                 activeDocument = i;
             x += 158.0f;
         }
 
         x += 16.0f;
-        if (DrawToolbarButton({x, 11.0f, 130.0f, 34.0f}, "Save [Ctrl+S]", false, UiTheme::SageBright))
+        if (DrawToolbarButton({x, 11.0f, 130.0f, 34.0f}, "Save [Ctrl+S]", false, EditorTheme::Positive))
             saveRequested = true;
         x += 138.0f;
-        if (DrawToolbarButton({x, 11.0f, 120.0f, 34.0f}, "Reload [F5]", false, UiTheme::AmberBright))
+        if (DrawToolbarButton({x, 11.0f, 120.0f, 34.0f}, "Reload [F5]", false, EditorTheme::Accent))
             reloadRequested = true;
         x += 128.0f;
-        if (DrawToolbarButton({x, 11.0f, 150.0f, 34.0f}, "Clear selection", false, UiTheme::AmberBright))
+        if (DrawToolbarButton({x, 11.0f, 150.0f, 34.0f}, "Clear selection", false, EditorTheme::Accent))
             documents[activeDocument].ClearTaken();
         x += 158.0f;
 
         std::string status = GetTime() < statusOverrideUntil
             ? statusOverride
             : documents[activeDocument].GetStatus();
-        Color statusColor = GetTime() < statusOverrideUntil ? UiTheme::SageBright : UiTheme::ParchmentDim;
+        Color statusColor = GetTime() < statusOverrideUntil ? EditorTheme::Positive : EditorTheme::TextMuted;
         if (status.rfind("FILE NOT FOUND", 0) == 0 || status.rfind("Round-trip", 0) == 0 ||
             status.rfind("Refusing", 0) == 0 || status.rfind("Cannot open", 0) == 0)
-            statusColor = UiTheme::RustBright;
+            statusColor = EditorTheme::Negative;
         UiText::Draw(status, x + 8.0f, 21.0f, 14, statusColor);
 
         std::string fps = std::to_string(GetFPS()) + " fps";
-        UiText::Draw(fps, width - UiText::Measure(fps, 13) - 14.0f, 22.0f, 13, UiTheme::ParchmentFaint);
+        UiText::Draw(fps, width - UiText::Measure(fps, 13) - 14.0f, 22.0f, 13, EditorTheme::TextFaint);
 
         // -- Tree + sidebars --------------------------------------------------
         // The tree is the one place that keeps the game's display font: it is a
@@ -208,6 +281,7 @@ int main(int argc, char** argv)
         UiText::SetRole(UiFontRole::Display);
 
         EndDrawing();
+        document.CommitHistoryFrame();
 
         // Mutating the document happens after EndDrawing: the draw pass holds
         // pointers into its definitions, which these replace wholesale.
@@ -219,7 +293,7 @@ int main(int argc, char** argv)
         }
         if (reloadRequested)
         {
-            views[activeDocument].selectedNodeId.clear();
+            views[activeDocument].ClearNodeSelection();
             documents[activeDocument].Reload();
         }
     }

@@ -57,8 +57,8 @@ namespace
             Rectangle rect{x, bounds.y, width, bounds.height};
             bool selected = selectedTag == value;
             bool hover = CheckCollisionPointRec(mouse, rect);
-            DrawRectangleRounded(rect, 0.20f, 6, selected ? Color{92, 74, 38, 235} : hover ? Color{69, 55, 42, 235} : Color{40, 29, 21, 220});
-            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? UiTheme::Gold : Color{112, 92, 66, 230});
+            DrawRectangleRounded(rect, 0.20f, 6, selected ? UiTheme::SelectedFill : hover ? UiTheme::SurfaceHover : UiTheme::Inset);
+            DrawRectangleRoundedLines(rect, 0.20f, 6, 1.0f, selected ? UiTheme::SageBright : UiTheme::Iron);
             UiText::DrawFit(label, Rectangle{rect.x + 8.0f, rect.y + 4.0f, rect.width - 16.0f, rect.height - 8.0f}, 14, selected ? UiTheme::Parchment : UiTheme::ParchmentDim);
             if (hover && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 selectedTag = value;
@@ -178,7 +178,8 @@ namespace
         bool showAsRate = lowerIsBetter && std::abs(modifier.multiplier - 1.0) > 0.001 &&
                           (modifier.stat == BalanceStat::BuildTime ||
                            modifier.stat == BalanceStat::ProductionCycleTime ||
-                           modifier.stat == BalanceStat::TransportTime);
+                           modifier.stat == BalanceStat::TransportTime ||
+                           modifier.stat == BalanceStat::TransportDispatchDelay);
         const bool isUniversityResearch = modifier.stat == BalanceStat::ProductionCycleTime &&
                                           modifier.buildingType == BuildingType::University;
         stream << (isUniversityResearch ? "Research speed" :
@@ -251,18 +252,15 @@ namespace
         return stream.str();
     }
 
-    std::vector<std::string> CollectTechnologyUnlockLines(const std::string& technologyId)
+    std::vector<std::string> CollectTechnologyUnlockLines(const ResearchNodeView& technology)
     {
-        std::vector<std::string> buildings;
         std::vector<std::string> products;
         std::vector<std::string> units;
         for (const auto& building : GetBuildingDefinitions())
         {
-            if (RequiresTechnology(building.requiredTechnologies, technologyId))
-                buildings.push_back(building.name);
             for (const auto& recipe : building.recipes)
             {
-                if (!RequiresTechnology(recipe.requiredTechnologies, technologyId))
+                if (!RequiresTechnology(recipe.requiredTechnologies, technology.id))
                     continue;
                 // The recipe name is player-facing and already describes the
                 // selected product better than its internal resource id.
@@ -271,13 +269,13 @@ namespace
         }
         for (const auto& [id, unit] : GetUnitCatalog())
         {
-            if (unit.requiredTechnology == technologyId)
+            if (unit.requiredTechnology == technology.id)
                 units.push_back(unit.displayName);
         }
 
         std::vector<std::string> lines;
-        if (!buildings.empty())
-            lines.push_back("Unlocks building: " + JoinTooltipNames(buildings, "{building}"));
+        for (const auto& building : technology.unlockedBuildings)
+            lines.push_back("Unlocks {building}" + building + "{/building}");
         if (!products.empty())
             lines.push_back("Unlocks product: " + JoinTooltipNames(products, "{resource}"));
         if (!units.empty())
@@ -322,10 +320,18 @@ void ResearchTreePanelWidget::Update(double dt)
 
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{30, 22, 16, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, Color{150, 108, 58, 255});
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
+    }
     Rectangle title{bounds.x, bounds.y, bounds.width, 52.0f};
-    DrawRectangleRounded(title, 0.025f, 8, Color{50, 38, 27, 255});
+    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle titleVisual{title.x + frameInset + 2.0f, title.y + 4.0f,
+                          std::max(0.0f, title.width - (frameInset + 2.0f) * 2.0f),
+                          title.height - 8.0f};
+    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
+        DrawRectangleRounded(titleVisual, 0.025f, 8, UiTheme::Surface);
     DrawCloseButton(bounds);
 
     bool debugMode = scene->game->GetTileMap().params.debugMode;
@@ -346,11 +352,11 @@ void ResearchTreePanelWidget::Update(double dt)
                 ReloadTechnologyDefinitions();
             player->ResetResearchState();
         }
-        UiText::DrawTitleBar(title, std::string(panelTitle) + " [DEBUG]", PanelTitleCloseReserve(bounds) + reloadBtn.width + 8.0f);
+        UiText::DrawTitleBar(titleVisual, std::string(panelTitle) + " [DEBUG]", PanelTitleCloseReserve(bounds) + reloadBtn.width + 8.0f);
     }
     else
     {
-        UiText::DrawTitleBar(title, panelTitle, PanelTitleCloseReserve(bounds));
+        UiText::DrawTitleBar(titleVisual, panelTitle, PanelTitleCloseReserve(bounds));
     }
 
     auto nodes = isFocus ? ResearchCatalog::BuildFocusView(*player) : ResearchCatalog::BuildView(*player);
@@ -379,8 +385,8 @@ void ResearchTreePanelWidget::Update(double dt)
         panning = false;
 
     // ── Layout: lanes → depth rows → per-row horizontal placement ────────────
-    float nodeW = 132.0f * zoom;
-    float nodeH = 104.0f * zoom;
+    float nodeW = 150.0f * zoom;
+    float nodeH = 118.0f * zoom;
     float colGap = 118.0f * zoom;
     float laneGap = 220.0f * zoom;
     float rowGap = 118.0f * zoom;
@@ -534,9 +540,9 @@ void ResearchTreePanelWidget::Update(double dt)
     for (const auto& [lane, header] : laneHeaders)
     {
         int laneFont = std::max(16, static_cast<int>(21 * zoom));
-        UiText::Draw(lane, header.x, header.y, laneFont, Color{216, 194, 156, 255});
-        float ruleY = header.y + header.height - 4.0f;
-        DrawLineEx({header.x, ruleY}, {header.x + header.width, ruleY}, 1.0f, Color{72, 58, 43, 255});
+        DrawRectangleRounded(header, 0.12f, 8, UiTheme::Surface);
+        DrawRectangleRoundedLines(header, 0.12f, 8, 1.0f, UiTheme::Iron);
+        UiText::Draw(lane, header.x + 10.0f, header.y + 3.0f, laneFont, UiTheme::Parchment);
     }
 
     for (const auto& node : nodes)
@@ -551,7 +557,7 @@ void ResearchTreePanelWidget::Update(double dt)
             Rectangle parent = parentIt->second;
             Vector2 parentAnchor{parent.x + parent.width * 0.5f, parent.y + parent.height};
             bool highlighted = highlightedPath.contains(node.id) && highlightedPath.contains(prerequisite);
-            Color edgeColor = highlighted ? Color{232, 202, 104, 255} : Color{104, 88, 66, 190};
+            Color edgeColor = highlighted ? UiTheme::Gold : Fade(UiTheme::Iron, 0.72f);
             float edgeWidth = highlighted ? 3.0f : 1.5f;
             if (std::abs(parentAnchor.x - childAnchor.x) < 1.5f)
             {
@@ -574,14 +580,14 @@ void ResearchTreePanelWidget::Update(double dt)
         Rectangle rect = nodeRects[node.id];
         bool hover = CheckCollisionPointRec(mouse, rect);
         bool tagMatched = HasNodeTag(node, selectedTagFilter);
-        Color fill = node.researched ? Color{52, 74, 40, 245}
-                   : node.active ? Color{70, 65, 38, 245}
-                   : node.available ? Color{74, 56, 34, 245}
-                   : Color{34, 26, 19, 230};
+        Color fill = node.researched ? UiTheme::SelectedFill
+                   : node.active ? UiTheme::SurfaceHover
+                   : node.available ? UiTheme::Surface
+                   : UiTheme::Inset;
         Color line = node.researched ? Color{140, 176, 96, 255}
                    : node.active ? Color{214, 178, 84, 255}
                    : node.available ? Color{176, 132, 68, 255}
-                   : Color{100, 84, 64, 220};
+                   : UiTheme::Iron;
         if (!selectedTagFilter.empty() && !tagMatched)
         {
             fill.a = 110;
@@ -591,20 +597,22 @@ void ResearchTreePanelWidget::Update(double dt)
                      : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255}
                      : hover ? UiTheme::AmberBright
                      : line;
-        DrawRectangleRec(rect, fill);
-        DrawRectangleRec(Rectangle{rect.x, rect.y, 3.0f, rect.height}, line);
-        DrawRectangleLinesEx(rect, 1.0f, border);
-        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 10.0f * zoom, rect.y + 6.0f * zoom, rect.width - 18.0f * zoom, 38.0f * zoom}, std::max(14, static_cast<int>(20 * zoom)), UiTheme::Parchment, 2);
-        UiText::DrawFit(node.stateText, Rectangle{rect.x + 10.0f * zoom, rect.y + 46.0f * zoom, rect.width - 18.0f * zoom, 18.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)),
+        UiControlIcons::DrawRoyalButtonFrame(rect, hover);
+        Rectangle inner{rect.x + 8.0f, rect.y + 8.0f, rect.width - 16.0f, rect.height - 16.0f};
+        DrawRectangleRounded(inner, 0.07f, 8, Fade(fill, 0.78f));
+        DrawRectangleRoundedLines(rect, 0.08f, 8, 1.2f, border);
+        DrawRectangleRounded(Rectangle{rect.x + 8.0f, rect.y + 8.0f, 3.0f, rect.height - 16.0f}, 0.5f, 4, line);
+        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 14.0f * zoom, rect.y + 10.0f * zoom, rect.width - 26.0f * zoom, 46.0f * zoom}, std::max(16, static_cast<int>(22 * zoom)), UiTheme::Parchment, 2);
+        UiText::DrawFit(node.stateText, Rectangle{rect.x + 14.0f * zoom, rect.y + 58.0f * zoom, rect.width - 26.0f * zoom, 20.0f * zoom}, std::max(12, static_cast<int>(16 * zoom)),
             node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{160, 142, 112, 255});
 
-        float timeTextY = 66.0f;
+        float timeTextY = 82.0f;
         std::string timeText = node.active ? FormatDuration(node.remainingTime) + " left" : FormatDuration(node.researchTime);
-        UiText::DrawFit(timeText, Rectangle{rect.x + 12.0f * zoom, rect.y + timeTextY * zoom, rect.width - 24.0f * zoom, 16.0f * zoom}, std::max(10, static_cast<int>(15 * zoom)), Color{190, 172, 140, 255});
+        UiText::DrawFit(timeText, Rectangle{rect.x + 14.0f * zoom, rect.y + timeTextY * zoom, rect.width - 28.0f * zoom, 18.0f * zoom}, std::max(11, static_cast<int>(16 * zoom)), UiTheme::ParchmentDim);
         if (node.active || node.researched)
         {
             Rectangle progress{rect.x + 10.0f, rect.y + rect.height - 9.0f, rect.width - 20.0f, 4.0f};
-            DrawRectangleRounded(progress, 0.5f, 4, Color{22, 16, 12, 230});
+            DrawRectangleRounded(progress, 0.5f, 4, UiTheme::Ink);
             Rectangle fillBar = progress;
             fillBar.width *= static_cast<float>(std::clamp(node.progress, 0.0, 1.0));
             DrawRectangleRounded(fillBar, 0.5f, 4, node.researched ? Color{140, 176, 96, 255} : Color{214, 178, 84, 255});
@@ -626,10 +634,10 @@ void ResearchTreePanelWidget::Update(double dt)
     if (maxScrollOffset > 0.0f)
     {
         Rectangle track{treeArea.x + treeArea.width + 6.0f, treeArea.y, 5.0f, treeArea.height};
-        DrawRectangleRounded(track, 0.5f, 4, Color{24, 17, 12, 190});
+        DrawRectangleRounded(track, 0.5f, 4, UiTheme::Inset);
         float thumbH = std::max(32.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
-        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, Color{150, 108, 58, 230});
+        DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 4, UiTheme::Iron);
     }
 
     if (hovered != nullptr)
@@ -641,7 +649,7 @@ void ResearchTreePanelWidget::Update(double dt)
             lines.push_back(FormatResearchCosts(hovered->costs));
         if (!isFocus)
         {
-            const auto unlockLines = CollectTechnologyUnlockLines(hovered->id);
+            const auto unlockLines = CollectTechnologyUnlockLines(*hovered);
             lines.insert(lines.end(), unlockLines.begin(), unlockLines.end());
         }
         if (hovered->active)

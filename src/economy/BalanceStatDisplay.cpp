@@ -12,6 +12,7 @@ const char* BalanceStatLabel(BalanceStat stat)
         case BalanceStat::ProductionOutputAmount: return "Production output";
         case BalanceStat::WorkerCapacity: return "Worker capacity";
         case BalanceStat::TransportTime: return "Transport time";
+        case BalanceStat::TransportDispatchDelay: return "Cargo dispatch delay";
         case BalanceStat::RoadCapacity: return "Road capacity";
         case BalanceStat::RoadSpeed: return "Road speed";
         case BalanceStat::ManpowerRate: return "Manpower growth";
@@ -48,6 +49,7 @@ bool LowerValueIsBetter(BalanceStat stat)
         case BalanceStat::BuildCost:
         case BalanceStat::ProductionCycleTime:
         case BalanceStat::TransportTime:
+        case BalanceStat::TransportDispatchDelay:
         // Staffing a building is a cost, not a reward: the design goal is as few
         // people tied up in buildings as possible, so MORE worker capacity is a
         // nerf and has to render as one.
@@ -71,6 +73,7 @@ const char* ImprovedRateLabel(BalanceStat stat)
         case BalanceStat::BuildTime: return "Build speed";
         case BalanceStat::ProductionCycleTime: return "Production speed";
         case BalanceStat::TransportTime: return "Transport speed";
+        case BalanceStat::TransportDispatchDelay: return "Cargo dispatch speed";
         default: return BalanceStatLabel(stat);
     }
 }

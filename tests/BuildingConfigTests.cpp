@@ -53,6 +53,17 @@ TEST(BuildingConfigTests, CoreDefinitionsAreLoaded)
 
     const auto& university = GetBuildingDefinition(BuildingType::University);
     EXPECT_EQ(university.production.workerCapacity, 40);
+
+    // Decisions can gate only access to the University. Buildings otherwise
+    // use technology prerequisites, leaving the decision tree free for its
+    // strategic effects.
+    for (const auto& definition : definitions)
+    {
+        if (definition.type == BuildingType::University)
+            EXPECT_FALSE(definition.requiredFocuses.empty());
+        else
+            EXPECT_TRUE(definition.requiredFocuses.empty()) << definition.name;
+    }
 }
 
 TEST(BuildingConfigTests, BuildPanelListsContainExpectedTypes)
@@ -140,6 +151,7 @@ building Headquarters
     build_cost "Starting building"
     build_time 0
     transport_time 1.5
+    dispatch_delay 0.25
     footprint 3 3
     texture_id 42
     storage WOOD 100 50
@@ -189,6 +201,7 @@ end
     EXPECT_EQ(hq.texturePath, "assets/custom_hq.png");
     EXPECT_EQ(hq.buildCostText, "Starting building");
     EXPECT_DOUBLE_EQ(hq.transportTime, 1.5);
+    EXPECT_DOUBLE_EQ(hq.dispatchDelay, 0.25);
     EXPECT_EQ(hq.textureId, 42);
     ASSERT_EQ(hq.storageBuffers.size(), 2u);
     EXPECT_EQ(hq.storageBuffers[0].type, ResourceType::WOOD);

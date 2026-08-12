@@ -1021,6 +1021,133 @@ void Renderer::DrawAtlasTile(int atlas, int tex, Vec2f pos, Vec2f drawSize)
     DrawTexturePro(at.tex, src, dest, {0,0}, 0, WHITE);
 }
 
+void Renderer::DrawShipments(const std::vector<ShipmentRenderState>& shipments, Vec2i mapSize)
+{
+    constexpr int ResourceAtlasId = 1;
+    constexpr float IconSize = 25.0f;
+    constexpr float RightHandLaneOffset = 9.0f;
+    constexpr float LateralJitter = 2.0f;
+    constexpr float LongitudinalJitter = 4.0f;
+    constexpr float WaitingProgress = 0.86f;
+
+    const auto atlasIt = atlasMap.find(ResourceAtlasId);
+    if (!layerActive || mapSize.x <= 0 || mapSize.y <= 0 ||
+        atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    {
+        return;
+    }
+
+    const int tileCount = mapSize.x * mapSize.y;
+    for (const ShipmentRenderState& shipment : shipments)
+    {
+        if (shipment.resourceType == ResourceType::Null ||
+            shipment.fromTileId < 0 || shipment.toTileId < 0 ||
+            shipment.fromTileId >= tileCount || shipment.toTileId >= tileCount)
+        {
+            continue;
+        }
+
+        const auto tileCenter = [mapSize](int tileId)
+        {
+            return Vec2f{
+                static_cast<float>((tileId % mapSize.x) * TILE_SIZE) + TILE_SIZE * 0.5f,
+                static_cast<float>((tileId / mapSize.x) * TILE_SIZE) + TILE_SIZE * 0.5f};
+        };
+
+        const Vec2f current = tileCenter(shipment.fromTileId);
+        const Vec2f next = tileCenter(shipment.toTileId);
+        const bool hasPrevious = shipment.previousTileId >= 0 && shipment.previousTileId < tileCount;
+        const Vec2f previous = hasPrevious ? tileCenter(shipment.previousTileId) : current;
+
+        // A shipment carried by a road tile enters at the midpoint of the
+        // previous/current pair and exits at the midpoint of current/next.
+        // This keeps the sprite inside the road tile instead of shifting it
+        // half a tile ahead. At the source it waits on the source/road edge;
+        // the first road traversal begins from exactly the same point.
+        const Vec2f entry = hasPrevious
+            ? Vec2f{(previous.x + current.x) * 0.5f, (previous.y + current.y) * 0.5f}
+            : Vec2f{(current.x + next.x) * 0.5f, (current.y + next.y) * 0.5f};
+        const Vec2f exit{(current.x + next.x) * 0.5f, (current.y + next.y) * 0.5f};
+
+        float progress = std::clamp(shipment.progress, 0.0f, 1.0f);
+        if (shipment.waitingForCapacity)
+            progress = std::min(progress, WaitingProgress);
+
+        const auto normalized = [](Vec2f direction)
+        {
+            const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+            return length > 0.001f
+                ? Vec2f{direction.x / length, direction.y / length}
+                : Vec2f{};
+        };
+        const auto rightNormal = [](Vec2f direction)
+        {
+            // World Y grows upwards, so this is a clockwise rotation.
+            return Vec2f{direction.y, -direction.x};
+        };
+
+        const Vec2f entryDirection = normalized({current.x - entry.x, current.y - entry.y});
+        const Vec2f exitDirection = normalized({exit.x - current.x, exit.y - current.y});
+
+        const std::uint64_t visualHash = shipment.shipmentId * 11400714819323198485ull ^
+                                         static_cast<std::uint64_t>(shipment.ownerPlayerId + 1) * 1099511628211ull;
+        const float laneOffset = RightHandLaneOffset +
+            ((visualHash & 1ull) == 0ull ? -LateralJitter : LateralJitter);
+        const int longitudinalSlot = static_cast<int>((visualHash >> 1u) % 3ull) - 1;
+
+        const Vec2f entryRight = rightNormal(entryDirection);
+        const Vec2f exitRight = rightNormal(exitDirection);
+        const Vec2f entryLane{entry.x + entryRight.x * laneOffset,
+                              entry.y + entryRight.y * laneOffset};
+        const Vec2f exitLane{exit.x + exitRight.x * laneOffset,
+                             exit.y + exitRight.y * laneOffset};
+        const float directionDot = entryDirection.x * exitDirection.x + entryDirection.y * exitDirection.y;
+        const Vec2f laneCorner = directionDot > 0.5f
+            ? Vec2f{current.x + entryRight.x * laneOffset,
+                    current.y + entryRight.y * laneOffset}
+            : Vec2f{current.x + (entryRight.x + exitRight.x) * laneOffset,
+                    current.y + (entryRight.y + exitRight.y) * laneOffset};
+
+        Vec2f center{};
+        Vec2f direction{};
+        if (!hasPrevious)
+        {
+            direction = normalized({next.x - current.x, next.y - current.y});
+            const Vec2f right = rightNormal(direction);
+            center = {entry.x + right.x * laneOffset, entry.y + right.y * laneOffset};
+        }
+        else if (progress < 0.5f)
+        {
+            const float localProgress = progress * 2.0f;
+            center = {entryLane.x + (laneCorner.x - entryLane.x) * localProgress,
+                      entryLane.y + (laneCorner.y - entryLane.y) * localProgress};
+            direction = normalized({laneCorner.x - entryLane.x, laneCorner.y - entryLane.y});
+        }
+        else
+        {
+            const float localProgress = (progress - 0.5f) * 2.0f;
+            center = {laneCorner.x + (exitLane.x - laneCorner.x) * localProgress,
+                      laneCorner.y + (exitLane.y - laneCorner.y) * localProgress};
+            direction = normalized({exitLane.x - laneCorner.x, exitLane.y - laneCorner.y});
+        }
+
+        center.x += direction.x * longitudinalSlot * LongitudinalJitter;
+        center.y += direction.y * longitudinalSlot * LongitudinalJitter;
+
+        const Vec2f iconPosition{center.x - IconSize * 0.5f, center.y - IconSize * 0.5f};
+
+        // Shadow, warm outline and dark inset give neighbouring cargo icons a
+        // crisp silhouette even when several units leave in the same batch.
+        const Vector2 screenCenter{center.x, RENDER_HEIGHT - center.y};
+        DrawCircleV({screenCenter.x + 1.5f, screenCenter.y + 2.5f}, IconSize * 0.63f,
+                    Color{0, 0, 0, 145});
+        DrawCircleV(screenCenter, IconSize * 0.60f, Color{224, 202, 151, 235});
+        DrawCircleV(screenCenter, IconSize * 0.51f, Color{18, 20, 24, 235});
+        DrawAtlasTile(ResourceAtlasId, static_cast<int>(shipment.resourceType), iconPosition,
+                      {IconSize, IconSize});
+    }
+}
+
 // Draws one atlas tile, resolving the frame from an animation clip and elapsed time.
 void Renderer::DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime)
 {

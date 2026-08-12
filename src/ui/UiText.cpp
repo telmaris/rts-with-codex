@@ -495,8 +495,14 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     bounds.x = std::max(8.0f, bounds.x);
     bounds.y = std::max(8.0f, bounds.y);
 
-    DrawRectangleRounded(bounds, 0.05f, 8, Fade(UiTheme::Bark, 0.98f));
-    DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.0f, UiTheme::Bronze);
+    // Tooltips share the window/button chrome: steel outer bezel, recessed
+    // navy body and a small header rail. This avoids the old flat brown card.
+    DrawRectangleRounded(bounds, 0.05f, 8, UiTheme::Ink);
+    DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.4f, UiTheme::Iron);
+    Rectangle inner{bounds.x + 3.0f, bounds.y + 3.0f,
+                    bounds.width - 6.0f, bounds.height - 6.0f};
+    DrawRectangleRounded(inner, 0.045f, 8, Fade(UiTheme::Surface, 0.99f));
+    DrawRectangleRoundedLines(inner, 0.045f, 8, 1.0f, Fade(UiTheme::Bronze, 0.68f));
     if (titleIcon)
         titleIcon(Rectangle{bounds.x + padding, bounds.y + padding, iconSize, iconSize});
     UiText::Draw(title, bounds.x + padding + iconSize + iconGap,
@@ -504,6 +510,9 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
                  titleFont, UiTheme::Parchment);
 
     float y = bounds.y + padding + headerHeight + 6.0f;
+    DrawLineEx(Vector2{bounds.x + padding, y - 4.0f},
+               Vector2{bounds.x + bounds.width - padding, y - 4.0f},
+               1.0f, Fade(UiTheme::Bronze, 0.78f));
         for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
     {
         const auto& paragraph = wrappedLines[paragraphIndex];

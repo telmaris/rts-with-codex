@@ -13,6 +13,13 @@ class TileMap;
 
 using ShipmentId = std::uint64_t;
 
+enum class TransportUpdateResult : std::uint8_t
+{
+    Waiting,
+    HandedOff,
+    Finished
+};
+
 struct Transportable
 {
     virtual ~Transportable() = default;
@@ -38,7 +45,7 @@ struct Transportable
 
     void ReleaseShipment();
     
-    bool Update(double);
+    TransportUpdateResult Update(double);
     void BeginTransport(Building*, Building*, TileMap*, const std::vector<int>&);
 };
 

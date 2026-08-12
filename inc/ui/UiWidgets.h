@@ -14,6 +14,31 @@
 #include <string>
 #include <vector>
 
+// Colors used by the shared editing widgets. Games keep the default medieval
+// palette, while standalone tools can opt into a dedicated workbench palette
+// without changing any game-facing UI.
+struct UiWidgetPalette
+{
+    Color fill;
+    Color hoverFill;
+    Color focusedFill;
+    Color border;
+    Color hoverBorder;
+    Color focusedBorder;
+    Color text;
+    Color mutedText;
+    Color faintText;
+    Color listFill;
+    Color listHighlight;
+    Color listSelected;
+};
+
+// Sets the palette used by DropdownWidget and TextFieldWidget globally for the
+// current process. The editor calls this once at startup; the game relies on
+// the default palette and therefore retains its existing appearance.
+void SetUiWidgetPalette(const UiWidgetPalette& palette);
+void ResetUiWidgetPalette();
+
 // Single-choice dropdown.
 //
 // Drawing is two-phase because an open list has to paint over whatever is drawn
@@ -59,6 +84,7 @@ private:
 
 // Single-line text entry. Editing is append/backspace at the end only, matching
 // the text box the game already ships — no caret movement or selection.
+// Ctrl+C copies the entire field and Ctrl+V appends the clipboard text.
 class TextFieldWidget
 {
 public:

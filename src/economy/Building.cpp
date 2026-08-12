@@ -468,18 +468,47 @@ double Building::GetModifiedTransportTime() const
         : base;
 }
 
+double Building::GetModifiedDispatchDelay(ResourceType resourceType) const
+{
+    const double base = dispatchDelay.GetBase();
+    return owner != nullptr
+        ? owner->ModifyBalanceForBuilding(dispatchDelay.GetStatId(), base, this, resourceType)
+        : base;
+}
+
 void Building::UpdateTransportables(double dt)
 {
+    // Dispatch from a source is a serial loading queue. Without this guard,
+    // resources created during the same simulation tick would all complete
+    // their delay together and enter the road as one overlapping clump.
+    bool advancedDelayedDispatch = false;
     for (auto it = transportables.begin(); it != transportables.end();)
     {
-        bool done = (*it)->Update(dt);
-        if (done)
+        Transportable* transportable = *it;
+        const bool isDelayedSourceDispatch =
+            transportable->sourceBuilding == this &&
+            transportable->currentPathStep == 0 &&
+            transportable->transportTime > 0.0;
+        if (isDelayedSourceDispatch && advancedDelayedDispatch)
         {
-            (*it)->ReleaseShipment();
-            auto* res = dynamic_cast<Resource*>(*it);
+            ++it;
+            continue;
+        }
+        if (isDelayedSourceDispatch)
+            advancedDelayedDispatch = true;
+
+        const TransportUpdateResult result = transportable->Update(dt);
+        if (result != TransportUpdateResult::Waiting)
+        {
+            // A hand-off only removes the pointer from this carrier; the next
+            // road tile already owns it and the RoadNetwork registry must keep
+            // tracking the same shipment until delivery or cancellation.
+            if (result == TransportUpdateResult::Finished)
+                transportable->ReleaseShipment();
+            auto* res = dynamic_cast<Resource*>(transportable);
             std::string resName = res != nullptr ? rt2s(res->type) : "Transportable";
             Log::Msg(tag, "resource ", resName, " deleted from transportables; pos: ",
-                     (*it)->map->GetCoordsFromId(positionId));
+                     transportable->map->GetCoordsFromId(positionId));
             it = transportables.erase(it);
             continue;
         }

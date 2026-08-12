@@ -97,6 +97,18 @@ TEST(GameSnapshotTests, RejectsAnOlderSnapshotVersion)
     EXPECT_FALSE(GameSnapshot::TryDeserialize(payload, parsed));
 }
 
+TEST(GameSnapshotTests, RejectsOversizedMapBeforeAllocatingTiles)
+{
+    GameSnapshot parsed;
+    EXPECT_FALSE(GameSnapshot::TryDeserialize("14 0 0 2147483647 2147483647 0", parsed));
+}
+
+TEST(GameSnapshotTests, RejectsOversizedDeltaBeforeAllocatingChanges)
+{
+    GameSnapshotDelta parsed;
+    EXPECT_FALSE(GameSnapshotDelta::TryDeserialize("0 2147483647 2147483647 1", parsed));
+}
+
 TEST(GameSnapshotTests, ResolvesOwnerColorsAndFallsBackForNeutralBuildings)
 {
     GameSnapshot snapshot;

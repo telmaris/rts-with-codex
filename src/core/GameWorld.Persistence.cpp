@@ -1,5 +1,9 @@
 #include "core/GameWorldInternal.h"
 
+#include <iomanip>
+#include <limits>
+#include <sstream>
+
 using namespace GameWorldInternal;
 
 // Serializes current runtime state.
@@ -9,13 +13,34 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
+    return SaveToStream(out);
+}
+
+std::string GameWorld::SerializeSimulationState() const
+{
+    std::ostringstream out;
+    if (!SaveToStream(out))
+        return {};
+    return out.str();
+}
+
+bool GameWorld::SaveToStream(std::ostream& out) const
+{
+
+    // Save v32: runtime identifiers and simulation tick for multiplayer restore.
     // Save v31: transparent per-tile resource-overlay cells.
     // Save v30: settlement tiers and their household/urban supply buffers.
     // Save v29: added TowerCombatComponent target priority.
     // Save v28: added the UPG block (UpgradeComponent — generic per-instance
     // building upgrade progression, introduced for Road).
-    out << "RTS_SAVE 31\n";
+    // Snapshot recovery must preserve values tightly enough to reproduce the
+    // deterministic checksum; the default stream precision silently rounds
+    // timers and resource rates after a few ticks.
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
+    out << "RTS_SAVE 32\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
+    out << "RUNTIME " << localPlayerId << ' ' << simulationTick << ' ' << nextCommandId << ' '
+        << nextProjectileId << '\n';
     out << "PARAMS " << tilemap.params.sizeX << ' ' << tilemap.params.sizeY << ' '
         << tilemap.params.seed << ' ' << static_cast<int>(tilemap.params.sizePreset) << ' '
         << tilemap.params.resourceDensity << ' ' << tilemap.params.resourceFieldSize << ' '
@@ -40,13 +65,18 @@ bool GameWorld::SaveToFile(const std::string& path) const
         out << "PLAYER " << id << ' ' << player->strategicResources.values.size() << ' '
             << player->technologies.GetUnlocked().size() << ' '
             << player->focuses.GetUnlocked().size() << ' '
-            << (player->defeated ? 1 : 0) << '\n';
+            << (player->defeated ? 1 : 0) << ' '
+            << static_cast<int>(player->controllerType) << ' ' << std::quoted(player->name) << ' '
+            << static_cast<int>(player->color.r) << ' ' << static_cast<int>(player->color.g) << ' '
+            << static_cast<int>(player->color.b) << ' ' << static_cast<int>(player->color.a) << '\n';
         for (const auto& [type, value] : player->strategicResources.values)
             out << "STRAT " << static_cast<int>(type) << ' ' << value << '\n';
         for (const auto& techId : player->technologies.GetUnlocked())
             out << "TECH " << std::quoted(techId) << '\n';
         for (const auto& focusId : player->focuses.GetUnlocked())
             out << "FOCUS " << std::quoted(focusId) << '\n';
+        out << "ACTIVE_FOCUS " << std::quoted(player->focuses.GetActiveFocusId()) << ' '
+            << player->focuses.GetActiveFocusRemaining() << '\n';
 
         // TD(etap-3): recruited-but-not-deployed BattleUnit roster. Equipment
         // is always an empty list in v1 (ETAP 3.4 seam) but its count is
@@ -69,6 +99,9 @@ bool GameWorld::SaveToFile(const std::string& path) const
         for (const auto& ramp : player->conqueredEconomy.GetRamps())
             out << "RAMP " << ramp.buildingId << ' ' << ramp.elapsed << ' ' << ramp.rampDuration << '\n';
 
+        out << "COMMANDSTATS " << player->dataTracker.processedCommands.size() << '\n';
+        for (const auto& [commandType, count] : player->dataTracker.processedCommands)
+            out << "CMDSTAT " << static_cast<int>(commandType) << ' ' << count << '\n';
         out << "ENDPLAYER\n";
     }
 
@@ -134,7 +167,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
 
             out << "PROD " << static_cast<int>(prod->terrainType) << ' '
                 << prod->cycleTime.GetBase() << ' ' << prod->elapsed << ' '
-                << prod->started << '\n';
+                << prod->started << ' ' << prod->totalProduced << '\n';
             out << "WORKERS " << workers->capacity.GetBase() << ' ' << workers->assigned << '\n';
             out << "RECIPE " << recipes->activeRecipeIndex << '\n';
             out << "RESEARCH " << std::quoted(research != nullptr ? research->technologyId : std::string{}) << ' '
@@ -258,6 +291,16 @@ bool GameWorld::SaveToFile(const std::string& path) const
         out << '\n';
     }
 
+    out << "PROJECTILES " << projectiles.size() << '\n';
+    for (const auto& [id, projectile] : projectiles)
+    {
+        out << "PROJECTILE " << id << ' ' << projectile.sourcePlayerId << ' '
+            << projectile.sourceUnitInstanceId << ' ' << projectile.position.x << ' ' << projectile.position.y << ' '
+            << projectile.damage << ' ' << static_cast<int>(projectile.damageType) << ' '
+            << static_cast<int>(projectile.filter) << ' ' << projectile.ticksRemaining << ' '
+            << projectile.targetUnitInstanceId << ' ' << projectile.speed << '\n';
+    }
+
     return true;
 }
 
@@ -268,7 +311,41 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     if (!in.is_open())
         return false;
 
+    return LoadFromStream(in, renderer, a, -1);
+}
+
+bool GameWorld::RestoreSimulationState(std::string_view payload, int localPlayerIdOverride)
+{
+    // Full state transfer has a hard cap in SnapshotTransfer. Keeping the
+    // same bound at the persistence boundary prevents an alternate caller
+    // from handing the parser an unbounded network allocation.
+    constexpr std::size_t MaxSimulationStateBytes = 64u * 1024u * 1024u;
+    if (payload.empty() || payload.size() > MaxSimulationStateBytes)
+        return false;
+
+    // Loading mutates GameWorld progressively. Preserve a known-good rollback
+    // representation so a malformed network state does not leave the client
+    // playing on a partial world. A failure to restore the rollback is still
+    // reported as failure to the caller.
+    const std::string rollback = SerializeSimulationState();
+    if (rollback.empty())
+        return false;
+
+    std::istringstream in{std::string(payload)};
+    if (LoadFromStream(in, render, audio, localPlayerIdOverride))
+        return true;
+
+    std::istringstream rollbackStream{rollback};
+    LoadFromStream(rollbackStream, render, audio, -1);
+    return false;
+}
+
+bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem* a,
+                               int localPlayerIdOverride)
+{
+
     combatTelemetry.Clear();
+    projectiles.clear();
 
     std::string tag;
     int version = 0;
@@ -277,11 +354,12 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v32: runtime identifiers and simulation tick for multiplayer restore.
     // v31: transparent per-tile resource-overlay cells.
     // v30: settlement tiers and advanced supply buffers.
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
-    if (tag != "RTS_SAVE" || (version != 30 && version != 31))
+    if (tag != "RTS_SAVE" || (version != 30 && version != 31 && version != 32))
         return false;
 
     render = renderer;
@@ -290,6 +368,21 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
     in >> tag >> std::quoted(worldName);
     if (tag != "WORLD")
         return false;
+
+    int serializedLocalPlayerId = localPlayerId;
+    if (version >= 32)
+    {
+        in >> tag >> serializedLocalPlayerId >> simulationTick >> nextCommandId >> nextProjectileId;
+        if (tag != "RUNTIME")
+            return false;
+    }
+    else
+    {
+        simulationTick = 0;
+        nextCommandId = 1;
+        nextProjectileId = 1;
+    }
+    localPlayerId = localPlayerIdOverride >= 0 ? localPlayerIdOverride : serializedLocalPlayerId;
 
     int preset = 0;
     in >> tag >> tilemap.params.sizeX >> tilemap.params.sizeY >> tilemap.params.seed >> preset;
@@ -340,9 +433,31 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
 
         auto player = std::make_unique<Player>(playerId, tilemap);
         player->defeated = defeatedFlag != 0;
-        player->name = playerId == localPlayerId ? "Player" : "AI Opponent";
-        player->controllerType = playerId == localPlayerId ? PlayerControllerType::LocalHuman : PlayerControllerType::AI;
-        player->color = playerId == localPlayerId ? Color{66, 154, 255, 255} : Color{220, 72, 72, 255};
+        if (version >= 32)
+        {
+            int controllerType = 0;
+            int red = 0;
+            int green = 0;
+            int blue = 0;
+            int alpha = 255;
+            in >> controllerType >> std::quoted(player->name) >> red >> green >> blue >> alpha;
+            if (controllerType < static_cast<int>(PlayerControllerType::LocalHuman) ||
+                controllerType > static_cast<int>(PlayerControllerType::Remote) ||
+                red < 0 || red > 255 || green < 0 || green > 255 ||
+                blue < 0 || blue > 255 || alpha < 0 || alpha > 255)
+                return false;
+            player->controllerType = static_cast<PlayerControllerType>(controllerType);
+            player->color = Color{static_cast<unsigned char>(red), static_cast<unsigned char>(green),
+                                  static_cast<unsigned char>(blue), static_cast<unsigned char>(alpha)};
+        }
+        else
+        {
+            player->name = playerId == localPlayerId ? "Player" : "AI Opponent";
+            player->controllerType = playerId == localPlayerId ? PlayerControllerType::LocalHuman : PlayerControllerType::AI;
+            player->color = playerId == localPlayerId ? Color{66, 154, 255, 255} : Color{220, 72, 72, 255};
+        }
+        if (localPlayerIdOverride >= 0)
+            player->controllerType = playerId == localPlayerId ? PlayerControllerType::LocalHuman : PlayerControllerType::Remote;
         for (int s = 0; s < strategicCount; s++)
         {
             int type = 0;
@@ -368,6 +483,14 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             if (tag != "FOCUS")
                 return false;
             player->focuses.RestoreFocus(focusId);
+        }
+        if (version >= 32)
+        {
+            std::string activeFocusId;
+            double activeFocusRemaining = 0.0;
+            in >> tag >> std::quoted(activeFocusId) >> activeFocusRemaining;
+            if (tag != "ACTIVE_FOCUS" || !player->focuses.RestoreActiveFocus(activeFocusId, activeFocusRemaining))
+                return false;
         }
         player->RefreshTechnologyModifiers();
 
@@ -429,6 +552,24 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
         // above rather than leaving the captured buildings' cycle time
         // unmodified until the next real simulation tick.
         player->conqueredEconomy.Tick(*player, 0.0);
+
+        if (version >= 32)
+        {
+            int commandStatCount = 0;
+            in >> tag >> commandStatCount;
+            if (tag != "COMMANDSTATS" || commandStatCount < 0)
+                return false;
+            player->dataTracker.processedCommands.clear();
+            for (int c = 0; c < commandStatCount; ++c)
+            {
+                int commandType = 0;
+                int count = 0;
+                in >> tag >> commandType >> count;
+                if (tag != "CMDSTAT" || count < 0)
+                    return false;
+                player->dataTracker.processedCommands[static_cast<GameCommandType>(commandType)] = count;
+            }
+        }
 
         in >> tag;
         if (tag != "ENDPLAYER")
@@ -583,6 +724,8 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
 
                 int tileType = 0;
                 in >> tileType >> prod->cycleTime >> prod->elapsed >> prod->started;
+                if (version >= 32)
+                    in >> prod->totalProduced;
                 prod->terrainType = static_cast<TileType>(tileType);
 
                 int count = 0;
@@ -915,6 +1058,34 @@ bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioS
             queue.push_back(unitInstanceId);
         }
         spawnQueues[{fromPlayerId, toPlayerId}] = std::move(queue);
+    }
+
+    if (version >= 32)
+    {
+        int projectileCount = 0;
+        in >> tag >> projectileCount;
+        if (tag != "PROJECTILES" || projectileCount < 0)
+            return false;
+        for (int i = 0; i < projectileCount; ++i)
+        {
+            int id = 0;
+            AttackEmission projectile;
+            int damageType = 0;
+            int targetFilter = 0;
+            in >> tag >> id >> projectile.sourcePlayerId >> projectile.sourceUnitInstanceId
+               >> projectile.position.x >> projectile.position.y >> projectile.damage
+               >> damageType >> targetFilter >> projectile.ticksRemaining
+               >> projectile.targetUnitInstanceId >> projectile.speed;
+            if (tag != "PROJECTILE" || id < 1 || projectile.ticksRemaining < 0 ||
+                damageType != static_cast<int>(DamageType::Physical) ||
+                targetFilter < static_cast<int>(AttackTargetFilter::EnemiesOnly) ||
+                targetFilter > static_cast<int>(AttackTargetFilter::Everyone) ||
+                !std::isfinite(projectile.damage) || !std::isfinite(projectile.speed))
+                return false;
+            projectile.damageType = static_cast<DamageType>(damageType);
+            projectile.filter = static_cast<AttackTargetFilter>(targetFilter);
+            projectiles[id] = std::move(projectile);
+        }
     }
 
     UpdateFogOfWar();

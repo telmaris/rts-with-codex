@@ -7,6 +7,7 @@
 
 #include "GuiInternal.h"
 
+#include "ui/ControlIcons.h"
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
 #include "economy/StockpileIndex.h"
@@ -26,45 +27,12 @@ namespace
     // never causes a surprise horizontal scrollbar.
     constexpr float ScrollbarReserve = 24.0f;
 
-    // Presentation order only. Numeric ResourceType values stay stable for
-    // save files and network serialization.
-    const std::vector<ResourceType>& StockpilePresentationOrder()
-    {
-        static const std::vector<ResourceType> order{
-            ResourceType::WOOD, ResourceType::STONE, ResourceType::COAL,
-            ResourceType::COPPER_ORE, ResourceType::IRON_ORE, ResourceType::TIN_ORE,
-            ResourceType::SILVER_ORE, ResourceType::GOLD_ORE, ResourceType::SAND,
-            ResourceType::CLAY, ResourceType::SULFUR, ResourceType::SALTPETER,
-            ResourceType::PLANKS, ResourceType::COPPER, ResourceType::IRON,
-            ResourceType::TIN, ResourceType::BRONZE, ResourceType::STEEL,
-            ResourceType::SILVER, ResourceType::GOLD, ResourceType::COKE,
-            ResourceType::GLASS, ResourceType::BRICKS,
-            ResourceType::WHEAT, ResourceType::FLOUR, ResourceType::BREAD,
-            ResourceType::MEAT, ResourceType::WATER, ResourceType::BEER,
-            ResourceType::CATTLE, ResourceType::LEATHER, ResourceType::RAW_HIDE,
-            ResourceType::TALLOW, ResourceType::FOOD_PROVISIONS,
-            ResourceType::HEMP, ResourceType::FIBRE, ResourceType::ROPE,
-            ResourceType::CLOTH, ResourceType::CLOTHES, ResourceType::POTTERY,
-            ResourceType::SOAP, ResourceType::PAPER, ResourceType::INK,
-            ResourceType::BOOKS, ResourceType::COPPERWARE, ResourceType::HOUSEHOLD_GOODS,
-            ResourceType::URBAN_GOODS, ResourceType::TOOLS, ResourceType::COINS,
-            ResourceType::BRONZE_SWORD, ResourceType::IRON_SWORD,
-            ResourceType::STEEL_SWORD, ResourceType::BOW, ResourceType::ARROWS,
-            ResourceType::HEAVY_BOW, ResourceType::CROSSBOW, ResourceType::BOLTS,
-            ResourceType::MUSKET, ResourceType::CARTRIDGE, ResourceType::WOODEN_SHIELD,
-            ResourceType::IRON_SHIELD, ResourceType::LEATHER_ARMOR,
-            ResourceType::IRON_ARMOR, ResourceType::HEAVY_ARMOR, ResourceType::HORSE,
-            ResourceType::SPEAR, ResourceType::BALLISTA, ResourceType::BATTERING_RAM,
-            ResourceType::CATAPULT};
-        return order;
-    }
-
     // One card per resource, sized so the amount stays readable at a glance
     // and the capacity bar has room underneath it.
     void DrawStockpileCard(Rectangle cell, ResourceType type, const StockpileTotals& totals, bool hovered)
     {
-        DrawRectangleRounded(cell, 0.10f, 8, hovered ? Color{62, 46, 32, 242} : Color{40, 29, 21, 232});
-        DrawRectangleRoundedLines(cell, 0.10f, 8, 1.0f, hovered ? UiTheme::Gold : Color{112, 88, 58, 255});
+        DrawRectangleRounded(cell, 0.10f, 8, hovered ? UiTheme::InsetHover : UiTheme::Inset);
+        DrawRectangleRoundedLines(cell, 0.10f, 8, 1.0f, hovered ? UiTheme::SteelHover : UiTheme::Iron);
 
         float iconSize = std::clamp(cell.height * 0.58f, 64.0f, 92.0f);
         float iconY = cell.y + 14.0f;
@@ -80,7 +48,7 @@ namespace
         // Fill bar: how close the network is to running out of room for this
         // type — the thing that silently stalls a production chain.
         Rectangle track{cell.x + 14.0f, cell.y + cell.height - 17.0f, cell.width - 28.0f, 5.0f};
-        DrawRectangleRounded(track, 0.6f, 6, Color{24, 17, 12, 200});
+        DrawRectangleRounded(track, 0.6f, 6, UiTheme::Ink);
         if (totals.capacity > 0 && totals.amount > 0)
         {
             float fill = std::clamp(static_cast<float>(totals.amount) / totals.capacity, 0.0f, 1.0f);
@@ -95,7 +63,7 @@ namespace
             std::string badge = std::to_string(totals.holdings.size()) + "x";
             int width = UiText::Measure(badge, 12);
             Rectangle chip{cell.x + cell.width - width - 16.0f, cell.y + 12.0f, static_cast<float>(width + 8), 16.0f};
-            DrawRectangleRounded(chip, 0.3f, 6, Color{24, 17, 12, 230});
+            DrawRectangleRounded(chip, 0.3f, 6, UiTheme::Panel);
             UiText::Draw(badge, chip.x + 4.0f, chip.y + 2.0f, 12, UiTheme::ParchmentDim);
         }
     }
@@ -124,11 +92,16 @@ void StockpilePanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y),
                      static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(bounds, 0.025f, 8, Color{30, 22, 16, 244});
-    DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Bronze);
-
-    Rectangle title{bounds.x, bounds.y, bounds.width, HeaderHeight};
-    DrawRectangleRounded(title, 0.025f, 8, UiTheme::Oak);
+    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
+        DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
+    }
+    const float chromeInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    Rectangle title{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
+                    bounds.width - (chromeInset + 2.0f) * 2.0f, HeaderHeight - 8.0f};
+    if (!UiControlIcons::DrawRoyalTitleBar(title))
+        DrawRectangleRounded(title, 0.025f, 8, UiTheme::Surface);
     UiText::DrawTitleBar(title, "Stockpile", PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 
@@ -173,17 +146,9 @@ void StockpilePanelWidget::Update(double dt)
         if (entry.second.amount > 0)
             cards.push_back(entry);
 
-    const auto& presentationOrder = StockpilePresentationOrder();
     std::stable_sort(cards.begin(), cards.end(), [&](const auto& left, const auto& right)
     {
-        auto rank = [&](ResourceType type)
-        {
-            auto it = std::find(presentationOrder.begin(), presentationOrder.end(), type);
-            return it == presentationOrder.end()
-                ? static_cast<int>(presentationOrder.size()) + static_cast<int>(type)
-                : static_cast<int>(std::distance(presentationOrder.begin(), it));
-        };
-        return rank(left.first) < rank(right.first);
+        return ResourcePresentationRank(left.first) < ResourcePresentationRank(right.first);
     });
 
     Rectangle grid = GetGridRect();
@@ -233,7 +198,7 @@ void StockpilePanelWidget::Update(double dt)
     if (maxScrollOffset > 0.0f)
     {
         Rectangle track{grid.x + contentWidth + 7.0f, grid.y, 9.0f, grid.height};
-        DrawRectangleRounded(track, 0.5f, 6, Color{24, 17, 12, 210});
+        DrawRectangleRounded(track, 0.5f, 6, UiTheme::Inset);
         float thumbH = std::max(30.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
         Rectangle thumb{track.x, thumbY, track.width, thumbH};
@@ -258,7 +223,7 @@ void StockpilePanelWidget::Update(double dt)
         if (scrollbarDragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
             scrollbarDragging = false;
         DrawRectangleRounded(Rectangle{track.x, thumbY, track.width, thumbH}, 0.5f, 6,
-                             Color{174, 128, 67, 245});
+                             UiTheme::Iron);
     }
 
     // Drawn last so it is never clipped by the scroll viewport or overdrawn by

@@ -2,6 +2,7 @@
 #define ROAD_NETWORK_H
 
 #include "economy/Building.h"
+#include "simulation/ShipmentRenderState.h"
 
 class TileMap;
 
@@ -43,6 +44,9 @@ class RoadNetwork
     // Removes a completed/cancelled transport from the world-owned registry.
     void ReleaseShipment(Transportable* transportable);
     std::size_t GetLiveShipmentCount() const { return activeShipments.size(); }
+    // Appends an immutable presentation-only view of every resource shipment.
+    // Callers may retain the copied values after releasing the world lock.
+    void AppendShipmentRenderStates(std::vector<ShipmentRenderState>& out) const;
     // Registers a building or road in the navigation map.
     void UpdateNavMap(int id, Building* bld);
     // Calculates a tile-id path between two building footprints.

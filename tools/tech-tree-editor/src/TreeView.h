@@ -18,6 +18,7 @@
 #include "raylib.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,9 @@ public:
 
     // Id of the node shown in the inspector; empty when nothing is selected.
     std::string selectedNodeId;
+    // Independent editor selection. Ctrl+drag adds every node touched by the
+    // marquee; a subsequent drag on any selected node moves the whole group.
+    std::set<std::string> selectedNodeIds;
     // Set while a node follows the mouse (freshly added, or being dragged).
     std::string placingNodeId;
     PlacementTarget placement;
@@ -62,6 +66,7 @@ public:
     void ResetCamera();
 
     bool ContainsTreeArea(Rectangle bounds, Vector2 point) const;
+    void ClearNodeSelection();
 
     float zoom{0.78f};
     std::string selectedTagFilter;
@@ -101,6 +106,12 @@ private:
     std::string placementUndoLane;
     int placementUndoOrder{0};
     bool placementIsNew{false};
+    std::map<std::string, std::pair<std::string, int>> groupPlacementUndo;
+    bool groupSharesLane{true};
+
+    bool marqueeSelecting{false};
+    Vector2 marqueeOrigin{0.0f, 0.0f};
+    Rectangle marqueeRect{};
 };
 
 #endif

@@ -28,7 +28,7 @@ namespace
 }
 
 // Advances this object's state for one frame.
-bool Transportable::Update(double dt)
+TransportUpdateResult Transportable::Update(double dt)
 {
     auto cancelTransport = [&]()
     {
@@ -45,14 +45,14 @@ bool Transportable::Update(double dt)
     if (originatingOwner == nullptr || map == nullptr || currentPathStep < 0 || currentPathStep >= static_cast<int>(transportPath.size()))
     {
         cancelTransport();
-        return true;
+        return TransportUpdateResult::Finished;
     }
 
     int currentTileId = transportPath[currentPathStep];
     if (!IsTileTraversableForOwner(map, currentTileId, originatingOwner, sourceBuilding, targetBuilding))
     {
         cancelTransport();
-        return true;
+        return TransportUpdateResult::Finished;
     }
 
     elapsedTime += dt;
@@ -65,21 +65,21 @@ bool Transportable::Update(double dt)
                 current->ReceptTransport(this);
             else
                 cancelTransport();
-            return true;
+            return TransportUpdateResult::Finished;
         }
 
         int nextTileId = transportPath[currentPathStep + 1];
         if (!IsTileTraversableForOwner(map, nextTileId, originatingOwner, sourceBuilding, targetBuilding))
         {
             cancelTransport();
-            return true;
+            return TransportUpdateResult::Finished;
         }
 
         Building* next = map->GetBuilding(nextTileId);
         if (next == nullptr)
         {
             cancelTransport();
-            return true;
+            return TransportUpdateResult::Finished;
         }
 
         if (next->HasComponent<RoadComponent>())
@@ -119,15 +119,18 @@ bool Transportable::Update(double dt)
                         oncoming->transportTime = currentBuilding->GetModifiedTransportTime();
                     }
                 }
-                return false;
+                return TransportUpdateResult::Waiting;
             }
         }
 
+        const bool reachedDestination = next == targetBuilding;
         next->ReceptTransport(this);
 
-        return true;
+        return reachedDestination
+            ? TransportUpdateResult::Finished
+            : TransportUpdateResult::HandedOff;
     }
-    return false;
+    return TransportUpdateResult::Waiting;
 }
 
 // Initializes Transportable::BeginTransport.
@@ -208,6 +211,13 @@ bool RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* r
     res->shipmentNetwork = this;
     activeShipments.emplace(shipmentId, res);
     src->ReceptTransport(res);
+    // ReceptTransport normally selects the carrier's traversal time. The
+    // source is a loading stage instead: hold the shipment on the source/road
+    // boundary for a short, independently modifiable dispatch delay.
+    const auto* resource = dynamic_cast<const Resource*>(res);
+    res->elapsedTime = 0.0;
+    res->transportTime = src->GetModifiedDispatchDelay(
+        resource != nullptr ? resource->type : ResourceType::Null);
     return true;
 }
 
@@ -226,6 +236,48 @@ void RoadNetwork::ReleaseShipment(Transportable* transportable)
     {
         transportable->shipmentNetwork = nullptr;
         transportable->shipmentId = 0;
+    }
+}
+
+void RoadNetwork::AppendShipmentRenderStates(std::vector<ShipmentRenderState>& out) const
+{
+    for (const auto& [id, transportable] : activeShipments)
+    {
+        const auto* resource = dynamic_cast<const Resource*>(transportable);
+        if (resource == nullptr || resource->originatingOwner == nullptr ||
+            resource->type == ResourceType::Null || resource->shipmentId == 0)
+        {
+            continue;
+        }
+
+        const int step = resource->currentPathStep;
+        if (step < 0 || step + 1 >= static_cast<int>(resource->transportPath.size()))
+            continue;
+
+        const int fromTileId = resource->transportPath[step];
+        const int toTileId = resource->transportPath[step + 1];
+        if (tilemap == nullptr || fromTileId < 0 || toTileId < 0 ||
+            fromTileId >= static_cast<int>(tilemap->tilemap.size()) ||
+            toTileId >= static_cast<int>(tilemap->tilemap.size()))
+        {
+            continue;
+        }
+
+        const bool hasDuration = resource->transportTime > 0.0;
+        const double rawProgress = hasDuration
+            ? resource->elapsedTime / resource->transportTime
+            : 1.0;
+
+        ShipmentRenderState view;
+        view.ownerPlayerId = resource->originatingOwner->id;
+        view.shipmentId = id;
+        view.resourceType = resource->type;
+        view.previousTileId = step > 0 ? resource->transportPath[step - 1] : -1;
+        view.fromTileId = fromTileId;
+        view.toTileId = toTileId;
+        view.progress = static_cast<float>(std::clamp(rawProgress, 0.0, 1.0));
+        view.waitingForCapacity = hasDuration && resource->elapsedTime >= resource->transportTime;
+        out.push_back(view);
     }
 }
 

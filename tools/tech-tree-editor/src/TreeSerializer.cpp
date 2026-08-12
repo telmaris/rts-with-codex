@@ -41,7 +41,7 @@ namespace
         "University", "Barracks", "DefenseTower", "Road", "Bridge", "AnimalFarm",
         "Butcher", "Tannery", "Tailor", "Armorer", "HorseStable", "Kiln",
         "HouseholdWorkshop", "Soapworks", "Inkworks", "Scriptorium", "Copperworks",
-        "UrbanWorkshop", "HempFarm", "Ropery", "Weaver", "Bowyer", "Fletchery",
+        "UrbanWorkshop", "HempFarm", "Ropery", "Weaver", "Bowyer",
         "SpearWorkshop", "SiegeWorkshop"};
 
     const std::vector<BuildingType> buildingTypeValues{
@@ -56,7 +56,7 @@ namespace
         BuildingType::Kiln, BuildingType::HouseholdWorkshop, BuildingType::Soapworks,
         BuildingType::Inkworks, BuildingType::Scriptorium, BuildingType::Copperworks,
         BuildingType::UrbanWorkshop, BuildingType::HempFarm, BuildingType::Ropery,
-        BuildingType::Weaver, BuildingType::Bowyer, BuildingType::Fletchery,
+        BuildingType::Weaver, BuildingType::Bowyer,
         BuildingType::SpearWorkshop, BuildingType::SiegeWorkshop};
 
     const std::vector<std::string> resourceTypeNames{

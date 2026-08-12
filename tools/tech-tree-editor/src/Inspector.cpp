@@ -1,10 +1,10 @@
 #include "Inspector.h"
 
+#include "EditorTheme.h"
 #include "TreeModel.h"
 #include "TreeSerializer.h"
 
 #include "ui/UiText.h"
-#include "ui/UiTheme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,14 +14,14 @@
 
 namespace
 {
-    constexpr float rowH = 24.0f;
-    constexpr float gap = 6.0f;
-    // Smaller than the game's chrome: this panel is a dense form, and it draws
-    // with the Plain face (set by main.cpp) which stays legible well below the
-    // display font's comfortable size.
-    constexpr int labelFont = 12;
-    constexpr int valueFont = 14;
-    constexpr int headerFont = 14;
+    constexpr float rowH = 30.0f;
+    constexpr float gap = 10.0f;
+    constexpr float labelH = 19.0f;
+    // This is an authoring panel, not a replica of the game HUD. Give labels
+    // and values enough size to scan comfortably at normal desktop distance.
+    constexpr int labelFont = 14;
+    constexpr int valueFont = 16;
+    constexpr int headerFont = 17;
 
     // "(none)" is offered wherever a modifier filter is optional, so a filter
     // can be cleared without deleting and re-adding the whole modifier.
@@ -69,18 +69,45 @@ namespace
         }
     }
 
+    // Match the game's tooltip vocabulary: these time-based stats are shown
+    // as a speed/rate, while their serialized multiplier scales duration.
+    bool UsesRateDisplay(BalanceStat stat)
+    {
+        return stat == BalanceStat::BuildTime ||
+               stat == BalanceStat::ProductionCycleTime ||
+               stat == BalanceStat::TransportTime;
+    }
+
+    double EffectPercent(const BalanceModifier& modifier)
+    {
+        if (UsesRateDisplay(modifier.stat) && modifier.multiplier > 0.0)
+            return (1.0 / modifier.multiplier - 1.0) * 100.0;
+        return (modifier.multiplier - 1.0) * 100.0;
+    }
+
+    double MultiplierFromEffectPercent(BalanceStat stat, double effectPercent)
+    {
+        if (UsesRateDisplay(stat))
+        {
+            // A -100% rate would divide by zero. Keep the persisted value
+            // valid while still allowing an extreme slowdown to be authored.
+            return 1.0 / std::max(0.01, 1.0 + effectPercent / 100.0);
+        }
+        return std::max(0.0, 1.0 + effectPercent / 100.0);
+    }
+
     void DrawLabel(const std::string& text, float x, float y)
     {
-        UiText::Draw(text, x, y, labelFont, UiTheme::ParchmentDim);
+        UiText::Draw(text, x, y, labelFont, EditorTheme::TextMuted);
     }
 
     void DrawSectionHeader(const std::string& text, Rectangle bounds, float& y)
     {
-        y += 6.0f;
-        DrawLineEx({bounds.x, y}, {bounds.x + bounds.width, y}, 1.0f, Fade(UiTheme::Bronze, 0.6f));
-        y += 6.0f;
-        UiText::Draw(text, bounds.x, y, headerFont, UiTheme::AmberBright);
-        y += 21.0f;
+        y += 10.0f;
+        DrawLineEx({bounds.x, y}, {bounds.x + bounds.width, y}, 1.0f, EditorTheme::Divider);
+        y += 8.0f;
+        UiText::Draw(text, bounds.x, y, headerFont, EditorTheme::Accent);
+        y += 25.0f;
     }
 
     // Small square button used for +/x controls next to list rows.
@@ -88,9 +115,9 @@ namespace
     {
         Vector2 mouse = GetMousePosition();
         bool hover = CheckCollisionPointRec(mouse, rect);
-        DrawRectangleRounded(rect, 0.25f, 6, hover ? UiTheme::Timber : UiTheme::Oak);
-        DrawRectangleRoundedLines(rect, 0.25f, 6, 1.0f, hover ? accent : UiTheme::Bronze);
-        UiText::DrawFit(label, rect, valueFont, hover ? accent : UiTheme::ParchmentDim);
+        DrawRectangleRounded(rect, 0.25f, 6, hover ? EditorTheme::SurfaceHover : EditorTheme::Surface);
+        DrawRectangleRoundedLines(rect, 0.25f, 6, 1.0f, hover ? accent : EditorTheme::Border);
+        UiText::DrawFit(label, rect, valueFont, hover ? accent : EditorTheme::TextMuted);
         return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     }
 }
@@ -152,6 +179,20 @@ void Inspector::SyncBuffers(TreeDocument& document, const std::string& id)
         costRows[i].amount.numericOnly = true;
     }
 
+    buildingUnlockDropdowns.clear();
+    if (document.GetKind() == TreeKind::Technology)
+    {
+        const auto unlockedIds = document.GetUnlockedBuildingIds(definition->id);
+        const auto options = document.GetBuildingUnlockOptions(definition->id);
+        buildingUnlockDropdowns.assign(unlockedIds.size(), DropdownWidget{});
+        for (size_t i = 0; i < unlockedIds.size(); i++)
+        {
+            buildingUnlockDropdowns[i].fontSize = valueFont;
+            buildingUnlockDropdowns[i].SetOptions(options);
+            buildingUnlockDropdowns[i].SelectByText(document.GetBuildingUnlockLabel(unlockedIds[i]));
+        }
+    }
+
     modifierRows.assign(definition->modifiers.size(), ModifierRow{});
     for (size_t i = 0; i < definition->modifiers.size(); i++)
     {
@@ -175,25 +216,25 @@ void Inspector::SyncBuffers(TreeDocument& document, const std::string& id)
         row.unit.text = modifier.unitDefId.value_or("");
         row.additive.text = Number(modifier.additive);
         row.additive.numericOnly = true;
-        row.multiplier.text = Number(modifier.multiplier);
+        row.multiplier.text = Number(EffectPercent(modifier));
         row.multiplier.numericOnly = true;
     }
 }
 
 std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std::string& selectedId)
 {
-    DrawRectangleRounded(bounds, 0.02f, 8, Color{30, 22, 16, 250});
-    DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, UiTheme::Bronze);
-    Rectangle title{bounds.x, bounds.y, bounds.width, 40.0f};
-    DrawRectangleRounded(title, 0.05f, 8, UiTheme::Oak);
-    UiText::DrawFit("Node Inspector", title, 17, UiTheme::Parchment);
+    DrawRectangleRounded(bounds, 0.02f, 8, EditorTheme::Panel);
+    DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, EditorTheme::Border);
+    Rectangle title{bounds.x, bounds.y, bounds.width, 44.0f};
+    DrawRectangleRounded(title, 0.05f, 8, EditorTheme::PanelHeader);
+    UiText::DrawFit("Node Inspector", title, 19, EditorTheme::Text);
 
     if (selectedId.empty() || document.Find(selectedId) == nullptr)
     {
         UiText::DrawFit("Select a node (left click).",
-            Rectangle{bounds.x + 16.0f, bounds.y + 58.0f, bounds.width - 32.0f, 20.0f}, valueFont, UiTheme::ParchmentFaint);
+            Rectangle{bounds.x + 26.0f, bounds.y + 66.0f, bounds.width - 52.0f, 24.0f}, valueFont, EditorTheme::TextFaint);
         UiText::DrawFit("Right click a node adds a child.",
-            Rectangle{bounds.x + 16.0f, bounds.y + 80.0f, bounds.width - 32.0f, 20.0f}, valueFont, UiTheme::ParchmentFaint);
+            Rectangle{bounds.x + 26.0f, bounds.y + 92.0f, bounds.width - 52.0f, 24.0f}, valueFont, EditorTheme::TextFaint);
         boundId.clear();
         return selectedId;
     }
@@ -221,8 +262,9 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     }
 
     std::string nextSelection = selectedId;
-    // Right inset leaves room for the scrollbar so no field runs under it.
-    Rectangle content{bounds.x + 16.0f, bounds.y + 46.0f, bounds.width - 38.0f, bounds.height - 58.0f};
+    // Generous insets keep the form from visually merging into the panel edge;
+    // the right gutter also reserves room for the scrollbar.
+    Rectangle content{bounds.x + 26.0f, bounds.y + 54.0f, bounds.width - 64.0f, bounds.height - 70.0f};
 
     Vector2 mouse = GetMousePosition();
     if (CheckCollisionPointRec(mouse, content) && !DropdownWidget::IsAnyOpen())
@@ -244,8 +286,8 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     auto* definition = document.Find(selectedId);
 
     // --- identity ------------------------------------------------------------
-    DrawLabel("id", fieldX, y);
-    y += 15.0f;
+    DrawLabel("Node ID", fieldX, y);
+    y += labelH;
     if (idField.Draw({fieldX, y, fieldW, rowH}, "node_id"))
     {
         // Renaming is applied only once it is unique and non-empty; typing
@@ -258,8 +300,8 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     }
     y += rowH + gap;
 
-    DrawLabel("name", fieldX, y);
-    y += 15.0f;
+    DrawLabel("Display name", fieldX, y);
+    y += labelH;
     if (nameField.Draw({fieldX, y, fieldW, rowH}, "Display name"))
     {
         definition->name = nameField.text;
@@ -267,8 +309,8 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     }
     y += rowH + gap;
 
-    DrawLabel("description", fieldX, y);
-    y += 15.0f;
+    DrawLabel("Description", fieldX, y);
+    y += labelH;
     if (descriptionField.Draw({fieldX, y, fieldW, rowH}, "Tooltip text"))
     {
         definition->description = descriptionField.text;
@@ -279,9 +321,9 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     // --- layout --------------------------------------------------------------
     DrawSectionHeader("Layout", content, y);
 
-    DrawLabel("category", fieldX, y);
-    DrawLabel("layout_lane", fieldX + half + gap, y);
-    y += 15.0f;
+    DrawLabel("Category", fieldX, y);
+    DrawLabel("Layout lane", fieldX + half + gap, y);
+    y += labelH;
     categoryDropdown.Draw({fieldX, y, half, rowH}, "SCIENCE");
     if (categoryDropdown.ConsumeChanged())
     {
@@ -295,10 +337,10 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     }
     y += rowH + gap;
 
-    DrawLabel("layer", fieldX, y);
-    DrawLabel("order (0-999)", fieldX + third + gap, y);
-    DrawLabel("research_time", fieldX + (third + gap) * 2.0f, y);
-    y += 15.0f;
+    DrawLabel("Layer", fieldX, y);
+    DrawLabel("Order (0–999)", fieldX + third + gap, y);
+    DrawLabel("Research time", fieldX + (third + gap) * 2.0f, y);
+    y += labelH;
     bool layerChanged = layerField.Draw({fieldX, y, third, rowH}, "1");
     bool orderChanged = orderField.Draw({fieldX + third + gap, y, third, rowH}, "500");
     if (layerChanged || orderChanged)
@@ -321,8 +363,8 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     int shownLayoutOrder = std::max(1, ToInt(layerField.text, 1)) * 1000 +
                            std::clamp(ToInt(orderField.text, 500), 0, 999);
     UiText::Draw("layout_order = layer*1000 + order = " + std::to_string(shownLayoutOrder),
-                 fieldX, y, labelFont, UiTheme::ParchmentFaint);
-    y += 20.0f;
+                 fieldX, y, labelFont, EditorTheme::TextFaint);
+    y += 24.0f;
 
     // --- tags ----------------------------------------------------------------
     // Explicit tags are additive only: on load InferTags() filters them through
@@ -337,7 +379,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
             definition->tags[i] = tagDropdowns[i].SelectedText();
             document.MarkDirty();
         }
-        if (DrawMiniButton({fieldX + half + gap, y, rowH, rowH}, "x", UiTheme::RustBright))
+        if (DrawMiniButton({fieldX + half + gap, y, rowH, rowH}, "x", EditorTheme::Negative))
         {
             definition->tags.erase(definition->tags.begin() + i);
             document.MarkDirty();
@@ -346,7 +388,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         y += rowH + 4.0f;
     }
-    if (DrawMiniButton({fieldX, y, 110.0f, rowH}, "+ add tag", UiTheme::SageBright))
+    if (DrawMiniButton({fieldX, y, 132.0f, rowH}, "+ Add tag", EditorTheme::Positive))
     {
         definition->tags.push_back(RtsDataNames::Tags().front());
         document.MarkDirty();
@@ -360,11 +402,11 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     {
         Rectangle row{fieldX, y, fieldW - rowH - gap, rowH};
         bool missing = document.Find(definition->prerequisites[i]) == nullptr;
-        DrawRectangleRounded(row, 0.18f, 6, UiTheme::Bark);
-        DrawRectangleRoundedLines(row, 0.18f, 6, 1.0f, missing ? UiTheme::Rust : UiTheme::Bronze);
+        DrawRectangleRounded(row, 0.18f, 6, EditorTheme::Surface);
+        DrawRectangleRoundedLines(row, 0.18f, 6, 1.0f, missing ? EditorTheme::Negative : EditorTheme::Border);
         UiText::Draw(definition->prerequisites[i] + (missing ? "  (missing!)" : ""),
-                     row.x + 8.0f, row.y + 5.0f, valueFont, missing ? UiTheme::RustBright : UiTheme::Parchment);
-        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", UiTheme::RustBright))
+                     row.x + 10.0f, row.y + 6.0f, valueFont, missing ? EditorTheme::Negative : EditorTheme::Text);
+        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", EditorTheme::Negative))
         {
             definition->prerequisites.erase(definition->prerequisites.begin() + i);
             document.MarkDirty();
@@ -375,7 +417,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     if (newPrerequisiteField.Draw({fieldX, y, fieldW - rowH - gap, rowH}, "add prerequisite id + Enter"))
     {
     }
-    if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "+", UiTheme::SageBright) ||
+    if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "+", EditorTheme::Positive) ||
         (newPrerequisiteField.IsFocused() && IsKeyPressed(KEY_ENTER)))
     {
         std::string candidate = newPrerequisiteField.text;
@@ -405,7 +447,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
             definition->costs[i].amount = std::max(0, ToInt(costRows[i].amount.text, definition->costs[i].amount));
             document.MarkDirty();
         }
-        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", UiTheme::RustBright))
+        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", EditorTheme::Negative))
         {
             definition->costs.erase(definition->costs.begin() + i);
             document.MarkDirty();
@@ -414,13 +456,69 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         y += rowH + 4.0f;
     }
-    if (DrawMiniButton({fieldX, y, 110.0f, rowH}, "+ add cost", UiTheme::SageBright))
+    if (DrawMiniButton({fieldX, y, 132.0f, rowH}, "+ Add cost", EditorTheme::Positive))
     {
         definition->costs.push_back({RtsDataNames::ToResourceType("PAPER"), 10});
         document.MarkDirty();
         SyncBuffers(document, selectedId);
     }
     y += rowH + gap;
+
+    // --- building unlocks ---------------------------------------------------
+    // Construction unlocks are real `requires_tech` relations in
+    // buildings.rtsdata, deliberately separate from BalanceModifier. This
+    // makes the editor's selection, the game build gate and the tooltip use
+    // the same source of truth.
+    if (document.GetKind() == TreeKind::Technology)
+    {
+        DrawSectionHeader("Building unlocks", content, y);
+        auto unlockedIds = document.GetUnlockedBuildingIds(definition->id);
+        const auto options = document.GetBuildingUnlockOptions(definition->id);
+        for (size_t i = 0; i < buildingUnlockDropdowns.size() && i < unlockedIds.size(); i++)
+        {
+            buildingUnlockDropdowns[i].Draw({fieldX, y, fieldW - rowH - gap, rowH}, "Building");
+            if (buildingUnlockDropdowns[i].ConsumeChanged())
+            {
+                std::vector<std::string> replacement = unlockedIds;
+                replacement[i] = document.GetBuildingUnlockIdForLabel(buildingUnlockDropdowns[i].SelectedText());
+                replacement.erase(std::remove(replacement.begin(), replacement.end(), std::string()), replacement.end());
+                document.SetBuildingUnlocks(definition->id, replacement);
+                SyncBuffers(document, selectedId);
+                break;
+            }
+            if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", EditorTheme::Negative))
+            {
+                unlockedIds.erase(unlockedIds.begin() + i);
+                document.SetBuildingUnlocks(definition->id, unlockedIds);
+                SyncBuffers(document, selectedId);
+                break;
+            }
+            y += rowH + 4.0f;
+        }
+
+        std::vector<std::string> availableIds;
+        for (const auto& label : options)
+        {
+            const std::string id = document.GetBuildingUnlockIdForLabel(label);
+            if (!id.empty() && std::find(unlockedIds.begin(), unlockedIds.end(), id) == unlockedIds.end())
+                availableIds.push_back(id);
+        }
+        if (!availableIds.empty())
+        {
+            if (DrawMiniButton({fieldX, y, 176.0f, rowH}, "+ Add building unlock", EditorTheme::Positive))
+            {
+                unlockedIds.push_back(availableIds.front());
+                document.SetBuildingUnlocks(definition->id, unlockedIds);
+                SyncBuffers(document, selectedId);
+            }
+            y += rowH + gap;
+        }
+        else
+        {
+            UiText::Draw("All currently un-gated buildings are assigned.", fieldX, y + 4.0f, labelFont, EditorTheme::TextFaint);
+            y += rowH + gap;
+        }
+    }
 
     // --- modifiers -----------------------------------------------------------
     DrawSectionHeader("Modifiers", content, y);
@@ -429,16 +527,17 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         auto& row = modifierRows[i];
         auto& modifier = definition->modifiers[i];
 
-        DrawRectangleRounded({fieldX - 4.0f, y - 4.0f, fieldW + 8.0f, rowH * 3.0f + 20.0f}, 0.05f, 6,
-                             Color{38, 28, 20, 200});
+        DrawRectangleRounded({fieldX - 6.0f, y - 6.0f, fieldW + 12.0f, rowH * 4.0f + labelH + 53.0f}, 0.05f, 6,
+                             EditorTheme::Surface);
 
         row.stat.Draw({fieldX, y, fieldW - rowH - gap, rowH}, "stat");
         if (row.stat.ConsumeChanged())
         {
             modifier.stat = RtsDataNames::ToBalanceStat(row.stat.SelectedText());
+            row.multiplier.text = Number(EffectPercent(modifier));
             document.MarkDirty();
         }
-        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", UiTheme::RustBright))
+        if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", EditorTheme::Negative))
         {
             definition->modifiers.erase(definition->modifiers.begin() + i);
             document.MarkDirty();
@@ -447,14 +546,18 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         y += rowH + 4.0f;
 
-        if (row.additive.Draw({fieldX, y, half, rowH}, "additive"))
+        DrawLabel("Flat value", fieldX, y);
+        DrawLabel("Effect (%)", fieldX + half + gap, y);
+        y += labelH;
+        if (row.additive.Draw({fieldX, y, half, rowH}, "0"))
         {
             modifier.additive = ToDouble(row.additive.text, modifier.additive);
             document.MarkDirty();
         }
-        if (row.multiplier.Draw({fieldX + half + gap, y, half, rowH}, "multiplier"))
+        if (row.multiplier.Draw({fieldX + half + gap, y, half, rowH}, "0"))
         {
-            modifier.multiplier = ToDouble(row.multiplier.text, modifier.multiplier);
+            modifier.multiplier = MultiplierFromEffectPercent(
+                modifier.stat, ToDouble(row.multiplier.text, EffectPercent(modifier)));
             document.MarkDirty();
         }
         y += rowH + 4.0f;
@@ -501,10 +604,10 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         y += rowH + 4.0f;
 
-        UiText::Draw(SerializeModifier(modifier), fieldX, y, labelFont, UiTheme::ParchmentFaint);
-        y += 22.0f;
+        UiText::Draw(SerializeModifier(modifier), fieldX, y, labelFont, EditorTheme::TextFaint);
+        y += 25.0f;
     }
-    if (DrawMiniButton({fieldX, y, 130.0f, rowH}, "+ add modifier", UiTheme::SageBright))
+    if (DrawMiniButton({fieldX, y, 156.0f, rowH}, "+ Add modifier", EditorTheme::Positive))
     {
         BalanceModifier modifier;
         modifier.stat = BalanceStat::ProductionCycleTime;
@@ -517,7 +620,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
 
     // --- danger zone ---------------------------------------------------------
     DrawSectionHeader("", content, y);
-    if (DrawMiniButton({fieldX, y, 150.0f, rowH}, "Delete node", UiTheme::RustBright))
+    if (DrawMiniButton({fieldX, y, 160.0f, rowH}, "Delete node", EditorTheme::Negative))
     {
         document.DeleteNode(selectedId);
         nextSelection.clear();
@@ -534,11 +637,11 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     // rendering bug rather than "there is more below".
     if (maxScroll > 0.0f)
     {
-        Rectangle track{content.x + content.width + 4.0f, content.y, 4.0f, content.height};
-        DrawRectangleRounded(track, 0.5f, 4, Color{20, 15, 11, 190});
+        Rectangle track{content.x + content.width + 8.0f, content.y, 5.0f, content.height};
+        DrawRectangleRounded(track, 0.5f, 4, EditorTheme::Canvas);
         float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxScroll)));
         float thumbY = track.y + (track.height - thumbH) * (scroll / maxScroll);
-        DrawRectangleRounded({track.x, thumbY, track.width, thumbH}, 0.5f, 4, UiTheme::Bronze);
+        DrawRectangleRounded({track.x, thumbY, track.width, thumbH}, 0.5f, 4, EditorTheme::Accent);
     }
 
     return nextSelection;
