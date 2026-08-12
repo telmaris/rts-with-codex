@@ -113,6 +113,9 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     ASSERT_NE(destination, nullptr);
     ASSERT_NE(roadA, nullptr);
     ASSERT_NE(roadB, nullptr);
+    // Dispatch delay is a balance default, not part of this path-queueing
+    // contract. Pin it so a gameplay-balance change cannot alter this test.
+    source->dispatchDelay.SetBase(0.1);
 
     source->storage.buffers.clear();
     destination->storage.buffers.clear();
@@ -155,6 +158,9 @@ TEST(RoadNetworkTests, DispatchDelayIsBalanceModifiableForBuildingAndResource)
     ASSERT_NE(destination, nullptr);
     ASSERT_NE(roadA, nullptr);
     ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4), nullptr);
+    // This test verifies the resource-scoped modifier, starting from a known
+    // base rather than the data-driven gameplay default.
+    source->dispatchDelay.SetBase(0.1);
 
     destination->storage.buffers.clear();
     destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 2};
@@ -203,6 +209,7 @@ TEST(RoadNetworkTests, DispatchDelaySerializesResourcesCreatedInTheSameTick)
     ASSERT_NE(destination, nullptr);
     ASSERT_NE(roadA, nullptr);
     ASSERT_NE(PlaceAndRegister<Road>(map, network, &player, {4, 2}, 4), nullptr);
+    source->dispatchDelay.SetBase(0.1);
 
     destination->storage.buffers.clear();
     destination->storage.buffers[ResourceType::WOOD] = ResourceBuffer{ResourceType::WOOD, 3};

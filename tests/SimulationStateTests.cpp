@@ -48,6 +48,8 @@ TEST(SimulationStateTests, NonFiniteDoublesAreNormalized)
 TEST(SimulationStateTests, FullStateRoundTripRestoresAuthoritativeWorldForClientSlot)
 {
     MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
     params.seed = 1701;
     params.aiOpponentCount = 1;
 
@@ -89,6 +91,8 @@ TEST(SimulationStateTests, FullStateRoundTripRestoresAuthoritativeWorldForClient
 TEST(SimulationStateTests, ClientSessionAppliesChunkedInitialAndCorrectionState)
 {
     MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
     params.seed = 8128;
     params.aiOpponentCount = 1;
 

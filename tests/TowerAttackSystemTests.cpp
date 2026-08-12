@@ -137,22 +137,14 @@ TEST(TowerAttackSystemTests, TowerHitsMovingEnemyWithinRangeAndConsumesAmmo)
     int ammoBefore = static_cast<int>(storage->buffers[ResourceType::ARROWS].buffer.size());
     double unitHpBefore = world.GetDeployedUnits().at(unitId).currentHp;
 
-    // Real root cause found 2026-07-14 via direct instrumentation (tower
-    // position/range/closest-approach dump) after two blind geometry fixes
-    // didn't help: the tower placement math was fine all along (route[mid]
-    // sat ~2.2 tiles from the tower, well within its 6-tile range) — the
-    // unit simply never got there. This test's tick budget was tuned against
-    // the PRE-B5-fix world (world-gen retry validation had an off-by-one
-    // that made it silently exhaust all 8 retries and use a different
-    // perturbed seed than the one requested, every time — see
-    // docs/work_plan_2026-07-13.md B5). Once that bug was fixed, seed=301
-    // started producing its real, unperturbed ring, which measured 119 tiles
-    // (vs. whatever much shorter route the perturbed fallback happened to
-    // produce) — reaching the midpoint alone needs ~5900+ ticks at
-    // moveSpeed 1, so the old 5000-tick budget fell short by design, not by
-    // bug. Bumped with generous headroom rather than tuned to one route length.
+    // Route traversal is covered by UnitMarchSystemTests. Start shortly before
+    // the tower so this test still observes a genuinely moving target without
+    // spending thousands of simulation ticks reaching the fixture.
+    auto& movingUnit = world.GetDeployedUnits().at(unitId);
+    movingUnit.tileIndex = midIndex - 2;
+    movingUnit.tileProgress = 0.0;
     bool damaged = false;
-    for (int i = 0; i < 15000 && world.GetDeployedUnits().count(unitId) != 0 && !damaged; i++)
+    for (int i = 0; i < 300 && world.GetDeployedUnits().count(unitId) != 0 && !damaged; i++)
     {
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         auto it = world.GetDeployedUnits().find(unitId);
@@ -232,7 +224,10 @@ TEST(TowerAttackSystemTests, TowerDoesNotFireAtEnemyBeyondRange)
     ASSERT_NE(storage, nullptr);
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(10);
 
-    for (int i = 0; i < 3000 && world.GetDeployedUnits().count(unitId) != 0; i++)
+    auto& distantUnit = world.GetDeployedUnits().at(unitId);
+    distantUnit.tileIndex = midIndex;
+    distantUnit.tileProgress = 0.0;
+    for (int i = 0; i < 10 && world.GetDeployedUnits().count(unitId) != 0; i++)
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
 
     EXPECT_EQ(storage->buffers[ResourceType::ARROWS].buffer.size(), 10u)
@@ -261,21 +256,14 @@ TEST(TowerAttackSystemTests, TowerStopsFiringWithoutAmmo)
     ASSERT_NE(storage, nullptr);
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(0); // no ammo at all
 
+    auto& unit = world.GetDeployedUnits().at(unitId);
+    unit.tileIndex = midIndex;
+    unit.tileProgress = 0.0;
     double unitHpBefore = world.GetDeployedUnits().at(unitId).currentHp;
-    // Stop once the unit reaches the HQ door — HqCombatSystem's thorns would
-    // otherwise (correctly) damage it there too, unrelated to this tower.
-    // Budget bumped (see TowerHitsMovingEnemyWithinRangeAndConsumesAmmo above
-    // for why): reaching the door needs the FULL route length, which can run
-    // well past the old 5000-tick budget on this map size.
-    for (int i = 0; i < 15000; i++)
-    {
+    for (int i = 0; i < 100; i++)
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
-        auto it = world.GetDeployedUnits().find(unitId);
-        if (it == world.GetDeployedUnits().end() || it->second.state == BattleUnitState::AttackingHq)
-            break;
-    }
 
-    ASSERT_EQ(world.GetDeployedUnits().count(unitId), 1u) << "unopposed, the unit should survive its march up to the door";
+    ASSERT_EQ(world.GetDeployedUnits().count(unitId), 1u);
     EXPECT_DOUBLE_EQ(world.GetDeployedUnits().at(unitId).currentHp, unitHpBefore);
     EXPECT_TRUE(world.GetProjectiles().empty());
 }

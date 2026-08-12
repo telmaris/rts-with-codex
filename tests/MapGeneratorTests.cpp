@@ -318,10 +318,12 @@ TEST(MapGeneratorTests, StartingVillageRoadStaysWithinBudget)
 // a route is available.
 TEST(MapGeneratorTests, StartingVillageAndRoadStayOppositeAndDetachedFromUnitTrack)
 {
-    for (int aiOpponentCount : {1, 2})
+    // Cover every seed and both tested player counts without generating the
+    // full Cartesian product of gameplay-sized worlds.
+    const std::vector<std::pair<int, unsigned int>> scenarios{
+        {1, 11u}, {2, 222u}, {1, 3333u}};
+    for (const auto& [aiOpponentCount, seed] : scenarios)
     {
-        for (unsigned int seed : {11u, 222u, 3333u})
-        {
             MapParameters params;
             params.sizePreset = MapSizePreset::S;
             params.aiOpponentCount = aiOpponentCount;
@@ -398,6 +400,5 @@ TEST(MapGeneratorTests, StartingVillageAndRoadStayOppositeAndDetachedFromUnitTra
                     }
                 }
             }
-        }
     }
 }

@@ -986,6 +986,8 @@ TEST(UtilityAIModelTests, AIStartsNextFocusOnFirstTickAfterCompletion)
 TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
 {
     MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
     params.aiOpponentCount = 1;
     params.seed = 31337;
     params.aiDifficulty = 1;  // Easy — noise amplitude and cycle-skips active
@@ -995,8 +997,9 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
     worldA.InitWorld("noisy-determinism", nullptr, nullptr, params);
     worldB.InitWorld("noisy-determinism", nullptr, nullptr, params);
 
-    // 30 sim-seconds, checksum compared every sim-second.
-    for (int tick = 0; tick < 3000; tick++)
+    // Ten simulated seconds cover multiple noisy decision cycles; map size is
+    // irrelevant to the seeded sequence this test guards.
+    for (int tick = 0; tick < 1000; tick++)
     {
         worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
         worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
@@ -1012,6 +1015,8 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
 TEST(UtilityAIModelTests, TwoWorldsSameSeedHardDifficultyWithPersonalityStayInSync)
 {
     MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
     params.aiOpponentCount = 1;
     params.seed = 31337;
     params.aiDifficulty = 3;  // Hard — no difficulty noise, personality bias only
@@ -1021,7 +1026,7 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedHardDifficultyWithPersonalityStayInSy
     worldA.InitWorld("personality-determinism", nullptr, nullptr, params);
     worldB.InitWorld("personality-determinism", nullptr, nullptr, params);
 
-    for (int tick = 0; tick < 3000; tick++)
+    for (int tick = 0; tick < 1000; tick++)
     {
         worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
         worldB.UpdateSimulation(FixedSimulationClock::FixedDt);

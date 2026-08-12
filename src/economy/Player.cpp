@@ -9,6 +9,20 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+    // Requirement ids are stable data keys, not player-facing text. Keep a
+    // missing definition debuggable (it can happen with old mod data) while
+    // normally showing the localized/catalog display name in UI feedback.
+    std::string RequirementDisplayName(const std::string& id, bool isFocus)
+    {
+        const TechnologyDefinition* definition = isFocus
+            ? FindFocusDefinition(id)
+            : FindTechnologyDefinition(id);
+        return definition != nullptr && !definition->name.empty() ? definition->name : id;
+    }
+}
+
 void Player::ReportBuildCostFailure(const std::string& buildingName) const
 {
     Log::Msg("[Player]", "Not enough resources to build ", buildingName);
@@ -97,10 +111,10 @@ std::vector<std::string> Player::GetBuildRequirementFailures(const BuildingDefin
     std::vector<std::string> failures;
     for (const auto& technology : definition.requiredTechnologies)
         if (!technologies.HasTechnology(technology))
-            failures.push_back("Requires tech: " + technology);
+            failures.push_back("Requires technology: " + RequirementDisplayName(technology, false));
     for (const auto& focus : definition.requiredFocuses)
         if (!focuses.HasFocus(focus))
-            failures.push_back("Requires focus: " + focus);
+            failures.push_back("Requires focus: " + RequirementDisplayName(focus, true));
     if ((!tilemap.params.debugMode || !ignoreDebugFreeBuild) && !HasBuildResources(GetEffectiveBuildCosts(definition)))
         failures.push_back("Not enough resources");
     return failures;

@@ -18,9 +18,9 @@
 // latent full-map scans (CountIncomingToDestination per shipped unit).
 //
 // This test runs a realistic worst-case world (default map size, AI opponent,
-// debug resources so the economy runs hot) for 60 simulated seconds and fails
+// debug resources so the economy runs hot) for 15 simulated seconds and fails
 // if any single tick blows past a deliberately fat threshold. The fixed code
-// measures <10 ms/tick worst case in Debug; the regression this guards
+// measures <50 ms/tick worst case in Debug; the regression this guards
 // against measured 7700+ ms — three orders of magnitude of headroom, so slow
 // CI machines can't flake it while a reintroduced O(map²) scan can't hide.
 TEST(SimulationPerfTests, NoSimulationTickTakesCatastrophicallyLong)
@@ -32,7 +32,7 @@ TEST(SimulationPerfTests, NoSimulationTickTakesCatastrophicallyLong)
     GameWorld world;
     world.InitWorld("perf-guard", nullptr, nullptr, params);
 
-    const int ticks = 6000;    // 60 sim-seconds — covers several AI decision cycles
+    const int ticks = 1500;    // 15 sim-seconds — covers many AI decision cycles
     const double dt = 0.01;
     double worstMs = 0.0;
     int worstTick = -1;

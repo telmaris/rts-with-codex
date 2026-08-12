@@ -1,6 +1,7 @@
 #include "core/GameWorld.h"
 #include "core/GameSession.h"
 #include "warfare/UnitCombatSystem.h"
+#include "warfare/UnitMarchSystem.h"
 #include "warfare/BattleUnit.h"
 #include "simulation/MapGenerator.h"
 
@@ -53,6 +54,23 @@ namespace
         world.UpdateSimulation(FixedSimulationClock::FixedDt);
         return {attackerId, defenderId};
     }
+
+    void PositionDuelInContact(GameWorld& world, DuelSetup duel)
+    {
+        const std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(0, 1);
+        ASSERT_GE(route.size(), 2u);
+        const int attackerTileIndex = static_cast<int>(route.size() / 2);
+        BattleUnit& attacker = world.GetDeployedUnits().at(duel.attackerId);
+        BattleUnit& defender = world.GetDeployedUnits().at(duel.defenderId);
+        attacker.tileIndex = attackerTileIndex;
+        defender.tileIndex = static_cast<int>(route.size()) - 1 - attackerTileIndex;
+        attacker.tileProgress = 0.0;
+        defender.tileProgress = 0.0;
+        attacker.state = BattleUnitState::FightingUnit;
+        defender.state = BattleUnitState::FightingUnit;
+        attacker.attackTimer = 0.0;
+        defender.attackTimer = 0.0;
+    }
 }
 
 TEST(UnitCombatSystemTests, EqualFightIsDeterministicForSameSeed)
@@ -62,13 +80,15 @@ TEST(UnitCombatSystemTests, EqualFightIsDeterministicForSameSeed)
     worldA.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(500));
     worldB.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(500));
 
-    DeployDuel(worldA, "militia", "militia");
-    DeployDuel(worldB, "militia", "militia");
+    DuelSetup duelA = DeployDuel(worldA, "militia", "militia");
+    DuelSetup duelB = DeployDuel(worldB, "militia", "militia");
+    PositionDuelInContact(worldA, duelA);
+    PositionDuelInContact(worldB, duelB);
 
-    for (int i = 0; i < 6000; i++)
+    for (int i = 0; i < 20 && worldA.GetDeployedUnits().size() > 1u; i++)
     {
-        worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
-        worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
+        UnitCombatSystem::Update(worldA, 1.0);
+        UnitCombatSystem::Update(worldB, 1.0);
     }
 
     ASSERT_EQ(worldA.GetDeployedUnits().size(), worldB.GetDeployedUnits().size());
@@ -87,15 +107,12 @@ TEST(UnitCombatSystemTests, StrongerUnitWinsAndResumesMarchingTowardHq)
     GameWorld world;
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(600));
     DuelSetup duel = DeployDuel(world, "swordsman", "militia");
+    PositionDuelInContact(world, duel);
 
-    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
-    // separation on this tiny test map, so marching to contact (and later
-    // on to the HQ door) can take longer than it used to for a given seed —
-    // budgets bumped with generous headroom rather than tuned to a distance.
     bool defenderDied = false;
-    for (int i = 0; i < 15000 && !defenderDied; i++)
+    for (int i = 0; i < 20 && !defenderDied; i++)
     {
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
+        UnitCombatSystem::Update(world, 1.0);
         if (world.GetDeployedUnits().count(duel.defenderId) == 0)
             defenderDied = true;
     }
@@ -107,14 +124,9 @@ TEST(UnitCombatSystemTests, StrongerUnitWinsAndResumesMarchingTowardHq)
     // With the opponent gone, nothing blocks the route anymore — the
     // swordsman should be free to resume marching and eventually reach the
     // enemy HQ door.
-    bool reachedHq = false;
-    for (int i = 0; i < 15000 && !reachedHq; i++)
-    {
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
-        auto it = world.GetDeployedUnits().find(duel.attackerId);
-        if (it != world.GetDeployedUnits().end() && it->second.state == BattleUnitState::AttackingHq)
-            reachedHq = true;
-    }
+    UnitMarchSystem::Update(world, 100000.0);
+    auto it = world.GetDeployedUnits().find(duel.attackerId);
+    bool reachedHq = it != world.GetDeployedUnits().end() && it->second.state == BattleUnitState::AttackingHq;
     EXPECT_TRUE(reachedHq) << "surviving unit should resume marching and reach the HQ door";
 }
 
@@ -136,16 +148,28 @@ TEST(UnitCombatSystemTests, ColumnFightThreeVsTwoResolvesToOneSurvivingSide)
     world.SubmitCommand(GameCommand::DeployUnits(1, 0, sideB));
     world.UpdateSimulation(FixedSimulationClock::FixedDt);
 
-    // Poll and stop the instant one side is wiped out on the road, rather
-    // than running a fixed extra duration — TD(etap-6) means a surviving
-    // column that reaches the enemy HQ starts taking siege/thorns damage
-    // too, which would (correctly) eventually kill them off as well and
-    // falsely look like "neither side survived" for THIS road-combat test.
+    // Marching and queue spacing have dedicated tests. Put both columns at
+    // the same physical route tile so each next rank immediately replaces a
+    // fallen spearhead; this isolates deterministic column-combat resolution.
+    const std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(0, 1);
+    ASSERT_GE(route.size(), 2u);
+    const int midpoint = static_cast<int>(route.size() / 2);
+    for (auto& [id, unit] : world.GetDeployedUnits())
+    {
+        unit.tileIndex = unit.ownerPlayerId == 0
+            ? midpoint
+            : static_cast<int>(route.size()) - 1 - midpoint;
+        unit.tileProgress = 0.0;
+        unit.state = BattleUnitState::Marching;
+        unit.attackTimer = 0.0;
+    }
+
+    // Stop as soon as one side is wiped out.
     int survivorsA = 0;
     int survivorsB = 0;
-    for (int i = 0; i < 15000; i++)
+    for (int i = 0; i < 200; i++)
     {
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
+        UnitCombatSystem::Update(world, 1.0);
         survivorsA = 0;
         survivorsB = 0;
         for (const auto& [id, unit] : world.GetDeployedUnits())
@@ -169,22 +193,10 @@ TEST(UnitCombatSystemTests, NoZombieAttackAfterDeathInSameTick)
     GameWorld world;
     world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(800));
     DuelSetup duel = DeployDuel(world, "militia", "militia");
+    PositionDuelInContact(world, duel);
 
-    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
-    // separation on this tiny test map, so contact can take longer than it
-    // used to for a given seed — budget bumped with generous headroom.
-    bool locked = false;
-    for (int i = 0; i < 15000 && !locked; i++)
-    {
-        world.UpdateSimulation(FixedSimulationClock::FixedDt);
-        const auto& units = world.GetDeployedUnits();
-        auto itA = units.find(duel.attackerId);
-        auto itB = units.find(duel.defenderId);
-        if (itA != units.end() && itB != units.end() && itA->second.state == BattleUnitState::FightingUnit &&
-            itB->second.state == BattleUnitState::FightingUnit)
-            locked = true;
-    }
-    ASSERT_TRUE(locked) << "the two spearheads never made contact within the time budget";
+    ASSERT_EQ(world.GetDeployedUnits().at(duel.attackerId).state, BattleUnitState::FightingUnit);
+    ASSERT_EQ(world.GetDeployedUnits().at(duel.defenderId).state, BattleUnitState::FightingUnit);
 
     auto& units = world.GetDeployedUnits();
     BattleUnit& attacker = units.at(duel.attackerId);

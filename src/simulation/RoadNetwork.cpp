@@ -226,17 +226,43 @@ void RoadNetwork::ReleaseShipment(Transportable* transportable)
     if (transportable == nullptr)
         return;
 
+    bool released = false;
     if (transportable->shipmentNetwork == this && transportable->shipmentId != 0)
     {
         auto it = activeShipments.find(transportable->shipmentId);
         if (it != activeShipments.end() && it->second == transportable)
+        {
             activeShipments.erase(it);
+            released = true;
+        }
     }
-    if (transportable->shipmentNetwork == this)
+
+    // Building destruction can discover a legacy carrier entry whose
+    // back-pointer already refers to a dead road network. The current network
+    // still owns the authoritative registry, so find the payload by address
+    // without following that stale back-pointer.
+    if (!released)
+    {
+        auto it = std::find_if(activeShipments.begin(), activeShipments.end(),
+            [transportable](const auto& shipment) { return shipment.second == transportable; });
+        if (it != activeShipments.end())
+        {
+            activeShipments.erase(it);
+            released = true;
+        }
+    }
+
+    if (released || transportable->shipmentNetwork == this)
     {
         transportable->shipmentNetwork = nullptr;
         transportable->shipmentId = 0;
     }
+}
+
+bool RoadNetwork::IsTrackingShipment(const Transportable* transportable) const
+{
+    return std::find_if(activeShipments.begin(), activeShipments.end(),
+        [transportable](const auto& shipment) { return shipment.second == transportable; }) != activeShipments.end();
 }
 
 void RoadNetwork::AppendShipmentRenderStates(std::vector<ShipmentRenderState>& out) const

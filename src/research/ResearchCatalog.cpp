@@ -82,6 +82,12 @@ std::vector<ResearchNodeView> ResearchCatalog::BuildFocusView(const Player& play
         node.prerequisites = definition.prerequisites;
         node.costs.clear();
         node.modifiers = definition.modifiers;
+        for (const auto& building : GetBuildingDefinitions())
+        {
+            if (std::find(building.requiredFocuses.begin(), building.requiredFocuses.end(), definition.id) !=
+                building.requiredFocuses.end())
+                node.unlockedBuildings.push_back(building.name);
+        }
         node.tags = definition.tags;
         node.layoutLane = definition.layoutLane.empty() ? definition.category : definition.layoutLane;
         node.layoutOrder = definition.layoutOrder == std::numeric_limits<int>::max() ? static_cast<int>(i) : definition.layoutOrder;

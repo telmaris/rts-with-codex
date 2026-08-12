@@ -219,3 +219,23 @@ TEST(PlayerEconomyTests, BuildCostModifierReducesEffectiveBuildCosts)
     }
 }
 
+TEST(PlayerEconomyTests, BuildRequirementFailuresUseCatalogDisplayNames)
+{
+    TileMap map;
+    Player player{0, map};
+    BuildingDefinition definition;
+    definition.requiredTechnologies = {"catapult_construction"};
+    definition.requiredFocuses = {"academic_patronage"};
+
+    const auto failures = player.GetBuildRequirementFailures(definition);
+
+    EXPECT_NE(std::find(failures.begin(), failures.end(),
+                        "Requires technology: Catapult Construction"), failures.end());
+    EXPECT_NE(std::find(failures.begin(), failures.end(),
+                        "Requires focus: Academic Patronage"), failures.end());
+    EXPECT_EQ(std::find(failures.begin(), failures.end(),
+                        "Requires technology: catapult_construction"), failures.end());
+    EXPECT_EQ(std::find(failures.begin(), failures.end(),
+                        "Requires focus: academic_patronage"), failures.end());
+}
+

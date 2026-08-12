@@ -1,10 +1,16 @@
 param(
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
-    [string]$Config = "Debug",
+    # Match GitHub Actions for the normal fast feedback loop. Use
+    # -Config Debug explicitly when stepping through a failing test.
+    [string]$Config = "Release",
 
     [string]$BuildDir = "build-tests",
 
-    [switch]$List
+    [switch]$List,
+
+    # AI behavior harnesses are long-running integration scenarios. Keep the
+    # default aligned with GitHub Actions; opt in when investigating AI.
+    [switch]$IncludeAIBehaviorHarness
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +31,22 @@ function Assert-LastCommandSucceeded([string]$StepName) {
     }
 }
 
+function Stop-RunningTestExecutable([string]$ExecutablePath) {
+    $fullExecutablePath = [System.IO.Path]::GetFullPath($ExecutablePath)
+    $runningTests = Get-CimInstance Win32_Process -Filter "Name = 'rts_tests.exe'" |
+        Where-Object {
+            $_.ExecutablePath -and
+            [System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $fullExecutablePath
+        }
+
+    foreach ($runningTest in $runningTests) {
+        Write-Host "Stopping stale rts_tests.exe (PID $($runningTest.ProcessId)) before linking..." `
+            -ForegroundColor DarkYellow
+        Stop-Process -Id $runningTest.ProcessId -Force
+        Wait-Process -Id $runningTest.ProcessId -ErrorAction SilentlyContinue
+    }
+}
+
 if (-not (Test-Path $RaylibLibrary)) {
     throw "raylib.lib not found. Set RAYLIB_ROOT or build raylib into: $RaylibRoot"
 }
@@ -37,11 +59,13 @@ cmake -S $RepoRoot -B $BuildPath `
     "-Draygui_INCLUDE_DIR=$RayguiInclude"
 Assert-LastCommandSucceeded "CMake configure"
 
+$TestExe = Join-Path $BuildPath "tests\$Config\rts_tests.exe"
+Stop-RunningTestExecutable $TestExe
+
 Write-Host "Building rts_tests ($Config)..." -ForegroundColor Cyan
-cmake --build $BuildPath --config $Config --target rts_tests
+cmake --build $BuildPath --parallel --config $Config --target rts_tests
 Assert-LastCommandSucceeded "CMake build"
 
-$TestExe = Join-Path $BuildPath "tests\$Config\rts_tests.exe"
 if (-not (Test-Path $TestExe)) {
     throw "Test executable was not found: $TestExe"
 }
@@ -53,5 +77,10 @@ if ($List) {
 }
 
 Write-Host "Running tests..." -ForegroundColor Cyan
-& $TestExe --gtest_color=yes --gtest_brief=0
+$TestArguments = @("--gtest_color=yes", "--gtest_brief=0")
+if (-not $IncludeAIBehaviorHarness) {
+    $TestArguments += "--gtest_filter=-AIBehaviorHarnessTests.*"
+    Write-Host "Skipping AI behavior harnesses (use -IncludeAIBehaviorHarness to run them)." -ForegroundColor DarkYellow
+}
+& $TestExe @TestArguments
 Assert-LastCommandSucceeded "Test run"

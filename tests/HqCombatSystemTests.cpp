@@ -229,11 +229,7 @@ TEST(HqCombatSystemTests, SiegeToEliminationIsDeterministicForSameSeed)
     worldA.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(200));
     worldB.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(200));
 
-    // Weaken both HQs identically so 3 militia bring it down within a bounded
-    // tick budget, then deploy the same attackers on both worlds.
-    FindHq(*worldA.GetPlayerHandler().players.at(1))->currentHp = 50.0;
-    FindHq(*worldB.GetPlayerHandler().players.at(1))->currentHp = 50.0;
-
+    // Deploy identical attackers in both worlds.
     std::vector<int> idsA, idsB;
     Player* humanA = worldA.GetPlayerHandler().players.at(0).get();
     Player* humanB = worldB.GetPlayerHandler().players.at(0).get();
@@ -246,24 +242,31 @@ TEST(HqCombatSystemTests, SiegeToEliminationIsDeterministicForSameSeed)
     worldA.SubmitCommand(GameCommand::DeployUnits(0, 1, idsA));
     worldB.SubmitCommand(GameCommand::DeployUnits(0, 1, idsB));
 
-    // B1 (docs/work_plan_2026-07-13.md) widened the guaranteed HQ-to-HQ
-    // separation on this tiny 81x81 test map (deterministic n-gon placement
-    // instead of a random maximin search), so marching to contact can take
-    // longer than it used to for this specific seed — budget bumped with
-    // generous headroom rather than tuned to a specific distance.
-    bool eliminatedA = false;
-    for (int i = 0; i < 15000 && !eliminatedA; i++)
+    // Marching distance is covered by UnitMarchSystemTests. Put identical
+    // columns at the HQ door so this test isolates seeded siege damage,
+    // elimination and the resulting authoritative checksum.
+    worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
+    worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
+    for (int i = 0; i < 3; i++)
     {
-        worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
-        worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
-        eliminatedA = worldA.IsPlayerDefeated(1);
-        ASSERT_EQ(eliminatedA, worldB.IsPlayerDefeated(1)) << "tick=" << i;
-        ASSERT_EQ(worldA.BuildChecksum(), worldB.BuildChecksum()) << "tick=" << i;
+        UnitMarchSystem::Update(worldA, 100000.0);
+        UnitMarchSystem::Update(worldB, 100000.0);
     }
-    ASSERT_TRUE(eliminatedA) << "player 1's HQ should have fallen within the tick budget";
+    for (int id : idsA)
+        worldA.GetDeployedUnits().at(id).attackTimer = 0.0;
+    for (int id : idsB)
+        worldB.GetDeployedUnits().at(id).attackTimer = 0.0;
+    FindHq(*worldA.GetPlayerHandler().players.at(1))->currentHp = 2.5;
+    FindHq(*worldB.GetPlayerHandler().players.at(1))->currentHp = 2.5;
+
+    worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
+    worldB.UpdateSimulation(FixedSimulationClock::FixedDt);
+    ASSERT_TRUE(worldA.IsPlayerDefeated(1));
+    ASSERT_EQ(worldA.IsPlayerDefeated(1), worldB.IsPlayerDefeated(1));
+    ASSERT_EQ(worldA.BuildChecksum(), worldB.BuildChecksum());
 
     // A few more ticks so ConqueredEconomy's ramp advances identically too.
-    for (int i = 0; i < 200; i++)
+    for (int i = 0; i < 5; i++)
     {
         worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
         worldB.UpdateSimulation(FixedSimulationClock::FixedDt);

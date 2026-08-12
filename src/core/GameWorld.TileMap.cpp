@@ -154,7 +154,12 @@ void TileMap::DestroyBuildingAt(int id)
         for (auto it = other->transportables.begin(); it != other->transportables.end();)
         {
             Transportable* transport = *it;
-            if (transport == nullptr)
+            // `transportables` is a legacy raw-pointer carrier list. A
+            // completed delivery may have released its resource before an
+            // obsolete carrier entry is removed, so prove registry ownership
+            // without dereferencing the pointer first.
+            if (transport == nullptr || owner == nullptr || owner->roadNetwork == nullptr ||
+                !owner->roadNetwork->IsTrackingShipment(transport))
             {
                 it = other->transportables.erase(it);
                 continue;
@@ -167,7 +172,11 @@ void TileMap::DestroyBuildingAt(int id)
                     if (transport->sourceBuilding != nullptr && transport->sourceBuilding != building)
                         transport->sourceBuilding->ReturnOutgoingResource(resource);
                 }
-                transport->ReleaseShipment();
+                // The registry was verified above on the current owner's
+                // network. Do not call Transportable::ReleaseShipment here:
+                // its legacy back-pointer may reference a network that was
+                // destroyed during an earlier ownership change.
+                owner->roadNetwork->ReleaseShipment(transport);
                 it = other->transportables.erase(it);
                 continue;
             }

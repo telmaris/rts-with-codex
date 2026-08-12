@@ -90,22 +90,22 @@ public:
     const std::string& GetStatus() const { return status; }
     size_t GetNodeCount() const { return definitions.size(); }
     const std::vector<TechnologyDefinition>& GetDefinitions() const { return definitions; }
-    // Display names of buildings whose construction lists this technology as a
-    // requirement. This is the same relationship the game exposes as
-    // "Unlocks <building>" in technology tooltips.
-    const std::vector<std::string>& GetUnlockedBuildings(const std::string& technologyId) const;
-    // Editor labels for buildings that are not technology-gated yet, plus
-    // buildings already unlocked by `technologyId`.
-    std::vector<std::string> GetBuildingUnlockOptions(const std::string& technologyId) const;
-    // Stable building ids corresponding to the selected technology's Unlocks
+    // Display names of buildings whose construction lists the selected node as
+    // a requirement. The relation is `requires_tech` for Technologies and
+    // `requires_focus` for Decisions.
+    const std::vector<std::string>& GetUnlockedBuildings(const std::string& nodeId) const;
+    // Editor labels for buildings not gated in this document's requirement
+    // domain, plus buildings already unlocked by `nodeId`.
+    std::vector<std::string> GetBuildingUnlockOptions(const std::string& nodeId) const;
+    // Stable building ids corresponding to the selected node's Unlocks
     // rows. Used by the inspector; display labels are intentionally separate.
-    std::vector<std::string> GetUnlockedBuildingIds(const std::string& technologyId) const;
+    std::vector<std::string> GetUnlockedBuildingIds(const std::string& nodeId) const;
     std::string GetBuildingUnlockLabel(const std::string& buildingId) const;
     std::string GetBuildingUnlockIdForLabel(const std::string& label) const;
-    // Replaces this technology's building-unlock rows. The relation is stored
-    // as top-level `requires_tech` in buildings.rtsdata, not as a faux stat
-    // modifier inside technologies.rtsdata.
-    void SetBuildingUnlocks(const std::string& technologyId, const std::vector<std::string>& buildingIds);
+    // Replaces this node's building-unlock rows. The relation is stored as a
+    // top-level `requires_tech` or `requires_focus` in buildings.rtsdata, not
+    // as a faux stat modifier inside either tree data file.
+    void SetBuildingUnlocks(const std::string& nodeId, const std::vector<std::string>& buildingIds);
 
 private:
     bool ArePrerequisitesTaken(const TechnologyDefinition& definition) const;
@@ -121,6 +121,7 @@ private:
         std::string id;
         std::string name;
         std::vector<std::string> requiredTechnologies;
+        std::vector<std::string> requiredFocuses;
     };
     std::vector<BuildingUnlockDefinition> buildings;
     std::string buildingsPath;

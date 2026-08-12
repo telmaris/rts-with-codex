@@ -1066,11 +1066,16 @@ TEST(BuildingDomainTests, ConsumerStopsPullingFromHqAfterSupplierReassignment)
     map.ConnectReceiver(woodcutter, lumberMill, false);
     ASSERT_TRUE(lumberMill->logistics.IsRestrictedToDirectSuppliers(ResourceType::WOOD));
 
+    // Keep the direct supplier deliberately dry. A direct request below can
+    // then only succeed if the forbidden warehouse fallback is still active.
+    woodcutter->production.outputBuffers[ResourceType::WOOD].Clear();
+
     headquarters->storage.buffers[ResourceType::WOOD].GenerateResource(ResourceType::WOOD);
-    for (int i = 0; i < 8; i++)
-        map.UpdateBuildings(1.1);
-    EXPECT_EQ(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 0u)
-        << "LumberMill must stop pulling WOOD from HQ once its supplier was explicitly reassigned";
+    const std::size_t shipmentsBefore = networkPtr->GetLiveShipmentCount();
+    EXPECT_EQ(lumberMill->logistics.RequestResource(ResourceType::WOOD, 1, *lumberMill), 0)
+        << "LumberMill must not pull WOOD from HQ once its supplier was explicitly reassigned";
+    EXPECT_EQ(networkPtr->GetLiveShipmentCount(), shipmentsBefore)
+        << "a restricted request must not create a shipment from the warehouse network";
 }
 
 // User report (2026-07-25): building a StorageBuilding made the whole resource

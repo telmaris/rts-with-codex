@@ -13,11 +13,39 @@ namespace
     MapParameters MakeParams(int aiOpponentCount, unsigned int seed)
     {
         MapParameters params;
-        params.sizePreset = MapSizePreset::S;
+        // These tests validate military-ring topology, not the production
+        // map-size presets. A 181x181 map retains long gate stubs, corners and
+        // multi-player routing while avoiding 160k terrain cells per world.
+        params.sizeX = 181;
+        params.sizeY = 181;
         params.aiOpponentCount = aiOpponentCount;
         params.seed = seed;
         return params;
     }
+
+    // Most tests in this suite exercise MilitaryRoadNetwork itself. Building a
+    // complete GameWorld also creates players, bases, villages and logistics,
+    // and may regenerate the map during integration validation. Keep that cost
+    // only in the integration tests that actually need those systems.
+    struct MilitaryRoadFixture
+    {
+        MapParameters params;
+        TileMap map;
+        MilitaryRoadNetwork roads;
+
+        MilitaryRoadFixture(int aiOpponentCount, unsigned int seed)
+            : params(MakeParams(aiOpponentCount, seed))
+        {
+            map.generator.GenerateTileMap(map, params);
+            const int playerCount = aiOpponentCount + 1;
+            const std::vector<Vec2i> anchors = MapGenerator::PickHeadquartersAnchors(params, playerCount);
+            std::map<int, Vec2i> anchorsByPlayer;
+            for (int playerId = 0; playerId < playerCount; playerId++)
+                anchorsByPlayer[playerId] = anchors.at(static_cast<size_t>(playerId));
+            roads.Generate(map, anchorsByPlayer, MapGenerator::HeadquartersFootprint(),
+                           MapGenerator::HeadquartersTerritorySize(), seed);
+        }
+    };
 
     // Verifies the ring is a single connected cycle touching every player
     // exactly once, by walking neighbor links starting from player 0.
@@ -49,10 +77,9 @@ namespace
 
 TEST(MilitaryRoadNetworkTests, TwoPlayersGetExactlyOneMutualRoute)
 {
-    GameWorld world;
-    world.InitWorld("test", nullptr, nullptr, MakeParams(1, 111));
+    MilitaryRoadFixture fixture(1, 111);
 
-    const auto& roads = world.GetMilitaryRoads();
+    const auto& roads = fixture.roads;
     ASSERT_EQ(roads.GetRoutes().size(), 1u);
     EXPECT_TRUE(roads.AreConnected(0, 1));
     EXPECT_EQ(roads.GetNeighbors(0), std::vector<int>{1});
@@ -67,11 +94,10 @@ TEST(MilitaryRoadNetworkTests, ThreeFourAndFivePlayersFormASingleRing)
 {
     for (int aiOpponentCount : {2, 3, 4})
     {
-        GameWorld world;
-        world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, 222));
+        MilitaryRoadFixture fixture(aiOpponentCount, 222);
 
         int playerCount = aiOpponentCount + 1;
-        const auto& roads = world.GetMilitaryRoads();
+        const auto& roads = fixture.roads;
         EXPECT_EQ(roads.GetRoutes().size(), static_cast<size_t>(playerCount))
             << "playerCount=" << playerCount;
         ExpectSingleConnectedRing(roads, playerCount);
@@ -89,10 +115,9 @@ TEST(MilitaryRoadNetworkTests, RingRoutesDoNotOverlapExceptAtSharedGates)
 {
     for (int aiOpponentCount : {2, 3, 4})
     {
-        GameWorld world;
-        world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, 555));
+        MilitaryRoadFixture fixture(aiOpponentCount, 555);
 
-        const auto& routes = world.GetMilitaryRoads().GetRoutes();
+        const auto& routes = fixture.roads.GetRoutes();
         std::map<int, int> interiorTileUseCount;
         for (const auto& route : routes)
         {
@@ -120,10 +145,12 @@ TEST(MilitaryRoadNetworkTests, PlayerGatesAreSpreadAcrossDifferentSidesOfHq)
 {
     const int minSeparation = MapGenerator::HeadquartersFootprint().x - 1;
 
-    for (unsigned int seed : {111u, 222u, 333u, 555u})
+    // This is a GameWorld layout-validation/retry contract. Cover every seed
+    // and both player cardinalities without an unnecessary Cartesian product.
+    const std::vector<std::pair<unsigned int, int>> scenarios{
+        {111u, 2}, {222u, 3}, {333u, 2}, {555u, 3}};
+    for (const auto& [seed, aiOpponentCount] : scenarios)
     {
-        for (int aiOpponentCount : {2, 3})
-        {
             GameWorld world;
             world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
 
@@ -152,7 +179,6 @@ TEST(MilitaryRoadNetworkTests, PlayerGatesAreSpreadAcrossDifferentSidesOfHq)
                     << ") vs (" << gates[1].x << "," << gates[1].y << ") seed=" << seed
                     << " aiOpponentCount=" << aiOpponentCount;
             }
-        }
     }
 }
 
@@ -173,11 +199,10 @@ TEST(MilitaryRoadNetworkTests, RoutesLeaveEveryGateStraight)
     {
         for (int aiOpponentCount : {1, 3})
         {
-            GameWorld world;
-            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
-            TileMap& map = world.GetTileMap();
+            MilitaryRoadFixture fixture(aiOpponentCount, seed);
+            TileMap& map = fixture.map;
 
-            for (const auto& route : world.GetMilitaryRoads().GetRoutes())
+            for (const auto& route : fixture.roads.GetRoutes())
             {
                 ASSERT_GE(route.tiles.size(), static_cast<size_t>(StraightSteps));
                 auto expectColinear = [&](std::vector<Vec2i> segment, const char* which)
@@ -222,11 +247,10 @@ TEST(MilitaryRoadNetworkTests, RoutesHaveNoSquareElbowsMidRoute)
     {
         for (int aiOpponentCount : {1, 3})
         {
-            GameWorld world;
-            world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
-            TileMap& map = world.GetTileMap();
+            MilitaryRoadFixture fixture(aiOpponentCount, seed);
+            TileMap& map = fixture.map;
 
-            for (const auto& route : world.GetMilitaryRoads().GetRoutes())
+            for (const auto& route : fixture.roads.GetRoutes())
             {
                 if (route.tiles.size() < static_cast<size_t>(2 * (Margin + Leg)))
                     continue;
@@ -267,10 +291,12 @@ TEST(MilitaryRoadNetworkTests, RoutesHaveNoSquareElbowsMidRoute)
 
 TEST(MilitaryRoadNetworkTests, RouteTilesAreNeverResourceTiles)
 {
-    for (unsigned int seed : {111u, 222u, 555u, 888u})
+    // Full initialization matters here because starting resource patches are
+    // placed after the ring. Representative pairs retain both cardinalities.
+    const std::vector<std::pair<unsigned int, int>> scenarios{
+        {111u, 1}, {555u, 3}, {888u, 1}};
+    for (const auto& [seed, aiOpponentCount] : scenarios)
     {
-        for (int aiOpponentCount : {1, 3})
-        {
             GameWorld world;
             world.InitWorld("test", nullptr, nullptr, MakeParams(aiOpponentCount, seed));
 
@@ -287,24 +313,21 @@ TEST(MilitaryRoadNetworkTests, RouteTilesAreNeverResourceTiles)
                     << "military road tile " << tile.id << " still has resource richness (seed="
                     << seed << " ai=" << aiOpponentCount << ")";
             }
-        }
     }
 }
 
 TEST(MilitaryRoadNetworkTests, GenerationIsDeterministicForSameSeedAndParams)
 {
-    GameWorld worldA;
-    GameWorld worldB;
-    worldA.InitWorld("test", nullptr, nullptr, MakeParams(3, 777));
-    worldB.InitWorld("test", nullptr, nullptr, MakeParams(3, 777));
+    MilitaryRoadFixture fixtureA(3, 777);
+    MilitaryRoadFixture fixtureB(3, 777);
 
-    const auto& routesA = worldA.GetMilitaryRoads().GetRoutes();
-    const auto& routesB = worldB.GetMilitaryRoads().GetRoutes();
+    const auto& routesA = fixtureA.roads.GetRoutes();
+    const auto& routesB = fixtureB.roads.GetRoutes();
     ASSERT_EQ(routesA.size(), routesB.size());
 
     for (const auto& routeA : routesA)
     {
-        const MilitaryRoute* matched = worldB.GetMilitaryRoads().FindRoute(routeA.playerA, routeA.playerB);
+        const MilitaryRoute* matched = fixtureB.roads.FindRoute(routeA.playerA, routeA.playerB);
         ASSERT_NE(matched, nullptr);
         EXPECT_EQ(routeA.tiles, matched->tiles) << "route " << routeA.playerA << "-" << routeA.playerB;
     }

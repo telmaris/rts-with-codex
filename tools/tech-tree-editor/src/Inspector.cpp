@@ -180,17 +180,14 @@ void Inspector::SyncBuffers(TreeDocument& document, const std::string& id)
     }
 
     buildingUnlockDropdowns.clear();
-    if (document.GetKind() == TreeKind::Technology)
+    const auto unlockedIds = document.GetUnlockedBuildingIds(definition->id);
+    const auto options = document.GetBuildingUnlockOptions(definition->id);
+    buildingUnlockDropdowns.assign(unlockedIds.size(), DropdownWidget{});
+    for (size_t i = 0; i < unlockedIds.size(); i++)
     {
-        const auto unlockedIds = document.GetUnlockedBuildingIds(definition->id);
-        const auto options = document.GetBuildingUnlockOptions(definition->id);
-        buildingUnlockDropdowns.assign(unlockedIds.size(), DropdownWidget{});
-        for (size_t i = 0; i < unlockedIds.size(); i++)
-        {
-            buildingUnlockDropdowns[i].fontSize = valueFont;
-            buildingUnlockDropdowns[i].SetOptions(options);
-            buildingUnlockDropdowns[i].SelectByText(document.GetBuildingUnlockLabel(unlockedIds[i]));
-        }
+        buildingUnlockDropdowns[i].fontSize = valueFont;
+        buildingUnlockDropdowns[i].SetOptions(options);
+        buildingUnlockDropdowns[i].SelectByText(document.GetBuildingUnlockLabel(unlockedIds[i]));
     }
 
     modifierRows.assign(definition->modifiers.size(), ModifierRow{});
@@ -465,11 +462,10 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     y += rowH + gap;
 
     // --- building unlocks ---------------------------------------------------
-    // Construction unlocks are real `requires_tech` relations in
-    // buildings.rtsdata, deliberately separate from BalanceModifier. This
-    // makes the editor's selection, the game build gate and the tooltip use
-    // the same source of truth.
-    if (document.GetKind() == TreeKind::Technology)
+    // Construction unlocks are real `requires_tech` / `requires_focus`
+    // relations in buildings.rtsdata, deliberately separate from
+    // BalanceModifier. This makes the editor's selection, the game build gate
+    // and the tooltip use the same source of truth for both trees.
     {
         DrawSectionHeader("Building unlocks", content, y);
         auto unlockedIds = document.GetUnlockedBuildingIds(definition->id);

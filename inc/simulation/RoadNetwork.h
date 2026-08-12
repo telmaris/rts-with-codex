@@ -44,6 +44,10 @@ class RoadNetwork
     // Removes a completed/cancelled transport from the world-owned registry.
     void ReleaseShipment(Transportable* transportable);
     std::size_t GetLiveShipmentCount() const { return activeShipments.size(); }
+    // Pointer-safe membership check for carrier cleanup. Callers may use this
+    // before dereferencing a raw pointer held by a building's legacy carrier
+    // vector, because completed shipments can leave stale entries there.
+    bool IsTrackingShipment(const Transportable* transportable) const;
     // Appends an immutable presentation-only view of every resource shipment.
     // Callers may retain the copied values after releasing the world lock.
     void AppendShipmentRenderStates(std::vector<ShipmentRenderState>& out) const;
