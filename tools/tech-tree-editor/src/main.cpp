@@ -17,6 +17,7 @@
 
 #include <cstdio>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -35,7 +36,7 @@ namespace
     bool DrawToolbarButton(Rectangle rect, const std::string& label, bool active, Color accent)
     {
         Vector2 mouse = GetMousePosition();
-        bool hover = CheckCollisionPointRec(mouse, rect);
+        bool hover = !DropdownWidget::IsAnyOpen() && CheckCollisionPointRec(mouse, rect);
         Color fill = active ? EditorTheme::SurfaceFocus : hover ? EditorTheme::SurfaceHover : EditorTheme::Surface;
         Color border = active ? EditorTheme::Accent : hover ? accent : EditorTheme::Border;
         DrawRectangleRounded(rect, 0.18f, 8, fill);
@@ -71,6 +72,61 @@ static int RunSelfTest(const std::string& outputDir)
         if (!result.ok)
             failures++;
     }
+
+    const std::vector<const std::vector<std::string>*> dropdownLists{
+        &RtsDataNames::BalanceStats(), &RtsDataNames::BuildingTypes(),
+        &RtsDataNames::ResourceTypes(), &RtsDataNames::ResourceCategories(),
+        &RtsDataNames::Categories(), &RtsDataNames::Tags()};
+    const bool dropdownsSorted = std::all_of(dropdownLists.begin(), dropdownLists.end(), [](const auto* options)
+    {
+        return std::is_sorted(options->begin(), options->end());
+    });
+
+    TreeDocument focusOptionsDocument(TreeKind::Focus, AssetPath("data/focuses.rtsdata"));
+    const auto buildingOptions = focusOptionsDocument.GetBuildingUnlockOptions("bathhouses");
+    const bool buildingsSorted = std::is_sorted(buildingOptions.begin(), buildingOptions.end());
+    const bool universityAvailable = std::find(buildingOptions.begin(), buildingOptions.end(), "University") !=
+                                     buildingOptions.end();
+    printf("%-24s %s: %s\n", "dropdown options",
+           dropdownsSorted && buildingsSorted && universityAvailable ? "OK  " : "FAIL",
+           dropdownsSorted && buildingsSorted && universityAvailable
+               ? "Alphabetical; University available"
+               : "Order or building availability mismatch");
+    if (!dropdownsSorted || !buildingsSorted || !universityAvailable)
+        failures++;
+
+    const double slowdownPercent = -5.0;
+    const double expectedSlowdownMultiplier = 1.0 / 0.95;
+    const double slowdownMultiplier = ModifierMultiplierFromEffectPercent(
+        BalanceStat::ProductionCycleTime, slowdownPercent);
+    const bool negativeCycleEffect = std::abs(slowdownMultiplier - expectedSlowdownMultiplier) < 1e-12 &&
+                                     std::abs(ModifierEffectPercent(
+                                         BalanceStat::ProductionCycleTime, slowdownMultiplier) - slowdownPercent) < 1e-9;
+    BalanceModifier slowdownModifier;
+    slowdownModifier.stat = BalanceStat::ProductionCycleTime;
+    slowdownModifier.multiplier = slowdownMultiplier;
+    const bool slowdownSerialized = SerializeModifier(slowdownModifier) ==
+                                    "modifier ProductionCycleTime multiplier 1.05263157895";
+    TechnologyDefinition slowdownProbe;
+    slowdownProbe.id = "editor_negative_cycle_probe";
+    slowdownProbe.name = "Editor negative cycle probe";
+    slowdownProbe.researchTime = 1.0;
+    slowdownProbe.modifiers.push_back(slowdownModifier);
+    const std::string slowdownProbePath =
+        (std::filesystem::path(outputDir) / "negative_cycle_probe.rtsdata").string();
+    const SaveResult slowdownProbeResult = SaveTree(slowdownProbePath, {slowdownProbe}, false);
+    const auto rereadSlowdownProbe = LoadTechnologyDefinitionsFromFile(slowdownProbePath);
+    const bool slowdownParsedByGame = slowdownProbeResult.ok && rereadSlowdownProbe.size() == 1 &&
+                                      rereadSlowdownProbe.front().modifiers.size() == 1 &&
+                                      std::abs(rereadSlowdownProbe.front().modifiers.front().multiplier -
+                                               expectedSlowdownMultiplier) < 1e-9;
+    printf("%-24s %s: %s\n", "negative cycle effect",
+           negativeCycleEffect && slowdownSerialized && slowdownParsedByGame ? "OK  " : "FAIL",
+           negativeCycleEffect && slowdownSerialized && slowdownParsedByGame
+               ? "-5% speed -> precise game cycle multiplier; parser verified"
+               : "Effect conversion mismatch");
+    if (!negativeCycleEffect || !slowdownSerialized || !slowdownParsedByGame)
+        failures++;
 
     // Building unlocks deliberately live in buildings.rtsdata. Exercise that
     // second save path in an isolated copy so an editor change can never leave

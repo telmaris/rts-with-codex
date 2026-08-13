@@ -116,3 +116,45 @@ TEST(TileMapDomainTests, AutoConnectAndConnectReceiverToggleProductionLinks)
     EXPECT_TRUE(mill->HasReceiver(ResourceType::PLANKS));
 }
 
+TEST(TileMapDomainTests, AutoConnectConsumerDoesNotChangeExistingProducerDestination)
+{
+    TileMap map;
+    Player player{0, map};
+    FillMap(map, &player);
+    map[Vec2i{1, 1}].tileType = TileType::WOOD;
+
+    auto* storage = map.PlaceLoadedBuilding(map.GetIdFromCoords({8, 1}), &player,
+                                            std::make_unique<StorageBuilding>(1));
+    auto* woodcutter = dynamic_cast<Woodcutter*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player,
+                                std::make_unique<Woodcutter>(2)));
+    ASSERT_NE(storage, nullptr);
+    ASSERT_NE(woodcutter, nullptr);
+
+    map.AutoConnectBuilding(woodcutter);
+    auto receiversBefore = woodcutter->GetReceiverViews();
+    ASSERT_EQ(receiversBefore.size(), 1u);
+    EXPECT_EQ(receiversBefore.front().type, ResourceType::WOOD);
+    EXPECT_EQ(receiversBefore.front().building, storage);
+    EXPECT_FALSE(receiversBefore.front().alternative);
+
+    auto* lumberMill = dynamic_cast<LumberMill*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({4, 5}), &player,
+                                std::make_unique<LumberMill>(3)));
+    ASSERT_NE(lumberMill, nullptr);
+    map.AutoConnectBuilding(lumberMill);
+
+    auto receiversAfter = woodcutter->GetReceiverViews();
+    ASSERT_EQ(receiversAfter.size(), 1u);
+    EXPECT_EQ(receiversAfter.front().building, storage)
+        << "constructing a consumer must not replace the producer's destination";
+    EXPECT_FALSE(receiversAfter.front().alternative)
+        << "constructing a consumer must not add a hidden alternative destination";
+
+    map.ConnectReceiver(woodcutter, lumberMill);
+    auto receiversAfterPlayerCommand = woodcutter->GetReceiverViews();
+    ASSERT_EQ(receiversAfterPlayerCommand.size(), 1u);
+    EXPECT_EQ(receiversAfterPlayerCommand.front().building, lumberMill)
+        << "the explicit player command remains the way to route producer output";
+}
+

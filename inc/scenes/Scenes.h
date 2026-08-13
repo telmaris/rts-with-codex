@@ -28,6 +28,7 @@ class IGameRuntimeLoop
         virtual bool IsConnectionClosed() const = 0;
         virtual std::string GetConnectionStatus() const = 0;
         virtual std::recursive_mutex* GetWorldMutex() = 0;
+        virtual bool ShouldPauseWhenSceneInactive() const = 0;
         virtual void SetPaused(bool paused) = 0;
         virtual bool IsPaused() const = 0;
 };
@@ -319,6 +320,7 @@ class GameScene : public Scene, public IGuiHandler
         // Advances input, world simulation and rendering.
         void Update(double dt) override;
         void OnActivated() override;
+        void OnDeactivated() override;
         // Handles game lifecycle and menu events.
         void HandleEvent(std::shared_ptr<Event>) override;
         // Routes gameplay input through this scene's InputProcessor into the
@@ -336,7 +338,7 @@ class GameScene : public Scene, public IGuiHandler
         // Loads a save file into the gameplay scene.
         bool LoadGame(std::string);
         // Saves the current gameplay state.
-        void SaveGame(std::string saveName = "");
+        bool SaveGame(std::string saveName = "");
         // Sends a local player's intent to the active session authority.
         std::uint64_t SubmitLocalCommand(const GameCommand& command);
         // Returns command results received from the active session.

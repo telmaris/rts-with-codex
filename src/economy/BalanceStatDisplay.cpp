@@ -17,6 +17,7 @@ const char* BalanceStatLabel(BalanceStat stat)
         case BalanceStat::RoadSpeed: return "Road speed";
         case BalanceStat::ManpowerRate: return "Manpower growth";
         case BalanceStat::PopulationCap: return "Population cap";
+        case BalanceStat::VillageSupplyConsumption: return "Village supply consumption";
         case BalanceStat::BuilderAmount: return "Builders";
         // T5 (docs/post_pivot_audit_2026-07-12.md): the rest of the enum used to
         // fall through to "Effect" — every modifier touching a unit/HQ/tower
@@ -50,6 +51,7 @@ bool LowerValueIsBetter(BalanceStat stat)
         case BalanceStat::ProductionCycleTime:
         case BalanceStat::TransportTime:
         case BalanceStat::TransportDispatchDelay:
+        case BalanceStat::VillageSupplyConsumption:
         // Staffing a building is a cost, not a reward: the design goal is as few
         // people tied up in buildings as possible, so MORE worker capacity is a
         // nerf and has to render as one.

@@ -189,6 +189,7 @@ building Road
 end
 building Village
     village manpower_rate 0.4 population_cap 120 upkeep_interval 9 food_package_upkeep 2
+    upgrade level 2 population_cap 360 manpower_rate 0.9 cost WOOD 5 build_time 3
 end
 )DATA");
 
@@ -235,6 +236,12 @@ end
     EXPECT_DOUBLE_EQ(village.village.manpowerRate, 0.4);
     EXPECT_EQ(village.village.populationCap, 120);
     EXPECT_DOUBLE_EQ(village.village.foodPackageUpkeep, 2.0);
+    ASSERT_EQ(village.upgradeLevels.size(), 1u);
+    EXPECT_EQ(village.upgradeLevels[0].level, 2);
+    ASSERT_TRUE(village.upgradeLevels[0].populationCap.has_value());
+    EXPECT_EQ(*village.upgradeLevels[0].populationCap, 360);
+    ASSERT_TRUE(village.upgradeLevels[0].manpowerRate.has_value());
+    EXPECT_DOUBLE_EQ(*village.upgradeLevels[0].manpowerRate, 0.9);
 }
 
 TEST(BuildingConfigTests, ProductionChainsHaveThematicPlacementCategories)

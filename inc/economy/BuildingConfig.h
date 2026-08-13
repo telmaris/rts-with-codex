@@ -63,6 +63,11 @@ struct BuildingUpgradeLevelDefinition
     std::vector<ResourceAmountDefinition> cost;
     double buildTime{0.0};
     std::vector<BalanceModifier> modifiers;
+    // Optional absolute settlement stats for this level. They are kept out
+    // of BalanceModifierSet deliberately: a Town/City can temporarily fall
+    // back to a lower settlement tier when its local supplies run out.
+    std::optional<int> populationCap;
+    std::optional<double> manpowerRate;
 };
 
 struct VillageDefinition

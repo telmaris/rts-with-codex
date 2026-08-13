@@ -799,45 +799,13 @@ void TileMap::AutoConnectBuilding(Building* building)
         if (building->HasSupplier(input.type))
             continue;
 
-        // Prefer a direct producer-consumer link. Previously every newly
-        // built consumer (Bakery, Inn, Barracks...) only requested from the
-        // nearest storage, even when its thematic supplier stood next door.
-        // That forced every item through HQ, saturated long shared roads and
-        // could leave a complete chain permanently idle (Hunter's Hut buffer
-        // full of MEAT while Inn waited forever). Deterministic nearest/id
-        // tie-break keeps lockstep stable.
-        Building* bestProducer = nullptr;
-        int bestDistance = std::numeric_limits<int>::max();
-        for (Building* candidate : building->owner->GetTrackedBuildingsWithComponent<ProductionComponent>())
-        {
-            auto* production = candidate != nullptr ? candidate->GetComponent<ProductionComponent>() : nullptr;
-            if (production == nullptr || candidate == building || candidate->owner != building->owner ||
-                candidate->IsUnderConstruction() || !production->products.contains(input.type))
-                continue;
-            Vec2i a = GetCoordsFromId(building->positionId);
-            Vec2i b = GetCoordsFromId(candidate->positionId);
-            int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
-            if (distance < bestDistance ||
-                (distance == bestDistance && (bestProducer == nullptr || candidate->id < bestProducer->id)))
-            {
-                bestDistance = distance;
-                bestProducer = candidate;
-            }
-        }
-
-        if (bestProducer != nullptr)
-        {
-            bestProducer->SetAlternativeReceiver(input.type, building);
-            building->SetSupplier(input.type, bestProducer);
-        }
-        // Keep the nearest storage/HQ as a fallback even when a thematic
-        // producer is wired directly. Extractors are finite and a producer
-        // can be stalled or have its output committed elsewhere; without the
-        // fallback a consumer can deadlock forever beside a full HQ buffer
-        // (observed with Smith: 12/12 IRON, 0/8 WOOD, HQ holding 103 WOOD).
-        // SetSupplier deliberately permits adding a storage after a direct
-        // supplier, while a later direct reassignment still removes stale
-        // storage-only links.
+        // Construction must never change another building's output
+        // destination. In particular, do not discover a nearby producer and
+        // add this consumer as its alternative receiver: that silently made a
+        // newly built Lumber Mill/Smith intercept resources which the player
+        // had routed elsewhere. The warehouse link only supplies this new
+        // building; a direct producer-consumer route is created exclusively
+        // by the player's SetReceiver command.
         if (storage != building && building->CanAcceptResource(input.type))
             building->SetSupplier(input.type, storage);
     }

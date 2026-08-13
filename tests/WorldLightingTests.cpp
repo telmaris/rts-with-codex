@@ -79,3 +79,50 @@ TEST(WorldLightingTests, InterpolatesSmoothlyAcrossDawn)
     EXPECT_LT(std::abs(after.ambientIntensity - before.ambientIntensity), 0.002f);
     EXPECT_LT(std::abs(after.ambientColor.y - before.ambientColor.y), 0.002f);
 }
+
+TEST(WorldLightingTests, EssentialLightKeepsItsScreenFootprintWhenZoomedOut)
+{
+    LightEmitterView light;
+    light.radiusWorld = 160.0f;
+    light.minimumScreenRadius = 56.0f;
+
+    EXPECT_FLOAT_EQ(ResolveScreenLightRadius(light, 1.0f), 160.0f);
+    EXPECT_FLOAT_EQ(ResolveScreenLightRadius(light, 0.10f), 56.0f);
+    EXPECT_FLOAT_EQ(ResolveScreenLightRadius(light, 0.10f, 0.5f), 28.0f);
+}
+
+TEST(WorldLightingTests, OrdinaryLightStillScalesWithCameraZoom)
+{
+    LightEmitterView light;
+    light.radiusWorld = 96.0f;
+
+    EXPECT_FLOAT_EQ(ResolveScreenLightRadius(light, 1.0f), 96.0f);
+    EXPECT_FLOAT_EQ(ResolveScreenLightRadius(light, 0.5f), 48.0f);
+}
+
+TEST(WorldLightingTests, AdditiveLightTintStoresIntensityPerEmitter)
+{
+    const Color warm = EncodeAdditiveLightTint(Color{255, 160, 80, 255}, 0.20f);
+    const Color cool = EncodeAdditiveLightTint(Color{60, 140, 240, 255}, 0.20f);
+
+    EXPECT_EQ(warm.r, 51);
+    EXPECT_EQ(warm.g, 32);
+    EXPECT_EQ(warm.b, 16);
+    EXPECT_GT(warm.r, warm.b);
+    EXPECT_GT(cool.b, cool.r);
+    EXPECT_EQ(warm.a, 255);
+    EXPECT_EQ(cool.a, 255);
+}
+
+TEST(WorldLightingTests, AdditiveLightTintClampsInvalidIntensity)
+{
+    const Color dark = EncodeAdditiveLightTint(Color{255, 200, 100, 255}, -1.0f);
+    const Color saturated = EncodeAdditiveLightTint(Color{255, 200, 100, 255}, 4.0f);
+
+    EXPECT_EQ(dark.r, 0);
+    EXPECT_EQ(dark.g, 0);
+    EXPECT_EQ(dark.b, 0);
+    EXPECT_EQ(saturated.r, 255);
+    EXPECT_EQ(saturated.g, 255);
+    EXPECT_EQ(saturated.b, 255);
+}

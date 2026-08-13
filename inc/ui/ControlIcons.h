@@ -26,6 +26,19 @@ namespace UiControlIcons
         Builders
     };
 
+    // Icons authored specifically for unit-stat tooltips. Stats with a clear
+    // product equivalent (sword, shield, bow, horse, etc.) deliberately keep
+    // using the shared resource atlas instead of duplicating artwork here.
+    enum class MilitaryStatIcon
+    {
+        Time,
+        HitPoints,
+        MoveSpeed,
+        AttackSpeed,
+        AreaTargets,
+        AirTargeting
+    };
+
     void Load(const std::string& directory = "assets/ui/controls");
     void Unload();
     bool IsLoaded();
@@ -42,6 +55,31 @@ namespace UiControlIcons
     // Draws only the subject and its dark inset, omitting the atlas cell frame.
     // Used inside the independently framed statistic chips.
     bool DrawHudGlyph(HudIcon icon, Rectangle destination, Color tint = WHITE);
+
+    // Pilot skin for the strategic top HUD. The same neutral 9-slice is used
+    // for the outer bar, stat chips, resource cassette and action buttons;
+    // the heraldic left cap is a separate top-HUD-only overlay.
+    bool DrawPixelHudFrame(Rectangle destination, bool hovered = false,
+                           Color tint = WHITE);
+    // Content-safe inset matching the fixed corner modules of the main frame.
+    float PixelHudFrameInset(Rectangle destination);
+    // Symmetric top-right close control, kept clear of the main frame corners.
+    Rectangle PixelHudCloseButtonRect(Rectangle destination);
+    // Slimmer companion frame for repeated statistic slots and action icons.
+    bool DrawPixelHudWidgetFrame(Rectangle destination, bool hovered = false,
+                                 Color tint = WHITE);
+    bool DrawPixelTopHudCrest(Rectangle destination, Color tint = WHITE);
+    bool DrawPixelHudGlyph(HudIcon icon, Rectangle destination, Color tint = WHITE);
+    // Draws a shader-generated halo from the glyph alpha. The crisp glyph is
+    // intentionally drawn separately by the caller on top of this pass.
+    bool DrawPixelHudGlow(HudIcon icon, Rectangle destination, Color color,
+                          float intensity = 1.0f);
+    // Draws one of the twelve portraits from the Barracks recruitment atlas.
+    bool DrawUnitPortrait(const std::string& unitDefId, Rectangle destination,
+                          Color tint = WHITE);
+    // Draws a stat which has no suitable equivalent in the resource atlas.
+    bool DrawMilitaryStat(MilitaryStatIcon icon, Rectangle destination,
+                          Color tint = WHITE);
 
     // Draws the cold-castle panel from independent background, rail, corner
     // and fixed-keystone modules. Unique ornaments are never stretched.

@@ -11,7 +11,7 @@ building Headquarters
     footprint 4 4
     texture_id 4
     storage IRON 80 30
-    storage IRON_ORE 100 40
+    storage IRON_ORE 100 0
     storage COPPER_ORE 80 0
     storage COPPER 80 0
     storage WOOD 160 120
@@ -29,7 +29,7 @@ building Headquarters
     storage TOOLS 60 0
     storage IRON_SWORD 60 0
     storage BOW 60 0
-    storage ARROWS 120 0
+    storage ARROWS 120 40
     storage HORSE 60 0
     storage CLAY 100 0
     storage CATTLE 60 0
@@ -50,7 +50,6 @@ building Headquarters
     storage COPPER_PIPE 80 0
     storage MECHANICAL_PARTS 80 0
     storage HEAVY_BOW 60 0
-    storage IRON_SWORD 60 0
     storage HEAVY_ARMOR 60 0
     storage BRICKS 120 0
     storage CLOTH 100 0
@@ -59,6 +58,7 @@ building Headquarters
     storage CATAPULT 20 0
     storage SAND 100 0
     storage GLASS 80 0
+    storage SPEAR 40 0
     hq max_hp 500 hard_defense 10 thorns_damage 3 thorns_interval 3.0 capture_stock_fraction 0.4 conquest_ramp_duration 600.0
 end
 
@@ -73,9 +73,9 @@ building Village
     build_time 18.0
     footprint 4 4
     texture_id 4
-    village manpower_rate 0.7 population_cap 140 upkeep_interval 60.0 food_package_upkeep 1.0
-    upgrade level 2 cost PLANKS 80 cost STONE 60 cost TOOLS 12 cost CLOTHES 20 build_time 45
-    upgrade level 3 cost BRICKS 180 cost PLANKS 140 cost TOOLS 30 cost COPPERWARE 40 cost GLASS 30 cost COPPER_PIPE 8 cost COPPER_VESSEL 3 build_time 90
+    village manpower_rate 0.5 population_cap 150 upkeep_interval 60.0 food_package_upkeep 1.0
+    upgrade level 2 population_cap 350 manpower_rate 1.75 cost PLANKS 80 cost STONE 60 cost TOOLS 12 cost CLOTHES 20 build_time 45
+    upgrade level 3 population_cap 1200 manpower_rate 6.0 cost BRICKS 180 cost PLANKS 140 cost TOOLS 30 cost COPPERWARE 40 cost GLASS 30 cost COPPER_PIPE 8 cost COPPER_VESSEL 3 build_time 90
 end
 
 building StorageBuilding
@@ -129,7 +129,6 @@ building StorageBuilding
     storage COPPER_PIPE 80
     storage MECHANICAL_PARTS 80
     storage HEAVY_BOW 60
-    storage IRON_SWORD 60
     storage HEAVY_ARMOR 60
     storage BRICKS 120
     storage CLOTH 100
@@ -138,6 +137,7 @@ building StorageBuilding
     storage CATAPULT 20
     storage SAND 100
     storage GLASS 80
+    storage SPEAR 40 0
 end
 
 building Woodcutter
@@ -503,7 +503,6 @@ building Mint
     build_cost STONE 60
     build_cost PLANKS 40
     build_cost IRON 20
-    requires_tech standard_coinage
     build_time 26.0
     footprint 2 2
     texture_id 3
@@ -542,7 +541,6 @@ building Glassworks
     build_cost WOOD 40
     build_cost STONE 50
     build_cost PLANKS 35
-    requires_tech clear_glassmaking
     build_time 22.0
     footprint 3 3
     texture_id 16
@@ -567,7 +565,6 @@ building Powderworks
     build_cost STONE 60
     build_cost PLANKS 40
     build_cost IRON 15
-    requires_tech gunpowder_compounding
     build_time 30.0
     footprint 3 3
     texture_id 16
@@ -595,7 +592,7 @@ building University
     build_cost PLANKS 250
     build_cost IRON 120
     build_cost TOOLS 30
-    requires_focus academic_patronage
+    requires_focus pursuit_of_knowledge
     build_time 30.0
     footprint 5 5
     texture_id 17
@@ -615,7 +612,6 @@ building Barracks
     build_cost WOOD 50
     build_cost STONE 40
     build_cost PLANKS 50
-    build_cost IRON 20
     build_cost TOOLS 10
     build_time 20.0
     footprint 4 4
@@ -695,7 +691,6 @@ building AnimalFarm
     build_cost WOOD 45
     build_cost PLANKS 25
     build_cost STONE 15
-    requires_tech agricultural_improvement
     build_time 12.0
     footprint 4 4
     texture_id 11
@@ -719,7 +714,6 @@ building Butcher
     build_cost WOOD 35
     build_cost PLANKS 20
     build_cost STONE 25
-    requires_tech agricultural_improvement
     build_time 9.0
     footprint 2 2
     texture_id 9
@@ -862,7 +856,6 @@ building HorseStable
     build_cost WOOD 55
     build_cost PLANKS 45
     build_cost STONE 20
-    requires_tech selective_breeding
     build_time 18.0
     footprint 4 4
     texture_id 11
@@ -987,7 +980,6 @@ building Inkworks
     texture "assets/textures/building/generated/inkworks_idle_v2/inkworks_idle_3x3.png"
     build_cost PLANKS 30
     build_cost STONE 25
-    requires_tech writing_and_recordkeeping
     build_time 10.0
     footprint 2 2
     texture_id 15
@@ -1118,7 +1110,6 @@ building HempFarm
     build_cost WOOD 25
     build_cost PLANKS 20
     build_cost STONE 10
-    requires_tech three_field_rotation
     build_time 8.0
     footprint 4 4
     texture_id 11
@@ -1139,7 +1130,6 @@ building Ropery
     texture "assets/textures/building/generated/ropery_idle_v2/ropery_idle_3x3.png"
     build_cost WOOD 35
     build_cost PLANKS 35
-    requires_tech guild_apprenticeship
     build_time 9.0
     footprint 3 3
     texture_id 1
@@ -1176,7 +1166,6 @@ building Weaver
     texture "assets/textures/building/generated/cottage_idle/cottage_idle_sheet_2x1.png"
     build_cost WOOD 35
     build_cost PLANKS 30
-    requires_tech guild_apprenticeship
     build_time 10.0
     footprint 2 2
     texture_id 4
@@ -1276,7 +1265,6 @@ building SiegeWorkshop
     build_cost STONE 70
     build_cost IRON 30
     build_cost TOOLS 10
-    requires_tech ballistics
     build_time 24.0
     footprint 4 4
     texture_id 18

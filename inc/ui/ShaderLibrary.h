@@ -11,6 +11,7 @@
 enum class ShaderId
 {
     TeamColor,
+    ResourceOverlay,
     WorldLighting,
     RadialLight,
     FogOfWar,

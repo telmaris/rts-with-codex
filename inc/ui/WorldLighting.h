@@ -40,7 +40,26 @@ struct LightEmitterView
     float flickerAmount{0.0f};
     int stableId{0};
     int priority{0};
+    // Some presentation lights (mineral readability halos) must remain
+    // visible during the day instead of following night-lamp visibility all
+    // the way down to its daylight minimum.
+    float minimumVisibility{0.0f};
+    // At a distant camera zoom a physically scaled light can collapse to a
+    // handful of framebuffer pixels. Keep essential building lights readable
+    // by enforcing this minimum radius in render-space pixels.
+    float minimumScreenRadius{0.0f};
 };
+
+// Converts a world-sized emitter radius to the radius used by the screen-space
+// light map. Intensity is deliberately independent of this projection: zoom
+// changes only the footprint, never the emitted brightness.
+float ResolveScreenLightRadius(const LightEmitterView& light, float cameraZoom,
+                               float targetScale = 1.0f);
+
+// Packs one emitter's additive RGB into raylib's per-vertex tint. Keeping this
+// data out of per-draw shader uniforms prevents batched lights from inheriting
+// the color/intensity of the last visible source.
+Color EncodeAdditiveLightTint(Color color, float intensity);
 
 // Uses no wall clock, randomness, or GPU state. The same tick always yields
 // the same frame in single-player, on the host, and on a snapshot client.

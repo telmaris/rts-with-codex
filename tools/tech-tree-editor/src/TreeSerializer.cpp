@@ -6,6 +6,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 
@@ -19,7 +20,8 @@ namespace
         "UnitHp", "UnitRoadAttack", "UnitSiegeAttack", "UnitArmor",
         "UnitMoveSpeed", "UnitAttackSpeed", "UnitRecruitTime", "UnitRecruitManpowerCost",
         "HqMaxHp", "HqDefense", "HqThorns", "ConquestSpoilsFraction",
-        "TowerDamage", "TowerRange", "TowerAttackSpeed", "TowerAmmoEfficiency"};
+        "TowerDamage", "TowerRange", "TowerAttackSpeed", "TowerAmmoEfficiency",
+        "TransportDispatchDelay"};
 
     const std::vector<BalanceStat> balanceStatValues{
         BalanceStat::BuildTime, BalanceStat::BuildCost, BalanceStat::ProductionCycleTime,
@@ -32,7 +34,7 @@ namespace
         BalanceStat::HqMaxHp, BalanceStat::HqDefense, BalanceStat::HqThorns,
         BalanceStat::ConquestSpoilsFraction,
         BalanceStat::TowerDamage, BalanceStat::TowerRange, BalanceStat::TowerAttackSpeed,
-        BalanceStat::TowerAmmoEfficiency};
+        BalanceStat::TowerAmmoEfficiency, BalanceStat::TransportDispatchDelay};
 
     const std::vector<std::string> buildingTypeNames{
         "Headquarters", "Village", "StorageBuilding", "Woodcutter", "HuntersHut",
@@ -100,6 +102,22 @@ namespace
     const std::vector<std::string> tagNames{
         "production", "logistics", "manpower", "expansion", "military", "construction"};
 
+    std::vector<std::string> Alphabetical(std::vector<std::string> values)
+    {
+        std::sort(values.begin(), values.end());
+        return values;
+    }
+
+    // Parser mappings above deliberately retain enum/source order. Dropdowns
+    // use separate sorted views so presentation order can never change the
+    // name-to-enum correspondence used for serialization.
+    const std::vector<std::string> alphabeticalBalanceStatNames = Alphabetical(balanceStatNames);
+    const std::vector<std::string> alphabeticalBuildingTypeNames = Alphabetical(buildingTypeNames);
+    const std::vector<std::string> alphabeticalResourceTypeNames = Alphabetical(resourceTypeNames);
+    const std::vector<std::string> alphabeticalResourceCategoryNames = Alphabetical(resourceCategoryNames);
+    const std::vector<std::string> alphabeticalCategoryNames = Alphabetical(categoryNames);
+    const std::vector<std::string> alphabeticalTagNames = Alphabetical(tagNames);
+
     // The tokenizer has no escape syntax: a '"' inside a value would terminate
     // the token early and '#' outside quotes starts a comment. Quoting handles
     // '#'; the quote character itself has to go.
@@ -110,17 +128,28 @@ namespace
         return "\"" + safe + "\"";
     }
 
-    // Trims trailing zeros so 90.0 writes as "90" and 0.95 stays "0.95".
+    // Twelve significant digits preserve editor-derived ratios such as
+    // 1 / 0.95 without expanding ordinary source values (0.95 stays "0.95").
+    // The former default precision of six wrote 1.052631... as 1.05263, which
+    // then failed the editor's own round-trip comparison.
     std::string Number(double value)
     {
         std::ostringstream stream;
-        stream << std::defaultfloat << value;
+        stream << std::setprecision(12) << std::defaultfloat << value;
         return stream.str();
     }
 
     bool NearlyEqual(double a, double b)
     {
         return std::abs(a - b) < 1e-6;
+    }
+
+    bool UsesRateDisplay(BalanceStat stat)
+    {
+        return stat == BalanceStat::BuildTime ||
+               stat == BalanceStat::ProductionCycleTime ||
+               stat == BalanceStat::TransportTime ||
+               stat == BalanceStat::TransportDispatchDelay;
     }
 
     std::string DescribeMismatch(const TechnologyDefinition& written, const TechnologyDefinition& reread)
@@ -154,12 +183,30 @@ namespace
     }
 }
 
-const std::vector<std::string>& RtsDataNames::BalanceStats() { return balanceStatNames; }
-const std::vector<std::string>& RtsDataNames::BuildingTypes() { return buildingTypeNames; }
-const std::vector<std::string>& RtsDataNames::ResourceTypes() { return resourceTypeNames; }
-const std::vector<std::string>& RtsDataNames::ResourceCategories() { return resourceCategoryNames; }
-const std::vector<std::string>& RtsDataNames::Categories() { return categoryNames; }
-const std::vector<std::string>& RtsDataNames::Tags() { return tagNames; }
+double ModifierEffectPercent(BalanceStat stat, double multiplier)
+{
+    if (UsesRateDisplay(stat) && multiplier > 0.0)
+        return (1.0 / multiplier - 1.0) * 100.0;
+    return (multiplier - 1.0) * 100.0;
+}
+
+double ModifierMultiplierFromEffectPercent(BalanceStat stat, double effectPercent)
+{
+    if (UsesRateDisplay(stat))
+    {
+        // A -100% rate would divide by zero. Preserve a finite, positive cycle
+        // duration while still allowing an extreme slowdown to be authored.
+        return 1.0 / std::max(0.01, 1.0 + effectPercent / 100.0);
+    }
+    return std::max(0.0, 1.0 + effectPercent / 100.0);
+}
+
+const std::vector<std::string>& RtsDataNames::BalanceStats() { return alphabeticalBalanceStatNames; }
+const std::vector<std::string>& RtsDataNames::BuildingTypes() { return alphabeticalBuildingTypeNames; }
+const std::vector<std::string>& RtsDataNames::ResourceTypes() { return alphabeticalResourceTypeNames; }
+const std::vector<std::string>& RtsDataNames::ResourceCategories() { return alphabeticalResourceCategoryNames; }
+const std::vector<std::string>& RtsDataNames::Categories() { return alphabeticalCategoryNames; }
+const std::vector<std::string>& RtsDataNames::Tags() { return alphabeticalTagNames; }
 
 std::string RtsDataNames::NameOf(BalanceStat stat)
 {

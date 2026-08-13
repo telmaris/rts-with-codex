@@ -275,9 +275,16 @@ struct PopulationComponent : IBuildingComponent
     Stat<double> manpowerRate{BalanceStat::ManpowerRate, 5.0};
     Stat<int> populationCap{BalanceStat::PopulationCap, 1000};
     int settlementLevel{1};
-    std::array<int, 4> levelPopulationCaps{0, 140, 350, 1200};
-    std::array<double, 4> levelManpowerRates{0.0, 0.7, 1.75, 6.0};
+    // Index 0 is unused. Village's constructor populates every playable
+    // level from buildings.rtsdata, inheriting omitted values from the
+    // previous level.
+    std::array<int, 4> levelPopulationCaps{};
+    std::array<double, 4> levelManpowerRates{};
+    // Per-resource upkeep progress. `upkeepTimer` remains the food timer to
+    // preserve the pre-v33 save field and tests that tune Village cadence.
     double upkeepTimer{0.0};
+    double householdUpkeepTimer{0.0};
+    double urbanUpkeepTimer{0.0};
     double upkeepInterval{10.0};
     double foodPackageUpkeep{1.0};
     bool hasFood{true};
@@ -299,9 +306,11 @@ struct PopulationComponent : IBuildingComponent
     int RequestFoodSupply(Building& self);
     int GetFoodDemand() const;
     void SetSettlementLevel(int level);
+    int GetActiveSettlementLevel() const;
     int GetActivePopulationCap() const;
     bool RequiresSupply(ResourceType type) const;
     int GetSupplyUpkeep(ResourceType type) const;
+    double GetEffectiveSupplyUpkeepInterval(const Building& self, ResourceType type) const;
     ResourceBuffer* GetSupplyBuffer(ResourceType type);
     const ResourceBuffer* GetSupplyBuffer(ResourceType type) const;
     int RequestSupply(Building& self, ResourceType type);

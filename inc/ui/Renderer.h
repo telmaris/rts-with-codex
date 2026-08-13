@@ -59,7 +59,7 @@ struct RenderSettings
     bool fogOfWar{true};
     bool colorGrading{true};
     bool retroFilter{true};
-    // A low-cost blur sampled from the light map only. It never touches UI or
+    // A low-cost second, wider additive emitter pass. It never touches UI or
     // bright terrain/albedo, unlike a bloom pass over the final frame.
     bool localLightBloom{true};
     // Procedural rain is a presentation-only postprocess. It is deliberately
@@ -117,6 +117,20 @@ struct CanvasLayer
     RenderTexture2D fbo{};
 };
 
+// All render targets use canonical screen space (origin in the top-left).
+// Raylib's backbuffer and offscreen passes require opposite source-rectangle
+// conventions, so the destination boundary must be stated explicitly.
+enum class RenderTargetDestination : std::uint8_t
+{
+    OffscreenPass,
+    Window
+};
+
+// This is the only place that defines the raylib FBO sampling correction.
+// This is intentionally GPU-free so the FBO orientation contract can be unit
+// tested without opening the game window.
+Rectangle RenderTargetSourceRect(Texture2D texture, RenderTargetDestination destination);
+
 // Tile atlas loader and id-to-source-rectangle mapper.
 struct TextureAtlas
 {
@@ -162,6 +176,11 @@ class Renderer
     const RenderSettings& GetRenderSettings() const { return renderSettings; }
     void SetDayNightCycleEnabled(bool enabled) { renderSettings.dayNightCycle = enabled; }
     bool IsDayNightCycleEnabled() const { return renderSettings.dayNightCycle; }
+    // Visual-only testing shortcut. When enabled, lighting stays at phase 0
+    // (night) without changing the deterministic simulation clock.
+    void ToggleNightPreview();
+    bool IsNightPreviewEnabled() const { return nightPreviewEnabled; }
+    WorldLightingFrame GetCurrentWorldLightingFrame() const;
     void SetDynamicLightsEnabled(bool enabled) { renderSettings.dynamicLights = enabled; }
     bool AreDynamicLightsEnabled() const { return renderSettings.dynamicLights; }
     void SetTeamColorsEnabled(bool enabled) { renderSettings.teamColors = enabled; }
@@ -180,12 +199,15 @@ class Renderer
     void SetLogisticsOverlayEnabled(bool enabled) { renderSettings.logisticsOverlay = enabled; }
     bool IsLogisticsOverlayEnabled() const { return renderSettings.logisticsOverlay; }
     void CycleDebugView();
-    // Lights are rebuilt from world sources and radius-culled against the
-    // current render view; their data does not enter simulation state, saves,
-    // or gameplay checksums.
+    // Lights are rebuilt from world sources; their data does not enter
+    // simulation state, saves, or gameplay checksums. Target clipping is left
+    // to the GPU so camera pan/zoom cannot remove a still-relevant emitter.
     void ClearDynamicLights();
     void QueueDynamicLight(const LightEmitterView& light);
     void QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos, int stableId, bool isOperational);
+    // Adds a small mineral-coloured light for resource overlay atlas cells
+    // 0..47. Non-mineral overlays (for example WOOD) are ignored.
+    void QueueResourceLight(int resourceOverlayTextureId, Vec2f pos, int stableId);
     // Fog revealers are rebuilt from all owned world sources by
     // GameWorld::DrawMap/DrawSnapshot each frame. No state is retained, so
     // toggling fog cannot show stale visibility.
@@ -217,6 +239,14 @@ class Renderer
     void DrawAtlasTile(int, int, Vec2f);
     // Draws one atlas tile in world space with scale.
     void DrawAtlasTile(int, int, Vec2f, Vec2f);
+    // Draws atlas 41 mineral cells with a material-specific colour grade while
+    // preserving the atlas silhouette exactly. Environmental tint/glow is
+    // handled by the dedicated ground-glow and local-emitter paths.
+    void DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos);
+    // Draws the broad deposit glow below all resource sprites. Call while the
+    // terrain layer and additive blending are active so neighbouring halos
+    // merge behind the rocks without darkening the terrain albedo.
+    void DrawResourceGroundGlow(int resourceOverlayTextureId, Vec2f pos);
     // Draws one atlas tile, resolving the frame from an animation clip and elapsed time (ETAP 5.3).
     void DrawAtlasTile(int atlas, int clipId, Vec2f pos, float elapsedTime);
     // Same, stretched to a target world size.
@@ -305,6 +335,7 @@ class Renderer
     RenderSettings renderSettings{};
     std::uint64_t simulationTick{0};
     DayNightConfig dayNightConfig{};
+    bool nightPreviewEnabled{false};
     std::vector<LightEmitterView> dynamicLights;
     std::vector<FogRevealView> fogReveals;
     std::uint64_t cachedSnapshotTick{std::numeric_limits<std::uint64_t>::max()};
@@ -314,7 +345,10 @@ class Renderer
 private:
     void DrawBuildingSprite(Texture2D texture, Rectangle source, Rectangle destination, Color tint,
                             Color ownerColor, bool applyTeamColor, BuildingType type);
-    void DrawLightMap(const WorldLightingFrame& lighting);
+    // Draws local emitters into whichever render target is currently active.
+    // Their world placement uses the same Camera2D matrix as sprite layers.
+    void DrawDynamicLightsToActiveTarget(const WorldLightingFrame& lighting, bool bloomEnabled);
+    void DrawLightMap(const WorldLightingFrame& lighting, bool localLightsEnabled);
     void DrawFogMask();
 };
 

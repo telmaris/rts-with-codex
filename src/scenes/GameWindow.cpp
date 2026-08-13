@@ -14,6 +14,7 @@ void GameWindow::LaunchGame()
     SetWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
     SetWindowMinSize(960, 540);
     GuiPanel::LoadUiFont("assets/fonts/EBGaramond-VariableFont_wght.ttf");
+    GuiPanel::LoadUiPlainFont("assets/fonts/AlegreyaSans-Regular.ttf");
     UiControlIcons::Load();
 
     InitAudioDevice();

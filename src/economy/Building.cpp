@@ -654,9 +654,35 @@ Village::Village(int actualId)
     population.upkeepInterval      = def.village.upkeepInterval;
     population.foodPackageUpkeep   = def.village.foodPackageUpkeep;
 
-    RegisterComponent(&population);
     for (const auto& levelDef : def.upgradeLevels)
         upgrade.maxLevel = std::max(upgrade.maxLevel, levelDef.level);
+
+    population.levelPopulationCaps.fill(def.village.populationCap);
+    population.levelManpowerRates.fill(def.village.manpowerRate);
+    population.levelPopulationCaps[0] = 0;
+    population.levelManpowerRates[0] = 0.0;
+    const int configuredMaxLevel = std::min(
+        upgrade.maxLevel,
+        static_cast<int>(population.levelPopulationCaps.size()) - 1);
+    for (int level = 2; level <= configuredMaxLevel; level++)
+    {
+        population.levelPopulationCaps[level] = population.levelPopulationCaps[level - 1];
+        population.levelManpowerRates[level] = population.levelManpowerRates[level - 1];
+
+        auto levelIt = std::find_if(def.upgradeLevels.begin(), def.upgradeLevels.end(),
+            [level](const BuildingUpgradeLevelDefinition& levelDef)
+            {
+                return levelDef.level == level;
+            });
+        if (levelIt == def.upgradeLevels.end())
+            continue;
+        if (levelIt->populationCap.has_value())
+            population.levelPopulationCaps[level] = *levelIt->populationCap;
+        if (levelIt->manpowerRate.has_value())
+            population.levelManpowerRates[level] = *levelIt->manpowerRate;
+    }
+
+    RegisterComponent(&population);
     RegisterComponent(&upgrade);
 }
 

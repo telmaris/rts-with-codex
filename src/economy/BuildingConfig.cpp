@@ -648,6 +648,16 @@ namespace
                         levelDef.modifiers.push_back(modifier);
                         i += 1;
                     }
+                    else if (tokens[i] == "population_cap" && i + 1 < tokens.size())
+                    {
+                        levelDef.populationCap = std::stoi(tokens[i + 1]);
+                        i += 1;
+                    }
+                    else if (tokens[i] == "manpower_rate" && i + 1 < tokens.size())
+                    {
+                        levelDef.manpowerRate = std::stod(tokens[i + 1]);
+                        i += 1;
+                    }
                 }
                 definition.upgradeLevels.push_back(std::move(levelDef));
             }

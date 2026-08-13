@@ -1,5 +1,6 @@
 #include "ui/UiWidgets.h"
 
+#include "ui/ControlIcons.h"
 #include "ui/UiText.h"
 #include "ui/UiTheme.h"
 
@@ -46,9 +47,9 @@ namespace
         return "..." + trimmed;
     }
 
-    bool IsNumericChar(int codepoint)
+    bool IsUnsignedNumericChar(int codepoint)
     {
-        return (codepoint >= '0' && codepoint <= '9') || codepoint == '.' || codepoint == '-' || codepoint == '+';
+        return (codepoint >= '0' && codepoint <= '9') || codepoint == '.';
     }
 }
 
@@ -109,11 +110,18 @@ void DropdownWidget::CloseAll()
 void DropdownWidget::Draw(Rectangle bounds, const std::string& placeholder)
 {
     Vector2 mouse = GetMousePosition();
-    bool hover = CheckCollisionPointRec(mouse, bounds);
     bool isOpen = openDropdown == this;
+    // While one list is expanded it owns pointer input for the whole frame.
+    // Other dropdowns may be geometrically underneath the floating list and
+    // must not open from the same click that selects an item above them.
+    bool pointerAvailable = openDropdown == nullptr || isOpen;
+    bool hover = pointerAvailable && CheckCollisionPointRec(mouse, bounds);
 
-    DrawRectangleRounded(bounds, 0.18f, 6, isOpen ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
-    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, isOpen ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
+    if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds, hover || isOpen))
+    {
+        DrawRectangleRounded(bounds, 0.18f, 6, isOpen ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
+        DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, isOpen ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
+    }
 
     const std::string& label = SelectedText();
     float arrowWidth = 18.0f;
@@ -142,6 +150,7 @@ void DropdownWidget::Draw(Rectangle bounds, const std::string& placeholder)
         {
             openDropdown = this;
             openBounds = bounds;
+            focusedField = nullptr;
             highlightedIndex = std::max(0, selectedIndex);
             // Scroll so the current selection is visible when the list opens.
             listScroll = std::max(0.0f, static_cast<float>(highlightedIndex - maxVisibleRows + 1) * rowHeight);
@@ -196,8 +205,11 @@ bool DropdownWidget::DrawOpenList()
         dropdown->listScroll = std::clamp(dropdown->listScroll, 0.0f, maxScroll);
     }
 
-    DrawRectangleRounded(list, 0.06f, 6, activePalette.listFill);
-    DrawRectangleRoundedLines(list, 0.06f, 6, 1.0f, activePalette.focusedBorder);
+    if (!UiControlIcons::DrawPixelHudWidgetFrame(list))
+    {
+        DrawRectangleRounded(list, 0.06f, 6, activePalette.listFill);
+        DrawRectangleRoundedLines(list, 0.06f, 6, 1.0f, activePalette.focusedBorder);
+    }
 
     BeginScissorMode(static_cast<int>(list.x), static_cast<int>(list.y), static_cast<int>(list.width), static_cast<int>(list.height));
     int clickedIndex = -1;
@@ -292,9 +304,13 @@ bool TextFieldWidget::IsAnyFocused()
 bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
 {
     Vector2 mouse = GetMousePosition();
-    bool hover = CheckCollisionPointRec(mouse, bounds);
+    // DrawOpenList() runs at the end of the frame so the list paints on top.
+    // Suppress pointer handling here while it is open; otherwise a click on a
+    // list row also focuses the text field rendered underneath that row.
+    bool pointerAvailable = !DropdownWidget::IsAnyOpen();
+    bool hover = pointerAvailable && CheckCollisionPointRec(mouse, bounds);
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (pointerAvailable && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         if (hover)
             focusedField = this;
@@ -327,10 +343,20 @@ bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
                 std::string pasted = clipboard;
                 if (numericOnly)
                 {
+                    const bool pastedNegative = allowNegative && pasted.starts_with('-');
                     pasted.erase(std::remove_if(pasted.begin(), pasted.end(), [](unsigned char character)
                     {
-                        return !IsNumericChar(character);
+                        return !IsUnsignedNumericChar(character);
                     }), pasted.end());
+
+                    // Keep a pasted sign at the beginning of the resulting
+                    // number. Numeric fields append by design, so a leading
+                    // minus needs the same sign-toggle treatment as typing it.
+                    if (pastedNegative)
+                    {
+                        if (!text.starts_with('-'))
+                            text.insert(text.begin(), '-');
+                    }
                 }
                 if (!pasted.empty())
                 {
@@ -344,7 +370,23 @@ bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
             int codepoint = GetCharPressed();
             while (codepoint > 0)
             {
-                if (!numericOnly || IsNumericChar(codepoint))
+                if (numericOnly && allowNegative && codepoint == '-')
+                {
+                    if (text.starts_with('-'))
+                        text.erase(0, 1);
+                    else
+                        text.insert(text.begin(), '-');
+                    changed = true;
+                }
+                else if (numericOnly && allowNegative && codepoint == '+')
+                {
+                    if (text.starts_with('-'))
+                    {
+                        text.erase(0, 1);
+                        changed = true;
+                    }
+                }
+                else if (!numericOnly || IsUnsignedNumericChar(codepoint))
                 {
                     text += Utf8::Encode(codepoint);
                     changed = true;
@@ -373,8 +415,11 @@ bool TextFieldWidget::Draw(Rectangle bounds, const std::string& placeholder)
             focusedField = nullptr;
     }
 
-    DrawRectangleRounded(bounds, 0.18f, 6, focused ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
-    DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, focused ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
+    if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds, focused || hover))
+    {
+        DrawRectangleRounded(bounds, 0.18f, 6, focused ? activePalette.focusedFill : hover ? activePalette.hoverFill : activePalette.fill);
+        DrawRectangleRoundedLines(bounds, 0.18f, 6, 1.0f, focused ? activePalette.focusedBorder : hover ? activePalette.hoverBorder : activePalette.border);
+    }
 
     float padding = 8.0f;
     float textWidth = bounds.width - padding * 2.0f;

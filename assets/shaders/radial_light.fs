@@ -4,8 +4,6 @@ in vec2 fragTexCoord;
 in vec4 fragColor;
 
 uniform sampler2D texture0;
-uniform vec4 lightColor;
-uniform float intensity;
 uniform float animationTime;
 uniform float stablePhase;
 uniform float animationAmount;
@@ -37,5 +35,10 @@ void main()
     if (maskOnly != 0)
         finalColor = vec4(1.0, 1.0, 1.0, falloff) * fragColor;
     else
-        finalColor = vec4(lightColor.rgb * intensity * falloff, falloff) * fragColor;
+        // Per-emitter additive RGB arrives through the vertex color. Raylib
+        // may batch many quads that share this shader and texture, while
+        // vertex attributes remain correct for every quad. Uniforms changed
+        // between emitters did not: the last visible mineral could recolor or
+        // extinguish an HQ light when the camera changed the tile range.
+        finalColor = vec4(fragColor.rgb * falloff, 1.0);
 }

@@ -191,6 +191,15 @@ void GameScene::OnActivated()
     // A modal tutorial may have disabled the process-wide input query gate;
     // entering a regular gameplay scene always restores normal controls.
     InputManager::SetInputEnabled(true);
+
+    if (runtimeLoop != nullptr && runtimeLoop->ShouldPauseWhenSceneInactive())
+        runtimeLoop->SetPaused(HasBlockingPopup());
+}
+
+void GameScene::OnDeactivated()
+{
+    if (runtimeLoop != nullptr && runtimeLoop->ShouldPauseWhenSceneInactive())
+        runtimeLoop->SetPaused(true);
 }
 
 namespace
@@ -242,6 +251,11 @@ namespace
             return session != nullptr ? session->GetWorldMutex() : nullptr;
         }
 
+        bool ShouldPauseWhenSceneInactive() const override
+        {
+            return session != nullptr && session->ShouldPauseWhenSceneInactive();
+        }
+
         void SetPaused(bool paused) override
         {
             if (session != nullptr)
@@ -276,12 +290,6 @@ namespace
                     worldLock = std::unique_lock<std::recursive_mutex>(*mutex);
 
             GameWorld* renderWorld = session != nullptr ? session->GetWorld() : nullptr;
-            if (renderWorld != nullptr)
-                renderWorld->DrawMap();
-            else if (scene.latestSnapshot.IsValid())
-                scene.render.DrawSnapshot(scene.latestSnapshot);
-            scene.PrepareGameplayRender();
-
             // Gated through IGuiHandler (GameScene::HandleGuiInput forwards to
             // inputs.HandleInputs()) so the first frame after a scene switch
             // never re-consumes the key edge that caused the switch.
@@ -311,6 +319,18 @@ namespace
                 if (UiWidget* popup = scene.GetBlockingPopupWidget())
                     widgets.push_back(popup);
             }
+
+            // Camera input must settle before both the cached world layers and
+            // the light/fog maps are rebuilt. Previously DrawMap ran first and
+            // controller->Update moved the camera afterwards; DrawContent then
+            // composited an old-camera world with a new-camera light map. That
+            // made building lights drift or disappear while panning/zooming,
+            // especially near the left edge of the render target.
+            if (renderWorld != nullptr)
+                renderWorld->DrawMap();
+            else if (scene.latestSnapshot.IsValid())
+                scene.render.DrawSnapshot(scene.latestSnapshot);
+            scene.PrepareGameplayRender();
 
             // Keep the world lock held through widget rendering: every widget's
             // Update() (called from render.DrawContent) reads live simulation state —
@@ -426,6 +446,11 @@ namespace
 
 void GameScene::HandleRenderDebugInput()
 {
+    if (InputManager::IsKeyPressed(KEY_F5))
+    {
+        render.ToggleNightPreview();
+        Log::Msg("[Renderer] Night preview: ", render.IsNightPreviewEnabled() ? "on" : "off");
+    }
     if (InputManager::IsKeyPressed(KEY_F6))
     {
         render.SetDayNightCycleEnabled(!render.IsDayNightCycleEnabled());
@@ -583,10 +608,12 @@ void GameScene::HandleEvent(std::shared_ptr<Event> e)
     auto saveEvent = std::dynamic_pointer_cast<SaveGameEvent>(e);
     if (saveEvent != nullptr)
     {
-        SaveGame(saveEvent->name);
-        auto msg = std::make_shared<SaveListChangedEvent>();
-        msg->sender = this;
-        broker->Broadcast(msg);
+        if (SaveGame(saveEvent->name))
+        {
+            auto msg = std::make_shared<SaveListChangedEvent>();
+            msg->sender = this;
+            broker->Broadcast(msg);
+        }
     }
 
     auto hostEvent = std::dynamic_pointer_cast<HostMultiplayerGameEvent>(e);
@@ -667,12 +694,18 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
 // Loads the requested data into runtime state.
 bool GameScene::LoadGame(std::string name)
 {
-    render.ClearLayers();
-    game = std::make_unique<GameWorld>();
     std::string saveName = SanitizeSaveName(name);
     std::string filename{"saves/" + saveName + ".save"};
-    if (game->LoadFromFile(filename, &render, audioSystem))
+    auto loadedGame = std::make_unique<GameWorld>();
+    if (loadedGame->LoadFromFile(filename, &render, audioSystem))
     {
+        // HostRuntimeLoop owns a background HostSession which keeps a raw
+        // pointer to `game`. Stop and join that worker before replacing the
+        // world it references. Loading into a temporary world also preserves
+        // the active game when the selected save is invalid or incompatible.
+        runtimeLoop.reset();
+        render.ClearLayers();
+        game = std::move(loadedGame);
         knownIncomingUnitIds.clear();
         runtimeLoop = std::make_unique<HostRuntimeLoop>(std::make_unique<HostSession>(*game));
         {
@@ -691,17 +724,15 @@ bool GameScene::LoadGame(std::string name)
     else
     {
         Log::Msg("GameScene", "Failed to load save ", saveName);
-        runtimeLoop = nullptr;
-        game = nullptr;
         return false;
     }
 }
 
 // Serializes current runtime state.
-void GameScene::SaveGame(std::string saveName)
+bool GameScene::SaveGame(std::string saveName)
 {
     if (game == nullptr)
-        return;
+        return false;
 
     std::unique_lock<std::recursive_mutex> worldLock;
     if (runtimeLoop != nullptr)
@@ -710,14 +741,20 @@ void GameScene::SaveGame(std::string saveName)
 
     saveName = saveName.empty() ? game->worldName : saveName;
     saveName = SanitizeSaveName(saveName);
+    const std::string previousWorldName = game->worldName;
     game->worldName = saveName;
 
     std::string filename{"saves/" + saveName + ".save"};
     std::filesystem::create_directories("saves");
     if (!game->SaveToFile(filename))
+    {
+        game->worldName = previousWorldName;
         Log::Msg("GameScene", "Failed to save ", filename);
-    else
-        Log::Msg("GameScene", "Saved ", filename);
+        return false;
+    }
+
+    Log::Msg("GameScene", "Saved ", filename);
+    return true;
 }
 
 // Sends a local player's intent to the active session authority.

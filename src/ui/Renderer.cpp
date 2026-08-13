@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "rlgl.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,6 +16,53 @@ namespace
     bool localLightBloomPreferenceEnabled = true;
     bool rainOverlayPreferenceEnabled = false;
     bool logisticsOverlayPreferenceEnabled = false;
+
+    struct MineralOverlayStyle
+    {
+        Color shadow;
+        Color base;
+        Color highlight;
+        Color glow;
+        float glowStrength;
+        float lightRadius;
+        float lightIntensity;
+        float flickerAmount;
+        float luminanceScale;
+        float luminanceBias;
+        float edgeHighlightStrength;
+    };
+
+    // Atlas 41 is grouped in twelve-cell blocks: four full variants followed
+    // by eight directional rim variants. Keeping the palette here means the
+    // source alpha (and therefore every authored rock shape) stays untouched.
+    constexpr MineralOverlayStyle CoalOverlayStyle{
+        {6, 9, 12, 255}, {25, 30, 35, 255}, {151, 159, 164, 255},
+        {205, 212, 216, 255}, 0.44f, 88.0f, 0.026f, 0.025f, 1.18f, -0.11f, 0.78f};
+    constexpr MineralOverlayStyle IronOverlayStyle{
+        {20, 37, 64, 255}, {68, 124, 181, 255}, {183, 216, 237, 255},
+        {63, 143, 213, 255}, 0.68f, 102.0f, 0.046f, 0.035f, 1.20f, 0.02f, 0.38f};
+    constexpr MineralOverlayStyle CopperOverlayStyle{
+        {67, 23, 19, 255}, {184, 70, 48, 255}, {242, 145, 103, 255},
+        {225, 65, 39, 255}, 0.74f, 100.0f, 0.058f, 0.032f, 1.17f, 0.01f, 0.0f};
+    constexpr MineralOverlayStyle StoneOverlayStyle{
+        {51, 55, 60, 255}, {179, 185, 190, 255}, {240, 242, 238, 255},
+        {223, 229, 228, 255}, 0.56f, 92.0f, 0.038f, 0.025f, 1.18f, 0.02f, 0.34f};
+
+    const MineralOverlayStyle* GetMineralOverlayStyle(int textureId)
+    {
+        if (textureId >= 0 && textureId <= 11) return &CoalOverlayStyle;
+        if (textureId >= 12 && textureId <= 23) return &IronOverlayStyle;
+        if (textureId >= 24 && textureId <= 35) return &CopperOverlayStyle;
+        if (textureId >= 36 && textureId <= 47) return &StoneOverlayStyle;
+        return nullptr;
+    }
+
+    void DrawRenderTarget(Texture2D texture, Rectangle destination,
+                          RenderTargetDestination target, Color tint = WHITE)
+    {
+        DrawTexturePro(texture, RenderTargetSourceRect(texture, target), destination,
+                       {0.0f, 0.0f}, 0.0f, tint);
+    }
 
     // Terrain is composed from individual TILE_SIZE-square quads. Keeping a
     // tile an integral number of render pixels wide prevents adjacent quads
@@ -226,6 +274,15 @@ void CanvasLayer::Initialize(int width, int height)
     fbo = LoadRenderTexture(width, height);
 }
 
+Rectangle RenderTargetSourceRect(Texture2D texture, RenderTargetDestination destination)
+{
+    const float sourceHeight = destination == RenderTargetDestination::OffscreenPass
+        ? -static_cast<float>(texture.height)
+        : static_cast<float>(texture.height);
+    return {0.0f, 0.0f, static_cast<float>(texture.width),
+            sourceHeight};
+}
+
 void CanvasLayer::Shutdown()
 {
     if (fbo.id != 0 && IsWindowReady())
@@ -335,6 +392,8 @@ bool Renderer::InitializeWorldLayers()
         Shutdown();
         return false;
     }
+    SetTextureFilter(lightMap.fbo.texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(lightMap.fbo.texture, TEXTURE_WRAP_CLAMP);
 
     fogMask.Initialize(RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
     if (!fogMask.IsInitialized())
@@ -343,6 +402,8 @@ bool Renderer::InitializeWorldLayers()
         Shutdown();
         return false;
     }
+    SetTextureFilter(fogMask.fbo.texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(fogMask.fbo.texture, TEXTURE_WRAP_CLAMP);
 
     foggedWorld.Initialize();
     if (!foggedWorld.IsInitialized())
@@ -363,6 +424,7 @@ bool Renderer::InitializeWorldLayers()
     // Team colors remain optional until an individual material provides a
     // matching mask texture. A shader compile error must not prevent gameplay.
     shaderLibrary.LoadFragment(ShaderId::TeamColor, "assets/shaders/team_color.fs");
+    shaderLibrary.LoadFragment(ShaderId::ResourceOverlay, "assets/shaders/resource_overlay.fs");
     shaderLibrary.LoadFragment(ShaderId::WorldLighting, "assets/shaders/world_lighting.fs");
     shaderLibrary.LoadFragment(ShaderId::RadialLight, "assets/shaders/radial_light.fs");
     shaderLibrary.LoadFragment(ShaderId::FogOfWar, "assets/shaders/fog_of_war.fs");
@@ -450,6 +512,30 @@ void Renderer::ClearDynamicLights()
     dynamicLights.clear();
 }
 
+void Renderer::ToggleNightPreview()
+{
+    nightPreviewEnabled = !nightPreviewEnabled;
+    // A night preview without the day/night pass would not change the world,
+    // so make the shortcut self-contained even after F6 previously disabled it.
+    if (nightPreviewEnabled)
+        renderSettings.dayNightCycle = true;
+}
+
+WorldLightingFrame Renderer::GetCurrentWorldLightingFrame() const
+{
+    if (!renderSettings.dayNightCycle)
+        return WorldLightingFrame{};
+
+    if (!nightPreviewEnabled)
+        return ComputeWorldLighting(simulationTick, dayNightConfig);
+
+    // Keep the visual frame exactly at the night keyframe while simulation
+    // continues normally; no game time, save data, or network state changes.
+    DayNightConfig previewConfig = dayNightConfig;
+    previewConfig.startPhase = 0.0f;
+    return ComputeWorldLighting(0, previewConfig);
+}
+
 void Renderer::ClearFogReveals()
 {
     fogReveals.clear();
@@ -502,16 +588,8 @@ void Renderer::CycleDebugView()
 
 void Renderer::QueueDynamicLight(const LightEmitterView& light)
 {
-    constexpr size_t MaxDynamicLights = 192;
+    constexpr size_t MaxDynamicLights = 1024;
     if (light.radiusWorld <= 0.0f || light.intensity <= 0.0f)
-        return;
-
-    const Vec2f renderPosition = WorldToRender({light.worldPosition.x, light.worldPosition.y});
-    const float radiusRender = light.radiusWorld * std::max(0.0f, camera.zoom) * 1.05f;
-    if (renderPosition.x + radiusRender < 0.0f ||
-        renderPosition.x - radiusRender > static_cast<float>(RENDER_WIDTH) ||
-        renderPosition.y + radiusRender < 0.0f ||
-        renderPosition.y - radiusRender > static_cast<float>(RENDER_HEIGHT))
         return;
 
     if (dynamicLights.size() < MaxDynamicLights)
@@ -541,19 +619,19 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
             // the environmental glow at the chimney instead, so the sprite's
             // coloured work area is not mistaken for a flashing light source.
             light = {{pos.x + footprint.x * TILE_SIZE * 0.49f, pos.y + footprint.y * TILE_SIZE * 0.86f},
-                     Color{255, 164, 88, 255}, 272.0f, 1.75f, 0.70f, 0.0f, stableId, 30};
+                     Color{255, 164, 88, 255}, 272.0f, 0.66f, 0.70f, 0.0f, stableId, 30};
             break;
         case BuildingType::Smith:
             // The smithy is entered from the lower facade; keep the glow at
             // that doorway rather than on the team-coloured roof details.
             light = {{pos.x + footprint.x * TILE_SIZE * 0.50f, pos.y + footprint.y * TILE_SIZE * 0.22f},
-                     Color{255, 184, 112, 255}, 208.0f, 1.30f, 0.68f, 0.0f, stableId, 20};
+                     Color{255, 184, 112, 255}, 208.0f, 0.48f, 0.68f, 0.0f, stableId, 20};
             break;
         case BuildingType::Inn:
             // A warm inn light reads as lamplight from the upper chimney,
             // not as an emission from its painted trim.
             light = {{pos.x + footprint.x * TILE_SIZE * 0.76f, pos.y + footprint.y * TILE_SIZE * 0.86f},
-                     Color{255, 196, 126, 255}, 192.0f, 1.10f, 0.65f, 0.0f, stableId, 10};
+                     Color{255, 196, 126, 255}, 192.0f, 0.42f, 0.65f, 0.0f, stableId, 10};
             break;
         default:
         {
@@ -566,77 +644,127 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
             light = {{pos.x + footprint.x * TILE_SIZE * 0.50f,
                       pos.y + footprint.y * TILE_SIZE * 0.54f},
                      Color{255, 200, 132, 255}, 96.0f + largestDimension * 40.0f,
-                     0.90f, 0.64f, 0.0f, stableId, 5};
+                     0.36f, 0.64f, 0.0f, stableId, 5};
             break;
         }
     }
+    // Preserve a readable footprint at distant zoom and make every building
+    // pool of light slightly more generous without changing gameplay space.
+    light.radiusWorld *= 1.15f;
+    light.minimumScreenRadius = 56.0f;
     QueueDynamicLight(light);
 }
 
-void Renderer::DrawLightMap(const WorldLightingFrame& lighting)
+void Renderer::QueueResourceLight(int resourceOverlayTextureId, Vec2f pos, int stableId)
+{
+    const MineralOverlayStyle* style = GetMineralOverlayStyle(resourceOverlayTextureId);
+    if (style == nullptr)
+        return;
+
+    LightEmitterView light{
+        {pos.x + TILE_SIZE * 0.50f, pos.y + TILE_SIZE * 0.50f},
+        style->glow,
+        style->lightRadius,
+        style->lightIntensity,
+        0.72f,
+        style->flickerAmount,
+        stableId,
+        -5,
+        0.0f};
+    // A deposit consists of many adjacent cells. A large minimum radius on
+    // every cell makes their additive footprints overlap more as the camera
+    // zooms out, eventually saturating the additive target and masking both the
+    // material tint and day/night modulation. A tiny anti-aliasing floor is
+    // enough; the field as a whole remains visible through its many cells.
+    light.minimumScreenRadius = 4.0f;
+    QueueDynamicLight(light);
+}
+
+void Renderer::DrawDynamicLightsToActiveTarget(const WorldLightingFrame& lighting,
+                                               bool bloomEnabled)
+{
+    const Shader* radialLightShader = shaderLibrary.Find(ShaderId::RadialLight);
+    if (radialLightShader == nullptr || radialLightMask.id == 0 || dynamicLights.empty())
+        return;
+
+    // The destination FBO is already active. Use the identical Camera2D
+    // matrix as world sprites and let the GPU clip emitters at target edges.
+    // In particular, do not manually reject a source using GetWorldToScreen2D:
+    // that duplicated the camera transform and made lights disappear while
+    // panning even though their geometry still touched the target.
+    const float safeCameraZoom = std::max(camera.zoom, 0.0001f);
+    const int animationTimeLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationTime");
+    const int stablePhaseLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "stablePhase");
+    const int animationAmountLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationAmount");
+    const int maskOnlyLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "maskOnly");
+    const float animationTime = static_cast<float>(simulationTick) * 0.01f;
+    const float stablePhase = 0.0f;
+    const float animationAmount = 0.35f;
+    const int maskOnly = 0;
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    BeginShaderMode(*radialLightShader);
+    BeginMode2D(camera);
+    if (animationTimeLocation >= 0)
+        SetShaderValue(*radialLightShader, animationTimeLocation, &animationTime, SHADER_UNIFORM_FLOAT);
+    if (stablePhaseLocation >= 0)
+        SetShaderValue(*radialLightShader, stablePhaseLocation, &stablePhase, SHADER_UNIFORM_FLOAT);
+    if (animationAmountLocation >= 0)
+        SetShaderValue(*radialLightShader, animationAmountLocation, &animationAmount, SHADER_UNIFORM_FLOAT);
+    if (maskOnlyLocation >= 0)
+        SetShaderValue(*radialLightShader, maskOnlyLocation, &maskOnly, SHADER_UNIFORM_INT);
+
+    // Per-emitter shader uniforms are unsafe here: raylib batches consecutive
+    // quads using the same texture/shader, so changing a uniform before the
+    // batch is flushed can apply the last visible mineral's color/intensity to
+    // every preceding light. Encode additive RGB in each quad's vertex color
+    // instead; it is stored per draw and remains stable across camera chunks.
+    const auto drawPass = [&](float radiusScale, float intensityScale)
+    {
+        for (const LightEmitterView& light : dynamicLights)
+        {
+            const float screenRadius = ResolveScreenLightRadius(light, camera.zoom);
+            const float radiusWorld = screenRadius / safeCameraZoom;
+            const float flickerPhase = static_cast<float>(simulationTick % 100000) * 0.071f +
+                                       static_cast<float>(light.stableId) * 0.618f;
+            const float flicker = 1.0f + std::sin(flickerPhase) *
+                                  std::clamp(light.flickerAmount, 0.0f, 1.0f);
+            const float visibility = std::max(
+                lighting.localLightVisibility,
+                std::clamp(light.minimumVisibility, 0.0f, 1.0f));
+            const float intensity = std::max(0.0f,
+                light.intensity * visibility * flicker * intensityScale);
+            const Color encodedLight = EncodeAdditiveLightTint(light.color, intensity);
+            const float drawRadius = radiusWorld * radiusScale;
+            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.width),
+                             -static_cast<float>(radialLightMask.height)};
+            Rectangle destination{light.worldPosition.x - drawRadius,
+                                  RENDER_HEIGHT - light.worldPosition.y - drawRadius,
+                                   drawRadius * 2.0f,
+                                   drawRadius * 2.0f};
+            DrawTexturePro(radialLightMask, source, destination,
+                           {0.0f, 0.0f}, 0.0f, encodedLight);
+        }
+    };
+
+    if (bloomEnabled)
+        drawPass(1.28f, 0.15f);
+    drawPass(1.0f, 1.0f);
+
+    EndMode2D();
+    EndShaderMode();
+    EndBlendMode();
+}
+
+void Renderer::DrawLightMap(const WorldLightingFrame& lighting, bool localLightsEnabled)
 {
     if (!lightMap.IsInitialized())
         return;
 
     BeginTextureMode(lightMap.fbo);
     ClearBackground(BLACK);
-
-    const Shader* radialLightShader = shaderLibrary.Find(ShaderId::RadialLight);
-    if (radialLightShader != nullptr && radialLightMask.id != 0 && lighting.localLightVisibility > 0.0f)
-    {
-        const float mapScale = lightMap.fbo.texture.width / static_cast<float>(RENDER_WIDTH);
-        int colorLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "lightColor");
-        int intensityLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "intensity");
-        int animationTimeLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationTime");
-        int stablePhaseLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "stablePhase");
-        int animationAmountLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationAmount");
-        int maskOnlyLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "maskOnly");
-        const float animationTime = static_cast<float>(simulationTick) * 0.01f;
-        const int maskOnly = 0;
-
-        BeginBlendMode(BLEND_ADDITIVE);
-        BeginShaderMode(*radialLightShader);
-        if (animationTimeLocation >= 0)
-            SetShaderValue(*radialLightShader, animationTimeLocation, &animationTime, SHADER_UNIFORM_FLOAT);
-        if (maskOnlyLocation >= 0)
-            SetShaderValue(*radialLightShader, maskOnlyLocation, &maskOnly, SHADER_UNIFORM_INT);
-        for (const LightEmitterView& light : dynamicLights)
-        {
-            Vec2f renderPosition = WorldToRender({light.worldPosition.x, light.worldPosition.y});
-            float radius = std::max(1.0f, light.radiusWorld * camera.zoom * mapScale);
-            float flickerPhase = static_cast<float>(simulationTick % 100000) * 0.071f +
-                                 static_cast<float>(light.stableId) * 0.618f;
-            float flicker = 1.0f + std::sin(flickerPhase) * std::clamp(light.flickerAmount, 0.0f, 1.0f);
-            float color[4]{light.color.r / 255.0f, light.color.g / 255.0f, light.color.b / 255.0f, 1.0f};
-            float intensity = light.intensity * lighting.localLightVisibility * flicker;
-            float stablePhase = static_cast<float>(light.stableId) * 0.6180339f;
-            // Buildings are deliberately steady. Only explicitly flickering
-            // emitters (currently projectiles) animate their radial edge.
-            float animationAmount = std::clamp(light.flickerAmount, 0.0f, 1.0f) * 2.0f;
-            if (colorLocation >= 0)
-                SetShaderValue(*radialLightShader, colorLocation, color, SHADER_UNIFORM_VEC4);
-            if (intensityLocation >= 0)
-                SetShaderValue(*radialLightShader, intensityLocation, &intensity, SHADER_UNIFORM_FLOAT);
-            if (stablePhaseLocation >= 0)
-                SetShaderValue(*radialLightShader, stablePhaseLocation, &stablePhase, SHADER_UNIFORM_FLOAT);
-            if (animationAmountLocation >= 0)
-                SetShaderValue(*radialLightShader, animationAmountLocation, &animationAmount, SHADER_UNIFORM_FLOAT);
-            // WorldToRender uses the world's bottom-up Y convention, while a
-            // render texture is written in top-down framebuffer coordinates.
-            // Flip once here; sampling the light map in the world composite
-            // then follows the same FBO orientation as worldComposite.
-            float lightMapY = (static_cast<float>(RENDER_HEIGHT) - renderPosition.y) * mapScale;
-            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.width),
-                             -static_cast<float>(radialLightMask.height)};
-            Rectangle destination{(renderPosition.x * mapScale) - radius,
-                                  lightMapY - radius,
-                                  radius * 2.0f,
-                                  radius * 2.0f};
-            DrawTexturePro(radialLightMask, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
-        }
-        EndShaderMode();
-        EndBlendMode();
-    }
+    if (localLightsEnabled)
+        DrawDynamicLightsToActiveTarget(lighting, false);
     EndTextureMode();
 }
 
@@ -649,9 +777,12 @@ void Renderer::DrawFogMask()
     ClearBackground(BLACK);
 
     const float mapScale = fogMask.fbo.texture.width / static_cast<float>(RENDER_WIDTH);
+    // fogMask is half-resolution, so use the same camera matrix scaled into
+    // its target. The world and its visibility field now share one transform.
+    Camera2D fogCamera = camera;
+    fogCamera.zoom *= mapScale;
     const Shader* radialMaskShader = shaderLibrary.Find(ShaderId::RadialLight);
     int animationTimeLocation = -1;
-    int stablePhaseLocation = -1;
     int animationAmountLocation = -1;
     int maskOnlyLocation = -1;
     float animationTime = static_cast<float>(simulationTick) * 0.01f;
@@ -660,7 +791,6 @@ void Renderer::DrawFogMask()
     if (radialMaskShader != nullptr && radialLightMask.id != 0)
     {
         animationTimeLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationTime");
-        stablePhaseLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "stablePhase");
         animationAmountLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationAmount");
         maskOnlyLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "maskOnly");
         BeginShaderMode(*radialMaskShader);
@@ -672,23 +802,16 @@ void Renderer::DrawFogMask()
             SetShaderValue(*radialMaskShader, maskOnlyLocation, &maskOnly, SHADER_UNIFORM_INT);
     }
 
+    BeginMode2D(fogCamera);
+
     for (const FogRevealView& reveal : fogReveals)
     {
-        Vec2f renderPosition = WorldToRender({reveal.worldPosition.x, reveal.worldPosition.y});
-        const float radius = std::max(1.0f, reveal.radiusWorld * camera.zoom * mapScale);
-        const float centerX = renderPosition.x * mapScale;
-        // Match the light-map convention: world rendering is bottom-up while
-        // the mask is authored directly in framebuffer (top-down) space.
-        const float centerY = (static_cast<float>(RENDER_HEIGHT) - renderPosition.y) * mapScale;
+        const float radius = reveal.radiusWorld;
+        const float centerX = reveal.worldPosition.x;
+        const float centerY = RENDER_HEIGHT - reveal.worldPosition.y;
 
         if (radialLightMask.id != 0)
         {
-            if (radialMaskShader != nullptr && stablePhaseLocation >= 0)
-            {
-                float stablePhase = reveal.worldPosition.x * 0.0137f +
-                                    reveal.worldPosition.y * 0.0191f;
-                SetShaderValue(*radialMaskShader, stablePhaseLocation, &stablePhase, SHADER_UNIFORM_FLOAT);
-            }
             // The supplied alpha-gradient texture gives fog revealers a
             // natural falloff instead of the old concentric primitive discs.
             Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.width),
@@ -702,6 +825,7 @@ void Renderer::DrawFogMask()
             DrawCircle(static_cast<int>(centerX), static_cast<int>(centerY), radius, WHITE);
         }
     }
+    EndMode2D();
     if (radialMaskShader != nullptr && radialLightMask.id != 0)
         EndShaderMode();
     EndTextureMode();
@@ -728,7 +852,6 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         (GetScreenWidth() - width) * 0.5f,
         (GetScreenHeight() - height) * 0.5f};
 
-    Rectangle src{0.0f, 0.0f, static_cast<float>(RENDER_WIDTH), static_cast<float>(RENDER_HEIGHT)};
     Rectangle dest{offset.x, offset.y, width, height};
 
     if (worldLayersInitialized)
@@ -745,25 +868,32 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         BeginTextureMode(worldComposite.fbo);
         ClearBackground(BLANK);
 
-        // A render texture is vertically inverted when sampled. The negative
-        // source height preserves the existing layer-to-window orientation
-        // while composing one FBO into another.
-        Rectangle layerSource{0.0f, 0.0f, static_cast<float>(RENDER_WIDTH), -static_cast<float>(RENDER_HEIGHT)};
+        // Every render target uses canonical top-left screen space. The helper
+        // below is the only code allowed to apply raylib's FBO Y correction.
         Rectangle layerDestination{0.0f, 0.0f, static_cast<float>(RENDER_WIDTH), static_cast<float>(RENDER_HEIGHT)};
+        // Layer FBOs are cleared to transparent and populated with regular
+        // alpha blending. Their stored RGB is therefore premultiplied by
+        // alpha. Composing them a second time with BLEND_ALPHA would multiply
+        // anti-aliased edges again, creating dark contours around minerals
+        // and sprites. Consume RGB as premultiplied but retain conventional
+        // source-over alpha so later world passes receive a valid composite.
+        rlSetBlendFactorsSeparate(RL_ONE, RL_ONE_MINUS_SRC_ALPHA,
+                                  RL_ONE, RL_ONE_MINUS_SRC_ALPHA,
+                                  RL_FUNC_ADD, RL_FUNC_ADD);
+        BeginBlendMode(BLEND_CUSTOM_SEPARATE);
         for (std::size_t index = 0; index < layers.size(); ++index)
-            DrawTexturePro(layers[index].fbo.texture, layerSource, layerDestination, {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawRenderTarget(layers[index].fbo.texture, layerDestination,
+                             RenderTargetDestination::OffscreenPass);
+        EndBlendMode();
         EndTextureMode();
 
         Texture2D presentedWorld = worldComposite.fbo.texture;
-        Rectangle presentedSource = src;
         const Shader* lightingShader = shaderLibrary.Find(ShaderId::WorldLighting);
         const bool hasLightingPass = (renderSettings.dayNightCycle || renderSettings.dynamicLights) &&
                                      lightingShader != nullptr;
         if (hasLightingPass)
         {
-            WorldLightingFrame lighting = renderSettings.dayNightCycle
-                ? ComputeWorldLighting(simulationTick, dayNightConfig)
-                : WorldLightingFrame{};
+            WorldLightingFrame lighting = GetCurrentWorldLightingFrame();
             if (!renderSettings.dayNightCycle)
             {
                 lighting.ambientColor = {1.0f, 1.0f, 1.0f};
@@ -775,7 +905,11 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             }
             if (!renderSettings.dynamicLights)
                 lighting.localLightVisibility = 0.0f;
-            DrawLightMap(lighting);
+            // The light map is diagnostic only. The final scene receives the
+            // same emitter path directly below, so there is no second sampled
+            // framebuffer whose registration could drift with the camera.
+            if (renderSettings.debugView == RenderDebugView::LightMap)
+                DrawLightMap(lighting, renderSettings.dynamicLights);
             BeginTextureMode(litWorld.fbo);
             ClearBackground(BLANK);
             BeginShaderMode(*lightingShader);
@@ -785,9 +919,6 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             int exposureLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "exposure");
             int saturationLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "saturation");
             int contrastLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "contrast");
-            int lightMapLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "lightMap");
-            int lightMapTexelSizeLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "lightMapTexelSize");
-            int localLightBloomEnabledLocation = shaderLibrary.GetLocation(ShaderId::WorldLighting, "localLightBloomEnabled");
             if (ambientColorLocation >= 0)
                 SetShaderValue(*lightingShader, ambientColorLocation, &lighting.ambientColor, SHADER_UNIFORM_VEC3);
             if (ambientIntensityLocation >= 0)
@@ -798,42 +929,14 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                 SetShaderValue(*lightingShader, saturationLocation, &lighting.saturation, SHADER_UNIFORM_FLOAT);
             if (contrastLocation >= 0)
                 SetShaderValue(*lightingShader, contrastLocation, &lighting.contrast, SHADER_UNIFORM_FLOAT);
-            if (lightMapLocation >= 0)
-                SetShaderValueTexture(*lightingShader, lightMapLocation, lightMap.fbo.texture);
-            const Vector2 lightMapTexelSize{
-                1.0f / static_cast<float>(lightMap.fbo.texture.width),
-                1.0f / static_cast<float>(lightMap.fbo.texture.height)};
-            const int localLightBloomEnabled = renderSettings.localLightBloom ? 1 : 0;
-            if (lightMapTexelSizeLocation >= 0)
-                SetShaderValue(*lightingShader, lightMapTexelSizeLocation,
-                               &lightMapTexelSize, SHADER_UNIFORM_VEC2);
-            if (localLightBloomEnabledLocation >= 0)
-                SetShaderValue(*lightingShader, localLightBloomEnabledLocation,
-                               &localLightBloomEnabled, SHADER_UNIFORM_INT);
 
-            DrawTexturePro(worldComposite.fbo.texture, layerSource, layerDestination, {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawRenderTarget(worldComposite.fbo.texture, layerDestination,
+                             RenderTargetDestination::OffscreenPass);
             EndShaderMode();
+            if (renderSettings.dynamicLights)
+                DrawDynamicLightsToActiveTarget(lighting, renderSettings.localLightBloom);
             EndTextureMode();
             presentedWorld = litWorld.fbo.texture;
-        }
-
-        const Shader* fogShader = renderSettings.fogOfWar
-            ? shaderLibrary.Find(ShaderId::FogOfWar)
-            : nullptr;
-        if (fogShader != nullptr)
-        {
-            DrawFogMask();
-            BeginTextureMode(foggedWorld.fbo);
-            ClearBackground(BLANK);
-            BeginShaderMode(*fogShader);
-            int fogMaskLocation = shaderLibrary.GetLocation(ShaderId::FogOfWar, "fogMask");
-            if (fogMaskLocation >= 0)
-                SetShaderValueTexture(*fogShader, fogMaskLocation, fogMask.fbo.texture);
-            DrawTexturePro(presentedWorld, layerSource, layerDestination, {0.0f, 0.0f}, 0.0f, WHITE);
-            EndShaderMode();
-            EndTextureMode();
-            presentedWorld = foggedWorld.fbo.texture;
-
         }
 
         const Shader* postProcessShader =
@@ -873,11 +976,33 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                 SetShaderValue(*postProcessShader, resolutionLocation,
                                &resolution, SHADER_UNIFORM_VEC2);
 
-            DrawTexturePro(presentedWorld, layerSource, layerDestination,
-                           {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawRenderTarget(presentedWorld, layerDestination,
+                             RenderTargetDestination::OffscreenPass);
             EndShaderMode();
             EndTextureMode();
             presentedWorld = postProcessedWorld.fbo.texture;
+        }
+
+        // Fog is the highest world layer. It is not a color-transform pass and
+        // never samples the lit/postprocessed scene. First preserve the
+        // finished world, then alpha-blend an independently generated dark
+        // overlay from the visibility mask. UI is rendered later, above both.
+        const Shader* fogShader = renderSettings.fogOfWar
+            ? shaderLibrary.Find(ShaderId::FogOfWar)
+            : nullptr;
+        if (fogShader != nullptr)
+        {
+            DrawFogMask();
+            BeginTextureMode(foggedWorld.fbo);
+            ClearBackground(BLANK);
+            DrawRenderTarget(presentedWorld, layerDestination,
+                             RenderTargetDestination::OffscreenPass);
+            BeginShaderMode(*fogShader);
+            DrawRenderTarget(fogMask.fbo.texture, layerDestination,
+                             RenderTargetDestination::OffscreenPass);
+            EndShaderMode();
+            EndTextureMode();
+            presentedWorld = foggedWorld.fbo.texture;
         }
 
         const char* debugLabel = nullptr;
@@ -891,24 +1016,18 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                 break;
             case RenderDebugView::LightMap:
                 presentedWorld = lightMap.fbo.texture;
-                // This FBO is authored in framebuffer coordinates, unlike
-                // the already-composed world target. Its direct debug view
-                // therefore needs the standard FBO Y flip.
-                presentedSource = {0.0f, 0.0f,
-                                   static_cast<float>(lightMap.fbo.texture.width),
-                                   -static_cast<float>(lightMap.fbo.texture.height)};
                 debugLabel = "DEBUG: light map (F8: next view)";
                 break;
             case RenderDebugView::FogMask:
                 presentedWorld = fogMask.fbo.texture;
-                presentedSource = {0.0f, 0.0f,
-                                   static_cast<float>(fogMask.fbo.texture.width),
-                                   -static_cast<float>(fogMask.fbo.texture.height)};
                 debugLabel = "DEBUG: fog visibility mask (F8: next view)";
                 break;
         }
 
-        DrawTexturePro(presentedWorld, presentedSource, dest, {0.0f, 0.0f}, 0.0f, WHITE);
+        // The offscreen chain is already in the renderer's established final
+        // orientation here. Applying the FBO-to-FBO correction once more on
+        // the backbuffer flips the complete world vertically.
+        DrawRenderTarget(presentedWorld, dest, RenderTargetDestination::Window);
         if (debugLabel != nullptr)
             DrawText(debugLabel, static_cast<int>(offset.x + 18.0f),
                      static_cast<int>(offset.y + 18.0f), 22, Color{255, 236, 152, 255});
@@ -960,6 +1079,14 @@ void Renderer::BeginLayer(WorldRenderLayer layer)
         return;
 
     BeginTextureMode(layers[ToLayerIndex(layer)].fbo);
+    // Cache straight-alpha artwork as premultiplied RGB plus *linear* alpha.
+    // Raylib's default glBlendFunc applies SRC_ALPHA to the alpha channel as
+    // well, which stores A*A in a transparent FBO. That squared coverage was
+    // then applied again during world composition and produced dark fringes.
+    rlSetBlendFactorsSeparate(RL_SRC_ALPHA, RL_ONE_MINUS_SRC_ALPHA,
+                              RL_ONE, RL_ONE_MINUS_SRC_ALPHA,
+                              RL_FUNC_ADD, RL_FUNC_ADD);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
     BeginMode2D(camera);
     layerActive = true;
 }
@@ -971,6 +1098,7 @@ void Renderer::EndLayer()
         return;
 
     EndMode2D();
+    EndBlendMode();
     EndTextureMode();
     layerActive = false;
 }
@@ -1019,6 +1147,109 @@ void Renderer::DrawAtlasTile(int atlas, int tex, Vec2f pos, Vec2f drawSize)
         dest.height += renderPixelInWorld;
     }
     DrawTexturePro(at.tex, src, dest, {0,0}, 0, WHITE);
+}
+
+void Renderer::DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos)
+{
+    constexpr int ResourceOverlayAtlasId = 41;
+    const MineralOverlayStyle* style = GetMineralOverlayStyle(resourceOverlayTextureId);
+    const Shader* shader = shaderLibrary.Find(ShaderId::ResourceOverlay);
+    auto atlasIt = atlasMap.find(ResourceOverlayAtlasId);
+    if (style == nullptr || shader == nullptr || atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    {
+        DrawAtlasTile(ResourceOverlayAtlasId, resourceOverlayTextureId, pos);
+        return;
+    }
+
+    TextureAtlas& atlas = atlasIt->second;
+    if (resourceOverlayTextureId < 0 || resourceOverlayTextureId >= atlas.dim.x * atlas.dim.y)
+        return;
+
+    Rectangle source = atlas.GetRectFromId(resourceOverlayTextureId);
+    const float textureWidth = static_cast<float>(atlas.tex.width);
+    const float textureHeight = static_cast<float>(atlas.tex.height);
+    float atlasTexelSize[2]{1.0f / textureWidth, 1.0f / textureHeight};
+    // Clamp neighbourhood samples to this 64 px atlas cell so the coal edge
+    // detector never reads alpha from a neighbouring resource variant.
+    float sourceUvMin[2]{
+        (source.x + 0.5f) / textureWidth,
+        (source.y + 0.5f) / textureHeight};
+    float sourceUvMax[2]{
+        (source.x + source.width - 0.5f) / textureWidth,
+        (source.y + source.height - 0.5f) / textureHeight};
+    const auto toRgb = [](Color color, float (&out)[3])
+    {
+        out[0] = color.r / 255.0f;
+        out[1] = color.g / 255.0f;
+        out[2] = color.b / 255.0f;
+    };
+    float shadow[3];
+    float base[3];
+    float highlight[3];
+    toRgb(style->shadow, shadow);
+    toRgb(style->base, base);
+    toRgb(style->highlight, highlight);
+
+    const auto setVec2 = [&](const char* name, const float* value)
+    {
+        int location = shaderLibrary.GetLocation(ShaderId::ResourceOverlay, name);
+        if (location >= 0) SetShaderValue(*shader, location, value, SHADER_UNIFORM_VEC2);
+    };
+    const auto setVec3 = [&](const char* name, const float* value)
+    {
+        int location = shaderLibrary.GetLocation(ShaderId::ResourceOverlay, name);
+        if (location >= 0) SetShaderValue(*shader, location, value, SHADER_UNIFORM_VEC3);
+    };
+
+    BeginShaderMode(*shader);
+    setVec2("atlasTexelSize", atlasTexelSize);
+    setVec2("sourceUvMin", sourceUvMin);
+    setVec2("sourceUvMax", sourceUvMax);
+    setVec3("shadowColor", shadow);
+    setVec3("baseColor", base);
+    setVec3("highlightColor", highlight);
+    int luminanceScaleLocation = shaderLibrary.GetLocation(ShaderId::ResourceOverlay, "luminanceScale");
+    int luminanceBiasLocation = shaderLibrary.GetLocation(ShaderId::ResourceOverlay, "luminanceBias");
+    int edgeHighlightStrengthLocation = shaderLibrary.GetLocation(ShaderId::ResourceOverlay, "edgeHighlightStrength");
+    if (luminanceScaleLocation >= 0)
+        SetShaderValue(*shader, luminanceScaleLocation, &style->luminanceScale, SHADER_UNIFORM_FLOAT);
+    if (luminanceBiasLocation >= 0)
+        SetShaderValue(*shader, luminanceBiasLocation, &style->luminanceBias, SHADER_UNIFORM_FLOAT);
+    if (edgeHighlightStrengthLocation >= 0)
+        SetShaderValue(*shader, edgeHighlightStrengthLocation,
+                       &style->edgeHighlightStrength, SHADER_UNIFORM_FLOAT);
+
+    source.height *= -1.0f;
+    Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
+                          static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
+    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
+    EndShaderMode();
+}
+
+void Renderer::DrawResourceGroundGlow(int resourceOverlayTextureId, Vec2f pos)
+{
+    const MineralOverlayStyle* style = GetMineralOverlayStyle(resourceOverlayTextureId);
+    if (style == nullptr)
+        return;
+
+    // All of these glows are rendered before the resource sprites. Their
+    // radii may therefore overlap into one field-shaped aura without later
+    // tiles washing colour over rock silhouettes that were already drawn.
+    Color inner = style->glow;
+    // This halo is composited additively by both live-world and snapshot
+    // render paths. Keep each tile subtle because neighbouring deposit cells
+    // overlap; the old alpha-blend opacity would overexpose dense fields when
+    // summed instead of mixed.
+    inner.a = static_cast<unsigned char>(std::clamp(
+        8.0f + style->glowStrength * 11.0f, 11.0f, 17.0f));
+    Color outer = inner;
+    outer.a = 0;
+    DrawCircleGradient(
+        static_cast<int>(std::round(pos.x + TILE_SIZE * 0.5f)),
+        static_cast<int>(std::round(RENDER_HEIGHT - pos.y - TILE_SIZE * 0.5f)),
+        TILE_SIZE * 1.08f,
+        inner,
+        outer);
 }
 
 void Renderer::DrawShipments(const std::vector<ShipmentRenderState>& shipments, Vec2i mapSize)
@@ -1413,6 +1644,18 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
             DrawAtlasTile(0, tile.terrainTextureId, pos);
         }
     }
+    BeginBlendMode(BLEND_ADDITIVE);
+    for (int x = minTileX; x <= maxTileX; x++)
+    {
+        for (int y = minTileY; y <= maxTileY; y++)
+        {
+            const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
+            if (tile.resourceOverlayTextureId >= 0)
+                DrawResourceGroundGlow(tile.resourceOverlayTextureId,
+                                       {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+        }
+    }
+    EndBlendMode();
     EndLayer();
 
     ClearLayer(WorldRenderLayer::ResourceOverlays);
@@ -1424,8 +1667,10 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
             const auto& tile = snapshot.tiles[static_cast<size_t>(y * snapshot.mapSize.x + x)];
             if (tile.resourceOverlayTextureId < 0)
                 continue;
-            DrawAtlasTile(41, tile.resourceOverlayTextureId,
-                          {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+            const Vec2f position{static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
+            QueueResourceLight(tile.resourceOverlayTextureId, position,
+                               static_cast<int>(y * snapshot.mapSize.x + x));
+            DrawResourceOverlay(tile.resourceOverlayTextureId, position);
         }
     }
     EndLayer();
@@ -1464,7 +1709,7 @@ void Renderer::DrawSnapshot(const GameSnapshot& snapshot)
     ClearLayer(WorldRenderLayer::WorldEffects);
     if (renderSettings.contactShadows)
     {
-        const WorldLightingFrame lighting = ComputeWorldLighting(snapshot.simulationTick, dayNightConfig);
+        const WorldLightingFrame lighting = GetCurrentWorldLightingFrame();
         const unsigned char shadowAlpha = static_cast<unsigned char>(std::clamp(
             32.0f + (1.0f - lighting.ambientIntensity) * 42.0f, 32.0f, 74.0f));
         BeginLayer(WorldRenderLayer::WorldEffects);

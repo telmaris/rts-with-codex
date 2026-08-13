@@ -202,11 +202,7 @@ Rectangle PanelCloseButtonRect(Rectangle panel)
     // Keep the control inside the same fixed side rail as the title visual.
     // Using the shared 9-slice inset prevents it from overlapping a corner
     // plate on narrower windows.
-    const float frameInset = UiControlIcons::RoyalWindowPanelInset(panel);
-    constexpr float closeHeight = 34.0f;
-    constexpr float closeWidth = closeHeight;
-    return Rectangle{panel.x + panel.width - frameInset - closeWidth - 8.0f,
-                     panel.y + 9.0f, closeWidth, closeHeight};
+    return UiControlIcons::PixelHudCloseButtonRect(panel);
 }
 
 void DrawCloseButton(Rectangle panel)
@@ -272,13 +268,13 @@ void DrawResourceTooltip(ResourceType type, const std::vector<std::string>& line
 Rectangle StatsHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     const float height = static_cast<float>(hud.size.y);
-    constexpr float gap = 6.0f;
+    constexpr float gap = 4.0f;
     constexpr int buttonCount = 8;
     constexpr int resourcesIndex = 4;
     constexpr float leftHudReserve = 450.0f;
-    constexpr float rightMargin = 12.0f;
+    constexpr float rightMargin = 18.0f;
     constexpr float buttonAspect = 1.0f;
-    const float desiredButtonHeight = std::max(54.0f, height - 8.0f);
+    const float desiredButtonHeight = std::max(50.0f, height - 18.0f);
     const float desiredButtonWidth = desiredButtonHeight * buttonAspect;
     const float widthLimitedButtonWidth =
         (static_cast<float>(hud.size.x) - leftHudReserve - rightMargin -
@@ -296,43 +292,43 @@ Rectangle StatsHudButtonRect(const StrategicResourceHudWidget& hud)
 Rectangle FocusHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle stats = StatsHudButtonRect(hud);
-    return Rectangle{stats.x + (stats.width + 6.0f) * 2.0f, stats.y, stats.width, stats.height};
+    return Rectangle{stats.x + (stats.width + 4.0f) * 2.0f, stats.y, stats.width, stats.height};
 }
 
 Rectangle TechHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle focus = FocusHudButtonRect(hud);
-    return Rectangle{focus.x + focus.width + 6.0f, focus.y, focus.width, focus.height};
+    return Rectangle{focus.x + focus.width + 4.0f, focus.y, focus.width, focus.height};
 }
 
 Rectangle DestroyHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle stats = StatsHudButtonRect(hud);
-    return Rectangle{stats.x - (stats.width + 6.0f) * 3.0f, stats.y, stats.width, stats.height};
+    return Rectangle{stats.x - (stats.width + 4.0f) * 3.0f, stats.y, stats.width, stats.height};
 }
 
 Rectangle RoadHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle destroy = DestroyHudButtonRect(hud);
-    return Rectangle{destroy.x + destroy.width + 6.0f, destroy.y, destroy.width, destroy.height};
+    return Rectangle{destroy.x + destroy.width + 4.0f, destroy.y, destroy.width, destroy.height};
 }
 
 Rectangle BuildHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle destroy = DestroyHudButtonRect(hud);
-    return Rectangle{destroy.x - destroy.width - 6.0f, destroy.y, destroy.width, destroy.height};
+    return Rectangle{destroy.x - destroy.width - 4.0f, destroy.y, destroy.width, destroy.height};
 }
 
 Rectangle RosterHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle stats = StatsHudButtonRect(hud);
-    return Rectangle{stats.x + stats.width + 6.0f, stats.y, stats.width, stats.height};
+    return Rectangle{stats.x + stats.width + 4.0f, stats.y, stats.width, stats.height};
 }
 
 Rectangle LogisticsHudButtonRect(const StrategicResourceHudWidget& hud)
 {
     Rectangle road = RoadHudButtonRect(hud);
-    return Rectangle{road.x + road.width + 6.0f, road.y, road.width, road.height};
+    return Rectangle{road.x + road.width + 4.0f, road.y, road.width, road.height};
 }
 
 namespace

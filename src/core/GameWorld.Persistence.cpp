@@ -13,7 +13,7 @@ bool GameWorld::SaveToFile(const std::string& path) const
     if (!out.is_open())
         return false;
 
-    return SaveToStream(out);
+    return SaveToStream(out) && out.good();
 }
 
 std::string GameWorld::SerializeSimulationState() const
@@ -27,6 +27,7 @@ std::string GameWorld::SerializeSimulationState() const
 bool GameWorld::SaveToStream(std::ostream& out) const
 {
 
+    // Save v33: independent household/urban Village upkeep timers.
     // Save v32: runtime identifiers and simulation tick for multiplayer restore.
     // Save v31: transparent per-tile resource-overlay cells.
     // Save v30: settlement tiers and their household/urban supply buffers.
@@ -37,7 +38,7 @@ bool GameWorld::SaveToStream(std::ostream& out) const
     // deterministic checksum; the default stream precision silently rounds
     // timers and resource rates after a few ticks.
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    out << "RTS_SAVE 32\n";
+    out << "RTS_SAVE 33\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "RUNTIME " << localPlayerId << ' ' << simulationTick << ' ' << nextCommandId << ' '
         << nextProjectileId << '\n';
@@ -249,7 +250,8 @@ bool GameWorld::SaveToStream(std::ostream& out) const
                 << pop->foodBuffer.buffer.size() << ' ' << pop->settlementLevel << ' '
                 << pop->householdSupplyLevel << ' ' << pop->householdGoodsBuffer.bufferSize << ' '
                 << pop->householdGoodsBuffer.buffer.size() << ' ' << pop->urbanSupplyLevel << ' '
-                << pop->urbanGoodsBuffer.bufferSize << ' ' << pop->urbanGoodsBuffer.buffer.size() << '\n';
+                << pop->urbanGoodsBuffer.bufferSize << ' ' << pop->urbanGoodsBuffer.buffer.size() << ' '
+                << pop->householdUpkeepTimer << ' ' << pop->urbanUpkeepTimer << '\n';
         }
 
         if (const auto* recruitment = building->GetComponent<RecruitmentComponent>())
@@ -354,12 +356,14 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v33: independent household/urban Village upkeep timers.
     // v32: runtime identifiers and simulation tick for multiplayer restore.
     // v31: transparent per-tile resource-overlay cells.
     // v30: settlement tiers and advanced supply buffers.
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
-    if (tag != "RTS_SAVE" || (version != 30 && version != 31 && version != 32))
+    if (tag != "RTS_SAVE" ||
+        (version != 30 && version != 31 && version != 32 && version != 33))
         return false;
 
     render = renderer;
@@ -893,6 +897,17 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
                 in >> pop.settlementLevel
                    >> pop.householdSupplyLevel >> pop.householdGoodsBuffer.bufferSize >> householdAmount
                    >> pop.urbanSupplyLevel >> pop.urbanGoodsBuffer.bufferSize >> urbanAmount;
+                if (version >= 33)
+                {
+                    in >> pop.householdUpkeepTimer >> pop.urbanUpkeepTimer;
+                }
+                else
+                {
+                    // Before v33 all active Village supplies shared the food
+                    // timer, so preserve that phase when migrating an old save.
+                    pop.householdUpkeepTimer = pop.upkeepTimer;
+                    pop.urbanUpkeepTimer = pop.upkeepTimer;
+                }
                 pop.householdGoodsBuffer.Clear();
                 pop.householdGoodsBuffer = ResourceBuffer{
                     ResourceType::HOUSEHOLD_GOODS, pop.householdGoodsBuffer.bufferSize};

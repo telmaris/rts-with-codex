@@ -31,8 +31,11 @@ namespace
     // and the capacity bar has room underneath it.
     void DrawStockpileCard(Rectangle cell, ResourceType type, const StockpileTotals& totals, bool hovered)
     {
-        DrawRectangleRounded(cell, 0.10f, 8, hovered ? UiTheme::InsetHover : UiTheme::Inset);
-        DrawRectangleRoundedLines(cell, 0.10f, 8, 1.0f, hovered ? UiTheme::SteelHover : UiTheme::Iron);
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(cell, hovered))
+        {
+            DrawRectangleRounded(cell, 0.10f, 8, hovered ? UiTheme::InsetHover : UiTheme::Inset);
+            DrawRectangleRoundedLines(cell, 0.10f, 8, 1.0f, hovered ? UiTheme::SteelHover : UiTheme::Iron);
+        }
 
         float iconSize = std::clamp(cell.height * 0.58f, 64.0f, 92.0f);
         float iconY = cell.y + 14.0f;
@@ -92,16 +95,14 @@ void StockpilePanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y),
                      static_cast<float>(size.x), static_cast<float>(size.y)};
-    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    if (!UiControlIcons::DrawPixelHudFrame(bounds))
     {
         DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
         DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
     }
-    const float chromeInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    const float chromeInset = UiControlIcons::PixelHudFrameInset(bounds);
     Rectangle title{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
                     bounds.width - (chromeInset + 2.0f) * 2.0f, HeaderHeight - 8.0f};
-    if (!UiControlIcons::DrawRoyalTitleBar(title))
-        DrawRectangleRounded(title, 0.025f, 8, UiTheme::Surface);
     UiText::DrawTitleBar(title, "Stockpile", PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 

@@ -140,6 +140,8 @@ std::uint64_t GameWorld::BuildChecksum() const
             if (const auto* population = building->GetComponent<PopulationComponent>(); population != nullptr)
             {
                 HashDouble(hash, population->upkeepTimer);
+                HashDouble(hash, population->householdUpkeepTimer);
+                HashDouble(hash, population->urbanUpkeepTimer);
                 HashInt(hash, population->hasFood ? 1 : 0);
                 HashDouble(hash, population->foodSupplyLevel);
                 HashInt(hash, static_cast<int>(population->foodBuffer.buffer.size()));

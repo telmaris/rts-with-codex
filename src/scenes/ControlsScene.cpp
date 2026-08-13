@@ -77,7 +77,10 @@ namespace
     void DrawControlsSection(float x, float& y, const char* header,
                              const std::vector<std::pair<const char*, const char*>>& rows)
     {
-        UiText::Draw(header, x, y, 22, Color{210, 220, 240, 255});
+        {
+            UiFontRoleScope displayRole{UiFontRole::Display};
+            UiText::Draw(header, x, y, 22, Color{210, 220, 240, 255});
+        }
         y += 30.0f;
         for (const auto& [key, desc] : rows)
         {
@@ -108,7 +111,10 @@ void ControlsScene::Update(double dt)
     DrawRectangleRounded({panelX, panelY, panelW, panelH}, 0.03f, 8, Color{18, 22, 30, 242});
     DrawRectangleRoundedLines({panelX, panelY, panelW, panelH}, 0.03f, 8, 1.0f, Color{90, 106, 130, 255});
 
-    UiText::Draw("Controls", panelX + 24.0f, panelY + 16.0f, 30, RAYWHITE);
+    {
+        UiFontRoleScope displayRole{UiFontRole::Display};
+        UiText::Draw("Controls", panelX + 24.0f, panelY + 16.0f, 30, RAYWHITE);
+    }
     DrawLineEx({panelX + 24.0f, panelY + 54.0f}, {panelX + panelW - 24.0f, panelY + 54.0f}, 1.0f, Color{70, 84, 106, 200});
 
     float col1X = panelX + 32.0f;

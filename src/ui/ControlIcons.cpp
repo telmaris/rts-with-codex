@@ -19,6 +19,19 @@ namespace
     Texture2D royalTitleBar{};
     Texture2D royalCloseButton{};
     Texture2D royalCloseButtonHover{};
+    Texture2D pixelHudFrame{};
+    Texture2D pixelHudWidgetFrame{};
+    Texture2D pixelHudCrest{};
+    Texture2D pixelHudGlyphs{};
+    Texture2D pixelPopulationGlyph{};
+    Shader pixelHudGlowShader{};
+    int pixelGlowTexelSizeLocation{-1};
+    int pixelGlowUvMinLocation{-1};
+    int pixelGlowUvMaxLocation{-1};
+    int pixelGlowColorLocation{-1};
+    int pixelGlowIntensityLocation{-1};
+    Texture2D unitPortraitAtlas{};
+    Texture2D militaryStatAtlas{};
 
     constexpr std::array<const char*, 24> ActiveIconNames{
         "key_q", "key_r", "key_d", "key_e", "key_s", "key_f", "key_t", "key_u", "key_l",
@@ -50,6 +63,157 @@ namespace
     // second horizontal banner.
     constexpr Rectangle CloseButtonSource{394.0f, 357.0f, 467.0f, 493.0f};
     constexpr Rectangle ButtonFrameSource{120.0f, 121.0f, 1013.0f, 1012.0f};
+    constexpr float PixelGlyphSize = 96.0f;
+    constexpr std::array<Rectangle, 10> PixelHudGlyphSources{{
+        {0.0f, 0.0f, PixelGlyphSize, PixelGlyphSize},                         // Build
+        {PixelGlyphSize, 0.0f, PixelGlyphSize, PixelGlyphSize},                // Destroy
+        {PixelGlyphSize * 2.0f, 0.0f, PixelGlyphSize, PixelGlyphSize},         // Road
+        {0.0f, PixelGlyphSize, PixelGlyphSize, PixelGlyphSize},                // Logistics
+        {PixelGlyphSize, PixelGlyphSize, PixelGlyphSize, PixelGlyphSize},      // Resources
+        {PixelGlyphSize * 2.0f, PixelGlyphSize, PixelGlyphSize, PixelGlyphSize},// Roster
+        {0.0f, PixelGlyphSize * 2.0f, PixelGlyphSize, PixelGlyphSize},         // Decisions
+        {PixelGlyphSize, PixelGlyphSize * 2.0f, PixelGlyphSize, PixelGlyphSize},// Technology
+        {},                                                                    // Manpower: own sprite
+        {PixelGlyphSize * 2.0f, PixelGlyphSize * 2.0f,
+         PixelGlyphSize, PixelGlyphSize}                                       // Builders
+    }};
+
+    bool ResolvePixelHudGlyph(UiControlIcons::HudIcon icon, Texture2D& texture,
+                              Rectangle& source)
+    {
+        if (icon == UiControlIcons::HudIcon::Manpower)
+        {
+            if (pixelPopulationGlyph.id == 0)
+                return false;
+            texture = pixelPopulationGlyph;
+            source = {0.0f, 0.0f, static_cast<float>(texture.width),
+                      static_cast<float>(texture.height)};
+            return true;
+        }
+
+        const size_t index = static_cast<size_t>(icon);
+        if (pixelHudGlyphs.id == 0 || index >= PixelHudGlyphSources.size() ||
+            PixelHudGlyphSources[index].width <= 0.0f)
+            return false;
+        texture = pixelHudGlyphs;
+        source = PixelHudGlyphSources[index];
+        return true;
+    }
+    constexpr std::array<const char*, 12> UnitPortraitIds{{
+        "militia", "swordsman", "armored_swordsman",
+        "heavy_infantry", "archer", "heavy_archer",
+        "spearman", "light_cavalry", "knight",
+        "ballista", "ram", "catapult"
+    }};
+    constexpr int UnitPortraitColumns = 3;
+    constexpr int MilitaryStatColumns = 3;
+    // Tight subject bounds inside each 362x362 source cell. The generated
+    // atlas has a few disconnected pixels from the neighbouring row near the
+    // bottom of some cells; drawing whole cells made those fragments visible
+    // and also stretched every portrait to a square. These authored crops keep
+    // only the actual unit while retaining a small safety margin.
+    constexpr std::array<Rectangle, 12> UnitPortraitCrops{{
+        {86.0f, 61.0f, 184.0f, 269.0f},
+        {70.0f, 62.0f, 216.0f, 279.0f},
+        {41.0f, 69.0f, 232.0f, 266.0f},
+        {59.0f, 11.0f, 253.0f, 275.0f},
+        {39.0f, 11.0f, 269.0f, 277.0f},
+        {19.0f, 10.0f, 289.0f, 281.0f},
+        {70.0f, 0.0f, 226.0f, 277.0f},
+        {19.0f, 0.0f, 284.0f, 264.0f},
+        {1.0f, 0.0f, 278.0f, 270.0f},
+        {29.0f, 0.0f, 289.0f, 267.0f},
+        {14.0f, 0.0f, 306.0f, 243.0f},
+        {11.0f, 0.0f, 293.0f, 271.0f}
+    }};
+
+    bool DrawNineSlice(Texture2D texture, Rectangle source, float sourceCap,
+                       Rectangle destination, float destinationCap, Color tint)
+    {
+        if (texture.id == 0 || destination.width <= 0.0f || destination.height <= 0.0f)
+            return false;
+
+        // Point-filtered pixel art must land on whole pixels. Fractional card
+        // widths previously left a one-pixel slit where the left rail met its
+        // corner slices. Snap the outer box and every split coordinate once,
+        // so adjacent pieces always share exactly the same edge.
+        const float left = std::round(destination.x);
+        const float top = std::round(destination.y);
+        const float right = std::round(destination.x + destination.width);
+        const float bottom = std::round(destination.y + destination.height);
+        destination = {left, top, std::max(1.0f, right - left),
+                        std::max(1.0f, bottom - top)};
+        const float cap = std::round(std::min({destinationCap,
+                                               destination.width * 0.5f,
+                                               destination.height * 0.5f}));
+        const float sourceMiddleW = source.width - sourceCap * 2.0f;
+        const float sourceMiddleH = source.height - sourceCap * 2.0f;
+        const float destinationMiddleW = std::max(0.0f, destination.width - cap * 2.0f);
+        const float destinationMiddleH = std::max(0.0f, destination.height - cap * 2.0f);
+        auto drawSlice = [&](Rectangle src, Rectangle dest)
+        {
+            if (dest.width > 0.0f && dest.height > 0.0f)
+                DrawTexturePro(texture, src, dest, {0.0f, 0.0f}, 0.0f, tint);
+        };
+
+        drawSlice({source.x, source.y, sourceCap, sourceCap},
+                  {destination.x, destination.y, cap, cap});
+        drawSlice({source.x + sourceCap, source.y, sourceMiddleW, sourceCap},
+                  {destination.x + cap, destination.y, destinationMiddleW, cap});
+        drawSlice({source.x + source.width - sourceCap, source.y, sourceCap, sourceCap},
+                  {destination.x + destination.width - cap, destination.y, cap, cap});
+        drawSlice({source.x, source.y + sourceCap, sourceCap, sourceMiddleH},
+                  {destination.x, destination.y + cap, cap, destinationMiddleH});
+        drawSlice({source.x + sourceCap, source.y + sourceCap, sourceMiddleW, sourceMiddleH},
+                  {destination.x + cap, destination.y + cap,
+                   destinationMiddleW, destinationMiddleH});
+        drawSlice({source.x + source.width - sourceCap, source.y + sourceCap,
+                   sourceCap, sourceMiddleH},
+                  {destination.x + destination.width - cap, destination.y + cap,
+                   cap, destinationMiddleH});
+        drawSlice({source.x, source.y + source.height - sourceCap, sourceCap, sourceCap},
+                  {destination.x, destination.y + destination.height - cap, cap, cap});
+        drawSlice({source.x + sourceCap, source.y + source.height - sourceCap,
+                   sourceMiddleW, sourceCap},
+                  {destination.x + cap, destination.y + destination.height - cap,
+                   destinationMiddleW, cap});
+        drawSlice({source.x + source.width - sourceCap,
+                   source.y + source.height - sourceCap, sourceCap, sourceCap},
+                  {destination.x + destination.width - cap,
+                   destination.y + destination.height - cap, cap, cap});
+        return true;
+    }
+
+    bool DrawWidgetNineSlice(Texture2D texture, Rectangle destination, Color tint)
+    {
+        if (texture.id == 0 || destination.width <= 0.0f || destination.height <= 0.0f)
+            return false;
+
+        const float left = std::round(destination.x);
+        const float top = std::round(destination.y);
+        const float right = std::round(destination.x + destination.width);
+        const float bottom = std::round(destination.y + destination.height);
+        destination = {left, top, std::max(1.0f, right - left),
+                        std::max(1.0f, bottom - top)};
+
+        // Stretch only the quiet centre texture. The authored rail sprites
+        // contain deliberate dark notches; scaling them produced apparent
+        // holes and broken lines at arbitrary widget widths. Continuous
+        // integer-aligned one-pixel rails retain the same graphite palette
+        // without sampling any gaps from the source artwork.
+        constexpr Rectangle centreSource{24.0f, 24.0f, 208.0f, 208.0f};
+        DrawTexturePro(texture, centreSource, destination,
+                       {0.0f, 0.0f}, 0.0f, tint);
+
+        const Color outer = ColorTint(Color{8, 8, 9, 255}, tint);
+        const Color steel = ColorTint(Color{112, 112, 112, 255}, tint);
+        DrawRectangleLinesEx(destination, 1.0f, outer);
+        Rectangle inner{destination.x + 1.0f, destination.y + 1.0f,
+                        std::max(0.0f, destination.width - 2.0f),
+                        std::max(0.0f, destination.height - 2.0f)};
+        DrawRectangleLinesEx(inner, 1.0f, steel);
+        return true;
+    }
 }
 
 void UiControlIcons::Load(const std::string& directory)
@@ -165,6 +329,45 @@ void UiControlIcons::Load(const std::string& directory)
         if (royalCloseButtonHover.id != 0)
             SetTextureFilter(royalCloseButtonHover, TEXTURE_FILTER_BILINEAR);
     }
+
+    constexpr const char* PixelHudFramePath = "assets/ui/hud/pixel_pilot/top_hud_frame.png";
+    constexpr const char* PixelHudWidgetFramePath = "assets/ui/hud/pixel_pilot/widget_frame.png";
+    constexpr const char* PixelHudCrestPath = "assets/ui/hud/pixel_pilot/top_hud_crest.png";
+    constexpr const char* PixelGlyphAtlasPath = "assets/ui/hud/pixel_pilot/action_glyphs.png";
+    constexpr const char* PixelPopulationPath = "assets/ui/hud/pixel_pilot/population_farmer.png";
+    constexpr const char* PixelGlowShaderPath = "assets/shaders/ui_icon_glow.fs";
+    constexpr const char* UnitPortraitAtlasPath = "assets/ui/barracks/unit_portraits_atlas.png";
+    constexpr const char* MilitaryStatAtlasPath = "assets/ui/barracks/military_stat_icons_atlas.png";
+    auto loadPixelTexture = [](const char* path)
+    {
+        Texture2D texture{};
+        if (FileExists(path))
+        {
+            texture = LoadTexture(path);
+            if (texture.id != 0)
+                SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+        }
+        return texture;
+    };
+    pixelHudFrame = loadPixelTexture(PixelHudFramePath);
+    pixelHudWidgetFrame = loadPixelTexture(PixelHudWidgetFramePath);
+    pixelHudCrest = loadPixelTexture(PixelHudCrestPath);
+    pixelHudGlyphs = loadPixelTexture(PixelGlyphAtlasPath);
+    pixelPopulationGlyph = loadPixelTexture(PixelPopulationPath);
+    if (FileExists(PixelGlowShaderPath))
+    {
+        pixelHudGlowShader = LoadShader(nullptr, PixelGlowShaderPath);
+        if (pixelHudGlowShader.id != 0)
+        {
+            pixelGlowTexelSizeLocation = GetShaderLocation(pixelHudGlowShader, "atlasTexelSize");
+            pixelGlowUvMinLocation = GetShaderLocation(pixelHudGlowShader, "sourceUvMin");
+            pixelGlowUvMaxLocation = GetShaderLocation(pixelHudGlowShader, "sourceUvMax");
+            pixelGlowColorLocation = GetShaderLocation(pixelHudGlowShader, "glowColor");
+            pixelGlowIntensityLocation = GetShaderLocation(pixelHudGlowShader, "glowIntensity");
+        }
+    }
+    unitPortraitAtlas = loadPixelTexture(UnitPortraitAtlasPath);
+    militaryStatAtlas = loadPixelTexture(MilitaryStatAtlasPath);
 }
 
 void UiControlIcons::Unload()
@@ -208,6 +411,35 @@ void UiControlIcons::Unload()
     if (royalCloseButtonHover.id != 0)
         UnloadTexture(royalCloseButtonHover);
     royalCloseButtonHover = {};
+    if (pixelHudFrame.id != 0)
+        UnloadTexture(pixelHudFrame);
+    pixelHudFrame = {};
+    if (pixelHudWidgetFrame.id != 0)
+        UnloadTexture(pixelHudWidgetFrame);
+    pixelHudWidgetFrame = {};
+    if (pixelHudCrest.id != 0)
+        UnloadTexture(pixelHudCrest);
+    pixelHudCrest = {};
+    if (pixelHudGlyphs.id != 0)
+        UnloadTexture(pixelHudGlyphs);
+    pixelHudGlyphs = {};
+    if (pixelPopulationGlyph.id != 0)
+        UnloadTexture(pixelPopulationGlyph);
+    pixelPopulationGlyph = {};
+    if (pixelHudGlowShader.id != 0)
+        UnloadShader(pixelHudGlowShader);
+    pixelHudGlowShader = {};
+    pixelGlowTexelSizeLocation = -1;
+    pixelGlowUvMinLocation = -1;
+    pixelGlowUvMaxLocation = -1;
+    pixelGlowColorLocation = -1;
+    pixelGlowIntensityLocation = -1;
+    if (unitPortraitAtlas.id != 0)
+        UnloadTexture(unitPortraitAtlas);
+    unitPortraitAtlas = {};
+    if (militaryStatAtlas.id != 0)
+        UnloadTexture(militaryStatAtlas);
+    militaryStatAtlas = {};
 }
 
 bool UiControlIcons::IsLoaded()
@@ -260,6 +492,185 @@ bool UiControlIcons::DrawHudGlyph(HudIcon icon, Rectangle destination, Color tin
     source.width *= 0.74f;
     source.height *= 0.70f;
     DrawTexturePro(hudAtlas, source, destination, {0.0f, 0.0f}, 0.0f, tint);
+    return true;
+}
+
+bool UiControlIcons::DrawPixelHudFrame(Rectangle destination, bool hovered, Color tint)
+{
+    constexpr Rectangle source{0.0f, 0.0f, 256.0f, 256.0f};
+    constexpr float sourceCap = 32.0f;
+    const float cap = std::clamp(std::min(destination.width, destination.height) * 0.32f,
+                                 14.0f, 26.0f);
+    if (!DrawNineSlice(pixelHudFrame, source, sourceCap, destination, cap, tint))
+        return false;
+
+    if (hovered)
+    {
+        Rectangle inset{destination.x + 3.0f, destination.y + 3.0f,
+                        destination.width - 6.0f, destination.height - 6.0f};
+        DrawRectangleRec(inset, Fade(Color{86, 151, 164, 255}, 0.07f));
+        DrawRectangleLinesEx(inset, 2.0f, Color{151, 207, 214, 230});
+    }
+    return true;
+}
+
+float UiControlIcons::PixelHudFrameInset(Rectangle destination)
+{
+    return std::clamp(std::min(destination.width, destination.height) * 0.025f,
+                      12.0f, 20.0f);
+}
+
+Rectangle UiControlIcons::PixelHudCloseButtonRect(Rectangle destination)
+{
+    constexpr float closeSize = 34.0f;
+    // Sit fully inside the quiet header field rather than on the ornamental
+    // corner. The same gap on both axes moves the socket left and down while
+    // retaining top-right symmetry.
+    const float edgeGap = std::clamp(PixelHudFrameInset(destination) + 5.0f,
+                                     19.0f, 25.0f);
+    return {destination.x + destination.width - edgeGap - closeSize,
+            destination.y + edgeGap, closeSize, closeSize};
+}
+
+bool UiControlIcons::DrawPixelHudWidgetFrame(Rectangle destination, bool hovered, Color tint)
+{
+    if (!DrawWidgetNineSlice(pixelHudWidgetFrame, destination, tint))
+        return false;
+
+    if (hovered)
+    {
+        Rectangle inset{destination.x + 3.0f, destination.y + 3.0f,
+                        destination.width - 6.0f, destination.height - 6.0f};
+        DrawRectangleRec(inset, Fade(Color{86, 151, 164, 255}, 0.08f));
+        DrawRectangleLinesEx(inset, 1.0f, Color{151, 207, 214, 220});
+    }
+    return true;
+}
+
+bool UiControlIcons::DrawPixelTopHudCrest(Rectangle destination, Color tint)
+{
+    if (pixelHudCrest.id == 0)
+        return false;
+    DrawTexturePro(pixelHudCrest,
+                   {0.0f, 0.0f, static_cast<float>(pixelHudCrest.width),
+                    static_cast<float>(pixelHudCrest.height)},
+                   destination, {0.0f, 0.0f}, 0.0f, tint);
+    return true;
+}
+
+bool UiControlIcons::DrawPixelHudGlyph(HudIcon icon, Rectangle destination, Color tint)
+{
+    Texture2D texture{};
+    Rectangle source{};
+    if (!ResolvePixelHudGlyph(icon, texture, source))
+        return false;
+    DrawTexturePro(texture, source, destination,
+                   {0.0f, 0.0f}, 0.0f, tint);
+    return true;
+}
+
+bool UiControlIcons::DrawPixelHudGlow(HudIcon icon, Rectangle destination, Color color,
+                                      float intensity)
+{
+    Texture2D texture{};
+    Rectangle source{};
+    if (pixelHudGlowShader.id == 0 ||
+        !ResolvePixelHudGlyph(icon, texture, source))
+        return false;
+
+    const float texelSize[2]{1.0f / static_cast<float>(texture.width),
+                             1.0f / static_cast<float>(texture.height)};
+    const float uvMin[2]{source.x / static_cast<float>(texture.width),
+                         source.y / static_cast<float>(texture.height)};
+    const float uvMax[2]{(source.x + source.width) / static_cast<float>(texture.width),
+                         (source.y + source.height) / static_cast<float>(texture.height)};
+    const float glow[3]{static_cast<float>(color.r) / 255.0f,
+                        static_cast<float>(color.g) / 255.0f,
+                        static_cast<float>(color.b) / 255.0f};
+    intensity = std::clamp(intensity, 0.0f, 2.0f);
+
+    if (pixelGlowTexelSizeLocation >= 0)
+        SetShaderValue(pixelHudGlowShader, pixelGlowTexelSizeLocation, texelSize,
+                       SHADER_UNIFORM_VEC2);
+    if (pixelGlowUvMinLocation >= 0)
+        SetShaderValue(pixelHudGlowShader, pixelGlowUvMinLocation, uvMin,
+                       SHADER_UNIFORM_VEC2);
+    if (pixelGlowUvMaxLocation >= 0)
+        SetShaderValue(pixelHudGlowShader, pixelGlowUvMaxLocation, uvMax,
+                       SHADER_UNIFORM_VEC2);
+    if (pixelGlowColorLocation >= 0)
+        SetShaderValue(pixelHudGlowShader, pixelGlowColorLocation, glow,
+                       SHADER_UNIFORM_VEC3);
+    if (pixelGlowIntensityLocation >= 0)
+        SetShaderValue(pixelHudGlowShader, pixelGlowIntensityLocation, &intensity,
+                       SHADER_UNIFORM_FLOAT);
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    BeginShaderMode(pixelHudGlowShader);
+    DrawTexturePro(texture, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
+    EndShaderMode();
+    EndBlendMode();
+    return true;
+}
+
+bool UiControlIcons::DrawUnitPortrait(const std::string& unitDefId,
+                                      Rectangle destination, Color tint)
+{
+    if (unitPortraitAtlas.id == 0)
+        return false;
+
+    auto it = std::find_if(UnitPortraitIds.begin(), UnitPortraitIds.end(),
+        [&unitDefId](const char* id) { return unitDefId == id; });
+    if (it == UnitPortraitIds.end())
+        return false;
+
+    const int index = static_cast<int>(std::distance(UnitPortraitIds.begin(), it));
+    const float cellWidth = unitPortraitAtlas.width / static_cast<float>(UnitPortraitColumns);
+    const float cellHeight = unitPortraitAtlas.height / 4.0f;
+    const Rectangle crop = UnitPortraitCrops[static_cast<size_t>(index)];
+    Rectangle source{
+        static_cast<float>(index % UnitPortraitColumns) * cellWidth + crop.x,
+        static_cast<float>(index / UnitPortraitColumns) * cellHeight + crop.y,
+        crop.width,
+        crop.height};
+
+    // Preserve the original silhouette proportions and leave a quiet inset;
+    // weapons and horse heads must never touch the card's 9-slice rails.
+    Rectangle safeDestination{
+        destination.x + 3.0f,
+        destination.y + 3.0f,
+        std::max(0.0f, destination.width - 6.0f),
+        std::max(0.0f, destination.height - 6.0f)};
+    const float scale = std::min(safeDestination.width / source.width,
+                                 safeDestination.height / source.height);
+    Rectangle fitted{
+        safeDestination.x + (safeDestination.width - source.width * scale) * 0.5f,
+        safeDestination.y + (safeDestination.height - source.height * scale) * 0.5f,
+        source.width * scale,
+        source.height * scale};
+    DrawTexturePro(unitPortraitAtlas, source, fitted,
+                   {0.0f, 0.0f}, 0.0f, tint);
+    return true;
+}
+
+bool UiControlIcons::DrawMilitaryStat(MilitaryStatIcon icon,
+                                      Rectangle destination, Color tint)
+{
+    if (militaryStatAtlas.id == 0)
+        return false;
+
+    const int index = static_cast<int>(icon);
+    if (index < 0 || index >= 6)
+        return false;
+    const float cellWidth = militaryStatAtlas.width / static_cast<float>(MilitaryStatColumns);
+    const float cellHeight = militaryStatAtlas.height / 2.0f;
+    Rectangle source{
+        static_cast<float>(index % MilitaryStatColumns) * cellWidth,
+        static_cast<float>(index / MilitaryStatColumns) * cellHeight,
+        cellWidth,
+        cellHeight};
+    DrawTexturePro(militaryStatAtlas, source, destination,
+                   {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
 

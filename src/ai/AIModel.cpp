@@ -322,6 +322,8 @@ namespace
                 return 34.0 * priorities.manpower + 12.0 * priorities.mobilization;
             case BalanceStat::PopulationCap:
                 return 28.0 * priorities.manpower;
+            case BalanceStat::VillageSupplyConsumption:
+                return 30.0 * std::max(priorities.manpower, priorities.logistics);
             case BalanceStat::UnitRecruitTime:
                 return 42.0 * priorities.mobilization + 10.0 * priorities.manpower;
             case BalanceStat::UnitRecruitManpowerCost:

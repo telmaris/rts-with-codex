@@ -18,6 +18,23 @@ TEST(RendererLifecycleTests, ConstructorDoesNotAllocateWorldLayers)
     EXPECT_FALSE(renderer.HasBuildingAnimation(BuildingType::StorageBuilding));
 }
 
+TEST(RendererLifecycleTests, RenderTargetOrientationDependsOnlyOnDestinationBoundary)
+{
+    Texture2D texture{};
+    texture.width = 1920;
+    texture.height = 1080;
+
+    const Rectangle offscreen = RenderTargetSourceRect(
+        texture, RenderTargetDestination::OffscreenPass);
+    const Rectangle window = RenderTargetSourceRect(
+        texture, RenderTargetDestination::Window);
+
+    EXPECT_FLOAT_EQ(offscreen.width, 1920.0f);
+    EXPECT_FLOAT_EQ(offscreen.height, -1080.0f);
+    EXPECT_FLOAT_EQ(window.width, 1920.0f);
+    EXPECT_FLOAT_EQ(window.height, 1080.0f);
+}
+
 TEST(RendererLifecycleTests, RenderSettingsAreVisualOnlyAndConfigurableWithoutGpuResources)
 {
     Renderer renderer;
@@ -48,6 +65,24 @@ TEST(RendererLifecycleTests, RenderSettingsAreVisualOnlyAndConfigurableWithoutGp
     EXPECT_TRUE(renderer.IsRainOverlayEnabled());
     EXPECT_TRUE(renderer.IsLogisticsOverlayEnabled());
     EXPECT_EQ(renderer.GetRenderSettings().debugView, RenderDebugView::LightMap);
+}
+
+TEST(RendererLifecycleTests, NightPreviewForcesNightWithoutChangingSimulationTick)
+{
+    Renderer renderer;
+    renderer.SetSimulationTick(12345);
+
+    const WorldLightingFrame regular = renderer.GetCurrentWorldLightingFrame();
+    renderer.ToggleNightPreview();
+    const WorldLightingFrame night = renderer.GetCurrentWorldLightingFrame();
+
+    EXPECT_TRUE(renderer.IsNightPreviewEnabled());
+    EXPECT_FLOAT_EQ(night.phase, 0.0f);
+    EXPECT_LT(night.ambientIntensity, regular.ambientIntensity);
+    EXPECT_FLOAT_EQ(night.shadowLength, 0.0f);
+
+    renderer.ToggleNightPreview();
+    EXPECT_FALSE(renderer.IsNightPreviewEnabled());
 }
 
 TEST(RendererLifecycleTests, FogPreferenceCanBeToggledWithoutWorldOrGpuState)
@@ -168,6 +203,70 @@ TEST(RendererLifecycleTests, OperationalBuildingsQueueAStableLight)
     ASSERT_EQ(renderer.dynamicLights.size(), 2u);
     EXPECT_GT(renderer.dynamicLights.back().radiusWorld, 4.0f * TILE_SIZE);
     EXPECT_FLOAT_EQ(renderer.dynamicLights.back().flickerAmount, 0.0f);
+}
+
+TEST(RendererLifecycleTests, DynamicLightQueueIsIndependentOfCameraPanAndZoom)
+{
+    Renderer renderer;
+    const LightEmitterView source{{4800.0f, 3600.0f}, Color{255, 190, 120, 255},
+                                  220.0f, 1.25f, 0.68f, 0.0f, 71, 10, 0.0f, 56.0f};
+
+    renderer.camera.target = {0.0f, 0.0f};
+    renderer.camera.zoom = 2.4f;
+    renderer.QueueDynamicLight(source);
+    ASSERT_EQ(renderer.dynamicLights.size(), 1u);
+
+    renderer.ClearDynamicLights();
+    renderer.camera.target = {4300.0f, -2700.0f};
+    renderer.camera.zoom = 0.35f;
+    renderer.QueueDynamicLight(source);
+
+    ASSERT_EQ(renderer.dynamicLights.size(), 1u);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.front().worldPosition.x, source.worldPosition.x);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.front().worldPosition.y, source.worldPosition.y);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.front().radiusWorld, source.radiusWorld);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.front().intensity, source.intensity);
+}
+
+TEST(RendererLifecycleTests, MineralOverlaysQueueDistinctSubtleLights)
+{
+    Renderer renderer;
+    renderer.camera.zoom = 1.0f;
+
+    renderer.QueueResourceLight(12, {100.0f, 100.0f}, 101); // iron
+    renderer.QueueResourceLight(24, {164.0f, 100.0f}, 102); // copper
+    renderer.QueueResourceLight(36, {228.0f, 100.0f}, 103); // stone
+    renderer.QueueResourceLight(0, {292.0f, 100.0f}, 104);  // coal
+
+    ASSERT_EQ(renderer.dynamicLights.size(), 4u);
+    const auto& iron = renderer.dynamicLights[0];
+    const auto& copper = renderer.dynamicLights[1];
+    const auto& stone = renderer.dynamicLights[2];
+    const auto& coal = renderer.dynamicLights[3];
+    EXPECT_GT(iron.color.b, iron.color.r);
+    EXPECT_GT(copper.color.r, copper.color.b);
+    EXPECT_GT(copper.intensity, iron.intensity);
+    EXPECT_NEAR(stone.color.r, stone.color.g, 8);
+    EXPECT_NEAR(stone.color.g, stone.color.b, 8);
+    EXPECT_NEAR(coal.color.r, coal.color.g, 8);
+    EXPECT_NEAR(coal.color.g, coal.color.b, 8);
+    EXPECT_LT(coal.intensity, iron.intensity);
+    EXPECT_GT(coal.radiusWorld, static_cast<float>(TILE_SIZE));
+    EXPECT_GT(iron.radiusWorld, coal.radiusWorld);
+    EXPECT_GT(iron.flickerAmount, 0.0f);
+    EXPECT_LT(iron.intensity, 0.15f);
+    EXPECT_FLOAT_EQ(iron.minimumVisibility, 0.0f);
+    EXPECT_LE(iron.minimumScreenRadius, 4.0f);
+}
+
+TEST(RendererLifecycleTests, NonMineralOverlayDoesNotQueueMineralLight)
+{
+    Renderer renderer;
+    renderer.camera.zoom = 1.0f;
+
+    renderer.QueueResourceLight(48, {100.0f, 100.0f}, 201); // wood begins at atlas cell 48
+
+    EXPECT_TRUE(renderer.dynamicLights.empty());
 }
 
 TEST(RendererLifecycleTests, DebugViewCyclesThroughAllAvailableRenderTargets)

@@ -458,10 +458,13 @@ void GameWorld::DrawMap()
         for (int y = minTileY; y <= maxTileY; y++)
         {
             auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
+            const Vec2f tilePosition{static_cast<float>(x * TILE_SIZE),
+                                     static_cast<float>(y * TILE_SIZE)};
+            if (tile.resourceOverlayTextureId >= 0)
+                render->QueueResourceLight(tile.resourceOverlayTextureId, tilePosition, tile.id);
             if (tile.building != nullptr)
             {
-                Vec2f position{static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)};
-                visibleBuildings.emplace(tile.building.get(), position);
+                visibleBuildings.emplace(tile.building.get(), tilePosition);
             }
         }
     }
@@ -469,7 +472,7 @@ void GameWorld::DrawMap()
     render->ClearLayer(WorldRenderLayer::WorldEffects);
     if (render->AreContactShadowsEnabled())
     {
-        const WorldLightingFrame lighting = ComputeWorldLighting(simulationTick);
+        const WorldLightingFrame lighting = render->GetCurrentWorldLightingFrame();
         const unsigned char shadowAlpha = static_cast<unsigned char>(std::clamp(
             32.0f + (1.0f - lighting.ambientIntensity) * 42.0f, 32.0f, 74.0f));
         render->BeginLayer(WorldRenderLayer::WorldEffects);
@@ -565,6 +568,23 @@ void GameWorld::DrawMap()
                 // swapping in real art later doesn't touch this call site.
             }
         }
+        // Mineral ground halos are light, not coloured paint. Alpha blending
+        // a blue/red halo into olive grass can lower individual channels and
+        // the retro palette then quantizes the result to a dark grey. Batch
+        // these halos additively so they can only brighten the terrain.
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (int x = minTileX; x <= maxTileX; x++)
+        {
+            for (int y = minTileY; y <= maxTileY; y++)
+            {
+                const auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
+                if (tile.resourceOverlayTextureId >= 0)
+                    render->DrawResourceGroundGlow(
+                        tile.resourceOverlayTextureId,
+                        {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+            }
+        }
+        EndBlendMode();
         render->EndLayer();
 
         render->ClearLayer(WorldRenderLayer::ResourceOverlays);
@@ -576,8 +596,8 @@ void GameWorld::DrawMap()
                 const auto& tile = tilemap.tilemap[y * tilemap.params.sizeX + x];
                 if (tile.resourceOverlayTextureId < 0)
                     continue;
-                render->DrawAtlasTile(41, tile.resourceOverlayTextureId,
-                                      {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
+                render->DrawResourceOverlay(tile.resourceOverlayTextureId,
+                                            {static_cast<float>(x * TILE_SIZE), static_cast<float>(y * TILE_SIZE)});
             }
         }
         render->EndLayer();
@@ -666,7 +686,7 @@ void GameWorld::DrawMap()
             player->GetRoadNetwork()->AppendShipmentRenderStates(shipmentViews);
     }
     render->DrawShipments(shipmentViews, {tilemap.params.sizeX, tilemap.params.sizeY});
-    const WorldLightingFrame dynamicLighting = ComputeWorldLighting(simulationTick);
+    const WorldLightingFrame dynamicLighting = render->GetCurrentWorldLightingFrame();
     const unsigned char unitShadowAlpha = static_cast<unsigned char>(std::clamp(
         45.0f + (1.0f - dynamicLighting.ambientIntensity) * 55.0f, 45.0f, 100.0f));
     const float unitDirectionalLength = dynamicLighting.shadowLength * 0.24f;
@@ -770,7 +790,7 @@ void GameWorld::DrawMap()
         // the glow/trail never enters saves, checksums, or combat resolution.
         render->QueueDynamicLight({{projectile.position.x, projectile.position.y},
                                    Color{255, 205, 116, 255},
-                                   88.0f, 1.85f, 0.58f, 0.12f, -id, 90});
+                                   88.0f, 0.42f, 0.58f, 0.12f, -id, 90});
 
         auto targetIt = deployedUnits.find(projectile.targetUnitInstanceId);
         if (targetIt != deployedUnits.end())

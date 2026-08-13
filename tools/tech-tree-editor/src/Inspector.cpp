@@ -69,33 +69,6 @@ namespace
         }
     }
 
-    // Match the game's tooltip vocabulary: these time-based stats are shown
-    // as a speed/rate, while their serialized multiplier scales duration.
-    bool UsesRateDisplay(BalanceStat stat)
-    {
-        return stat == BalanceStat::BuildTime ||
-               stat == BalanceStat::ProductionCycleTime ||
-               stat == BalanceStat::TransportTime;
-    }
-
-    double EffectPercent(const BalanceModifier& modifier)
-    {
-        if (UsesRateDisplay(modifier.stat) && modifier.multiplier > 0.0)
-            return (1.0 / modifier.multiplier - 1.0) * 100.0;
-        return (modifier.multiplier - 1.0) * 100.0;
-    }
-
-    double MultiplierFromEffectPercent(BalanceStat stat, double effectPercent)
-    {
-        if (UsesRateDisplay(stat))
-        {
-            // A -100% rate would divide by zero. Keep the persisted value
-            // valid while still allowing an extreme slowdown to be authored.
-            return 1.0 / std::max(0.01, 1.0 + effectPercent / 100.0);
-        }
-        return std::max(0.0, 1.0 + effectPercent / 100.0);
-    }
-
     void DrawLabel(const std::string& text, float x, float y)
     {
         UiText::Draw(text, x, y, labelFont, EditorTheme::TextMuted);
@@ -114,7 +87,7 @@ namespace
     bool DrawMiniButton(Rectangle rect, const std::string& label, Color accent)
     {
         Vector2 mouse = GetMousePosition();
-        bool hover = CheckCollisionPointRec(mouse, rect);
+        bool hover = !DropdownWidget::IsAnyOpen() && CheckCollisionPointRec(mouse, rect);
         DrawRectangleRounded(rect, 0.25f, 6, hover ? EditorTheme::SurfaceHover : EditorTheme::Surface);
         DrawRectangleRoundedLines(rect, 0.25f, 6, 1.0f, hover ? accent : EditorTheme::Border);
         UiText::DrawFit(label, rect, valueFont, hover ? accent : EditorTheme::TextMuted);
@@ -213,8 +186,10 @@ void Inspector::SyncBuffers(TreeDocument& document, const std::string& id)
         row.unit.text = modifier.unitDefId.value_or("");
         row.additive.text = Number(modifier.additive);
         row.additive.numericOnly = true;
-        row.multiplier.text = Number(EffectPercent(modifier));
+        row.additive.allowNegative = true;
+        row.multiplier.text = Number(ModifierEffectPercent(modifier.stat, modifier.multiplier));
         row.multiplier.numericOnly = true;
+        row.multiplier.allowNegative = true;
     }
 }
 
@@ -387,7 +362,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
     }
     if (DrawMiniButton({fieldX, y, 132.0f, rowH}, "+ Add tag", EditorTheme::Positive))
     {
-        definition->tags.push_back(RtsDataNames::Tags().front());
+        definition->tags.push_back("production");
         document.MarkDirty();
         SyncBuffers(document, selectedId);
     }
@@ -511,7 +486,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         else
         {
-            UiText::Draw("All currently un-gated buildings are assigned.", fieldX, y + 4.0f, labelFont, EditorTheme::TextFaint);
+            UiText::Draw("All buildings are assigned to this node.", fieldX, y + 4.0f, labelFont, EditorTheme::TextFaint);
             y += rowH + gap;
         }
     }
@@ -530,7 +505,7 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         if (row.stat.ConsumeChanged())
         {
             modifier.stat = RtsDataNames::ToBalanceStat(row.stat.SelectedText());
-            row.multiplier.text = Number(EffectPercent(modifier));
+            row.multiplier.text = Number(ModifierEffectPercent(modifier.stat, modifier.multiplier));
             document.MarkDirty();
         }
         if (DrawMiniButton({fieldX + fieldW - rowH, y, rowH, rowH}, "x", EditorTheme::Negative))
@@ -543,7 +518,10 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         y += rowH + 4.0f;
 
         DrawLabel("Flat value", fieldX, y);
-        DrawLabel("Effect (%)", fieldX + half + gap, y);
+        DrawLabel(modifier.stat == BalanceStat::ProductionCycleTime
+                      ? "Production speed (%)  (- slows)"
+                      : "Effect (%)",
+                  fieldX + half + gap, y);
         y += labelH;
         if (row.additive.Draw({fieldX, y, half, rowH}, "0"))
         {
@@ -552,8 +530,9 @@ std::string Inspector::Draw(Rectangle bounds, TreeDocument& document, const std:
         }
         if (row.multiplier.Draw({fieldX + half + gap, y, half, rowH}, "0"))
         {
-            modifier.multiplier = MultiplierFromEffectPercent(
-                modifier.stat, ToDouble(row.multiplier.text, EffectPercent(modifier)));
+            modifier.multiplier = ModifierMultiplierFromEffectPercent(
+                modifier.stat,
+                ToDouble(row.multiplier.text, ModifierEffectPercent(modifier.stat, modifier.multiplier)));
             document.MarkDirty();
         }
         y += rowH + 4.0f;

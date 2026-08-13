@@ -251,20 +251,18 @@ const std::vector<std::string>& TreeDocument::GetUnlockedBuildings(const std::st
     return it == buildingUnlocks.end() ? none : it->second;
 }
 
-std::vector<std::string> TreeDocument::GetBuildingUnlockOptions(const std::string& nodeId) const
+std::vector<std::string> TreeDocument::GetBuildingUnlockOptions(const std::string&) const
 {
     std::vector<std::string> result;
-
+    result.reserve(buildings.size());
     for (const auto& building : buildings)
-    {
-        const auto& requiredNodes = kind == TreeKind::Technology
-            ? building.requiredTechnologies
-            : building.requiredFocuses;
-        const bool unlockedHere = std::find(requiredNodes.begin(), requiredNodes.end(), nodeId) !=
-                                  requiredNodes.end();
-        if (requiredNodes.empty() || unlockedHere)
-            result.push_back(building.name);
-    }
+        result.push_back(building.name);
+
+    // A building already gated by another node must remain selectable. Adding
+    // it here creates an additional real requires_tech/requires_focus condition
+    // in buildings.rtsdata; hiding it made University impossible to select from
+    // most decision nodes even though the game supports multiple requirements.
+    std::sort(result.begin(), result.end());
     return result;
 }
 

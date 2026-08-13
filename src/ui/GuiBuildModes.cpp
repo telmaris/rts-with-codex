@@ -6,16 +6,15 @@
 #include "ui/ControlIcons.h"
 #include "scenes/Scenes.h"
 #include "economy/Player.h"
-#include "economy/StockpileIndex.h"
 #include "economy/BuildingConfig.h"
 #include "economy/ProductionBuildings.h"
+#include "economy/StockpileIndex.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace
 {
-    // Counts a resource across the local player's warehouse network.
     int CountStoredResource(GameScene* scene, ResourceType type)
     {
         Player* player = GuiLocalPlayer(scene);
@@ -47,6 +46,7 @@ namespace
     {
         std::vector<ResourceAmountDefinition> inputs;
         std::vector<ResourceAmountDefinition> outputs;
+        double cycleTime{0.0};
     };
 
     RecipeSummary GetRecipeSummary(BuildingType type)
@@ -57,6 +57,7 @@ namespace
         {
             summary.inputs = definition.production.inputs;
             summary.outputs = definition.production.outputs;
+            summary.cycleTime = definition.production.cycleTime;
             return summary;
         }
 
@@ -69,31 +70,70 @@ namespace
                 if (!alreadyListed)
                     summary.outputs.push_back(output);
             }
+            if (summary.cycleTime <= 0.0)
+                summary.cycleTime = terrain.production.cycleTime;
         }
         return summary;
     }
 
-    // Draws a row of resource icons with "xN" amount labels, left-to-right
-    // starting at (x, y), stopping once maxX would be exceeded. Returns the
-    // cursor x position after the last icon drawn.
-    float DrawRecipeIconRow(const std::vector<ResourceAmountDefinition>& items, float x, float y, float maxX, int maxCount = 4)
+    // Draws a clear, one-line material summary. Cost rows retain quantities;
+    // production rows can use the same layout with product icons alone.
+    float DrawRecipeIconRow(const std::vector<ResourceAmountDefinition>& items, float x, float y,
+                            float maxX, int maxCount = 6, bool showAmounts = true,
+                            const std::function<bool(const ResourceAmountDefinition&)>& isMissing = {})
     {
-        const float iconSize = 20.0f;
-        const float gap = 6.0f;
+        const float iconSize = 36.0f;
+        const float gap = 13.0f;
         int shown = std::min<int>(static_cast<int>(items.size()), maxCount);
         for (int i = 0; i < shown; i++)
         {
-            std::string amount = "x" + std::to_string(items[i].amount);
-            int amountWidth = UiText::Measure(amount, 13);
-            if (x + iconSize + 2.0f + amountWidth > maxX)
+            // Alegreya Sans does not include the multiplication glyph in the
+            // runtime atlas. ASCII x is deliberately used so costs cannot
+            // degrade into a question mark on screen.
+            std::string amount = showAmounts ? "x" + std::to_string(items[i].amount) : "";
+            int amountWidth = showAmounts ? UiText::Measure(amount, 22) : 0;
+            float itemWidth = iconSize + (showAmounts ? 5.0f + amountWidth : 0.0f);
+            if (x + itemWidth > maxX)
                 break;
 
             Rectangle icon{x, y, iconSize, iconSize};
+            const bool missing = isMissing && isMissing(items[i]);
             GuiPanel::DrawResourceIcon(items[i].type, icon);
-            UiText::Draw(amount, x + iconSize + 2.0f, y + 3.0f, 13, UiTheme::ParchmentDim);
-            x += iconSize + amountWidth + gap;
+            if (missing)
+            {
+                DrawRectangleRounded(icon, 0.16f, 6, Fade(UiTheme::RustBright, 0.20f));
+                DrawRectangleRoundedLines(icon, 0.16f, 6, 2.0f, UiTheme::RustBright);
+            }
+            if (showAmounts)
+                UiText::Draw(amount, x + iconSize + 5.0f, y + 6.0f, 22,
+                             missing ? UiTheme::RustBright : UiTheme::Parchment);
+            x += itemWidth + gap;
         }
         return x;
+    }
+
+    void DrawBuildingPreviewIcon(GameScene* scene, BuildingType type, Rectangle iconBox, Color tint = WHITE)
+    {
+        auto textureIt = scene->render.buildingTextures.find(type);
+        if (textureIt == scene->render.buildingTextures.end() || textureIt->second.id == 0)
+        {
+            DrawRectangleRounded(iconBox, 0.08f, 6, UiTheme::Surface);
+            return;
+        }
+
+        Texture2D texture = textureIt->second;
+        Rectangle source = scene->render.GetBuildingTextureFirstFrameSource(type);
+        float sourceAspect = source.height > 0.0f ? source.width / source.height : 1.0f;
+        float drawWidth = iconBox.width;
+        float drawHeight = iconBox.height;
+        if (sourceAspect > 1.0f)
+            drawHeight = drawWidth / sourceAspect;
+        else if (sourceAspect < 1.0f)
+            drawWidth = drawHeight * sourceAspect;
+        Rectangle destination{iconBox.x + (iconBox.width - drawWidth) * 0.5f,
+                              iconBox.y + (iconBox.height - drawHeight) * 0.5f,
+                              drawWidth, drawHeight};
+        DrawTexturePro(texture, source, destination, {0.0f, 0.0f}, 0.0f, tint);
     }
 
     // Returns terrain types required by a building, if any.
@@ -120,12 +160,12 @@ namespace
             case BuildingType::Woodcutter:
             case BuildingType::LumberMill:
             case BuildingType::Paperworks:
-                return "WOOD";
+                return "Wood";
             case BuildingType::Mine:
             case BuildingType::Foundry:
             case BuildingType::Smith:
             case BuildingType::Copperworks:
-                return "METALS";
+                return "Metals";
             case BuildingType::HuntersHut:
             case BuildingType::Well:
             case BuildingType::WheatFarm:
@@ -136,7 +176,7 @@ namespace
             case BuildingType::Butcher:
             case BuildingType::HorseStable:
             case BuildingType::HempFarm:
-                return "FOOD";
+                return "Food";
             case BuildingType::Tannery:
             case BuildingType::Tailor:
             case BuildingType::Kiln:
@@ -147,32 +187,71 @@ namespace
             case BuildingType::UrbanWorkshop:
             case BuildingType::Ropery:
             case BuildingType::Weaver:
-                return "CRAFTS";
+                return "Crafts";
             case BuildingType::Barracks:
             case BuildingType::Armorer:
             case BuildingType::Bowyer:
             case BuildingType::SpearWorkshop:
             case BuildingType::SiegeWorkshop:
-                return "MILITARY";
+                return "Military";
             case BuildingType::DefenseTower:
-                return "DEFENSE";
+                return "Defense";
             case BuildingType::StorageBuilding:
             case BuildingType::Village:
-                return "LOGISTICS";
+                return "Logistics";
             case BuildingType::University:
-                return "SCIENCE";
+                return "Science";
             case BuildingType::Road:
             case BuildingType::Bridge:
-                return "ROADS";
+                return "Roads";
             default:
-                return "OTHER";
+                return "Other";
         }
+    }
+
+    // Explains the strategic role of a building. Production buildings derive
+    // a useful summary from their recipe/terrain data; exceptional buildings
+    // get their own gameplay-specific explanation instead of a misleading
+    // "No material output" label.
+    std::string BuildPurpose(BuildingType type, const BuildingDefinition& definition,
+                             const RecipeSummary& recipe)
+    {
+        switch (type)
+        {
+            case BuildingType::StorageBuilding:
+                return "Stores shared resources for your connected logistics network.";
+            case BuildingType::Village:
+                return "Adds " + std::to_string(definition.village.populationCap) +
+                       " population capacity and generates manpower when supplied with food provisions.";
+            case BuildingType::Barracks:
+                return "Trains military units using manpower and delivered food, weapons and equipment.";
+            case BuildingType::DefenseTower:
+                return "Claims territory, protects the border and uses delivered ammunition to fight enemies.";
+            case BuildingType::University:
+                return "Researches technologies that improve your economy, logistics and military.";
+            case BuildingType::Road:
+                return "Connects buildings so resources can travel through your logistics network.";
+            case BuildingType::Bridge:
+                return "Extends roads across water so logistics can reach the far bank.";
+            case BuildingType::Headquarters:
+                return "The core of your settlement: stores shared resources and must be defended.";
+            default:
+                break;
+        }
+
+        if (!definition.terrainProductions.empty())
+            return "Extracts resources from the terrain beneath this building.";
+        if (!recipe.inputs.empty() && !recipe.outputs.empty())
+            return "Processes delivered materials into the resources shown below.";
+        if (!recipe.outputs.empty())
+            return "Produces the resources shown below for your economy.";
+        return "Supports the growth and operation of your settlement.";
     }
 
     // Returns category display order for build panel grouping.
     int BuildCategoryOrder(const std::string& category)
     {
-        static const std::vector<std::string> order{"WOOD", "METALS", "FOOD", "CRAFTS", "LOGISTICS", "MILITARY", "DEFENSE", "SCIENCE", "ROADS", "OTHER"};
+        static const std::vector<std::string> order{"Wood", "Metals", "Food", "Crafts", "Logistics", "Military", "Defense", "Science", "Roads", "Other"};
         auto it = std::find(order.begin(), order.end(), category);
         return it != order.end() ? static_cast<int>(std::distance(order.begin(), it)) : static_cast<int>(order.size());
     }
@@ -188,92 +267,175 @@ namespace
         return player->GetBuildRequirementFailures(definition, false);
     }
 
-    // Draws the build tooltip with stockpile and terrain availability.
+    // Build tooltips follow the recruitment tooltip's compact visual grammar:
+    // one large subject icon, title/costs in the right header column, then
+    // the building-specific detail rows below a shared divider.
     void DrawBuildTooltip(GameScene* scene, const BuildOption& option, Vec2i hoveredTile)
     {
         const Color ok = UiTheme::SageBright;
         const Color missing = UiTheme::RustBright;
         const Color muted = UiTheme::ParchmentDim;
 
-        std::vector<std::pair<std::string, Color>> rows;
-        rows.push_back({"Build time: " + std::to_string(static_cast<int>(option.buildTime)) + "s", muted});
-
         auto lockReasons = BuildLockReasons(scene, option);
-        if (!lockReasons.empty())
-        {
-            rows.push_back({"Locked:", missing});
-            for (const auto& reason : lockReasons)
-                rows.push_back({reason, missing});
-        }
-
-        if (option.buildCosts.empty())
-        {
-            rows.push_back({"Cost: Free", ok});
-        }
-        else
-        {
-            rows.push_back({"Cost:", muted});
-            for (const auto& cost : option.buildCosts)
-            {
-                int stored = CountStoredResource(scene, cost.type);
-                Color color = stored >= cost.amount ? ok : missing;
-                rows.push_back({ResourceDisplayName(cost.type) + ": " + std::to_string(stored) + "/" + std::to_string(cost.amount), color});
-            }
-        }
-
+        // The cost row identifies the exact missing materials visually. Keep
+        // only non-resource gates in the textual lock section.
+        lockReasons.erase(std::remove(lockReasons.begin(), lockReasons.end(), "Not enough resources"),
+                          lockReasons.end());
         auto requiredTerrain = RequiredTerrainTypes(option.buildingType);
+        std::string terrainLabel;
+        Color terrainColor = ok;
         if (!requiredTerrain.empty())
         {
             bool terrainOk = scene != nullptr && scene->game != nullptr && hoveredTile.x >= 0 && hoveredTile.y >= 0 &&
                 scene->game->GetTileMap().HasRequiredTerrainForBuilding(option.buildingType, hoveredTile, option.footprint, 2);
-            std::string terrainLabel = "Requires: ";
+            terrainLabel = "Requires: ";
             for (size_t i = 0; i < requiredTerrain.size(); i++)
             {
                 if (i > 0)
                     terrainLabel += "/";
                 terrainLabel += TileTypeLabel(requiredTerrain[i]);
             }
-            rows.push_back({terrainLabel, terrainOk ? ok : missing});
+            terrainColor = terrainOk ? ok : missing;
         }
 
+        const auto& definition = GetBuildingDefinition(option.buildingType);
+        Player* player = GuiLocalPlayer(scene);
+        const std::vector<ResourceAmountDefinition> effectiveBuildCosts = player != nullptr
+            ? player->GetEffectiveBuildCosts(definition)
+            : option.buildCosts;
         RecipeSummary recipe = GetRecipeSummary(option.buildingType);
-        bool hasRecipe = !recipe.inputs.empty() || !recipe.outputs.empty();
-        float recipeRowH = hasRecipe ? 36.0f : 0.0f;
+        const std::string purpose = BuildPurpose(option.buildingType, definition, recipe);
+        const float width = 520.0f;
+        const float padding = 14.0f;
+        const float titleIconSize = 96.0f;
+        const float headerHeight = 112.0f;
+        const float materialRowH = 38.0f;
+        const float infoRowH = 26.0f;
+        const float labelWidth = 96.0f;
+        const float detailWidth = width - padding * 2.0f - labelWidth - 8.0f;
+        const bool showProduction = !recipe.outputs.empty();
+        const bool showFunction = !showProduction && !purpose.empty();
+        const std::vector<std::string> purposeLines = showFunction
+            ? UiText::Wrap(purpose, 20, detailWidth)
+            : std::vector<std::string>{};
+        const float bodyHeight =
+                                 (showFunction ? static_cast<float>(purposeLines.size()) * infoRowH : 0.0f) +
+                                 (showProduction ? materialRowH : 0.0f) +
+                                 infoRowH +
+                                 (!terrainLabel.empty() ? infoRowH : 0.0f) +
+                                 (lockReasons.empty() ? 0.0f :
+                                     infoRowH * static_cast<float>(lockReasons.size() + 1));
+        const float height = padding + headerHeight + 8.0f + bodyHeight + padding;
 
         Vector2 mouse = GetMousePosition();
-        float width = 280.0f;
-        float rowH = 23.0f;
-        float titleH = 28.0f;
-        float height = titleH + recipeRowH + rowH * rows.size() + 18.0f;
         Rectangle box{
-            std::min(mouse.x + 18.0f, static_cast<float>(GetScreenWidth()) - width - 12.0f),
-            std::min(mouse.y + 18.0f, static_cast<float>(GetScreenHeight()) - height - 12.0f),
+            mouse.x + 18.0f,
+            mouse.y + 18.0f,
             width,
             height};
+        box.x = std::clamp(box.x, 10.0f,
+                           std::max(10.0f, static_cast<float>(GetScreenWidth()) - box.width - 10.0f));
+        if (box.y + box.height > GetScreenHeight() - 10.0f)
+            box.y = std::max(10.0f, mouse.y - box.height - 18.0f);
 
-        DrawRectangleRounded(box, 0.06f, 8, UiTheme::Inset);
-        DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, UiTheme::Iron);
-        UiText::DrawFit(option.name, Rectangle{box.x + 12.0f, box.y + 9.0f, box.width - 24.0f, 24.0f}, 22, UiTheme::Parchment);
-
-        float y = box.y + titleH + 8.0f;
-        if (hasRecipe)
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(box))
         {
-            float rowX = box.x + 14.0f;
-            float maxX = box.x + box.width - 12.0f;
-            if (!recipe.inputs.empty())
-            {
-                rowX = DrawRecipeIconRow(recipe.inputs, rowX, y + 2.0f, maxX);
-                int arrowWidth = UiText::Measure(">", 16);
-                UiText::Draw(">", rowX + 4.0f, y + 3.0f, 16, UiTheme::ParchmentDim);
-                rowX += arrowWidth + 12.0f;
-            }
-            DrawRecipeIconRow(recipe.outputs, rowX, y + 2.0f, maxX);
-            y += recipeRowH;
+            DrawRectangleRounded(box, 0.06f, 8, UiTheme::Inset);
+            DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, UiTheme::Iron);
+            Rectangle inner{box.x + 3.0f, box.y + 3.0f,
+                            box.width - 6.0f, box.height - 6.0f};
+            DrawRectangleRounded(inner, 0.045f, 8, Fade(UiTheme::Surface, 0.99f));
+            DrawRectangleRoundedLines(inner, 0.045f, 8, 1.0f,
+                                      Fade(UiTheme::Bronze, 0.68f));
         }
-        for (const auto& row : rows)
+
+        Rectangle portrait{box.x + padding, box.y + padding, titleIconSize, titleIconSize};
+        DrawBuildingPreviewIcon(scene, option.buildingType, portrait);
+        const float detailsX = portrait.x + portrait.width + 12.0f;
+        const float detailsRight = box.x + box.width - padding;
         {
-            UiText::DrawFit(row.first, Rectangle{box.x + 14.0f, y, box.width - 28.0f, rowH}, 19, row.second);
-            y += rowH;
+            UiFontRoleScope displayRole{UiFontRole::Display};
+            Rectangle titleArea{
+                detailsX,
+                box.y + padding,
+                detailsRight - detailsX,
+                34.0f};
+            UiText::DrawFit(option.name, titleArea, 28, UiTheme::Parchment);
+        }
+
+        float separatorY = box.y + padding + 36.0f;
+        DrawLineEx(Vector2{detailsX, separatorY}, Vector2{detailsRight, separatorY},
+                   1.0f, UiTheme::Iron);
+        const float costY = separatorY + 7.0f;
+        UiText::Draw("Cost", detailsX, costY + 5.0f, 16, muted);
+        float costX = detailsX + 39.0f;
+        const float costItemWidth = std::min(
+            62.0f, (detailsRight - costX) /
+                       std::max(1.0f, static_cast<float>(effectiveBuildCosts.size())));
+        auto drawCost = [&](const ResourceAmountDefinition& cost)
+        {
+            constexpr float iconSize = 31.0f;
+            const bool missingCost = CountStoredResource(scene, cost.type) < cost.amount;
+            Rectangle icon{costX, costY - 2.0f, iconSize, iconSize};
+            GuiPanel::DrawResourceIcon(cost.type, icon);
+            if (missingCost)
+                DrawRectangleRec(icon, Fade(UiTheme::RustBright, 0.24f));
+            UiText::Draw("x" + std::to_string(cost.amount), costX + iconSize + 2.0f,
+                         costY + 5.0f, 15,
+                         missingCost ? UiTheme::RustBright : UiTheme::Parchment);
+            costX += costItemWidth;
+        };
+        if (effectiveBuildCosts.empty())
+            UiText::Draw("Free", costX, costY + 5.0f, 16, ok);
+        else
+            for (const auto& cost : effectiveBuildCosts)
+                drawCost(cost);
+
+        separatorY = box.y + padding + headerHeight;
+        DrawLineEx(Vector2{box.x + padding, separatorY},
+                   Vector2{box.x + box.width - padding, separatorY},
+                   1.0f, UiTheme::Iron);
+        float y = separatorY + 8.0f;
+
+        if (showFunction)
+        {
+            UiText::Draw("Function", box.x + padding, y + 2.0f, 18, muted);
+            for (const std::string& line : purposeLines)
+            {
+                UiText::Draw(line, box.x + padding + labelWidth, y + 2.0f,
+                             17, UiTheme::Parchment);
+                y += infoRowH;
+            }
+        }
+
+        if (showProduction)
+        {
+            UiText::Draw("Production", box.x + padding, y + 9.0f, 18, muted);
+            DrawRecipeIconRow(recipe.outputs, box.x + padding + labelWidth, y,
+                              box.x + box.width - padding, 6, false);
+            y += materialRowH;
+        }
+
+        std::string timings = "Build: " + FormatOneDecimal(option.buildTime) + "s";
+        if (recipe.cycleTime > 0.0)
+            timings += "    Production cycle: " + FormatOneDecimal(recipe.cycleTime) + "s";
+        UiText::Draw(timings, box.x + padding, y + 2.0f, 17, muted);
+        y += infoRowH;
+
+        if (!terrainLabel.empty())
+        {
+            UiText::Draw(terrainLabel, box.x + padding, y + 2.0f, 17, terrainColor);
+            y += infoRowH;
+        }
+        if (!lockReasons.empty())
+        {
+            UiText::Draw("Locked", box.x + padding, y + 2.0f, 17, missing);
+            y += infoRowH;
+            for (const auto& reason : lockReasons)
+            {
+                UiText::Draw(reason, box.x + padding + 12.0f, y + 2.0f, 17, missing);
+                y += infoRowH;
+            }
         }
     }
 
@@ -397,21 +559,19 @@ void BuildPanelWidget::Update(double dt)
 
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
     Vector2 mouse = GetMousePosition();
-    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    if (!UiControlIcons::DrawPixelHudFrame(bounds))
     {
         DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
         DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
     }
 
-    int margin = std::max(7, size.x / 64);
-    int titleBar = std::max(30, size.y / 17);
-    const float chromeInset = UiControlIcons::RoyalWindowPanelInset(bounds);
-    Rectangle titleBounds{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
+    int margin = std::max(9, size.x / 64);
+    int titleBar = std::max(58, size.y / 14);
+    const float chromeInset = UiControlIcons::PixelHudFrameInset(bounds);
+    Rectangle titleBounds{bounds.x + chromeInset + 2.0f, bounds.y + 8.0f,
                           bounds.width - (chromeInset + 2.0f) * 2.0f,
-                          std::max(22.0f, static_cast<float>(titleBar) - 8.0f)};
+                          std::max(42.0f, static_cast<float>(titleBar) - 10.0f)};
     Rectangle closeButton = PanelCloseButtonRect(bounds);
-    if (!UiControlIcons::DrawRoyalTitleBar(titleBounds))
-        DrawRectangleRounded(titleBounds, 0.025f, 8, UiTheme::Surface);
     if (CheckCollisionPointRec(mouse, titleBounds) &&
         !CheckCollisionPointRec(mouse, closeButton) &&
         InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -424,35 +584,46 @@ void BuildPanelWidget::Update(double dt)
         pos.x = std::clamp(static_cast<int>(mouse.x) - dragOffset.x, 0, std::max(0, GetScreenWidth() - size.x));
         pos.y = std::clamp(static_cast<int>(mouse.y) - dragOffset.y, 0, std::max(0, GetScreenHeight() - size.y));
         bounds = Rectangle{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-        titleBounds = Rectangle{bounds.x + chromeInset + 2.0f, bounds.y + 4.0f,
+        titleBounds = Rectangle{bounds.x + chromeInset + 2.0f, bounds.y + 8.0f,
                                 bounds.width - (chromeInset + 2.0f) * 2.0f,
-                                std::max(22.0f, static_cast<float>(titleBar) - 8.0f)};
+                                std::max(42.0f, static_cast<float>(titleBar) - 10.0f)};
         closeButton = PanelCloseButtonRect(bounds);
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
 
-    int titleFont = std::max(17, std::min(23, titleBar / 2 + 2));
-    int titleWidth = UiText::Measure(title, titleFont);
-    UiText::Draw(title, titleBounds.x + (titleBounds.width - titleWidth) * 0.5f,
-                 titleBounds.y + (titleBounds.height - titleFont) * 0.5f,
-                 titleFont, UiTheme::Parchment);
+    UiText::DrawTitleBar(titleBounds, title, PanelTitleCloseReserve(bounds));
     DrawCloseButton(bounds);
 
     int columns = 3;
     float gap = 7.0f;
     float scrollbarW = 8.0f;
-    float contentW = bounds.width - margin * 2 - scrollbarW - 4.0f;
-    float cardW = (contentW - gap * (columns - 1)) / columns;
-    float cardH = std::max(74.0f, cardW * 0.78f);
-    float headerH = 22.0f;
-    float categoryGap = 3.0f;
     float viewportTop = bounds.y + titleBar + margin;
-    float viewportBottom = bounds.y + bounds.height - margin;
+    const float bottomPadding = std::max(22.0f, margin * 2.0f);
+    float viewportBottom = bounds.y + bounds.height - bottomPadding;
+    // The scroll widget is deliberately inset from the outer panel chrome.
+    // Keeping this separate from the grid's inner gutters prevents the frame
+    // from looking glued to the panel edge even when a scrollbar is present.
+    const float scrollBoxInset = static_cast<float>(margin) + 12.0f;
+    Rectangle scrollBox{bounds.x + scrollBoxInset,
+                        viewportTop - 5.0f,
+                        bounds.width - scrollBoxInset * 2.0f,
+                        viewportBottom - viewportTop + 10.0f};
+    UiControlIcons::DrawPixelHudWidgetFrame(scrollBox);
+    const float gridLeftInset = 10.0f;
+    const float gridRightInset = scrollbarW + 14.0f;
+    const float gridX = scrollBox.x + gridLeftInset;
+    float contentW = scrollBox.width - gridLeftInset - gridRightInset;
+    float cardW = (contentW - gap * (columns - 1)) / columns;
+    float cardH = std::max(108.0f, cardW * 0.92f);
+    float headerH = 32.0f;
+    float categoryGap = 5.0f;
     float startY = viewportTop - scrollOffset;
     int hoveredOption = -1;
 
-    BeginScissorMode(static_cast<int>(bounds.x + margin), static_cast<int>(viewportTop), static_cast<int>(contentW), static_cast<int>(viewportBottom - viewportTop));
+    BeginScissorMode(static_cast<int>(gridX), static_cast<int>(viewportTop),
+                     static_cast<int>(contentW),
+                     static_cast<int>(viewportBottom - viewportTop));
     std::string currentCategory;
     float yCursor = startY;
     int col = 0;
@@ -466,20 +637,21 @@ void BuildPanelWidget::Update(double dt)
                 yCursor += cardH + gap;
             currentCategory = option.category;
             Rectangle header{
-                bounds.x + margin,
+                gridX,
                 yCursor,
                 contentW,
                 headerH};
             if (header.y + header.height >= viewportTop && header.y <= viewportBottom)
             {
-                DrawRectangleRounded(header, 0.12f, 6, UiTheme::Surface);
-                int headerFont = 17;
+                UiControlIcons::DrawPixelHudWidgetFrame(header);
+                UiFontRoleScope displayRole{UiFontRole::Display};
+                int headerFont = 21;
                 int headerWidth = UiText::Measure(currentCategory, headerFont);
                 UiText::Draw(currentCategory,
-                    header.x + (header.width - headerWidth) * 0.5f,
-                    header.y + (header.height - headerFont) * 0.5f,
-                    headerFont,
-                    UiTheme::Parchment);
+                             header.x + (header.width - headerWidth) * 0.5f,
+                             header.y + (header.height - headerFont) * 0.5f,
+                             headerFont,
+                             UiTheme::Parchment);
             }
             contentBottom = std::max(contentBottom, header.y + header.height + scrollOffset);
             yCursor += headerH + categoryGap;
@@ -487,7 +659,7 @@ void BuildPanelWidget::Update(double dt)
         }
 
         Rectangle card{
-            bounds.x + margin + col * (cardW + gap),
+            gridX + col * (cardW + gap),
             yCursor,
             cardW,
             cardH};
@@ -507,61 +679,23 @@ void BuildPanelWidget::Update(double dt)
         bool selected = selectedIndex < options->size() && static_cast<size_t>(i) == selectedIndex;
         auto lockReasons = BuildLockReasons(scene, option);
         bool locked = !lockReasons.empty();
-        DrawRectangleRounded(card, 0.04f, 8, locked ? UiTheme::Ink : (selected ? UiTheme::SelectedFill : UiTheme::Inset));
-        DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? UiTheme::Iron : (selected ? UiTheme::SageBright : UiTheme::Iron));
-
-        // Every card gets the same square icon box. Animated horizontal
-        // strips use their first frame; static building artwork keeps its
-        // complete source texture because some sprites are authored on a
-        // larger 2x2/3x3/4x4 canvas rather than as separate animation cells.
-        float icon = std::min(card.width * 0.52f, card.height - 14.0f);
-        Rectangle iconBox{card.x + 6.0f, card.y + (card.height - icon) * 0.5f, icon, icon};
-        auto textureIt = scene->render.buildingTextures.find(option.buildingType);
-        if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(card, selected && !locked,
+                                                     locked ? Color{130, 120, 110, 175} : WHITE))
         {
-            Texture2D tex = textureIt->second;
-            Rectangle src = scene->render.GetBuildingTextureFirstFrameSource(option.buildingType);
-            float sourceAspect = src.height > 0.0f ? src.width / src.height : 1.0f;
-            float drawWidth = icon;
-            float drawHeight = icon;
-            if (sourceAspect > 1.0f)
-                drawHeight = icon / sourceAspect;
-            else if (sourceAspect < 1.0f)
-                drawWidth = icon * sourceAspect;
-            Rectangle dst{
-                iconBox.x + (iconBox.width - drawWidth) * 0.5f,
-                iconBox.y + (iconBox.height - drawHeight) * 0.5f,
-                drawWidth,
-                drawHeight};
-            DrawTexturePro(tex, src, dst, {0.0f, 0.0f}, 0.0f, locked ? Color{110, 92, 70, 145} : WHITE);
-        }
-        else
-        {
-            DrawRectangleRounded(iconBox, 0.08f, 6, locked ? UiTheme::Panel : UiTheme::Surface);
+            DrawRectangleRounded(card, 0.04f, 8, locked ? UiTheme::Ink : (selected ? UiTheme::SelectedFill : UiTheme::Inset));
+            DrawRectangleRoundedLines(card, 0.04f, 8, 1.0f, locked ? UiTheme::Iron : (selected ? UiTheme::SageBright : UiTheme::Iron));
         }
 
-        int nameFont = 15;
-        UiText::DrawFit(option.name, Rectangle{card.x + card.width * 0.52f, card.y + 8.0f, card.width * 0.46f - 5.0f, 22.0f}, nameFont, locked ? UiTheme::ParchmentDim : UiTheme::Parchment);
-
-        float costX = card.x + card.width * 0.52f;
-        float costY = card.y + 36.0f;
-        float smallIcon = 15.0f;
-        float costGap = 5.0f;
-        int visibleCosts = std::min<int>(static_cast<int>(option.buildCosts.size()), 2);
-        for (int costIndex = 0; costIndex < visibleCosts; costIndex++)
-        {
-            const auto& cost = option.buildCosts[costIndex];
-            Rectangle icon{costX, costY, smallIcon, smallIcon};
-            GuiPanel::DrawResourceIcon(cost.type, icon);
-            std::string amount = std::to_string(cost.amount);
-            bool hasResource = CountStoredResource(scene, cost.type) >= cost.amount;
-            UiText::Draw(amount, costX + smallIcon + 2.0f, costY + 1.0f, 13, hasResource ? UiTheme::SageBright : UiTheme::RustBright);
-            costX += smallIcon + UiText::Measure(amount, 13) + costGap;
-            if (costX > card.x + card.width - 24.0f)
-                break;
-        }
-        if (option.buildCosts.empty())
-            UiText::Draw("Free", card.x + card.width * 0.52f, card.y + 36.0f, 13, UiTheme::ParchmentDim);
+        // Keep the card itself intentionally sparse: the building name is
+        // legible before its artwork, while costs live in the richer hover
+        // tooltip instead of competing with the icon at card scale.
+        UiText::DrawFit(option.name,
+        Rectangle{card.x + 10.0f, card.y + 6.0f, card.width - 20.0f, 26.0f},
+                        19, locked ? UiTheme::ParchmentDim : UiTheme::Parchment);
+        float icon = std::min(card.width - 36.0f, card.height - 50.0f);
+        Rectangle iconBox{card.x + (card.width - icon) * 0.5f, card.y + 36.0f, icon, icon};
+        DrawBuildingPreviewIcon(scene, option.buildingType, iconBox,
+                                locked ? Color{110, 92, 70, 145} : WHITE);
 
         if (CheckCollisionPointRec(mouse, card))
             hoveredOption = static_cast<int>(i);
@@ -579,7 +713,9 @@ void BuildPanelWidget::Update(double dt)
     scrollOffset = std::clamp(scrollOffset, 0.0f, maxScrollOffset);
     if (maxScrollOffset > 0.0f)
     {
-        Rectangle track{bounds.x + bounds.width - margin - scrollbarW * 0.5f, viewportTop, scrollbarW, viewportBottom - viewportTop};
+        Rectangle track{scrollBox.x + scrollBox.width - 10.0f - scrollbarW,
+                        viewportTop, scrollbarW,
+                        viewportBottom - viewportTop};
         DrawRectangleRounded(track, 0.5f, 4, UiTheme::Inset);
         float thumbH = std::max(28.0f, track.height * (track.height / (track.height + maxScrollOffset)));
         float thumbY = track.y + (track.height - thumbH) * (scrollOffset / maxScrollOffset);
@@ -628,20 +764,25 @@ int BuildPanelWidget::GetOptionAt(Vec2i point) const
     if (options == nullptr)
         return -1;
 
-    int margin = std::max(7, size.x / 64);
-    int titleBar = std::max(30, size.y / 17);
+    int margin = std::max(9, size.x / 64);
+    int titleBar = std::max(58, size.y / 14);
     float viewportTop = pos.y + titleBar + margin;
-    float viewportBottom = pos.y + size.y - margin;
+    const float bottomPadding = std::max(22.0f, margin * 2.0f);
+    float viewportBottom = pos.y + size.y - bottomPadding;
     if (point.y < viewportTop || point.y > viewportBottom)
         return -1;
     int columns = 3;
     float gap = 7.0f;
     float scrollbarW = 8.0f;
-    float contentW = size.x - margin * 2 - scrollbarW - 4.0f;
+    const float scrollBoxInset = static_cast<float>(margin) + 12.0f;
+    const float gridLeftInset = 10.0f;
+    const float gridRightInset = scrollbarW + 14.0f;
+    const float gridX = static_cast<float>(pos.x) + scrollBoxInset + gridLeftInset;
+    float contentW = static_cast<float>(size.x) - scrollBoxInset * 2.0f - gridLeftInset - gridRightInset;
     float cardW = (contentW - gap * (columns - 1)) / columns;
-    float cardH = std::max(74.0f, cardW * 0.78f);
-    float headerH = 22.0f;
-    float categoryGap = 3.0f;
+    float cardH = std::max(108.0f, cardW * 0.92f);
+    float headerH = 32.0f;
+    float categoryGap = 5.0f;
     float startY = pos.y + titleBar + margin - scrollOffset;
 
     std::string currentCategory;
@@ -660,7 +801,7 @@ int BuildPanelWidget::GetOptionAt(Vec2i point) const
         }
 
         Rectangle card{
-            static_cast<float>(pos.x + margin) + col * (cardW + gap),
+            gridX + col * (cardW + gap),
             yCursor,
             cardW,
             cardH};
@@ -735,8 +876,8 @@ BuildGuiSystem::BuildGuiSystem(GuiController* con)
 
     WireCommonSystemActions(*this, cameraMovement);
 
-    buildPanel.ChangePositionAnchor({0.69f, 0.08f});
-    buildPanel.ChangeSizeAnchor({0.28f, 0.82f});
+    buildPanel.ChangePositionAnchor({0.61f, 0.08f});
+    buildPanel.ChangeSizeAnchor({0.38f, 0.82f});
     buildPanel.scene = scene;
     buildPanel.options = &options;
     buildPanel.title = "Build";

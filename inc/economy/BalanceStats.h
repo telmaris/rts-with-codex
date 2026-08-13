@@ -51,7 +51,13 @@ enum class BalanceStat
 
     // Time between reserving one resource at a source building and releasing
     // it onto the first road tile. Appended to preserve existing enum values.
-    TransportDispatchDelay
+    TransportDispatchDelay,
+
+    // Relative cadence at which a Village consumes one upkeep package.
+    // Resolve with a ResourceType context so FOOD_PROVISIONS,
+    // HOUSEHOLD_GOODS and URBAN_GOODS can be balanced independently.
+    // Lower is better: effective interval = base interval / consumption.
+    VillageSupplyConsumption
 };
 
 #endif

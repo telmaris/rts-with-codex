@@ -146,6 +146,28 @@ end
     EXPECT_TRUE(ContainsTag(definitions.front(), "logistics"));
 }
 
+TEST(TechnologyTests, ParsesVillageSupplyConsumptionWithIndependentResourceFilter)
+{
+    const auto path = WriteTechnologyFixture(R"DATA(
+technology food_conservation
+    name "Food Conservation"
+    modifier VillageSupplyConsumption multiplier 0.9 building Village resource FOOD_PROVISIONS
+end
+)DATA");
+
+    const auto definitions = LoadTechnologyDefinitionsFromFile(path.string());
+    ASSERT_EQ(definitions.size(), 1u);
+    ASSERT_EQ(definitions.front().modifiers.size(), 1u);
+
+    const auto& modifier = definitions.front().modifiers.front();
+    EXPECT_EQ(modifier.stat, BalanceStat::VillageSupplyConsumption);
+    EXPECT_DOUBLE_EQ(modifier.multiplier, 0.9);
+    EXPECT_EQ(modifier.buildingType, BuildingType::Village);
+    EXPECT_EQ(modifier.resourceType, ResourceType::FOOD_PROVISIONS);
+    EXPECT_TRUE(ContainsTag(definitions.front(), "manpower"));
+    EXPECT_TRUE(ContainsTag(definitions.front(), "logistics"));
+}
+
 TEST(TechnologyTests, ParsesTowerDefenseCombatStatsAndUnitFilter)
 {
     const auto path = WriteTechnologyFixture(R"DATA(

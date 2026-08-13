@@ -25,6 +25,8 @@
 
 namespace
 {
+    constexpr float NodeDetailZoomThreshold = 0.70f;
+
     bool HasNodeTag(const ResearchNodeView& node, const std::string& tag)
     {
         return tag.empty() || std::find(node.tags.begin(), node.tags.end(), tag) != node.tags.end();
@@ -187,7 +189,11 @@ namespace
         if (modifier.buildingType.has_value())
             stream << " for {building}" << BalanceBuildingLabel(modifier.buildingType.value()) << "{/building}";
         if (modifier.resourceType.has_value())
-            stream << " producing {resource}" << ResourceDisplayName(modifier.resourceType.value()) << "{/resource}";
+        {
+            stream << (modifier.stat == BalanceStat::VillageSupplyConsumption
+                ? " for {resource}" : " producing {resource}")
+                << ResourceDisplayName(modifier.resourceType.value()) << "{/resource}";
+        }
         // T5 (docs/post_pivot_audit_2026-07-12.md): unit-scoped and
         // category-scoped modifiers previously showed no hint they were
         // filtered at all — e.g. a "+1 HP for archers" tech looked identical
@@ -320,18 +326,16 @@ void ResearchTreePanelWidget::Update(double dt)
 
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    if (!UiControlIcons::DrawPixelHudFrame(bounds))
     {
         DrawRectangleRounded(bounds, 0.025f, 8, UiTheme::Panel);
         DrawRectangleRoundedLines(bounds, 0.025f, 8, 1.0f, UiTheme::Iron);
     }
     Rectangle title{bounds.x, bounds.y, bounds.width, 52.0f};
-    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    const float frameInset = UiControlIcons::PixelHudFrameInset(bounds);
     Rectangle titleVisual{title.x + frameInset + 2.0f, title.y + 4.0f,
                           std::max(0.0f, title.width - (frameInset + 2.0f) * 2.0f),
                           title.height - 8.0f};
-    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
-        DrawRectangleRounded(titleVisual, 0.025f, 8, UiTheme::Surface);
     DrawCloseButton(bounds);
 
     bool debugMode = scene->game->GetTileMap().params.debugMode;
@@ -445,9 +449,9 @@ void ResearchTreePanelWidget::Update(double dt)
             maxColumns = std::max(maxColumns, rowNodes.size());
 
         float laneWidth = std::max(680.0f * zoom, maxColumns * nodeW + (maxColumns - 1) * colGap + 360.0f * zoom);
-        Rectangle laneHeader{laneX, treeArea.y + panOffset.y - scrollOffset, laneWidth, laneHeaderH};
+        Rectangle laneHeader{laneX, treeArea.y + panOffset.y - scrollOffset,
+                             laneWidth, laneHeaderH};
         laneHeaders.push_back({lane, laneHeader});
-
         for (auto& [depth, rowNodes] : rows)
         {
             std::stable_sort(rowNodes.begin(), rowNodes.end(), [&](const ResearchNodeView* a, const ResearchNodeView* b)
@@ -514,6 +518,7 @@ void ResearchTreePanelWidget::Update(double dt)
     scrollOffset = std::clamp(scrollOffset, 0.0f, maxScrollOffset);
 
     const ResearchNodeView* hovered = nullptr;
+    const bool showNodeDetails = zoom >= NodeDetailZoomThreshold;
     for (const auto& node : nodes)
     {
         auto it = nodeRects.find(node.id);
@@ -537,14 +542,6 @@ void ResearchTreePanelWidget::Update(double dt)
 
     // ── Draw: lane headers, prerequisite edges, nodes ─────────────────────────
     BeginScissorMode(static_cast<int>(treeArea.x), static_cast<int>(treeArea.y), static_cast<int>(treeArea.width), static_cast<int>(treeArea.height));
-    for (const auto& [lane, header] : laneHeaders)
-    {
-        int laneFont = std::max(16, static_cast<int>(21 * zoom));
-        DrawRectangleRounded(header, 0.12f, 8, UiTheme::Surface);
-        DrawRectangleRoundedLines(header, 0.12f, 8, 1.0f, UiTheme::Iron);
-        UiText::Draw(lane, header.x + 10.0f, header.y + 3.0f, laneFont, UiTheme::Parchment);
-    }
-
     for (const auto& node : nodes)
     {
         auto child = nodeRects[node.id];
@@ -588,6 +585,17 @@ void ResearchTreePanelWidget::Update(double dt)
                    : node.active ? Color{214, 178, 84, 255}
                    : node.available ? Color{176, 132, 68, 255}
                    : UiTheme::Iron;
+        if (!showNodeDetails)
+        {
+            // At overview zoom, state is communicated by the node itself:
+            // green researched, warm amber available, dark unavailable.
+            fill = node.researched ? Color{56, 96, 62, 245}
+                 : (node.active || node.available) ? Color{104, 82, 38, 240}
+                 : Color{27, 31, 38, 225};
+            line = node.researched ? Color{146, 205, 119, 255}
+                 : (node.active || node.available) ? Color{220, 175, 78, 255}
+                 : Color{70, 78, 88, 220};
+        }
         if (!selectedTagFilter.empty() && !tagMatched)
         {
             fill.a = 110;
@@ -597,18 +605,21 @@ void ResearchTreePanelWidget::Update(double dt)
                      : highlightedPath.contains(node.id) ? Color{232, 202, 104, 255}
                      : hover ? UiTheme::AmberBright
                      : line;
-        UiControlIcons::DrawRoyalButtonFrame(rect, hover);
+        UiControlIcons::DrawPixelHudWidgetFrame(rect, hover);
         Rectangle inner{rect.x + 8.0f, rect.y + 8.0f, rect.width - 16.0f, rect.height - 16.0f};
         DrawRectangleRounded(inner, 0.07f, 8, Fade(fill, 0.78f));
         DrawRectangleRoundedLines(rect, 0.08f, 8, 1.2f, border);
         DrawRectangleRounded(Rectangle{rect.x + 8.0f, rect.y + 8.0f, 3.0f, rect.height - 16.0f}, 0.5f, 4, line);
-        DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 14.0f * zoom, rect.y + 10.0f * zoom, rect.width - 26.0f * zoom, 46.0f * zoom}, std::max(16, static_cast<int>(22 * zoom)), UiTheme::Parchment, 2);
-        UiText::DrawFit(node.stateText, Rectangle{rect.x + 14.0f * zoom, rect.y + 58.0f * zoom, rect.width - 26.0f * zoom, 20.0f * zoom}, std::max(12, static_cast<int>(16 * zoom)),
-            node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{160, 142, 112, 255});
+        if (showNodeDetails)
+        {
+            DrawUiTextWrappedCentered(node.name, Rectangle{rect.x + 14.0f * zoom, rect.y + 10.0f * zoom, rect.width - 26.0f * zoom, 46.0f * zoom}, std::max(16, static_cast<int>(22 * zoom)), UiTheme::Parchment, 2);
+            UiText::DrawFit(node.stateText, Rectangle{rect.x + 14.0f * zoom, rect.y + 58.0f * zoom, rect.width - 26.0f * zoom, 20.0f * zoom}, std::max(12, static_cast<int>(16 * zoom)),
+                node.researched ? Color{162, 214, 122, 255} : node.available ? UiTheme::AmberBright : Color{160, 142, 112, 255});
 
-        float timeTextY = 82.0f;
-        std::string timeText = node.active ? FormatDuration(node.remainingTime) + " left" : FormatDuration(node.researchTime);
-        UiText::DrawFit(timeText, Rectangle{rect.x + 14.0f * zoom, rect.y + timeTextY * zoom, rect.width - 28.0f * zoom, 18.0f * zoom}, std::max(11, static_cast<int>(16 * zoom)), UiTheme::ParchmentDim);
+            float timeTextY = 82.0f;
+            std::string timeText = node.active ? FormatDuration(node.remainingTime) + " left" : FormatDuration(node.researchTime);
+            UiText::DrawFit(timeText, Rectangle{rect.x + 14.0f * zoom, rect.y + timeTextY * zoom, rect.width - 28.0f * zoom, 18.0f * zoom}, std::max(11, static_cast<int>(16 * zoom)), UiTheme::ParchmentDim);
+        }
         if (node.active || node.researched)
         {
             Rectangle progress{rect.x + 10.0f, rect.y + rect.height - 9.0f, rect.width - 20.0f, 4.0f};
@@ -628,6 +639,24 @@ void ResearchTreePanelWidget::Update(double dt)
                 scene->SubmitLocalCommand(GameCommand::StartTechnologyResearch(scene->game->GetLocalPlayerId(), node.id, university->positionId));
             }
         }
+    }
+
+    // Category separators retain the full width and world position of their
+    // lane. Only the caption font is screen-space-stable, so zooming never
+    // makes the name tiny while the separator still follows its category.
+    for (const auto& [lane, header] : laneHeaders)
+    {
+        constexpr int laneFont = 23;
+        const float separatorHeight = std::clamp(8.0f * zoom, 5.0f, 9.0f);
+        Rectangle separator{header.x, header.y + std::max(25.0f, header.height),
+                            header.width, separatorHeight};
+        UiControlIcons::DrawPixelHudWidgetFrame(separator);
+
+        const int laneWidth = UiText::Measure(lane, laneFont);
+        UiText::Draw(lane,
+                     header.x + (header.width - laneWidth) * 0.5f,
+                     separator.y - laneFont - 4.0f,
+                     laneFont, UiTheme::Parchment);
     }
     EndScissorMode();
 
@@ -661,7 +690,7 @@ void ResearchTreePanelWidget::Update(double dt)
         }
         for (const auto& modifier : hovered->modifiers)
             lines.push_back(FormatModifierForFocusTooltip(modifier));
-        Tooltip::Draw(hovered->name, lines, 460.0f);
+        Tooltip::Draw(hovered->name, lines, 460.0f, {}, 30);
     }
 }
 

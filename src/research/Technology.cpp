@@ -34,6 +34,7 @@ namespace
         if (value == "RoadSpeed") return BalanceStat::RoadSpeed;
         if (value == "ManpowerRate") return BalanceStat::ManpowerRate;
         if (value == "PopulationCap") return BalanceStat::PopulationCap;
+        if (value == "VillageSupplyConsumption") return BalanceStat::VillageSupplyConsumption;
         if (value == "BuilderAmount") return BalanceStat::BuilderAmount;
         // TD(etap-9): tower-defense combat stats — see BalanceStats.h.
         if (value == "UnitHp") return BalanceStat::UnitHp;
@@ -177,6 +178,10 @@ namespace
                 case BalanceStat::ManpowerRate:
                 case BalanceStat::PopulationCap:
                     AddTag(definition.tags, "manpower");
+                    break;
+                case BalanceStat::VillageSupplyConsumption:
+                    AddTag(definition.tags, "manpower");
+                    AddTag(definition.tags, "logistics");
                     break;
             }
             if (modifier.buildingType.has_value())

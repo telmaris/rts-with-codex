@@ -77,6 +77,9 @@ public:
     virtual int GetPingMs() const { return -1; }
     virtual bool IsReadyForGameplay() const { return true; }
     virtual std::recursive_mutex* GetWorldMutex() { return nullptr; }
+    // Single-player sessions stop advancing while their gameplay scene is inactive.
+    // Network sessions must keep running so remote peers are never stalled by a local menu.
+    virtual bool ShouldPauseWhenSceneInactive() const { return false; }
     // Suspends deterministic simulation ticks without accumulating catch-up time.
     // Sessions that cannot be paused (for example a remote client) may ignore it.
     virtual void SetPaused(bool paused) { (void)paused; }
@@ -127,6 +130,7 @@ public:
     int GetPingMs() const override;
     bool IsReadyForGameplay() const override;
     std::recursive_mutex* GetWorldMutex() override;
+    bool ShouldPauseWhenSceneInactive() const override;
     void SetPaused(bool paused) override;
     bool IsPaused() const override;
 

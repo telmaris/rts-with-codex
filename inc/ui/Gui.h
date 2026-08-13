@@ -510,6 +510,9 @@ class GuiPanel : public UiWidget
         static void LoadResourceAtlas(const std::string& path, Vec2i iconSize = {64, 64});
         // Loads shared UI font used by custom panel text and raygui controls.
         static void LoadUiFont(const std::string& path);
+        // Loads the dense UI font and makes it the default for controls and
+        // non-heading text. Display titles continue to select EB Garamond.
+        static void LoadUiPlainFont(const std::string& path, int baseSize = 32);
         // Draws one resource icon using the shared atlas or a color fallback.
         static void DrawResourceIcon(ResourceType type, Rectangle dest);
         // Scrolls generic panel content when a panel section overflows.

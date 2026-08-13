@@ -13,6 +13,8 @@ class Scene : public EventClient
     virtual void Update(double dt) = 0;
     // Called by GameWindow each time this scene becomes the active scene.
     virtual void OnActivated() {}
+    // Called immediately before GameWindow switches away from this scene.
+    virtual void OnDeactivated() {}
 
     std::string   name;
     std::string   previousSceneName;
@@ -63,6 +65,8 @@ class GameWindow : public EventBroker
     // Activates a registered scene and records where navigation came from.
     inline void ChangeScene(std::string name, std::string previousSceneName)
     {
+        if (activeScene != nullptr)
+            activeScene->OnDeactivated();
         activeScene = scenes[name];
         activeScene->previousSceneName = previousSceneName;
         // Central input-gate reset (see IGuiHandler): every activated scene

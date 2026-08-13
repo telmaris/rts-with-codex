@@ -95,32 +95,56 @@ TEST(EconomyExpansionTests, ClaySandAndFibreHaveMultipleUsefulOutputs)
     EXPECT_TRUE(recipeConsumes(paperworks, ResourceType::FIBRE));
 }
 
-TEST(EconomyExpansionTests, SettlementTiersUseTheAgreedCapsAndSupplyPackages)
+TEST(EconomyExpansionTests, SettlementUpgradesUseConfiguredStatsAndSupplyPackages)
 {
     Village village{1};
+    const auto& definition = GetBuildingDefinition(BuildingType::Village);
+    auto findLevel = [&](int level) -> const BuildingUpgradeLevelDefinition&
+    {
+        auto it = std::find_if(definition.upgradeLevels.begin(), definition.upgradeLevels.end(),
+            [level](const BuildingUpgradeLevelDefinition& value) { return value.level == level; });
+        EXPECT_NE(it, definition.upgradeLevels.end());
+        return *it;
+    };
+
     EXPECT_EQ(village.upgrade.maxLevel, 3);
-    EXPECT_EQ(village.population.GetActivePopulationCap(), 140);
+    EXPECT_EQ(village.population.GetActivePopulationCap(), definition.village.populationCap);
+    EXPECT_DOUBLE_EQ(village.population.manpowerRate.GetBase(), definition.village.manpowerRate);
     EXPECT_TRUE(village.population.RequiresSupply(ResourceType::FOOD_PROVISIONS));
     EXPECT_FALSE(village.population.RequiresSupply(ResourceType::HOUSEHOLD_GOODS));
     EXPECT_EQ(village.population.foodBuffer.bufferSize, 2);
 
-    village.population.SetSettlementLevel(2);
-    EXPECT_EQ(village.population.GetActivePopulationCap(), 350);
+    const auto& townDefinition = findLevel(2);
+    ASSERT_TRUE(townDefinition.populationCap.has_value());
+    ASSERT_TRUE(townDefinition.manpowerRate.has_value());
+    village.upgrade.isUpgrading = true;
+    village.upgrade.upgradeRemaining = 0.1;
+    village.Update(0.2);
+    EXPECT_EQ(village.upgrade.level, 2);
+    EXPECT_EQ(village.population.GetActivePopulationCap(), *townDefinition.populationCap);
+    EXPECT_DOUBLE_EQ(village.population.manpowerRate.GetBase(), *townDefinition.manpowerRate);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS), 3);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::HOUSEHOLD_GOODS), 1);
     EXPECT_EQ(village.population.foodBuffer.bufferSize, 4);
 
-    village.population.SetSettlementLevel(3);
-    EXPECT_EQ(village.population.GetActivePopulationCap(), 1200);
+    const auto& cityDefinition = findLevel(3);
+    ASSERT_TRUE(cityDefinition.populationCap.has_value());
+    ASSERT_TRUE(cityDefinition.manpowerRate.has_value());
+    village.upgrade.isUpgrading = true;
+    village.upgrade.upgradeRemaining = 0.1;
+    village.Update(0.2);
+    EXPECT_EQ(village.upgrade.level, 3);
+    EXPECT_EQ(village.population.GetActivePopulationCap(), *cityDefinition.populationCap);
+    EXPECT_DOUBLE_EQ(village.population.manpowerRate.GetBase(), *cityDefinition.manpowerRate);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS), 10);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::HOUSEHOLD_GOODS), 3);
     EXPECT_EQ(village.population.GetSupplyUpkeep(ResourceType::URBAN_GOODS), 1);
     EXPECT_EQ(village.population.foodBuffer.bufferSize, 11);
 
     village.population.urbanSupplyLevel = 0.0;
-    EXPECT_EQ(village.population.GetActivePopulationCap(), 350);
+    EXPECT_EQ(village.population.GetActivePopulationCap(), *townDefinition.populationCap);
     village.population.householdSupplyLevel = 0.0;
-    EXPECT_EQ(village.population.GetActivePopulationCap(), 140);
+    EXPECT_EQ(village.population.GetActivePopulationCap(), definition.village.populationCap);
 }
 
 TEST(EconomyExpansionTests, CityTierAndLocalSupplyBuffersSurviveSaveLoad)
@@ -145,6 +169,9 @@ TEST(EconomyExpansionTests, CityTierAndLocalSupplyBuffersSurviveSaveLoad)
     village->population.foodSupplyLevel = 0.8;
     village->population.householdSupplyLevel = 0.7;
     village->population.urbanSupplyLevel = 0.6;
+    village->population.upkeepTimer = 8.5;
+    village->population.householdUpkeepTimer = 17.25;
+    village->population.urbanUpkeepTimer = 41.75;
     village->population.foodBuffer.SetStoredAmount(5);
     village->population.householdGoodsBuffer.SetStoredAmount(2);
     village->population.urbanGoodsBuffer.SetStoredAmount(1);
@@ -168,6 +195,18 @@ TEST(EconomyExpansionTests, CityTierAndLocalSupplyBuffersSurviveSaveLoad)
 
     EXPECT_EQ(loadedVillage->upgrade.level, 3);
     EXPECT_EQ(loadedVillage->population.settlementLevel, 3);
+    const auto& villageDefinition = GetBuildingDefinition(BuildingType::Village);
+    auto cityDefinition = std::find_if(
+        villageDefinition.upgradeLevels.begin(), villageDefinition.upgradeLevels.end(),
+        [](const BuildingUpgradeLevelDefinition& value) { return value.level == 3; });
+    ASSERT_NE(cityDefinition, villageDefinition.upgradeLevels.end());
+    ASSERT_TRUE(cityDefinition->populationCap.has_value());
+    ASSERT_TRUE(cityDefinition->manpowerRate.has_value());
+    EXPECT_EQ(loadedVillage->population.populationCap.GetBase(), *cityDefinition->populationCap);
+    EXPECT_DOUBLE_EQ(loadedVillage->population.manpowerRate.GetBase(), *cityDefinition->manpowerRate);
+    EXPECT_DOUBLE_EQ(loadedVillage->population.upkeepTimer, 8.5);
+    EXPECT_DOUBLE_EQ(loadedVillage->population.householdUpkeepTimer, 17.25);
+    EXPECT_DOUBLE_EQ(loadedVillage->population.urbanUpkeepTimer, 41.75);
     EXPECT_DOUBLE_EQ(loadedVillage->population.foodSupplyLevel, 0.8);
     EXPECT_DOUBLE_EQ(loadedVillage->population.householdSupplyLevel, 0.7);
     EXPECT_DOUBLE_EQ(loadedVillage->population.urbanSupplyLevel, 0.6);

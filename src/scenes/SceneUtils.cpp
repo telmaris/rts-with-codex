@@ -45,10 +45,10 @@ bool SaveExists(const std::string& saveName)
     return std::filesystem::exists(std::filesystem::path("saves") / (SanitizeSaveName(saveName) + ".save"));
 }
 
-void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string)>& onSavePressed)
+void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string)>& onSavePressed,
+                         const std::filesystem::path& root)
 {
     namespace fs = std::filesystem;
-    fs::path root = "./saves";
     saveButtons.ClearChildren();
 
     if (!fs::exists(root))
@@ -62,10 +62,11 @@ void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string
         if (!entry.is_regular_file() || entry.path().extension() != ".save")
             continue;
 
-        std::string saveName = ReadSaveDisplayName(entry.path());
+        const std::string displayName = ReadSaveDisplayName(entry.path());
+        const std::string saveName = entry.path().stem().string();
 
         auto button = std::make_shared<UiButton>();
-        button->ChangeText(saveName);
+        button->ChangeText(displayName);
         button->func = [onSavePressed, saveName]()
         {
             onSavePressed(saveName);

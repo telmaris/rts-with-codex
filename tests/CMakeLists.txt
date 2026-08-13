@@ -36,6 +36,7 @@ add_executable(rts_tests
     RendererAnimationTests.cpp
     ResourceBufferTests.cpp
     RoadNetworkTests.cpp
+    SceneUtilsTests.cpp
     GameSessionPauseTests.cpp
     SimulationStateTests.cpp
     SnapshotTransferTests.cpp

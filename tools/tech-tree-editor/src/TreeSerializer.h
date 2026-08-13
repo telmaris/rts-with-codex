@@ -44,6 +44,14 @@ std::string SerializeTree(const std::vector<TechnologyDefinition>& definitions);
 // Formats one modifier as its `modifier ...` line, without the leading indent.
 std::string SerializeModifier(const BalanceModifier& modifier);
 
+// Conversion used by the inspector's Effect (%) field. Time-based stats are
+// displayed as rates even though .rtsdata and the simulation store duration
+// multipliers: a -20% production-speed effect therefore persists as 1.25x
+// ProductionCycleTime. Kept beside serialization so the headless self-test can
+// verify the exact editor-to-game representation.
+double ModifierEffectPercent(BalanceStat stat, double multiplier);
+double ModifierMultiplierFromEffectPercent(BalanceStat stat, double effectPercent);
+
 struct SaveResult
 {
     bool ok{false};

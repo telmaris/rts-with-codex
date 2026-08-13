@@ -91,8 +91,14 @@ namespace FogOfWar
     // Keep gameplay distances expressed in tiles. TILE_SIZE is a world-space
     // presentation constant and changed from 32 to 64 px; hard-coded pixel
     // radii silently halved the visible area after that migration.
-    constexpr float HeadquartersRevealRadiusTiles = 192.0f;
-    constexpr float StandardRevealRadiusTiles = 20.0f;
+    // Keep renderer visibility and gameplay visibility on the same radii.
+    // These are roughly 54% of the original 192/20-tile values: shrinking only the
+    // visual mask would let the player issue actions in apparently hidden
+    // terrain, while shrinking only gameplay would do the opposite.
+    // A further ~10% trim from the last pass: enough to make scouting and
+    // expansion matter, while retaining a comfortable starting discovery area.
+    constexpr float HeadquartersRevealRadiusTiles = 104.0f;
+    constexpr float StandardRevealRadiusTiles = 10.8f;
     constexpr float HeadquartersRevealRadiusWorld = HeadquartersRevealRadiusTiles * TILE_SIZE;
     constexpr float UnitRevealRadiusWorld = StandardRevealRadiusTiles * TILE_SIZE;
 
@@ -101,7 +107,7 @@ namespace FogOfWar
         if (type == BuildingType::Headquarters)
             return HeadquartersRevealRadiusWorld;
 
-        // A standard one-tile building gets the same 20-tile minimum as a
+        // A standard one-tile building gets the same 10.8-tile minimum as a
         // unit. Larger footprints extend the source radius by their excess
         // footprint so the whole building remains inside its reveal circle.
         const int largestFootprint = std::max(1, std::max(footprint.x, footprint.y));

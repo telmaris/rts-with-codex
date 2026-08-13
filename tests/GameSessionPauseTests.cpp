@@ -30,3 +30,15 @@ TEST(GameSessionPauseTests, HostStopsTicksUntilResumed)
 
     EXPECT_GT(readTick(), pausedTick);
 }
+
+TEST(GameSessionPauseTests, OnlySinglePlayerHostPausesWhenGameplaySceneIsInactive)
+{
+    GameWorld singlePlayerWorld;
+    HostSession singlePlayerSession(singlePlayerWorld);
+    EXPECT_TRUE(singlePlayerSession.ShouldPauseWhenSceneInactive());
+
+    GameWorld multiplayerWorld;
+    auto transport = std::make_shared<LocalhostGameTransport>();
+    HostSession multiplayerSession(multiplayerWorld, transport);
+    EXPECT_FALSE(multiplayerSession.ShouldPauseWhenSceneInactive());
+}

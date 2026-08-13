@@ -4,40 +4,49 @@
 OptionsScene::OptionsScene()
 {
     backButton.ChangeText("Back");
-    backButton.ChangePositionAnchor(Vec2f{0.5f, 0.7f});
+    backButton.ChangePositionAnchor(Vec2f{0.40f, 0.79f});
+    backButton.ChangeSizeAnchor(Vec2f{0.20f, 0.075f});
     backButton.func = std::bind(&OptionsScene::OnBackPressed, this);
 
     fullScreenCheckBox.ChangeText("Fullscreen");
-    fullScreenCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.17f});
+    fullScreenCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.105f});
+    fullScreenCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.050f});
 
     masterVolume.ChangeText("Master Volume");
-    masterVolume.ChangePositionAnchor(Vec2f{0.4f, 0.24f});
+    masterVolume.ChangePositionAnchor(Vec2f{0.25f, 0.180f});
+    masterVolume.ChangeSizeAnchor(Vec2f{0.50f, 0.050f});
 
     musicVolume.ChangeText("Music Volume");
-    musicVolume.ChangePositionAnchor(Vec2f{0.4f, 0.31f});
+    musicVolume.ChangePositionAnchor(Vec2f{0.25f, 0.245f});
+    musicVolume.ChangeSizeAnchor(Vec2f{0.50f, 0.050f});
 
     sfxVolume.ChangeText("SFX Volume");
-    sfxVolume.ChangePositionAnchor(Vec2f{0.4f, 0.38f});
+    sfxVolume.ChangePositionAnchor(Vec2f{0.25f, 0.310f});
+    sfxVolume.ChangeSizeAnchor(Vec2f{0.50f, 0.050f});
 
     fogOfWarCheckBox.ChangeText("Fog of War (pilot)");
-    fogOfWarCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.45f});
+    fogOfWarCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.395f});
+    fogOfWarCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 
     colorGradingCheckBox.ChangeText("World color grading");
-    colorGradingCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.52f});
+    colorGradingCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.445f});
+    colorGradingCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 
     retroFilterCheckBox.ChangeText("Retro world filter");
-    retroFilterCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.59f});
+    retroFilterCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.495f});
+    retroFilterCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 
     localLightBloomCheckBox.ChangeText("Local light bloom");
-    localLightBloomCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.66f});
+    localLightBloomCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.545f});
+    localLightBloomCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 
     rainOverlayCheckBox.ChangeText("Rain overlay (visual pilot)");
-    rainOverlayCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.73f});
+    rainOverlayCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.595f});
+    rainOverlayCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 
     logisticsOverlayCheckBox.ChangeText("Logistics load overlay (pilot)");
-    logisticsOverlayCheckBox.ChangePositionAnchor(Vec2f{0.4f, 0.80f});
-
-    backButton.ChangePositionAnchor(Vec2f{0.5f, 0.91f});
+    logisticsOverlayCheckBox.ChangePositionAnchor(Vec2f{0.25f, 0.645f});
+    logisticsOverlayCheckBox.ChangeSizeAnchor(Vec2f{0.50f, 0.048f});
 }
 
 // Advances this object's state for one frame.

@@ -9,14 +9,19 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <map>
 #include <sstream>
 
 namespace
 {
     Font uiFont{};
     bool uiFontLoaded{false};
+    std::string uiFontPath;
+    std::map<int, Font> uiFontsBySize;
     Font plainFont{};
     bool plainFontLoaded{false};
+    std::string plainFontPath;
+    std::map<int, Font> plainFontsBySize;
     UiFontRole activeRole{UiFontRole::Display};
 
     std::string StripTooltipLinePrefix(const std::string& line)
@@ -97,18 +102,40 @@ namespace
     // Resolves the face for the active role. Plain without a loaded font falls
     // through to the Display font rather than raylib's blocky built-in, unless
     // nothing is loaded at all.
-    bool ActiveFont(Font& out)
+    bool ExactSizeFont(const std::string& path, const Font& base,
+                       std::map<int, Font>& cache, int requestedSize, Font& out)
+    {
+        requestedSize = std::max(8, requestedSize);
+        if (requestedSize == base.baseSize || path.empty())
+        {
+            out = base;
+            return base.texture.id != 0;
+        }
+
+        auto cached = cache.find(requestedSize);
+        if (cached == cache.end())
+        {
+            Font font = LoadFontEx(path.c_str(), requestedSize, nullptr, 0);
+            if (font.texture.id == 0)
+                return false;
+            // The glyph atlas is rasterized at the exact requested size, so
+            // point sampling preserves its authored antialiasing without a
+            // second blurry interpolation pass.
+            SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
+            cached = cache.emplace(requestedSize, font).first;
+        }
+        out = cached->second;
+        return true;
+    }
+
+    bool ActiveFont(Font& out, int requestedSize)
     {
         if (activeRole == UiFontRole::Plain && plainFontLoaded)
-        {
-            out = plainFont;
-            return true;
-        }
+            return ExactSizeFont(plainFontPath, plainFont, plainFontsBySize,
+                                 requestedSize, out);
         if (uiFontLoaded)
-        {
-            out = uiFont;
-            return true;
-        }
+            return ExactSizeFont(uiFontPath, uiFont, uiFontsBySize,
+                                 requestedSize, out);
         return false;
     }
 
@@ -148,10 +175,14 @@ void UiTextFont::Load(const std::string& path)
     if (uiFontLoaded)
         UnloadFont(uiFont);
 
-    uiFont = LoadFont(path.c_str());
+    for (auto& [size, font] : uiFontsBySize)
+        UnloadFont(font);
+    uiFontsBySize.clear();
+    uiFontPath = path;
+    uiFont = LoadFontEx(path.c_str(), 32, nullptr, 0);
     uiFontLoaded = uiFont.texture.id != 0;
     if (uiFontLoaded)
-        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_POINT);
 }
 
 void UiTextFont::LoadPlain(const std::string& path, int baseSize)
@@ -162,12 +193,17 @@ void UiTextFont::LoadPlain(const std::string& path, int baseSize)
     if (plainFontLoaded)
         UnloadFont(plainFont);
 
+    for (auto& [size, font] : plainFontsBySize)
+        UnloadFont(font);
+    plainFontsBySize.clear();
+    plainFontPath = path;
+
     // LoadFontEx (not LoadFont) so the rasterization size can be chosen: dense
     // form text is drawn around 13-16px, and a 32px atlas downscales cleanly.
     plainFont = LoadFontEx(path.c_str(), baseSize, nullptr, 0);
     plainFontLoaded = plainFont.texture.id != 0;
     if (plainFontLoaded)
-        SetTextureFilter(plainFont.texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureFilter(plainFont.texture, TEXTURE_FILTER_POINT);
 }
 
 UiFontRole UiText::SetRole(UiFontRole role)
@@ -175,6 +211,16 @@ UiFontRole UiText::SetRole(UiFontRole role)
     UiFontRole previous = activeRole;
     activeRole = role;
     return previous;
+}
+
+UiFontRoleScope::UiFontRoleScope(UiFontRole role)
+    : previousRole(UiText::SetRole(role))
+{
+}
+
+UiFontRoleScope::~UiFontRoleScope()
+{
+    UiText::SetRole(previousRole);
 }
 
 UiFontRole UiText::GetRole()
@@ -186,9 +232,17 @@ void UiTextFont::Unload()
 {
     if (uiFontLoaded)
         UnloadFont(uiFont);
+    for (auto& [size, font] : uiFontsBySize)
+        UnloadFont(font);
+    uiFontsBySize.clear();
+    uiFontPath.clear();
     uiFontLoaded = false;
     if (plainFontLoaded)
         UnloadFont(plainFont);
+    for (auto& [size, font] : plainFontsBySize)
+        UnloadFont(font);
+    plainFontsBySize.clear();
+    plainFontPath.clear();
     plainFontLoaded = false;
 }
 
@@ -202,10 +256,15 @@ const Font& UiTextFont::Get()
     return uiFont;
 }
 
+const Font& UiTextFont::GetPlain()
+{
+    return plainFontLoaded ? plainFont : uiFont;
+}
+
 int UiText::Measure(const std::string& text, int fontSize)
 {
     Font font{};
-    if (!ActiveFont(font))
+    if (!ActiveFont(font, fontSize))
         return MeasureText(text.c_str(), fontSize);
 
     return static_cast<int>(std::ceil(MeasureTextEx(font, text.c_str(), static_cast<float>(fontSize), 0.0f).x));
@@ -214,8 +273,9 @@ int UiText::Measure(const std::string& text, int fontSize)
 void UiText::Draw(const std::string& text, float x, float y, int fontSize, Color color)
 {
     Font font{};
-    if (ActiveFont(font))
-        DrawTextEx(font, text.c_str(), {x, y}, static_cast<float>(fontSize), 0.0f, color);
+    if (ActiveFont(font, fontSize))
+        DrawTextEx(font, text.c_str(), {std::round(x), std::round(y)},
+                   static_cast<float>(fontSize), 0.0f, color);
     else
         DrawText(text.c_str(), static_cast<int>(x), static_cast<int>(y), fontSize, color);
 }
@@ -238,7 +298,11 @@ void UiText::DrawFit(const std::string& text, Rectangle bounds, int fontSize, Co
 
 void UiText::DrawTitleBar(Rectangle titleBar, const std::string& text, float closeButtonReserve)
 {
-    int titleFont = std::max(21, std::min(30, static_cast<int>(titleBar.height) / 2 + 4));
+    UiFontRoleScope displayRole{UiFontRole::Display};
+    // Panel titles are a primary navigation cue. Keep them a little larger
+    // across every panel while preserving the existing fit-to-close-button
+    // behavior for longer localized names.
+    int titleFont = std::clamp(static_cast<int>(titleBar.height * 0.68f), 28, 40);
     int titleWidth = Measure(text, titleFont);
     while (titleFont > 14 && titleWidth > titleBar.width - closeButtonReserve)
     {
@@ -440,9 +504,12 @@ void Utf8::RemoveLast(std::string& value)
 }
 
 void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lines, float preferredWidth,
-                   const std::function<void(Rectangle)>& titleIcon)
+                   const std::function<void(Rectangle)>& titleIcon, int titleFontSize)
 {
-    int titleFont = 24;
+    // Tooltips are intentionally self-contained: their descriptive body
+    // remains sans even if a caller is currently drawing a display heading.
+    UiFontRoleScope bodyRole{UiFontRole::Plain};
+    int titleFont = std::max(16, titleFontSize);
     int lineFont = 20;
     float padding = 14.0f;
     float lineH = 27.0f;
@@ -453,7 +520,10 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     const float headerHeight = std::max(static_cast<float>(titleFont), iconSize);
 
     float width = std::max(240.0f, preferredWidth);
-    width = std::max(width, std::min(520.0f, static_cast<float>(UiText::Measure(title, titleFont)) + padding * 2.0f + iconSize + iconGap));
+    {
+        UiFontRoleScope displayRole{UiFontRole::Display};
+        width = std::max(width, std::min(520.0f, static_cast<float>(UiText::Measure(title, titleFont)) + padding * 2.0f + iconSize + iconGap));
+    }
     width = std::min(width, 520.0f);
     float textWidth = width - padding * 2.0f;
 
@@ -466,13 +536,11 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
 
     std::vector<TooltipParagraph> wrappedLines;
     wrappedLines.reserve(lines.size());
-    int visualLineCount = 0;
     for (const auto& line : lines)
     {
         if (line == "{separator}")
         {
             wrappedLines.push_back(TooltipParagraph{true, {}, line});
-            visualLineCount++;
             continue;
         }
 
@@ -481,13 +549,36 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
         TooltipParagraph paragraph;
         paragraph.source = line;
         paragraph.lines = UiText::WrapWithControlIcons(displayLine, lineFont, textWidth, 24.0f);
-        visualLineCount += static_cast<int>(paragraph.lines.size());
         wrappedLines.push_back(std::move(paragraph));
     }
 
-    float height = padding * 2.0f + headerHeight + 8.0f +
-                   std::max(1, visualLineCount) * lineH +
-                   std::max(0, static_cast<int>(wrappedLines.size()) - 1) * paragraphGap;
+    // Measure separators by their actual visual footprint. Treating one as a
+    // full text line used to accumulate invisible height at the bottom of a
+    // tooltip and made flavor text sit much closer to its upper rule than its
+    // lower rule.
+    constexpr float headerRuleOffset = 6.0f;
+    constexpr float bodyTopGap = 12.0f;
+    constexpr float separatorTopGap = 5.0f;
+    constexpr float separatorBottomGap = 12.0f;
+    float bodyHeight = 0.0f;
+    for (size_t index = 0; index < wrappedLines.size(); ++index)
+    {
+        const auto& paragraph = wrappedLines[index];
+        if (paragraph.separator)
+        {
+            bodyHeight += separatorTopGap + 1.0f + separatorBottomGap;
+            continue;
+        }
+
+        bodyHeight += std::max<size_t>(1, paragraph.lines.size()) * lineH;
+        if (index + 1 < wrappedLines.size() && !wrappedLines[index + 1].separator)
+            bodyHeight += paragraphGap;
+    }
+    if (wrappedLines.empty())
+        bodyHeight = lineH;
+
+    float height = padding + headerHeight + headerRuleOffset + bodyTopGap +
+                   bodyHeight + padding;
     Vector2 mouse = GetMousePosition();
     Rectangle bounds{mouse.x + 14.0f, mouse.y + 14.0f, width, height};
     bounds.x = std::min(bounds.x, static_cast<float>(GetScreenWidth()) - bounds.width - 8.0f);
@@ -495,32 +586,39 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     bounds.x = std::max(8.0f, bounds.x);
     bounds.y = std::max(8.0f, bounds.y);
 
-    // Tooltips share the window/button chrome: steel outer bezel, recessed
-    // navy body and a small header rail. This avoids the old flat brown card.
-    DrawRectangleRounded(bounds, 0.05f, 8, UiTheme::Ink);
-    DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.4f, UiTheme::Iron);
-    Rectangle inner{bounds.x + 3.0f, bounds.y + 3.0f,
-                    bounds.width - 6.0f, bounds.height - 6.0f};
-    DrawRectangleRounded(inner, 0.045f, 8, Fade(UiTheme::Surface, 0.99f));
-    DrawRectangleRoundedLines(inner, 0.045f, 8, 1.0f, Fade(UiTheme::Bronze, 0.68f));
+    // A tooltip is a secondary overlay, so it uses the quieter companion
+    // 9-slice rather than competing with the main window frame.
+    if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+    {
+        DrawRectangleRounded(bounds, 0.05f, 8, UiTheme::Ink);
+        DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.4f, UiTheme::Iron);
+        Rectangle inner{bounds.x + 3.0f, bounds.y + 3.0f,
+                        bounds.width - 6.0f, bounds.height - 6.0f};
+        DrawRectangleRounded(inner, 0.045f, 8, Fade(UiTheme::Surface, 0.99f));
+        DrawRectangleRoundedLines(inner, 0.045f, 8, 1.0f, Fade(UiTheme::Bronze, 0.68f));
+    }
     if (titleIcon)
         titleIcon(Rectangle{bounds.x + padding, bounds.y + padding, iconSize, iconSize});
-    UiText::Draw(title, bounds.x + padding + iconSize + iconGap,
-                 bounds.y + padding + (headerHeight - titleFont) * 0.5f - 1.0f,
-                 titleFont, UiTheme::Parchment);
+    {
+        UiFontRoleScope displayRole{UiFontRole::Display};
+        UiText::Draw(title, bounds.x + padding + iconSize + iconGap,
+                     bounds.y + padding + (headerHeight - titleFont) * 0.5f - 1.0f,
+                     titleFont, UiTheme::Parchment);
+    }
 
-    float y = bounds.y + padding + headerHeight + 6.0f;
-    DrawLineEx(Vector2{bounds.x + padding, y - 4.0f},
-               Vector2{bounds.x + bounds.width - padding, y - 4.0f},
+    float headerRuleY = bounds.y + padding + headerHeight + headerRuleOffset;
+    DrawLineEx(Vector2{bounds.x + padding, headerRuleY},
+               Vector2{bounds.x + bounds.width - padding, headerRuleY},
                1.0f, Fade(UiTheme::Bronze, 0.78f));
-        for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
+    float y = headerRuleY + bodyTopGap;
+    for (size_t paragraphIndex = 0; paragraphIndex < wrappedLines.size(); paragraphIndex++)
     {
         const auto& paragraph = wrappedLines[paragraphIndex];
         if (paragraph.separator)
         {
-            y += 5.0f;
+            y += separatorTopGap;
             DrawLineEx(Vector2{bounds.x + padding, y}, Vector2{bounds.x + bounds.width - padding, y}, 1.0f, Fade(UiTheme::Bronze, 0.82f));
-            y += 8.0f;
+            y += 1.0f + separatorBottomGap;
             continue;
         }
 
@@ -542,6 +640,7 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
                 UiText::DrawWithControlIcons(line, bounds.x + padding, y, lineFont, lineColor, 24.0f);
             y += lineH;
         }
-        y += paragraphGap;
+        if (paragraphIndex + 1 < wrappedLines.size() && !wrappedLines[paragraphIndex + 1].separator)
+            y += paragraphGap;
     }
 }

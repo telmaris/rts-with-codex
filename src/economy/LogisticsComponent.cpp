@@ -37,8 +37,6 @@ bool LogisticsComponent::IsRestrictedToDirectSuppliers(ResourceType type) const
     // that by hand. So "a direct producer and no warehouse" is the signature
     // of an explicit routing decision — honour it instead of quietly topping
     // the consumer up from the depot network behind the player's back.
-    // Auto-connected consumers keep the nearest warehouse alongside their
-    // producer (TileMap::AutoConnectBuilding) and so are not restricted.
     bool hasDirect = false;
     for (auto* supplier : it->second)
     {
@@ -186,7 +184,7 @@ int LogisticsComponent::RequestResource(ResourceType type, int amount, Building&
     };
 
     // Explicitly wired suppliers first — a direct producer link is a player
-    // (or auto-connect) decision and must win over generic warehouse stock.
+    // decision and must win over generic warehouse stock.
     auto wired = suppliers.find(type);
     if (wired != suppliers.end())
         for (auto* supplier : wired->second)

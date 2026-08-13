@@ -22,7 +22,8 @@ std::string ReadSaveDisplayName(const std::filesystem::path& path);
 bool SaveExists(const std::string& saveName);
 
 // Rebuilds save-list buttons from files in the saves directory.
-void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string)>& onSavePressed);
+void PopulateSaveButtons(VBox& saveButtons, const std::function<void(std::string)>& onSavePressed,
+                         const std::filesystem::path& root = "saves");
 
 // Human-readable label for a map size preset.
 std::string MapSizeName(MapSizePreset preset);

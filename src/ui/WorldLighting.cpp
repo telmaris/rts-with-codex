@@ -88,3 +88,25 @@ WorldLightingFrame ComputeWorldLighting(std::uint64_t simulationTick, const DayN
 
     return frame;
 }
+
+float ResolveScreenLightRadius(const LightEmitterView& light, float cameraZoom,
+                               float targetScale)
+{
+    const float safeZoom = std::max(0.0f, cameraZoom);
+    const float safeScale = std::max(0.0f, targetScale);
+    const float worldRadius = light.radiusWorld * safeZoom * safeScale;
+    const float minimumRadius = light.minimumScreenRadius * safeScale;
+    return std::max({1.0f, worldRadius, minimumRadius});
+}
+
+Color EncodeAdditiveLightTint(Color color, float intensity)
+{
+    const float safeIntensity = std::max(0.0f, intensity);
+    const auto scaledChannel = [safeIntensity](unsigned char channel)
+    {
+        return static_cast<unsigned char>(std::clamp(
+            std::round(static_cast<float>(channel) * safeIntensity), 0.0f, 255.0f));
+    };
+    return {scaledChannel(color.r), scaledChannel(color.g),
+            scaledChannel(color.b), 255};
+}

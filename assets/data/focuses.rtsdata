@@ -39,7 +39,7 @@ technology standardized_timber_sizes
     description "Common beam lengths and measured planks speed up construction, but sorting them makes the mill more labor-hungry."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 6200
+    layout_order 4200
     tags production construction
     research_time 210
     requires sawmill_discipline
@@ -52,7 +52,7 @@ technology master_builders_guild
     description "Master builders coordinate several works at once, but insist that every site use proper tools and paid specialists."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 7200
+    layout_order 5200
     tags construction production manpower
     research_time 270
     requires standardized_timber_sizes
@@ -67,7 +67,7 @@ technology village_path_wardens
     category PRODUCTION
     layout_lane "Production"
     layout_order 2600
-    tags logistics production
+    tags logistics production construction
     research_time 120
     requires organized_work
     requires road_surfacing
@@ -88,46 +88,6 @@ technology scheduled_cart_convoys
     modifier RoadSpeed multiplier 0.9
 end
 
-technology milestone_posts
-    name "Milestone Posts"
-    description "Marked distances and known waypoints turn uncertain journeys into repeatable routes."
-    category PRODUCTION
-    layout_lane "Production"
-    layout_order 6600
-    tags logistics production
-    research_time 180
-    requires scheduled_cart_convoys
-    modifier TransportTime multiplier 0.833333
-end
-
-technology roadwork_levies
-    name "Roadwork Levies"
-    description "Every household owes days of labor to the roads, taking strong backs away from ordinary village life."
-    category PRODUCTION
-    layout_lane "Production"
-    layout_order 7600
-    tags logistics manpower construction production
-    research_time 210
-    requires milestone_posts
-    modifier BuildTime multiplier 0.833333 building Road
-    modifier ManpowerRate multiplier 0.9
-end
-
-technology royal_road_charter
-    name "Royal Road Charter"
-    description "The main roads are widened, surveyed, and maintained as works of state rather than local paths."
-    category PRODUCTION
-    layout_lane "Production"
-    layout_order 8600
-    tags logistics construction production manpower
-    research_time 300
-    requires roadwork_levies
-    modifier RoadSpeed multiplier 1.2 building Road
-    modifier RoadCapacity additive 3 building Road
-    modifier BuildCost multiplier 1.1 building Road
-    modifier ManpowerRate multiplier 1.1
-end
-
 technology shared_mining_claims
     name "Shared Mining Claims"
     description "Families stop guarding scattered pits and work a common face with shared timber, tools, and risk."
@@ -146,7 +106,7 @@ technology furnace_rebuilding_program
     description "Old hearths are torn out before their replacements are ready; the disruption is deliberate and painful."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 4400
+    layout_order 3400
     tags production construction
     research_time 180
     requires shared_mining_claims
@@ -158,7 +118,7 @@ technology practical_surveyors
     description "Surveyors compare slopes, seams, weights, and distances until useful measurement becomes a public craft."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 5400
+    layout_order 4400
     tags production construction
     research_time 180
     requires furnace_rebuilding_program
@@ -170,7 +130,7 @@ technology continuous_furnace_watch
     description "Three watches keep the rebuilt furnace hot without pause; output rises, but the fire consumes another worker."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 6400
+    layout_order 5400
     tags production manpower
     research_time 240
     requires practical_surveyors
@@ -183,7 +143,7 @@ technology crown_manufactories
     description "The crown concentrates contracts, standards, and oversight in privileged manufactories built for volume rather than thrift."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 7400
+    layout_order 6400
     tags production construction manpower
     research_time 300
     requires continuous_furnace_watch
@@ -396,140 +356,15 @@ technology siege_ordinance
     modifier ProductionCycleTime multiplier 0.769231 building SiegeWorkshop
 end
 
-technology common_granary_rules
-    name "Common Granary Rules"
-    description "Food is issued on fixed days and measured by household; waste falls because provisions are packed in a predictable rhythm."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 500
-    tags manpower production
-    research_time 120
-    modifier ProductionCycleTime multiplier 0.909091 building Inn
-    modifier ManpowerRate multiplier 1.1
-end
-
-technology census_of_hearths
-    name "Census of Hearths and Herds"
-    description "The council counts fires, dependants, empty beds, and breeding stock, turning rumor about the settlement into an administrative fact."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 2300
-    tags manpower production
-    research_time 150
-    requires common_granary_rules
-    modifier ManpowerRate multiplier 1.1
-    modifier PopulationCap additive 20 building Village
-    modifier ProductionOutputAmount multiplier 1.1 category Livestock
-end
-
-technology emergency_labor_levy
-    name "Emergency Labor Levy"
-    description "One more construction gang is raised immediately by pulling able hands from farms, workshops, and new households."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 3300
-    tags manpower construction
-    research_time 180
-    requires census_of_hearths
-    modifier BuilderAmount additive 1
-    modifier ManpowerRate multiplier 0.9
-end
-
-technology permanent_works_corps
-    name "Permanent Works Corps"
-    description "The improvised levy becomes a trained corps with permanent tools and recruits of its own."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 4300
-    tags manpower construction
-    research_time 240
-    requires emergency_labor_levy
-    modifier BuildTime multiplier 0.909091
-    modifier ManpowerRate multiplier 1.1
-    modifier PopulationCap additive 20 building Village
-end
-
-technology civic_obligations
-    name "Civic Obligations"
-    description "Roads, stores, and defenses become duties of citizenship; the state gains capacity, but every institution demands attendants."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 5300
-    tags manpower construction production
-    research_time 300
-    requires permanent_works_corps
-    modifier BuilderAmount additive 1
-    modifier ProductionCycleTime multiplier 0.909091 building Inn
-    modifier WorkerCapacity multiplier 1.1
-    modifier PopulationCap additive 20 building Village
-end
-
-technology traveling_scribes
-    name "Traveling Scribes"
-    description "Scribes move between settlements, copying accounts and teaching useful hands to read standard marks."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 2500
-    tags production manpower
-    research_time 120
-    requires common_granary_rules
-    modifier ProductionCycleTime multiplier 0.909091 building Paperworks
-    modifier ProductionCycleTime multiplier 0.833333 building Inkworks
-end
-
-technology academic_patronage
-    name "Academic Patronage"
+technology pursuit_of_knowledge
+    name "Pursuit of Knowledge"
     description "A permanent stipend gives scholars a room, instruments, and the freedom to pursue questions without an immediate buyer."
     category SOCIAL
     layout_lane "Social"
-    layout_order 4500
+    layout_order 3400
     tags production construction manpower
     research_time 150
-    requires apprenticeship_custom
-    modifier ProductionCycleTime multiplier 0.952381 building University
-end
-
-technology apprenticeship_custom
-    name "Apprenticeship Custom"
-    description "Masters must train successors, spreading tacit skill beyond a single household or workshop."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 3500
-    tags production manpower
-    research_time 180
-    requires traveling_scribes
-    modifier WorkerCapacity additive -1 building Smith
-    modifier WorkerCapacity additive -1 building Paperworks
-    modifier WorkerCapacity additive -1 building Tannery
-    modifier WorkerCapacity additive -1 building Tailor
-    modifier WorkerCapacity additive -1 building Weaver
-end
-
-technology public_lectures
-    name "Public Lectures"
-    description "Experiments are repeated before an audience; scrutiny improves knowledge, while every demonstration requires more assistants."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 5500
-    tags production manpower
-    research_time 240
-    requires academic_patronage
-    modifier ProductionCycleTime multiplier 0.909091 building University
-    modifier WorkerCapacity additive 2 building University
-end
-
-technology learned_societies
-    name "Learned Societies"
-    description "Correspondence, minutes, and repeatable demonstrations turn isolated discoveries into a cumulative enterprise."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 6500
-    tags production manpower
-    research_time 300
-    requires public_lectures
-    modifier ProductionCycleTime multiplier 0.833333 building University
-    modifier ProductionCycleTime multiplier 0.909091 building Paperworks
-    modifier ProductionCycleTime multiplier 0.909091 building Scriptorium
+    requires learning_gatherings
 end
 
 technology council_of_elders
@@ -537,10 +372,10 @@ technology council_of_elders
     description "No major work begins without counsel; decisions are slower, but the settlement avoids its most dangerous mistakes."
     category SOCIAL
     layout_lane "Social"
-    layout_order 2700
+    layout_order 2250
     tags construction military manpower
     research_time 120
-    requires common_granary_rules
+    requires community_gatherings
     modifier HqDefense additive 1
     modifier BuildTime multiplier 1.11111
 end
@@ -550,14 +385,13 @@ technology market_days
     description "Regular market days synchronize carts, meals, news, and exchange across the settlement."
     category SOCIAL
     layout_lane "Social"
-    layout_order 3700
+    layout_order 3250
     tags logistics production manpower
     research_time 150
     requires council_of_elders
     modifier RoadSpeed multiplier 1.1 building Road
     modifier ProductionCycleTime multiplier 0.909091 building Inn
-    modifier RoadCapacity additive 2 building Road
-    modifier ProductionCycleTime multiplier 0.909091 building UrbanWorkshop
+    modifier RoadCapacity additive 1 building Road
 end
 
 technology written_custom
@@ -565,41 +399,12 @@ technology written_custom
     description "Obligations written once need not be argued at every worksite, gate, and warehouse."
     category SOCIAL
     layout_lane "Social"
-    layout_order 4700
+    layout_order 4250
     tags construction military manpower production
     research_time 180
     requires market_days
-    modifier BuildCost multiplier 0.909091
+    modifier BuildCost multiplier 0.9
     modifier HqDefense additive 1
-    modifier ProductionCycleTime multiplier 0.909091 building HouseholdWorkshop
-end
-
-technology chartered_coinage
-    name "Chartered Coinage"
-    description "The ruler guarantees weight and stamp, drawing metal and clerks into a system trusted beyond the village."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 5700
-    tags production manpower
-    research_time 240
-    requires written_custom
-    modifier ProductionCycleTime multiplier 0.909091 building Mint
-    modifier ManpowerRate multiplier 0.9
-end
-
-technology bureaucratic_state
-    name "Bureaucratic State"
-    description "Permanent offices coordinate people and stores at unprecedented scale, but administration itself becomes a consumer of labor."
-    category SOCIAL
-    layout_lane "Social"
-    layout_order 6700
-    tags production manpower construction
-    research_time 300
-    requires chartered_coinage
-    modifier BuildTime multiplier 0.909091
-    modifier ProductionCycleTime multiplier 0.909091 building Inn
-    modifier WorkerCapacity multiplier 1.1
-    modifier PopulationCap additive 30 building Village
 end
 
 technology road_surfacing
@@ -608,7 +413,7 @@ technology road_surfacing
     category PRODUCTION
     layout_lane "Production"
     layout_order 1900
-    tags production
+    tags production logistics
     research_time 120
     modifier RoadSpeed multiplier 1.05
 end
@@ -619,7 +424,7 @@ technology waystones
     category PRODUCTION
     layout_lane "Production"
     layout_order 2800
-    tags production
+    tags production logistics
     research_time 120
     requires road_surfacing
     modifier RoadSpeed multiplier 1.05
@@ -654,7 +459,7 @@ technology timber_yard_committees
     description "Millers, carters, and builders agree on how logs are sorted and stacked, leaving fewer useful cuts to rot in the yard."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 5100
+    layout_order 4025
     tags production construction
     research_time 210
     requires sawmill_discipline
@@ -666,7 +471,7 @@ technology public_timber_contracts
     description "Open contracts give mills predictable orders for beams and planks, allowing crews to plan shifts instead of chasing uncertain buyers."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 7050
+    layout_order 5050
     tags production construction
     research_time 270
     requires standardized_timber_sizes
@@ -679,7 +484,7 @@ technology assayers_council
     description "A council of trusted assayers sets public weights and grades, so sound metal is no longer discarded or remelted over private disputes."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 7100
+    layout_order 6200
     tags production construction
     research_time 270
     requires continuous_furnace_watch
@@ -691,7 +496,7 @@ technology furnace_charters
     description "Chartered foundries receive secure fuel allotments and inspection rights in return for keeping their hearths ready for the realm's needs."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 8100
+    layout_order 7200
     tags production construction
     research_time 300
     requires assayers_council
@@ -703,7 +508,7 @@ technology smiths_apprentice_rolls
     description "Town clerks register apprentices and settle workshop claims, letting smiths train hands openly instead of guarding every technique as a family secret."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 6500
+    layout_order 5600
     tags production manpower
     research_time 240
     requires practical_surveyors
@@ -715,7 +520,7 @@ technology tool_pattern_registry
     description "Approved patterns for axes, hammers, and fittings are kept in a shared registry, reducing repeated trial work across the realm's smithies."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 7500
+    layout_order 6600
     tags production construction
     research_time 300
     requires smiths_apprentice_rolls
@@ -727,11 +532,11 @@ technology waystation_registers
     description "Keepers record departures, loads, and expected arrivals at the marked stations, so a cart is prepared before it reaches the next handover."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 4100
+    layout_order 3800
     tags logistics production
     research_time 150
     requires waystones
-    modifier TransportDispatchDelay multiplier 0.952381
+    modifier ProductionOutputAmount multiplier 0.952381
 end
 
 technology parish_road_stewards
@@ -739,7 +544,7 @@ technology parish_road_stewards
     description "Elected stewards inspect local repairs and settle claims for labor, keeping each parish's road work modest, regular, and answerable."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 4300
+    layout_order 3975
     tags logistics construction production
     research_time 150
     requires local_road_duties
@@ -752,12 +557,12 @@ technology carters_route_rolls
     description "Licensed carters keep shared route rolls, so each convoy knows its turns, loads, and receiver before its wheels leave the yard."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 5250
+    layout_order 4800
     tags logistics production
     research_time 180
     requires scheduled_cart_convoys
     requires waystation_registers
-    modifier TransportTime multiplier 0.952381
+    modifier RoadSpeed multiplier 1.05
 end
 
 technology provincial_road_board
@@ -765,7 +570,7 @@ technology provincial_road_board
     description "Parishes send delegates to a provincial board that assigns repairs across boundaries and reserves the busiest routes for common traffic."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 6900
+    layout_order 5900
     tags logistics construction production
     research_time 240
     requires milestone_posts
@@ -780,7 +585,7 @@ technology papermakers_charter
     description "The town recognizes papermakers as a public craft, securing steady water rights and timber allotments in exchange for reliable supply."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 8050
+    layout_order 6050
     tags production construction
     research_time 240
     requires public_timber_contracts
@@ -792,9 +597,157 @@ technology archive_supply_contracts
     description "Courts, temples, and town halls pool their orders for records, giving paperworks long runs instead of a stream of wasteful small batches."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 9050
+    layout_order 7050
     tags production construction
     research_time 270
     requires papermakers_charter
     modifier ProductionOutputAmount additive 1 building Paperworks resource PAPER
+end
+
+technology sanitary_ordinance
+    name "Sanitary Ordinance"
+    description "Waste left to gather in streets and alleys breeds foul air and disease. New ordinances place the cleanliness of the town under public authority."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 1900
+    tags manpower
+    research_time 60
+    modifier ManpowerRate multiplier 1.1
+end
+
+technology waste_collection
+    name "Waste Collection"
+    description "Regular collection keeps refuse from piling up in streets and marketplaces, making crowded settlements cleaner and safer."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 2900
+    tags manpower
+    research_time 60
+    requires sanitary_ordinance
+    modifier ManpowerRate multiplier 1.1
+end
+
+technology public_wells
+    name "Public Wells"
+    description "Publicly maintained wells provide townsfolk with reliable access to clean water, improving both daily life and public health."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 2750
+    tags manpower production
+    research_time 60
+    requires sanitary_ordinance
+    requires farmland_expansion
+    modifier ProductionCycleTime multiplier 0.869565 building Well
+    modifier ManpowerRate multiplier 1.05
+end
+
+technology farmland_expansion
+    name "Farmland Expansion"
+    description "New fields are cleared and fertile lands brought under the plough, providing the growing settlement with a steadier supply of grain."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 1600
+    tags manpower production
+    research_time 60
+    modifier ProductionCycleTime multiplier 0.909091 building WheatFarm
+end
+
+technology community_gatherings
+    name "Community Gatherings"
+    description "Shared gatherings strengthen the bonds between townsfolk, giving customs, beliefs and traditions a place to take root."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 1100
+    tags manpower
+    research_time 60
+    modifier PopulationCap multiplier 1.1
+end
+
+technology learning_gatherings
+    name "Learning Gatherings"
+    description "Where people gather, ideas travel with them. Craftsmen, merchants and travelers share knowledge that would otherwise remain confined to their trades and homelands."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 2400
+    tags manpower construction
+    research_time 60
+    requires community_gatherings
+    requires farmland_expansion
+    modifier BuildTime multiplier 0.909091
+end
+
+technology worship_figures
+    name "Worship Figures"
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 2100
+    tags manpower
+    research_time 60
+    requires community_gatherings
+    modifier ManpowerRate multiplier 1.1
+end
+
+technology new_focus_1
+    name "New Node"
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 3100
+    tags manpower
+    research_time 60
+    requires worship_figures
+end
+
+technology new_focus_2
+    name "New Node"
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4400
+    tags manpower
+    research_time 60
+    requires pursuit_of_knowledge
+end
+
+technology milling_rights
+    name "Milling Rights"
+    description "Granting the right to establish and operate local mills encourages grain to be processed closer to where it is grown, securing a steady supply of flour."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 2600
+    tags manpower production
+    research_time 60
+    requires farmland_expansion
+    modifier ProductionCycleTime multiplier 0.833333 building Windmill
+end
+
+technology grain_reserves
+    name "Grain Reserves"
+    description "A portion of every harvest is kept in reserve, protecting the settlement against poor yields and unexpected shortages."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 3600
+    tags manpower production
+    research_time 60
+    requires milling_rights
+    modifier ProductionCycleTime multiplier 1.05263 building WheatFarm
+    modifier ProductionCycleTime multiplier 1.05263157895 building Windmill
+end
+
+technology new_focus_3
+    name "New Node"
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 3750
+    tags manpower
+    research_time 60
+    requires public_wells
+end
+
+technology bathhouses
+    name "Bathhouses"
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 3900
+    tags manpower
+    research_time 60
+    requires public_wells
 end

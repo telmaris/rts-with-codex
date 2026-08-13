@@ -163,6 +163,11 @@ std::recursive_mutex* HostSession::GetWorldMutex()
     return &worldMutex;
 }
 
+bool HostSession::ShouldPauseWhenSceneInactive() const
+{
+    return transport == nullptr;
+}
+
 void HostSession::SetPaused(bool shouldPause)
 {
     paused.store(shouldPause);

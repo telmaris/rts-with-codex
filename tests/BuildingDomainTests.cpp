@@ -419,6 +419,55 @@ TEST(BuildingDomainTests, ProducerWithNoReceiverPushesFullOutputToNearestHeadqua
     EXPECT_EQ(headquarters->storage.buffers[ResourceType::WOOD].buffer.size(), initialHeadquartersWood + 3u);
 }
 
+TEST(BuildingDomainTests, ConcurrentHqSupplyDoesNotPreventProducerDispatchToHq)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 16, 9);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+
+    Vec2i woodAnchor{0, 1};
+    Paint(map, woodAnchor, GetBuildingDefinition(BuildingType::Woodcutter).footprint,
+          TileType::WOOD, 100);
+    auto* woodcutter = PlaceAndRegister<Woodcutter>(map, *networkPtr, &player, woodAnchor, 1);
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {8, 1}, 2);
+    auto* lumberMill = PlaceAndRegister<LumberMill>(map, *networkPtr, &player, {4, 5}, 3);
+    ASSERT_NE(woodcutter, nullptr);
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(lumberMill, nullptr);
+
+    for (int x = 2; x <= 7; ++x)
+        ASSERT_NE(PlaceAndRegister<Road>(map, *networkPtr, &player, {x, 2}, 100 + x), nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, *networkPtr, &player, {5, 3}, 200), nullptr);
+    ASSERT_NE(PlaceAndRegister<Road>(map, *networkPtr, &player, {5, 4}, 201), nullptr);
+
+    map.AutoConnectBuilding(headquarters);
+    map.AutoConnectBuilding(woodcutter);
+    map.AutoConnectBuilding(lumberMill);
+    ASSERT_TRUE(woodcutter->HasReceiver(ResourceType::WOOD));
+    ASSERT_TRUE(lumberMill->HasSupplier(ResourceType::WOOD));
+
+    const std::size_t hqWoodBefore =
+        headquarters->storage.buffers[ResourceType::WOOD].buffer.size();
+    ASSERT_EQ(lumberMill->logistics.RequestResource(ResourceType::WOOD, 3, *lumberMill), 3);
+
+    woodcutter->production.outputBuffers[ResourceType::WOOD].SetStoredAmount(8);
+    woodcutter->logistics.DispatchOutputs(*woodcutter, woodcutter->production);
+    EXPECT_TRUE(woodcutter->production.outputBuffers[ResourceType::WOOD].buffer.empty())
+        << "HQ -> Lumber Mill traffic must not leave a connected Woodcutter stuck at 8/8";
+    EXPECT_EQ(woodcutter->transportables.size(), 8u);
+
+    for (int tick = 0; tick < 30; ++tick)
+        map.UpdateBuildings(1.1);
+
+    EXPECT_TRUE(woodcutter->transportables.empty());
+    EXPECT_EQ(lumberMill->production.inputBuffers[ResourceType::WOOD].buffer.size(), 3u);
+    EXPECT_EQ(headquarters->storage.buffers[ResourceType::WOOD].buffer.size(),
+              hqWoodBefore - 3u + 8u);
+}
+
 TEST(BuildingDomainTests, ProducerPushesResourceImmediatelyWhenProductionCompletes)
 {
     TileMap map;
@@ -661,6 +710,52 @@ TEST(BuildingDomainTests, VillageGeneratesManpowerAndFoodShortageReducesProducti
     EXPECT_NEAR(player.strategicResources.Get(StrategicResourceType::Manpower), 1.67, 0.0001);
     EXPECT_NEAR(village->activeTime, 1.67, 0.0001);
     village->population.foodBuffer.Clear();
+}
+
+TEST(BuildingDomainTests, VillageSupplyConsumptionUsesIndependentModifiedIntervalsAtEveryTier)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player);
+
+    auto* village = dynamic_cast<Village*>(
+        map.PlaceLoadedBuilding(map.GetIdFromCoords({1, 1}), &player, std::make_unique<Village>(42)));
+    ASSERT_NE(village, nullptr);
+    village->constructionRemaining = 0.0;
+    village->population.SetSettlementLevel(3);
+    village->population.upkeepInterval = 60.0;
+    village->population.foodBuffer = ResourceBuffer{ResourceType::FOOD_PROVISIONS, 200};
+    village->population.householdGoodsBuffer = ResourceBuffer{ResourceType::HOUSEHOLD_GOODS, 200};
+    village->population.urbanGoodsBuffer = ResourceBuffer{ResourceType::URBAN_GOODS, 200};
+    village->population.foodBuffer.SetStoredAmount(200);
+    village->population.householdGoodsBuffer.SetStoredAmount(200);
+    village->population.urbanGoodsBuffer.SetStoredAmount(200);
+
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::VillageSupplyConsumption, 0.0, 0.9, BalanceModifierScope::Global(),
+        BuildingType::Village, ResourceType::FOOD_PROVISIONS, "test:food_conservation"});
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::VillageSupplyConsumption, 0.0, 0.5, BalanceModifierScope::Global(),
+        BuildingType::Village, ResourceType::HOUSEHOLD_GOODS, "test:household_conservation"});
+    player.balanceModifiers.AddModifier(BalanceModifier{
+        BalanceStat::VillageSupplyConsumption, 0.0, 0.0, BalanceModifierScope::Global(),
+        BuildingType::Village, ResourceType::URBAN_GOODS, "test:urban_conservation"});
+
+    EXPECT_NEAR(village->population.GetEffectiveSupplyUpkeepInterval(
+        *village, ResourceType::FOOD_PROVISIONS), 60.0 / 0.9, 0.0001);
+    EXPECT_DOUBLE_EQ(village->population.GetEffectiveSupplyUpkeepInterval(
+        *village, ResourceType::HOUSEHOLD_GOODS), 120.0);
+    EXPECT_TRUE(std::isinf(village->population.GetEffectiveSupplyUpkeepInterval(
+        *village, ResourceType::URBAN_GOODS)));
+
+    // Ten minutes: City pays 10 food per tick at 0.9 cadence (9 payments),
+    // 3 household goods at 0.5 cadence (5 payments), and no urban goods at 0.
+    for (int second = 0; second < 600; second++)
+        village->Update(1.0);
+
+    EXPECT_EQ(village->population.foodBuffer.buffer.size(), 110u);
+    EXPECT_EQ(village->population.householdGoodsBuffer.buffer.size(), 185u);
+    EXPECT_EQ(village->population.urbanGoodsBuffer.buffer.size(), 200u);
 }
 
 TEST(BuildingDomainTests, VillageKeepsOnlyOneFoodProvisionInReserve)

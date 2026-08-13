@@ -156,6 +156,7 @@ TutorialScene::TutorialScene()
 
 void TutorialScene::OnActivated()
 {
+    GameScene::OnActivated();
     InputManager::SetInputEnabled(!tutorialPopup.IsVisible());
 }
 

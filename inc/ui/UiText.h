@@ -15,12 +15,27 @@
 // Which typeface subsequent UiText calls use.
 enum class UiFontRole
 {
-    // The game's primary serif face (Crimson Pro), used for titles, panel
-    // chrome and ordinary UI text.
+    // The game's primary serif face (EB Garamond), reserved for titles and
+    // panel chrome.
     Display,
-    // A plain UI face for dense forms and long value strings. Falls back to
-    // raylib's built-in font when none is loaded, so this is always safe.
+    // Alegreya Sans, used for dense forms, tooltips and long value strings.
+    // It falls back to Display when it has not been loaded.
     Plain
+};
+
+// Temporarily selects a UI font role and restores the previous role when the
+// scope ends. Use this around headings rendered inside otherwise dense UI.
+class UiFontRoleScope
+{
+public:
+    explicit UiFontRoleScope(UiFontRole role);
+    ~UiFontRoleScope();
+
+    UiFontRoleScope(const UiFontRoleScope&) = delete;
+    UiFontRoleScope& operator=(const UiFontRoleScope&) = delete;
+
+private:
+    UiFontRole previousRole;
 };
 
 // One token in a short UI sentence. Icon tokens contain an asset name such
@@ -48,6 +63,8 @@ public:
     static void Unload();
     static bool IsLoaded();
     static const Font& Get();
+    // Returns the dense UI face, or Display when the optional face is absent.
+    static const Font& GetPlain();
 };
 
 // Shared UI text rendering helpers backed by the configured UI font.
@@ -103,7 +120,8 @@ public:
     // draws a divider rule.
     static void Draw(const std::string& title, const std::vector<std::string>& lines,
                      float preferredWidth = 0.0f,
-                     const std::function<void(Rectangle)>& titleIcon = {});
+                     const std::function<void(Rectangle)>& titleIcon = {},
+                     int titleFontSize = 24);
 };
 
 #endif

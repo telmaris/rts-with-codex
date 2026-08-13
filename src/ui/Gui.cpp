@@ -382,7 +382,7 @@ namespace
     void DrawResourceIcon(const ResourceBufferView& view, Rectangle bounds)
     {
         const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
-        if (!UiControlIcons::DrawRoyalResourceSlot(bounds))
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds, hovered))
         {
             DrawRectangleRounded(bounds, 0.10f, 8, UiTheme::Inset);
             DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, UiTheme::Iron);
@@ -688,6 +688,7 @@ namespace
             case BalanceStat::RoadSpeed: return "Road speed";
             case BalanceStat::ManpowerRate: return "Manpower growth";
             case BalanceStat::PopulationCap: return "Population cap";
+            case BalanceStat::VillageSupplyConsumption: return "Village supply consumption";
             case BalanceStat::BuilderAmount: return "Builders";
             default: return "Effect";
         }
@@ -703,6 +704,7 @@ namespace
             case BalanceStat::WorkerCapacity:
             case BalanceStat::TransportTime:
             case BalanceStat::TransportDispatchDelay:
+            case BalanceStat::VillageSupplyConsumption:
                 return true;
             default:
                 return false;
@@ -889,7 +891,218 @@ namespace
         for (const auto& modifier : technology.modifiers)
             lines.push_back(FormatTechnologyEffect(modifier));
 
-        Tooltip::Draw(technology.name, lines, 330.0f);
+        Tooltip::Draw(technology.name, lines, 330.0f, {}, 30);
+    }
+
+    constexpr std::array<const char*, 12> UnitPresentationOrder{{
+        "militia", "swordsman", "armored_swordsman", "heavy_infantry",
+        "archer", "heavy_archer", "spearman", "light_cavalry",
+        "knight", "ballista", "ram", "catapult"
+    }};
+
+    int UnitPresentationRank(const std::string& id)
+    {
+        auto it = std::find_if(UnitPresentationOrder.begin(), UnitPresentationOrder.end(),
+            [&id](const char* candidate) { return id == candidate; });
+        return it == UnitPresentationOrder.end()
+            ? static_cast<int>(UnitPresentationOrder.size())
+            : static_cast<int>(std::distance(UnitPresentationOrder.begin(), it));
+    }
+
+    int AvailableRecruitmentResource(const Building& building, ResourceType type)
+    {
+        if (building.owner == nullptr)
+            return 0;
+
+        int available = StockpileIndex::GetTotal(*building.owner, type);
+        if (const auto* localStorage = building.GetComponent<StorageComponent>())
+        {
+            auto it = localStorage->buffers.find(type);
+            if (it != localStorage->buffers.end())
+                available += static_cast<int>(it->second.buffer.size());
+        }
+        return available;
+    }
+
+    std::string FormatUnitStat(double value, int precision = 2)
+    {
+        if (std::abs(value - std::round(value)) < 0.0001)
+            return std::to_string(static_cast<int>(std::round(value)));
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(precision) << value;
+        return stream.str();
+    }
+
+    struct UnitTooltipStat
+    {
+        std::string label;
+        std::string value;
+        ResourceType resourceIcon{ResourceType::Null};
+        UiControlIcons::MilitaryStatIcon customIcon{UiControlIcons::MilitaryStatIcon::HitPoints};
+    };
+
+    void DrawUnitRecruitmentTooltip(const Building& building, const std::string& unitId,
+                                    const UnitDefinition& definition,
+                                    double manpowerCost, double recruitTime,
+                                    const std::string& blockReason)
+    {
+        Player* player = building.owner;
+        auto modified = [player, &unitId](BalanceStat stat, double base)
+        {
+            return player != nullptr ? player->ModifyBalanceForUnit(stat, base, unitId) : base;
+        };
+
+        std::vector<UnitTooltipStat> stats{
+            {"HP", FormatUnitStat(modified(BalanceStat::UnitHp, definition.maxHp))},
+            {"Soft attack", FormatUnitStat(modified(BalanceStat::UnitRoadAttack, definition.roadAttack)), ResourceType::IRON_SWORD},
+            {"Hard attack", FormatUnitStat(modified(BalanceStat::UnitSiegeAttack, definition.siegeAttack)), ResourceType::BATTERING_RAM},
+            {"Armor", FormatUnitStat(modified(BalanceStat::UnitArmor, definition.armor)), ResourceType::IRON_SHIELD},
+            {"Move speed", FormatUnitStat(modified(BalanceStat::UnitMoveSpeed, definition.moveSpeed)), ResourceType::Null, UiControlIcons::MilitaryStatIcon::MoveSpeed},
+            // Keep weapon-shaped stats on the same authored product icon as
+            // the rest of the economy UI. The pilot's bespoke crossed-swords
+            // glyph was visually noisy and did not match the resource atlas.
+            {"Attack speed", FormatUnitStat(modified(BalanceStat::UnitAttackSpeed, definition.attackSpeed)), ResourceType::IRON_SWORD}
+        };
+        if (definition.attackRange > 0.0)
+            stats.push_back({"Range", FormatUnitStat(definition.attackRange), ResourceType::BOW});
+        if (definition.antiCavalryMultiplier > 1.0)
+            stats.push_back({"Anti-cavalry", "x" + FormatUnitStat(definition.antiCavalryMultiplier, 1), ResourceType::SPEAR});
+        if (definition.areaTargets > 1)
+            stats.push_back({"Area targets", std::to_string(definition.areaTargets), ResourceType::Null, UiControlIcons::MilitaryStatIcon::AreaTargets});
+        if (definition.canTargetFlying)
+            // The existing product bow is clearer and stylistically exact;
+            // the generated upward-bow glyph is intentionally not used.
+            stats.push_back({"Air targeting", "Yes", ResourceType::BOW});
+        if (definition.cavalry)
+            stats.push_back({"Cavalry", "Yes", ResourceType::HORSE});
+
+        const int statRows = static_cast<int>((stats.size() + 1) / 2);
+        std::string status;
+        if (!definition.requiredTechnology.empty() && player != nullptr &&
+            !player->technologies.HasTechnology(definition.requiredTechnology))
+        {
+            const TechnologyDefinition* technology = FindTechnologyDefinition(definition.requiredTechnology);
+            status = "Requires technology: " +
+                (technology != nullptr ? technology->name : definition.requiredTechnology);
+        }
+        else if (!blockReason.empty())
+            status = "Missing resources or manpower";
+
+        constexpr float width = 520.0f;
+        constexpr float padding = 14.0f;
+        constexpr float portraitSize = 96.0f;
+        constexpr float headerHeight = 112.0f;
+        constexpr float statRowHeight = 34.0f;
+        const float height = padding + headerHeight + 8.0f +
+                             statRows * statRowHeight +
+                             (status.empty() ? 0.0f : 28.0f) + padding;
+        Vector2 mouse = GetMousePosition();
+        Rectangle bounds{mouse.x + 18.0f, mouse.y + 18.0f, width, height};
+        bounds.x = std::clamp(bounds.x, 10.0f, std::max(10.0f, GetScreenWidth() - bounds.width - 10.0f));
+        if (bounds.y + bounds.height > GetScreenHeight() - 10.0f)
+            bounds.y = std::max(10.0f, mouse.y - bounds.height - 18.0f);
+
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+        {
+            DrawRectangleRec(bounds, UiTheme::Panel);
+            DrawRectangleLinesEx(bounds, 1.0f, UiTheme::Iron);
+        }
+
+        Rectangle portrait{bounds.x + padding, bounds.y + padding,
+                           portraitSize, portraitSize};
+        UiControlIcons::DrawUnitPortrait(unitId, portrait);
+        const float detailsX = portrait.x + portrait.width + 12.0f;
+        const float detailsRight = bounds.x + bounds.width - padding;
+        Rectangle titleArea{detailsX, bounds.y + padding,
+                            detailsRight - detailsX, 34.0f};
+        const UiFontRole previousRole = UiText::SetRole(UiFontRole::Display);
+        int titleFont = 27;
+        while (titleFont > 18 && UiText::Measure(definition.displayName, titleFont) > titleArea.width)
+            --titleFont;
+        UiText::Draw(definition.displayName,
+                     titleArea.x,
+                     titleArea.y + (titleArea.height - titleFont) * 0.5f,
+                     titleFont, UiTheme::Parchment);
+        UiText::SetRole(previousRole);
+
+        // The title rule belongs only to the text column: the portrait remains
+        // a single uninterrupted visual anchor in the upper-left corner.
+        float separatorY = titleArea.y + titleArea.height + 2.0f;
+        DrawLineEx({detailsX, separatorY}, {detailsRight, separatorY},
+                   1.0f, UiTheme::Iron);
+
+        const float costY = separatorY + 7.0f;
+        UiText::Draw("Cost", detailsX, costY + 5.0f, 16, UiTheme::ParchmentDim);
+        float costX = detailsX + 39.0f;
+        const float costItemWidth = std::min(
+            62.0f,
+            (detailsRight - costX) /
+                std::max(1.0f, static_cast<float>(definition.cost.size() + 2)));
+        auto drawCost = [&](const std::function<void(Rectangle, Color)>& drawIcon,
+                            const std::string& amount, bool affordable)
+        {
+            constexpr float iconSize = 31.0f;
+            Rectangle icon{costX, costY - 2.0f, iconSize, iconSize};
+            Color tint = affordable ? WHITE : Color{224, 112, 98, 255};
+            drawIcon(icon, tint);
+            UiText::Draw(amount, costX + iconSize + 2.0f, costY + 5.0f, 15,
+                         affordable ? UiTheme::Parchment : Color{238, 104, 92, 255});
+            costX += costItemWidth;
+        };
+
+        const double manpowerAvailable = player != nullptr
+            ? player->strategicResources.Get(StrategicResourceType::Manpower) : 0.0;
+        drawCost([](Rectangle icon, Color tint)
+            { UiControlIcons::DrawPixelHudGlyph(UiControlIcons::HudIcon::Manpower, icon, tint); },
+            "x" + std::to_string(static_cast<int>(std::ceil(manpowerCost))),
+            manpowerAvailable >= manpowerCost);
+        for (const auto& cost : definition.cost)
+        {
+            const ResourceType type = cost.type;
+            drawCost([type](Rectangle icon, Color tint)
+                {
+                    GuiPanel::DrawResourceIcon(type, icon);
+                    if (tint.r < 250)
+                        DrawRectangleRec(icon, Fade(tint, 0.24f));
+                },
+                "x" + std::to_string(cost.amount),
+                AvailableRecruitmentResource(building, type) >= cost.amount);
+        }
+        drawCost([](Rectangle icon, Color tint)
+            { UiControlIcons::DrawMilitaryStat(UiControlIcons::MilitaryStatIcon::Time, icon, tint); },
+            FormatUnitStat(recruitTime, 1) + "s", true);
+
+        // One full-width divider closes the shared portrait/title/cost header.
+        separatorY = bounds.y + padding + headerHeight;
+        DrawLineEx({bounds.x + padding, separatorY},
+                   {bounds.x + bounds.width - padding, separatorY}, 1.0f, UiTheme::Iron);
+        const float statsY = separatorY + 8.0f;
+        const float columnWidth = (bounds.width - padding * 2.0f) * 0.5f;
+        for (size_t index = 0; index < stats.size(); ++index)
+        {
+            const int column = static_cast<int>(index % 2);
+            const int row = static_cast<int>(index / 2);
+            Rectangle icon{bounds.x + padding + column * columnWidth,
+                           statsY + row * statRowHeight, 27.0f, 27.0f};
+            if (stats[index].resourceIcon != ResourceType::Null)
+                GuiPanel::DrawResourceIcon(stats[index].resourceIcon, icon);
+            else
+                UiControlIcons::DrawMilitaryStat(stats[index].customIcon, icon);
+            UiText::DrawFit(stats[index].label + "  " + stats[index].value,
+                            {icon.x + 30.0f, icon.y + 2.0f,
+                             columnWidth - 34.0f, 24.0f},
+                            15, UiTheme::Parchment);
+        }
+
+        if (!status.empty())
+        {
+            const float statusY = bounds.y + bounds.height - 27.0f;
+            DrawLineEx({bounds.x + padding, statusY - 4.0f},
+                       {bounds.x + bounds.width - padding, statusY - 4.0f}, 1.0f, UiTheme::Iron);
+            UiText::DrawFit(status, {bounds.x + padding, statusY,
+                                     bounds.width - padding * 2.0f, 20.0f},
+                            15, Color{232, 116, 94, 255});
+        }
     }
 
     // Draws one categorized technology tree and returns the hovered technology, if any.
@@ -1005,8 +1218,11 @@ namespace
         if (university == nullptr || workers == nullptr)
             return;
 
-        DrawRectangleRounded(bounds, 0.045f, 8, UiTheme::Inset);
-        DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, UiTheme::Iron);
+        if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+        {
+            DrawRectangleRounded(bounds, 0.045f, 8, UiTheme::Inset);
+            DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, UiTheme::Iron);
+        }
 
         std::string label = "Workers: " + std::to_string(workers->assigned) + "/" + std::to_string(workers->GetModifiedCapacity(*university));
         int workerPct = static_cast<int>(std::round(workers->GetRatio() * 100.0f));
@@ -1367,7 +1583,8 @@ void UiButton::Update(double dt)
     bool hovered = CheckCollisionPointRec(mouse, bounds);
     bool pressed = hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
-    if (!UiControlIcons::DrawRoyalButtonFrame(bounds, hovered))
+    const bool frameDrawn = UiControlIcons::DrawPixelHudWidgetFrame(bounds, hovered);
+    if (!frameDrawn)
     {
         const Color fill = hovered ? UiTheme::SurfaceHover : UiTheme::Surface;
         const Color line = hovered ? UiTheme::SteelHover : UiTheme::Iron;
@@ -1438,7 +1655,7 @@ void CheckBox::Update(double dt)
 {
     (void)dt;
     const Rectangle bounds = WidgetBounds(*this);
-    const float boxSize = std::clamp(bounds.height * 0.78f, 22.0f, 30.0f);
+    const float boxSize = std::clamp(bounds.height * 0.74f, 28.0f, 36.0f);
     Rectangle box{bounds.x, bounds.y + (bounds.height - boxSize) * 0.5f, boxSize, boxSize};
     const bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
     if (hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -1459,10 +1676,13 @@ void CheckBox::Update(double dt)
                    {inset.x + inset.width * 0.80f, inset.y + inset.height * 0.25f},
                    2.4f, check);
     }
-    UiText::DrawFit(text, Rectangle{box.x + box.width + 10.0f, bounds.y,
-                                    std::max(0.0f, bounds.width - box.width - 10.0f), bounds.height},
-                    std::clamp(static_cast<int>(bounds.height * 0.54f), 16, 21),
-                    hovered ? UiTheme::Parchment : UiTheme::ParchmentDim);
+    const float textX = box.x + box.width + 12.0f;
+    const float availableWidth = std::max(0.0f, bounds.x + bounds.width - textX);
+    int fontSize = std::clamp(static_cast<int>(boxSize * 0.74f), 21, 27);
+    while (fontSize > 16 && UiText::Measure(text, fontSize) > availableWidth)
+        --fontSize;
+    UiText::Draw(text, textX, bounds.y + (bounds.height - fontSize) * 0.5f,
+                 fontSize, hovered ? UiTheme::Parchment : UiTheme::ParchmentDim);
 }
 
 // Advances this object's state for one frame.
@@ -1663,11 +1883,15 @@ void PopupWindowWidget::Update(double dt)
 
     Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
                     static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(panel, 0.035f, 10, UiTheme::Panel);
-    DrawRectangleRoundedLines(panel, 0.035f, 10, 2.0f, UiTheme::Bronze);
+    if (!UiControlIcons::DrawPixelHudFrame(panel))
+    {
+        DrawRectangleRounded(panel, 0.035f, 10, UiTheme::Panel);
+        DrawRectangleRoundedLines(panel, 0.035f, 10, 2.0f, UiTheme::Bronze);
+    }
 
-    Rectangle titleBar{panel.x + 2.0f, panel.y + 2.0f, panel.width - 4.0f, 68.0f};
-    DrawRectangleRounded(titleBar, 0.08f, 8, UiTheme::Surface);
+    const float panelInset = UiControlIcons::PixelHudFrameInset(panel);
+    Rectangle titleBar{panel.x + panelInset, panel.y + 5.0f,
+                       panel.width - panelInset * 2.0f, 65.0f};
     UiText::DrawTitleBar(titleBar, title, 0.0f);
 
     constexpr int bodyFontSize = 22;
@@ -1703,8 +1927,11 @@ void TutorialTaskWidget::Update(double dt)
     UpdateSize({GetScreenWidth(), GetScreenHeight()});
     Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
                     static_cast<float>(size.x), static_cast<float>(size.y)};
-    DrawRectangleRounded(panel, 0.06f, 8, Color{25, 19, 14, 224});
-    DrawRectangleRoundedLines(panel, 0.06f, 8, 1.0f, UiTheme::Bronze);
+    if (!UiControlIcons::DrawPixelHudWidgetFrame(panel))
+    {
+        DrawRectangleRounded(panel, 0.06f, 8, Color{25, 19, 14, 224});
+        DrawRectangleRoundedLines(panel, 0.06f, 8, 1.0f, UiTheme::Bronze);
+    }
 
     UiText::Draw("Tutorial", panel.x + 14.0f, panel.y + 8.0f, 16, UiTheme::Gold);
     UiText::DrawFit(title, Rectangle{panel.x + 92.0f, panel.y + 7.0f, panel.width - 104.0f, 22.0f}, 15, UiTheme::Parchment);
@@ -1793,6 +2020,8 @@ void ResourceIconAtlas::Load(const std::string& path, Vec2i iconSize)
     texture = LoadTexture(path.c_str());
     loaded = texture.id != 0;
     size = iconSize;
+    if (loaded)
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
 }
 
 // Returns atlas source rectangle for one resource icon.
@@ -1816,11 +2045,11 @@ Rectangle ResourceIconAtlas::GetRect(ResourceType type) const
 bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
 {
     Rectangle bounds = WidgetBounds(*this);
-
     int margin = std::max(10, size.x / 24);
     int titleBar = std::max(34, size.y / 12);
 
-    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    const bool panelDrawn = UiControlIcons::DrawPixelHudFrame(bounds);
+    if (!panelDrawn)
     {
         DrawRectangleRounded(bounds, 0.02f, 8, UiTheme::Panel);
         DrawRectangleRoundedLines(bounds, 0.02f, 8, 1.0f, UiTheme::Iron);
@@ -1832,30 +2061,23 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
         bounds.width,
         static_cast<float>(titleBar)};
     Vector2 mouse = GetMousePosition();
-    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    const float frameInset = UiControlIcons::PixelHudFrameInset(bounds);
     Rectangle titleVisual{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
                           std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
                           std::max(0.0f, titleBounds.height - 8.0f)};
-    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
-    {
-        DrawRectangleRounded(titleVisual, 0.02f, 8, UiTheme::Surface);
-        DrawRectangleRoundedLines(titleVisual, 0.02f, 8, 1.0f, UiTheme::Iron);
-    }
+    // The main 9-slice already supplies the header rail. A second plaque
+    // behind the title would visually split the panel into two skins.
 
-    const int closeHeight = std::clamp(titleBar - 31, 28, 40);
-    const float closeWidth = static_cast<float>(closeHeight);
-    const float closeEndGap = std::clamp(titleVisual.height * 0.22f, 12.0f, 18.0f);
-    Rectangle closeBounds{
-        titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
-        titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
-        closeWidth,
-        static_cast<float>(closeHeight)};
+    Rectangle closeBounds = UiControlIcons::PixelHudCloseButtonRect(bounds);
+    const float closeWidth = closeBounds.width;
+    const float closeEndGap = titleVisual.x + titleVisual.width -
+                              (closeBounds.x + closeBounds.width);
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
     if (!UiControlIcons::DrawPanelCloseButton(closeBounds, closeHovered))
     {
         DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{55, 94, 128, 245} : Color{31, 46, 66, 245});
         DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? UiTheme::Cyan : UiTheme::Iron);
-        int xFont = std::max(13, closeHeight / 2);
+        int xFont = std::max(13, static_cast<int>(closeBounds.height) / 2);
         int xWidth = UiText::Measure("X", xFont);
         UiText::Draw("X", closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
                      closeBounds.y + (closeBounds.height - xFont) * 0.5f,
@@ -1883,6 +2105,7 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
         titleVisual = {titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
                        std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
                        std::max(0.0f, titleBounds.height - 8.0f)};
+        closeBounds = UiControlIcons::PixelHudCloseButtonRect(bounds);
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;
@@ -1978,18 +2201,20 @@ void GuiPanel::Update(double dt)
     // (i wroga przy kliknięciu)".
     if (auto* hq = building->GetComponent<HqComponent>())
     {
-        UiText::Draw("Headquarters", contentX, y, 22, Color{224, 204, 168, 255});
-        y += 30;
-
         double maxHp = hq->GetModifiedMaxHp(*building);
         double hpRatio = maxHp > 0.0 ? std::clamp(hq->currentHp / maxHp, 0.0, 1.0) : 0.0;
         progressBar.pos = Vec2i{contentX, y};
         progressBar.size = Vec2i{contentW, 30};
-        progressBar.ChangeText("HP " + std::to_string(static_cast<int>(std::round(std::max(0.0, hq->currentHp)))) +
-                                " / " + std::to_string(static_cast<int>(std::round(maxHp))));
+        progressBar.ChangeText("");
         progressBar.SetValue(static_cast<float>(hpRatio));
         progressBar.Update(dt);
-        y += 46;
+        y += 34;
+
+        const std::string hpText = "HP " + std::to_string(static_cast<int>(std::round(std::max(0.0, hq->currentHp)))) +
+                                   " / " + std::to_string(static_cast<int>(std::round(maxHp))) +
+                                   " (" + std::to_string(static_cast<int>(std::round(hpRatio * 100.0))) + "%)";
+        UiText::Draw(hpText, static_cast<float>(contentX), static_cast<float>(y), 18, UiTheme::Parchment);
+        y += 30;
 
         std::vector<std::string> stats{
             "Hard defense: " + std::to_string(static_cast<int>(std::round(hq->GetModifiedHardDefense(*building)))),
@@ -1997,8 +2222,8 @@ void GuiPanel::Update(double dt)
             "Thorns interval: " + FormatDecimal(hq->thornsInterval) + "s"};
         for (const auto& stat : stats)
         {
-            DrawTextFit(stat, Rectangle{static_cast<float>(contentX), static_cast<float>(y), static_cast<float>(contentW), 20.0f}, 15, UiTheme::Parchment);
-            y += 24;
+            UiText::Draw(stat, static_cast<float>(contentX), static_cast<float>(y), 21, UiTheme::Parchment);
+            y += 29;
         }
         y += margin / 2;
 
@@ -2008,7 +2233,9 @@ void GuiPanel::Update(double dt)
             static_cast<float>(contentX),
             static_cast<float>(y),
             static_cast<float>(contentW),
-            static_cast<float>(bottom - y - destroyButton.size.y - margin)};
+            // Headquarters cannot be manually destroyed, so it has no bottom
+            // action button to reserve room for. Give that space to storage.
+            static_cast<float>(bottom - y)};
         DrawResourceIconGrid(building->GetOutputBufferViews(), grid, 5, &contentScrollOffset, &maxContentScrollOffset, building, &contentScrollbarDragging, &contentScrollbarDragOffset);
         contentScrollOffset = std::clamp(contentScrollOffset, 0.0f, maxContentScrollOffset);
         drawDestroyButton(); // no-op: Headquarters::CanBeManuallyDestroyed() == false
@@ -2067,72 +2294,104 @@ void GuiPanel::Update(double dt)
         UiText::Draw("Recruitment", contentX, y, 22, Color{224, 204, 168, 255});
         y += 30;
 
-        // A2 (docs/work_plan_2026-07-13.md): recruit buttons render at a fixed
-        // position right after the title so they don't shift as the queue
-        // below grows/shrinks — the queue (variable length) is drawn AFTER
-        // the buttons instead of before them.
         UiText::Draw("Available units", contentX, y, 18, UiTheme::AmberBright);
         y += 24;
 
-        int rowH = 44;
+        std::vector<std::pair<std::string, const UnitDefinition*>> units;
+        for (const auto& [id, definition] : GetUnitCatalog())
+            if (definition.recruitBuilding == building->buildingType)
+                units.emplace_back(id, &definition);
+        std::stable_sort(units.begin(), units.end(), [](const auto& lhs, const auto& rhs)
+        {
+            const int lhsRank = UnitPresentationRank(lhs.first);
+            const int rhsRank = UnitPresentationRank(rhs.first);
+            return lhsRank != rhsRank ? lhsRank < rhsRank : lhs.first < rhs.first;
+        });
+
+        constexpr int columns = 4;
+        constexpr float gap = 8.0f;
+        const float cellSize = std::clamp(
+            std::floor((contentW - gap * (columns - 1)) / columns), 48.0f, 104.0f);
+        const int rows = std::max(1, static_cast<int>((units.size() + columns - 1) / columns));
+        const float gridWidth = columns * cellSize + (columns - 1) * gap;
+        const float gridX = contentX + (contentW - gridWidth) * 0.5f;
+        const float gridY = static_cast<float>(y);
+
         Building* self = building;
         GameScene* panelScene = scene;
-        for (const auto& [id, def] : GetUnitCatalog())
+        const UnitDefinition* hoveredDefinition = nullptr;
+        std::string hoveredUnitId;
+        std::string hoveredBlockReason;
+        double hoveredManpowerCost = 0.0;
+        double hoveredRecruitTime = 0.0;
+        const Vector2 mouse = GetMousePosition();
+        for (size_t index = 0; index < units.size(); ++index)
         {
-            if (def.recruitBuilding != building->buildingType)
-                continue;
-            if (y + rowH > bottom - destroyButton.size.y - margin)
-                break;
+            const std::string& id = units[index].first;
+            const UnitDefinition& definition = *units[index].second;
+            const int column = static_cast<int>(index % columns);
+            const int row = static_cast<int>(index / columns);
+            Rectangle card{
+                gridX + column * (cellSize + gap),
+                gridY + row * (cellSize + gap),
+                cellSize,
+                cellSize};
+            const bool hovered = CheckCollisionPointRec(mouse, card);
 
-            // TD(etap-9): show the tech-modified time/manpower cost, not the
-            // raw catalog values — UnitRecruitTime/UnitRecruitManpowerCost are
-            // real, tunable stats (see RecruitmentComponent::QueueRecruitment).
-            double effectiveManpowerCost = building->owner != nullptr
-                ? std::max(0.0, building->owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitManpowerCost, def.manpowerCost, id))
-                : def.manpowerCost;
-            double effectiveRecruitTime = building->owner != nullptr
-                ? std::max(1.0, building->owner->ModifyBalanceForUnit(BalanceStat::UnitRecruitTime, def.recruitTime, id))
-                : def.recruitTime;
+            const double effectiveManpowerCost = building->owner != nullptr
+                ? std::max(0.0, building->owner->ModifyBalanceForUnit(
+                    BalanceStat::UnitRecruitManpowerCost, definition.manpowerCost, id))
+                : definition.manpowerCost;
+            const double effectiveRecruitTime = building->owner != nullptr
+                ? std::max(1.0, building->owner->ModifyBalanceForUnit(
+                    BalanceStat::UnitRecruitTime, definition.recruitTime, id))
+                : definition.recruitTime;
+            const std::string blockReason = recruitment->DiagnoseRecruitmentBlock(*building, id);
+            const bool available = blockReason.empty();
 
-            std::string costText = "Manpower " + std::to_string(static_cast<int>(effectiveManpowerCost));
-            for (const auto& cost : def.cost)
-                costText += ", " + ResourceDisplayName(cost.type) + " " + std::to_string(cost.amount);
-
-            // T4 (docs/post_pivot_audit_2026-07-12.md): mirror QueueRecruitment's
-            // own checks (non-mutating) so the button visibly disables with a
-            // reason instead of silently doing nothing on click.
-            std::string blockReason = recruitment->DiagnoseRecruitmentBlock(*building, id);
-            Rectangle rowRect{static_cast<float>(contentX), static_cast<float>(y),
-                              static_cast<float>(contentW), static_cast<float>(rowH - 6)};
-
-            if (blockReason.empty())
+            const Color frameTint = available ? WHITE : Color{126, 128, 132, 220};
+            if (!UiControlIcons::DrawPixelHudWidgetFrame(card, hovered, frameTint))
             {
-                UiButton recruitButton;
-                recruitButton.pos = Vec2i{contentX, y};
-                recruitButton.size = Vec2i{contentW, rowH - 6};
-                recruitButton.ChangeText(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText);
-                std::string unitDefId = id;
-                recruitButton.func = [self, panelScene, unitDefId]()
+                DrawRectangleRec(card, UiTheme::Inset);
+                DrawRectangleLinesEx(card, 1.0f, UiTheme::Iron);
+            }
+            // The portrait renderer performs its own aspect fit; reserve a
+            // wider inset so bows, spearheads and siege wheels never touch the
+            // 9-slice corners even in the narrow four-column layout.
+            Rectangle portrait{card.x + 9.0f, card.y + 9.0f,
+                               card.width - 18.0f, card.height - 18.0f};
+            if (!UiControlIcons::DrawUnitPortrait(
+                    id, portrait, available ? WHITE : Color{132, 132, 132, 210}))
+            {
+                DrawTextFit(definition.displayName, portrait, 14,
+                            available ? UiTheme::Parchment : UiTheme::ParchmentDim);
+            }
+            if (!available)
+                DrawRectangleRec({card.x + 4.0f, card.y + 4.0f,
+                                  card.width - 8.0f, card.height - 8.0f},
+                                 Fade(BLACK, 0.34f));
+            if (hovered)
+                DrawRectangleLinesEx({card.x + 2.0f, card.y + 2.0f,
+                                      card.width - 4.0f, card.height - 4.0f},
+                                     2.0f, available ? UiTheme::AmberBright
+                                                     : Color{190, 104, 82, 255});
+
+            if (hovered)
+            {
+                hoveredDefinition = &definition;
+                hoveredUnitId = id;
+                hoveredBlockReason = blockReason;
+                hoveredManpowerCost = effectiveManpowerCost;
+                hoveredRecruitTime = effectiveRecruitTime;
+                if (available && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+                    self != nullptr && panelScene != nullptr && panelScene->game != nullptr)
                 {
-                    if (self == nullptr || panelScene == nullptr || panelScene->game == nullptr)
-                        return;
                     panelScene->SubmitLocalCommand(GameCommand::RecruitUnit(
-                        panelScene->game->GetLocalPlayerId(), self->positionId, unitDefId));
-                };
-                recruitButton.Update(dt);
+                        panelScene->game->GetLocalPlayerId(), self->positionId, id));
+                }
             }
-            else
-            {
-                DrawRectangleRounded(rowRect, 0.08f, 8, UiTheme::Inset);
-                DrawRectangleRoundedLines(rowRect, 0.08f, 8, 1.0f, UiTheme::Iron);
-                DrawTextFit(def.displayName + " (" + FormatSeconds(effectiveRecruitTime) + ") - " + costText,
-                    {rowRect.x + 12.0f, rowRect.y, rowRect.width - 24.0f, rowRect.height},
-                    15, UiTheme::ParchmentDim);
-                if (CheckCollisionPointRec(GetMousePosition(), rowRect))
-                    QueueTooltip(def.displayName, {blockReason});
-            }
-            y += rowH;
         }
+        y += static_cast<int>(rows * cellSize + (rows - 1) * gap);
 
         if (!recruitment->queue.empty())
         {
@@ -2166,7 +2425,10 @@ void GuiPanel::Update(double dt)
         }
 
         drawDestroyButton();
-        DrawPendingTooltip();
+        if (hoveredDefinition != nullptr)
+            DrawUnitRecruitmentTooltip(*building, hoveredUnitId, *hoveredDefinition,
+                                       hoveredManpowerCost, hoveredRecruitTime,
+                                       hoveredBlockReason);
         return;
     }
 
@@ -2248,8 +2510,11 @@ void GuiPanel::Update(double dt)
                         int rowCount = static_cast<int>(levelIt->cost.size()) + (levelIt->buildTime > 0.0 ? 1 : 0);
                         float boxH = std::max(1, rowCount) * rowH + 12.0f;
                         Rectangle box{upgradeRect.x, upgradeRect.y - boxH - 6.0f, upgradeRect.width, boxH};
-                        DrawRectangleRounded(box, 0.08f, 8, UiTheme::Inset);
-                        DrawRectangleRoundedLines(box, 0.08f, 8, 1.0f, UiTheme::Iron);
+                        if (!UiControlIcons::DrawPixelHudWidgetFrame(box))
+                        {
+                            DrawRectangleRounded(box, 0.08f, 8, UiTheme::Inset);
+                            DrawRectangleRoundedLines(box, 0.08f, 8, 1.0f, UiTheme::Iron);
+                        }
                         float rowY = box.y + 6.0f;
                         for (const auto& cost : levelIt->cost)
                         {
@@ -2329,22 +2594,37 @@ void GuiPanel::Update(double dt)
         int populationCap = building->owner != nullptr
             ? building->owner->ResolveStat(population->populationCap, building)
             : population->populationCap.GetBase();
+        auto upkeepPerMinute = [&](ResourceType type)
+        {
+            const double interval = population->GetEffectiveSupplyUpkeepInterval(*building, type);
+            return std::isfinite(interval)
+                ? population->GetSupplyUpkeep(type) * (60.0 / interval)
+                : 0.0;
+        };
         std::vector<std::string> stats{
             "Settlement: " + std::string(population->settlementLevel == 1 ? "Village" :
                                           population->settlementLevel == 2 ? "Town" : "City"),
             "Generates: Manpower",
             "Rate: " + std::to_string(static_cast<int>(manpowerRate * 60.0)) + " / min",
             "Population cap: " + std::to_string(populationCap),
-            "Food upkeep: " + std::to_string(population->GetSupplyUpkeep(ResourceType::FOOD_PROVISIONS)) + " / min",
+            "Food upkeep: " + FormatDecimal(upkeepPerMinute(ResourceType::FOOD_PROVISIONS)) + " / min",
             "Food supply: " + std::to_string(static_cast<int>(std::round(population->GetFoodSupplyRatio() * 100.0))) + "%",
             "Worker output: " + std::to_string(static_cast<int>(std::round(population->GetWorkerProductivity() * 100.0))) + "%",
             "Lifetime: " + std::to_string(static_cast<int>(building->GetLifetime())) + "s"};
         if (population->settlementLevel >= 2)
+        {
+            stats.push_back("Household upkeep: " +
+                FormatDecimal(upkeepPerMinute(ResourceType::HOUSEHOLD_GOODS)) + " / min");
             stats.push_back("Household supply: " +
                 std::to_string(static_cast<int>(std::round(population->householdSupplyLevel * 100.0))) + "%");
+        }
         if (population->settlementLevel >= 3)
+        {
+            stats.push_back("Urban upkeep: " +
+                FormatDecimal(upkeepPerMinute(ResourceType::URBAN_GOODS)) + " / min");
             stats.push_back("Urban supply: " +
                 std::to_string(static_cast<int>(std::round(population->urbanSupplyLevel * 100.0))) + "%");
+        }
         if (auto* upgrade = building->GetComponent<UpgradeComponent>(); upgrade != nullptr && upgrade->isUpgrading)
             stats.push_back("Upgrading: " + std::to_string(static_cast<int>(std::ceil(upgrade->upgradeRemaining))) + "s left");
 
@@ -2668,6 +2948,14 @@ void GuiPanel::LoadUiFont(const std::string& path)
     }
 }
 
+void GuiPanel::LoadUiPlainFont(const std::string& path, int baseSize)
+{
+    UiTextFont::LoadPlain(path, baseSize);
+    if (UiTextFont::IsLoaded())
+        GuiSetFont(UiTextFont::GetPlain());
+    UiText::SetRole(UiFontRole::Plain);
+}
+
 // Draws one resource icon, using the atlas when available.
 void GuiPanel::DrawResourceIcon(ResourceType type, Rectangle dest)
 {
@@ -2693,37 +2981,28 @@ void ResearchPanel::Update(double dt)
     int titleBar = std::max(42, size.y / 14);
     Vector2 mouse = GetMousePosition();
 
-    if (!UiControlIcons::DrawRoyalWindowPanel(bounds))
+    if (!UiControlIcons::DrawPixelHudFrame(bounds))
     {
         DrawRectangleRounded(bounds, 0.018f, 8, UiTheme::Panel);
         DrawRectangleRoundedLines(bounds, 0.018f, 8, 1.0f, UiTheme::Iron);
     }
 
     Rectangle titleBounds{bounds.x, bounds.y, bounds.width, static_cast<float>(titleBar)};
-    const float frameInset = UiControlIcons::RoyalWindowPanelInset(bounds);
+    const float frameInset = UiControlIcons::PixelHudFrameInset(bounds);
     Rectangle titleVisual{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
                           std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
                           std::max(0.0f, titleBounds.height - 8.0f)};
-    if (!UiControlIcons::DrawRoyalTitleBar(titleVisual))
-    {
-        DrawRectangleRounded(titleVisual, 0.018f, 8, UiTheme::Surface);
-        DrawRectangleRoundedLines(titleVisual, 0.018f, 8, 1.0f, UiTheme::Iron);
-    }
 
-    const int closeHeight = std::clamp(titleBar - 29, 30, 40);
-    const float closeWidth = static_cast<float>(closeHeight);
-    const float closeEndGap = std::clamp(titleVisual.height * 0.22f, 12.0f, 18.0f);
-    Rectangle closeBounds{
-        titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
-        titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
-        closeWidth,
-        static_cast<float>(closeHeight)};
+    Rectangle closeBounds = UiControlIcons::PixelHudCloseButtonRect(bounds);
+    const float closeWidth = closeBounds.width;
+    const float closeEndGap = titleVisual.x + titleVisual.width -
+                              (closeBounds.x + closeBounds.width);
     bool closeHovered = CheckCollisionPointRec(GetMousePosition(), closeBounds);
     if (!UiControlIcons::DrawPanelCloseButton(closeBounds, closeHovered))
     {
         DrawRectangleRounded(closeBounds, 0.16f, 6, closeHovered ? Color{55, 94, 128, 245} : Color{31, 46, 66, 245});
         DrawRectangleRoundedLines(closeBounds, 0.16f, 6, 1.0f, closeHovered ? UiTheme::Cyan : UiTheme::Iron);
-        int xFont = std::max(14, closeHeight / 2);
+        int xFont = std::max(14, static_cast<int>(closeBounds.height) / 2);
         int xWidth = UiText::Measure("X", xFont);
         UiText::Draw("X", closeBounds.x + (closeBounds.width - xWidth) * 0.5f,
                      closeBounds.y + (closeBounds.height - xFont) * 0.5f,
@@ -2754,11 +3033,7 @@ void ResearchPanel::Update(double dt)
         titleVisual = Rectangle{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
                                 std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
                                 std::max(0.0f, titleBounds.height - 8.0f)};
-        closeBounds = Rectangle{
-            titleVisual.x + titleVisual.width - closeWidth - closeEndGap,
-            titleVisual.y + (titleVisual.height - closeHeight) * 0.5f,
-            closeWidth,
-            static_cast<float>(closeHeight)};
+        closeBounds = UiControlIcons::PixelHudCloseButtonRect(bounds);
     }
     if (dragging && InputManager::IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         dragging = false;

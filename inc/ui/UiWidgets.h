@@ -101,6 +101,10 @@ public:
     std::string text;
     // Restricts input to characters that can appear in a number.
     bool numericOnly{false};
+    // For signed numeric fields, '-' toggles the sign of the existing value.
+    // This matters for the end-only editor: typing '-' into "20" must produce
+    // "-20", not the invalid and effectively uneditable "20-".
+    bool allowNegative{false};
     int fontSize{17};
 
 private:
