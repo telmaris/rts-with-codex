@@ -1363,6 +1363,12 @@ TEST(BuildingDomainTests, StockpileIndexCountsWarehousesOnly)
     ASSERT_NE(depot, nullptr);
     ASSERT_NE(tower, nullptr);
 
+    // The configured HQ may start with arrows (currently 40). This test owns
+    // its fixture amounts, so clear all three buffers before adding the
+    // exact warehouse and local-ammo holdings asserted below.
+    headquarters->storage.buffers[ResourceType::ARROWS].Clear();
+    depot->storage.buffers[ResourceType::ARROWS].Clear();
+    tower->storage.buffers[ResourceType::ARROWS].Clear();
     for (int i = 0; i < 3; i++)
         headquarters->storage.buffers[ResourceType::ARROWS].GenerateResource(ResourceType::ARROWS);
     for (int i = 0; i < 2; i++)

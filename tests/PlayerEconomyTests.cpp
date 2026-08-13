@@ -223,19 +223,37 @@ TEST(PlayerEconomyTests, BuildRequirementFailuresUseCatalogDisplayNames)
 {
     TileMap map;
     Player player{0, map};
+
+    const auto* technology = FindTechnologyDefinition("catapult_construction");
+    ASSERT_NE(technology, nullptr);
+    ASSERT_FALSE(technology->name.empty());
+
+    const auto& university = GetBuildingDefinition(BuildingType::University);
+    ASSERT_FALSE(university.requiredFocuses.empty());
+
     BuildingDefinition definition;
-    definition.requiredTechnologies = {"catapult_construction"};
-    definition.requiredFocuses = {"academic_patronage"};
+    definition.requiredTechnologies = {technology->id};
+    definition.requiredFocuses = university.requiredFocuses;
 
     const auto failures = player.GetBuildRequirementFailures(definition);
 
     EXPECT_NE(std::find(failures.begin(), failures.end(),
-                        "Requires technology: Catapult Construction"), failures.end());
-    EXPECT_NE(std::find(failures.begin(), failures.end(),
-                        "Requires focus: Academic Patronage"), failures.end());
+                        "Requires technology: " + technology->name), failures.end());
     EXPECT_EQ(std::find(failures.begin(), failures.end(),
-                        "Requires technology: catapult_construction"), failures.end());
-    EXPECT_EQ(std::find(failures.begin(), failures.end(),
-                        "Requires focus: academic_patronage"), failures.end());
+                        "Requires technology: " + technology->id), failures.end());
+
+    for (const auto& focusId : definition.requiredFocuses)
+    {
+        const auto* focus = FindFocusDefinition(focusId);
+        ASSERT_NE(focus, nullptr) << focusId;
+        ASSERT_FALSE(focus->name.empty()) << focusId;
+        EXPECT_NE(std::find(failures.begin(), failures.end(),
+                            "Requires focus: " + focus->name), failures.end());
+        if (focus->name != focusId)
+        {
+            EXPECT_EQ(std::find(failures.begin(), failures.end(),
+                                "Requires focus: " + focusId), failures.end());
+        }
+    }
 }
 
