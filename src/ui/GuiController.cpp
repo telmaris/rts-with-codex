@@ -37,6 +37,8 @@ void InputProcessor::HandleInputs()
         controller->MakeAction("space");
     if (debugActionsEnabled && IsActionPressed(DEBUG_GRANT_RESOURCES))
         controller->MakeAction("debug_resources");
+    if (debugActionsEnabled && IsActionPressed(DEBUG_DEPLOY_ENEMY_UNITS))
+        controller->MakeAction("debug_enemy_units");
     if (IsActionPressed(LEFT_BUTTON_DOWN))
         controller->MakeAction("lmbp");
     if (IsActionReleased(LEFT_BUTTON_DOWN))

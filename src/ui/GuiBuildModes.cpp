@@ -549,6 +549,63 @@ namespace
     }
 }
 
+void RoadDragStabilizer::Begin(Vec2i tile, Vector2 mousePosition)
+{
+    active = true;
+    axis = Axis::None;
+    segmentAnchor = tile;
+    gestureOriginMouse = mousePosition;
+    lastMousePosition = mousePosition;
+    stationaryTime = 0.0;
+}
+
+void RoadDragStabilizer::End()
+{
+    active = false;
+    axis = Axis::None;
+    segmentAnchor = {-9999, -9999};
+    stationaryTime = 0.0;
+}
+
+Vec2i RoadDragStabilizer::Constrain(Vec2i rawTile, Vector2 mousePosition, double dt,
+                                    Vec2i lastPlacedTile)
+{
+    if (!active)
+        return rawTile;
+
+    const float frameDx = mousePosition.x - lastMousePosition.x;
+    const float frameDy = mousePosition.y - lastMousePosition.y;
+    const float frameDistanceSquared = frameDx * frameDx + frameDy * frameDy;
+    if (frameDistanceSquared <= StationaryPixelTolerance * StationaryPixelTolerance)
+        stationaryTime += std::max(0.0, dt);
+    else
+        stationaryTime = 0.0;
+    lastMousePosition = mousePosition;
+
+    if (axis != Axis::None && stationaryTime >= TurnPauseSeconds)
+    {
+        axis = Axis::None;
+        if (lastPlacedTile.x > -9000 && lastPlacedTile.y > -9000)
+            segmentAnchor = lastPlacedTile;
+        gestureOriginMouse = mousePosition;
+        stationaryTime = 0.0;
+    }
+
+    if (axis == Axis::None)
+    {
+        const float dx = mousePosition.x - gestureOriginMouse.x;
+        const float dy = mousePosition.y - gestureOriginMouse.y;
+        if (std::max(std::abs(dx), std::abs(dy)) >= DirectionLockPixels)
+            axis = std::abs(dx) > std::abs(dy) ? Axis::Horizontal : Axis::Vertical;
+        else
+            return segmentAnchor;
+    }
+
+    return axis == Axis::Horizontal
+        ? Vec2i{rawTile.x, segmentAnchor.y}
+        : Vec2i{segmentAnchor.x, rawTile.y};
+}
+
 // ─── BuildPanelWidget ────────────────────────────────────────────────────────
 
 // Draws available build options grouped by category.
@@ -1133,13 +1190,12 @@ RoadBuildSystem::RoadBuildSystem(GuiController* con)
 // Picks Road or Bridge based on what's under the cursor — see the header
 // comment: with no panel drawn in road mode, a fixed selection silently
 // locks the player out of whichever type isn't selected.
-void RoadBuildSystem::SyncSelectionToHoveredTile()
+void RoadBuildSystem::SyncSelectionToTile(Vec2i tilePos)
 {
     if (scene == nullptr || scene->game == nullptr)
         return;
 
     TileMap& map = scene->game->GetTileMap();
-    Vec2i tilePos = GetHoveredTile();
     if (!map.IsInside(tilePos))
         return;
 
@@ -1167,21 +1223,25 @@ void RoadBuildSystem::Update(double dt)
 
     ApplyStrategicHudCameraPadding(scene);
     MoveCamera(scene, cameraMovement);
-    SyncSelectionToHoveredTile();
+    Vec2i placementTile = GetRoadPlacementTile(dt);
+    SyncSelectionToTile(placementTile);
     RefreshGhost();
+    ghostWidget.tilePos = placementTile;
+    ghostWidget.canBuild = CanPlaceSelected(placementTile);
     owner->AddUiWidget(&ghostWidget);
     owner->AddUiWidget(&strategicHudWidget);
 
     // Drag placement: keep painting roads while LMB is held, but never under
     // the strategic HUD buttons.
     if (InputManager::IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !IsAnyHudButtonHovered(strategicHudWidget))
-        TryPlaceRoadAtHovered();
+        TryPlaceRoadTowards(placementTile);
 }
 
 // Switches back to building placement mode.
 void RoadBuildSystem::BuildPressed()
 {
     lastRoadDragTile = {-9999, -9999};
+    dragStabilizer.End();
     cameraMovement.isMoving = false;
     owner->ChangeSystem("build");
 }
@@ -1189,6 +1249,7 @@ void RoadBuildSystem::BuildPressed()
 // Toggles road placement mode off.
 void RoadBuildSystem::RoadBuildPressed()
 {
+    dragStabilizer.End();
     ReturnToMapView();
 }
 
@@ -1198,13 +1259,17 @@ void RoadBuildSystem::LmbPressed()
     if (DispatchHudButtonClick(*this, strategicHudWidget))
         return;
 
-    TryPlaceRoadAtHovered();
+    Vec2i tilePos = GetHoveredTile();
+    dragStabilizer.Begin(tilePos, GetMousePosition());
+    lastRoadDragTile = {-9999, -9999};
+    TryPlaceRoadTowards(tilePos);
 }
 
 // Ends road drag placement.
 void RoadBuildSystem::LmbReleased()
 {
     lastRoadDragTile = {-9999, -9999};
+    dragStabilizer.End();
 }
 
 void RoadBuildSystem::Scroll()
@@ -1213,25 +1278,57 @@ void RoadBuildSystem::Scroll()
 }
 
 // Places a road under the cursor once per hovered tile during a drag.
-bool RoadBuildSystem::TryPlaceRoadAtHovered()
+Vec2i RoadBuildSystem::GetRoadPlacementTile(double dt)
 {
     // Input is processed before this frame's Update — re-sync here so a
     // click can't place the type picked for the PREVIOUS frame's hover tile.
-    SyncSelectionToHoveredTile();
+    Vec2i rawTile = GetHoveredTile();
+    return dragStabilizer.IsActive()
+        ? dragStabilizer.Constrain(rawTile, GetMousePosition(), dt, lastRoadDragTile)
+        : rawTile;
 
-    Vec2i tilePos = GetHoveredTile();
+}
+
+bool RoadBuildSystem::TryPlaceRoadAt(Vec2i tilePos)
+{
+    SyncSelectionToTile(tilePos);
+    if (!CanPlaceSelected(tilePos) || selectedIndex >= options.size())
+        return false;
+    options[selectedIndex].buildAt(tilePos);
+    return true;
+}
+
+bool RoadBuildSystem::TryPlaceRoadTowards(Vec2i tilePos)
+{
     if (tilePos == lastRoadDragTile)
         return false;
 
-    if (!CanPlaceSelected(tilePos))
+    if (lastRoadDragTile.x < -9000 || lastRoadDragTile.y < -9000)
+    {
+        if (!TryPlaceRoadAt(tilePos))
+            return false;
+        lastRoadDragTile = tilePos;
+        return true;
+    }
+
+    Vec2i cursor = lastRoadDragTile;
+    const Vec2i step{
+        (tilePos.x > cursor.x) - (tilePos.x < cursor.x),
+        (tilePos.y > cursor.y) - (tilePos.y < cursor.y)};
+    if (step.x != 0 && step.y != 0)
         return false;
 
-    if (selectedIndex >= options.size())
-        return false;
-
-    options[selectedIndex].buildAt(tilePos);
-    lastRoadDragTile = tilePos;
-    return true;
+    bool placedAny = false;
+    while (cursor != tilePos)
+    {
+        cursor.x += step.x;
+        cursor.y += step.y;
+        if (!TryPlaceRoadAt(cursor))
+            break;
+        lastRoadDragTile = cursor;
+        placedAny = true;
+    }
+    return placedAny;
 }
 
 // ─── DestroyGuiSystem ────────────────────────────────────────────────────────

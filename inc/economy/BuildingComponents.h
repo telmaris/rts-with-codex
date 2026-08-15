@@ -41,6 +41,7 @@ enum class BuildingCapability : std::size_t
     Recipes,
     Research,
     Storage,
+    LocalResourceBuffer,
     Population,
     Road,
     Recruitment,
@@ -244,8 +245,9 @@ struct ResearchComponent : IBuildingComponent
 };
 
 // --- StorageComponent ---
-// Generic multi-resource storage hub (Headquarters, StorageBuilding) and, for
-// DefenseTower/Barracks, the local buffer their own component consumes from.
+// Generic multi-resource storage hub. This capability is reserved for
+// Headquarters, StorageBuilding and future buildings whose actual role is
+// sharing stock with the whole economy.
 //
 // Passive by design: it accepts deliveries (AddResource) and serves requests
 // (HandleTransport), but has no Update() and never initiates a transfer. The
@@ -265,6 +267,23 @@ struct StorageComponent : IBuildingComponent
     Resource GetResource(ResourceType type);
     int HandleTransport(ResourceType type, int amount, Building* receiver, Building& self);
 
+    std::vector<ResourceBufferView> GetBufferViews() const;
+};
+
+// Private delivery buffer used by consumers such as Barracks and
+// DefenseTower. It accepts resources addressed to its owning building, but it
+// is deliberately not a warehouse: it is absent from Player::storages, cannot
+// serve outgoing requests and never contributes to StockpileIndex.
+struct LocalResourceBufferComponent : IBuildingComponent
+{
+    std::map<ResourceType, ResourceBuffer> buffers;
+
+    BuildingCapability GetCapability() const override { return BuildingCapability::LocalResourceBuffer; }
+    bool CanAccept(ResourceType type) const;
+    bool CanReceive(ResourceType type) const;
+    void AddResource(Resource* res, Building& self);
+    void ReturnOutgoingResource(Resource* res);
+    Resource GetResource(ResourceType type);
     std::vector<ResourceBufferView> GetBufferViews() const;
 };
 
@@ -336,7 +355,7 @@ struct RecruitmentQueueEntry
 // values, no new component). User request (docs/work_plan_2026-07-13.md,
 // 2026-07-15 + TODO #1 2026-07-16): an order joins the queue immediately on
 // click (as long as manpower allows), tagged "waiting for resources" if its
-// cost isn't already sitting in this building's own StorageComponent buffer.
+// cost isn't already sitting in this building's own local resource buffer.
 // Update() then works the queue in strict FIFO order: entries flip
 // resourcesReady (consuming their cost) as deliveries land — even behind a
 // training front entry — while only the FIRST waiting entry requests its
@@ -406,7 +425,7 @@ struct HqComponent : IBuildingComponent
 
 // --- TowerCombatComponent ---
 // Combat stats + attack cooldown for a DefenseTower (TD etap-7). Ammo itself
-// lives in the building's own StorageComponent buffer (one entry, keyed by
+// lives in the building's own local resource buffer (one entry, keyed by
 // `ammoResource`) — reusing the same road-network delivery path as any
 // production building's inputs, not a separate ammo-tracking mechanism.
 // The chosen priority is stored; the concrete target is still resolved fresh
@@ -453,6 +472,7 @@ template<> constexpr BuildingCapability GetBuildingComponentCapability<WorkerCom
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecipeComponent>() { return BuildingCapability::Recipes; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<ResearchComponent>() { return BuildingCapability::Research; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<StorageComponent>() { return BuildingCapability::Storage; }
+template<> constexpr BuildingCapability GetBuildingComponentCapability<LocalResourceBufferComponent>() { return BuildingCapability::LocalResourceBuffer; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<PopulationComponent>() { return BuildingCapability::Population; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RoadComponent>() { return BuildingCapability::Road; }
 template<> constexpr BuildingCapability GetBuildingComponentCapability<RecruitmentComponent>() { return BuildingCapability::Recruitment; }

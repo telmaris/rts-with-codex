@@ -111,6 +111,18 @@ TEST(BuildingConfigTests, WeaponAndMetalBuildingsUseRequestedDefaultRecipes)
     EXPECT_EQ(bowyer.recipes.front().production.outputs.front().type, ResourceType::ARROWS);
 }
 
+TEST(BuildingConfigTests, InnProducesThreeFoodProvisionsPerCycle)
+{
+    const auto& inn = GetBuildingDefinition(BuildingType::Inn);
+    auto food = std::find_if(inn.production.outputs.begin(), inn.production.outputs.end(),
+        [](const ResourceAmountDefinition& output)
+        {
+            return output.type == ResourceType::FOOD_PROVISIONS;
+        });
+    ASSERT_NE(food, inn.production.outputs.end());
+    EXPECT_EQ(food->amount, 3);
+}
+
 TEST(BuildingConfigTests, TerrainSpecificProductionCanBeFound)
 {
     const auto* stoneMine = FindTerrainProductionDefinition(BuildingType::Mine, TileType::STONE);

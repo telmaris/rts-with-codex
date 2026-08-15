@@ -22,7 +22,8 @@ enum class GameCommandType
     DeployUnits,
     UpgradeBuilding,
     SetRecipe,
-    SetTowerTargetMode
+    SetTowerTargetMode,
+    DebugDeployEnemyUnits
 };
 
 struct GameCommand
@@ -41,7 +42,7 @@ struct GameCommand
     // (deploy has no tile target of its own) and adds the one genuinely new
     // field this command needs — a variable-length unit instance id list,
     // which nothing existing could be repurposed for.
-    static constexpr int WireVersion = 13;
+    static constexpr int WireVersion = 14;
 
     static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
     {
@@ -151,6 +152,17 @@ struct GameCommand
         command.type = GameCommandType::DeployUnits;
         command.targetTileId = targetPlayerId;
         command.unitInstanceIds = std::move(orderedUnitInstanceIds);
+        return command;
+    }
+
+    // Debug-only deterministic attack injection. targetTileId carries the
+    // requested unit count so the wire format needs no additional field.
+    static GameCommand DebugDeployEnemyUnits(int playerId, int unitCount = 4)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::DebugDeployEnemyUnits;
+        command.targetTileId = unitCount;
         return command;
     }
 
@@ -269,6 +281,7 @@ struct GameCommand
             case GameCommandType::UpgradeBuilding:
             case GameCommandType::SetRecipe:
             case GameCommandType::SetTowerTargetMode:
+            case GameCommandType::DebugDeployEnemyUnits:
                 return true;
         }
         return false;
@@ -279,7 +292,7 @@ struct GameCommandResult
 {
     static constexpr std::size_t MaxSerializedBytes = 256 * 1024;
     static constexpr std::size_t MaxReasonBytes = 1024;
-    static constexpr int WireVersion = 3;
+    static constexpr int WireVersion = 4;
 
     std::uint64_t commandId{0};
     std::uint64_t simulationTick{0};

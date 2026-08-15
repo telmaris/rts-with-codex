@@ -4,6 +4,7 @@
 #include "economy/ProductionBuildings.h"
 #include "simulation/RoadNetwork.h"
 #include "core/GameWorld.h"
+#include "ui/GuiController.h"
 
 #include <gtest/gtest.h>
 
@@ -97,6 +98,14 @@ TEST(BuildingDomainTests, BuildingCapabilitiesExposeAttachedComponents)
     Headquarters headquarters{3};
     EXPECT_TRUE(headquarters.HasComponent<StorageComponent>());
     EXPECT_EQ(headquarters.GetComponent<StorageComponent>(), &headquarters.storage);
+
+    Barracks barracks{4};
+    EXPECT_FALSE(barracks.HasComponent<StorageComponent>());
+    EXPECT_TRUE(barracks.HasComponent<LocalResourceBufferComponent>());
+
+    DefenseTower tower{6};
+    EXPECT_FALSE(tower.HasComponent<StorageComponent>());
+    EXPECT_TRUE(tower.HasComponent<LocalResourceBufferComponent>());
 }
 
 TEST(BuildingDomainTests, RoadTrafficTelemetryAveragesLoadAndHoldsSaturationWarning)
@@ -118,6 +127,28 @@ TEST(BuildingDomainTests, RoadTrafficTelemetryAveragesLoadAndHoldsSaturationWarn
     EXPECT_FALSE(road.road.HasRecentSaturation());
     EXPECT_GT(road.road.GetTrafficUtilizationTrend(), 0.0)
         << "trend should decay gradually instead of mirroring the current frame";
+}
+
+TEST(BuildingDomainTests, RoadDragLocksAxisUntilMousePauses)
+{
+    RoadDragStabilizer stabilizer;
+    stabilizer.Begin({10, 10}, Vector2{100.0f, 100.0f});
+
+    EXPECT_EQ(stabilizer.Constrain({10, 8}, Vector2{102.0f, 70.0f}, 0.016, {10, 10}),
+              (Vec2i{10, 8}));
+    EXPECT_EQ(stabilizer.GetAxis(), RoadDragStabilizer::Axis::Vertical);
+
+    // Horizontal hand jitter is discarded while the vertical segment is live.
+    EXPECT_EQ(stabilizer.Constrain({11, 7}, Vector2{104.0f, 50.0f}, 0.016, {10, 8}),
+              (Vec2i{10, 7}));
+
+    for (int i = 0; i < 10; ++i)
+        stabilizer.Constrain({11, 7}, Vector2{104.0f, 50.0f}, 0.02, {10, 7});
+    EXPECT_EQ(stabilizer.GetAxis(), RoadDragStabilizer::Axis::None);
+
+    EXPECT_EQ(stabilizer.Constrain({13, 7}, Vector2{140.0f, 51.0f}, 0.016, {10, 7}),
+              (Vec2i{13, 7}));
+    EXPECT_EQ(stabilizer.GetAxis(), RoadDragStabilizer::Axis::Horizontal);
 }
 
 TEST(BuildingDomainTests, ProductionBuildingReportsBuffersConnectionsAndStalledState)
@@ -1010,8 +1041,8 @@ TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpo
 
     Barracks barracks{1};
     barracks.owner = &player;
-    // See BarracksCanRecruitKnightAndRamNotJustSwordsman above: global-storage
-    // recruitment needs the building registered to be visible to the check.
+    // See BarracksCanRecruitKnightAndRamNotJustSwordsman above: global
+    // resource feasibility needs the building registered to be visible.
     player.RegisterBuilding(&barracks);
 
     // No manpower, no resources yet: Diagnose reports both, and
@@ -1108,6 +1139,43 @@ TEST(BuildingDomainTests, ReproSwitchingSupplierAwayFromHqFallback)
 
     EXPECT_TRUE(nowSuppliedByWoodcutter) << "LumberMill should now list Woodcutter as WOOD supplier";
     EXPECT_FALSE(stillPullingFromHq) << "LumberMill should have dropped the HQ fallback supplier";
+}
+
+TEST(BuildingDomainTests, AutoConnectUsesHeadquartersInsteadOfDefenseTowerStorage)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrass(map, &player, 24, 8);
+    auto network = std::make_unique<RoadNetwork>(map);
+    RoadNetwork* networkPtr = network.get();
+    player.roadNetwork = std::move(network);
+
+    auto* headquarters = PlaceAndRegister<Headquarters>(map, *networkPtr, &player, {0, 1}, 1);
+    auto* tower = PlaceAndRegister<DefenseTower>(map, *networkPtr, &player, {14, 1}, 2);
+    auto* bowyer = dynamic_cast<ConfiguredProductionBuilding*>(map.PlaceLoadedBuilding(
+        map.GetIdFromCoords({17, 1}), &player,
+        std::make_unique<ConfiguredProductionBuilding>(3, BuildingType::Bowyer)));
+    ASSERT_NE(headquarters, nullptr);
+    ASSERT_NE(tower, nullptr);
+    ASSERT_NE(bowyer, nullptr);
+
+    map.AutoConnectBuilding(bowyer);
+
+    ASSERT_FALSE(bowyer->GetInputBufferViews().empty());
+    for (const auto& input : bowyer->GetInputBufferViews())
+    {
+        bool suppliedByHeadquarters = false;
+        bool suppliedByTower = false;
+        for (const auto& supplier : bowyer->GetSupplierViews())
+        {
+            if (supplier.type != input.type)
+                continue;
+            suppliedByHeadquarters |= supplier.building == headquarters;
+            suppliedByTower |= supplier.building == tower;
+        }
+        EXPECT_TRUE(suppliedByHeadquarters) << "input " << static_cast<int>(input.type);
+        EXPECT_FALSE(suppliedByTower) << "input " << static_cast<int>(input.type);
+    }
 }
 
 TEST(BuildingDomainTests, ConsumerStopsPullingFromHqAfterSupplierReassignment)

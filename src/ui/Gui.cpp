@@ -915,7 +915,7 @@ namespace
             return 0;
 
         int available = StockpileIndex::GetTotal(*building.owner, type);
-        if (const auto* localStorage = building.GetComponent<StorageComponent>())
+        if (const auto* localStorage = building.GetComponent<LocalResourceBufferComponent>())
         {
             auto it = localStorage->buffers.find(type);
             if (it != localStorage->buffers.end())

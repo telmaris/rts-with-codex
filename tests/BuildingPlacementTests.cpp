@@ -94,6 +94,25 @@ TEST(BuildingPlacementTests, OwnStructuresNeverBlockPlacement)
     EXPECT_TRUE(map.CanBuildFootprint({9, 10}, {1, 1}, &player));
 }
 
+TEST(BuildingPlacementTests, DefenseTowerIsExemptFromHeadquartersClearance)
+{
+    TileMap map;
+    Player player{0, map};
+    FillOwnedGrassMap(map, &player, 24, 24);
+
+    Building* headquarters = map.PlaceLoadedBuilding(
+        map.GetIdFromCoords({10, 10}), &player, std::make_unique<Headquarters>(1));
+    ASSERT_NE(headquarters, nullptr);
+
+    const Vec2i closeAnchor{5, 10};
+    EXPECT_TRUE(map.CanPlaceBuilding(
+        BuildingType::DefenseTower, closeAnchor,
+        GetBuildingDefinition(BuildingType::DefenseTower).footprint, &player));
+    EXPECT_FALSE(map.CanPlaceBuilding(
+        BuildingType::StorageBuilding, closeAnchor,
+        GetBuildingDefinition(BuildingType::StorageBuilding).footprint, &player));
+}
+
 TEST(BuildingPlacementTests, ResourceProducerRequiresMatchingTerrainAndRichness)
 {
     TileMap map;

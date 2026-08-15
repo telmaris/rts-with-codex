@@ -232,8 +232,8 @@ class TileMap
         // jam the base exit — true when any tile within `radius` (Chebyshev,
         // expanded bounding box) of the footprint belongs to ANY player's
         // Headquarters. CanBuildFootprint refuses such placements for every
-        // type except Road/Bridge (logistics must reach the HQ) and the
-        // Headquarters itself.
+        // type except Road/Bridge (logistics must reach the HQ), DefenseTower
+        // (the apron may be fortified), and the Headquarters itself.
         bool IsWithinHqClearance(Vec2i anchor, Vec2i footprint, int radius) const;
         // Returns all tile ids occupied by a building footprint.
         std::vector<int> GetBuildingTileIds(const Building* building) const;
@@ -259,6 +259,10 @@ class TileMap
         void RefreshRoadTilesAround(Vec2i pos);
         // Finds the closest storage building reachable from a source building.
         Building* FindNearestStorage(Building* source, Player* player);
+        // Returns the automatic logistics hub: Headquarters first, with the
+        // nearest ordinary warehouse used only when the HQ is unavailable.
+        // Per-building buffers (towers, Barracks) are never default hubs.
+        Building* FindDefaultStorage(Building* source, Player* player);
         // Connects a placed building to default supplier and receiver candidates.
         void AutoConnectBuilding(Building* building);
         // Makes one building send compatible outputs to another building.

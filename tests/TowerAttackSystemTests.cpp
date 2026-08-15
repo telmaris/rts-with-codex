@@ -130,7 +130,7 @@ TEST(TowerAttackSystemTests, TowerHitsMovingEnemyWithinRangeAndConsumesAmmo)
     Building* tower = PlaceTowerNearRouteTile(world, human, route, midIndex, /*offsetTiles*/ 2, 9001);
     ASSERT_NE(tower, nullptr);
     auto* combat = tower->GetComponent<TowerCombatComponent>();
-    auto* storage = tower->GetComponent<StorageComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(combat, nullptr);
     ASSERT_NE(storage, nullptr);
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(10);
@@ -169,7 +169,7 @@ TEST(TowerAttackSystemTests, StrongestTargetModePrefersTheMostPowerfulUnit)
     Building* tower = PlaceTowerNearRouteTile(world, human, route, route.size() / 2, 2, 9006);
     ASSERT_NE(tower, nullptr);
     auto* combat = tower->GetComponent<TowerCombatComponent>();
-    auto* storage = tower->GetComponent<StorageComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(combat, nullptr);
     ASSERT_NE(storage, nullptr);
     combat->targetMode = TowerTargetMode::StrongestUnit;
@@ -220,7 +220,7 @@ TEST(TowerAttackSystemTests, TowerDoesNotFireAtEnemyBeyondRange)
     // comfortably beyond it for the unit's entire march past this point.
     Building* tower = PlaceTowerNearRouteTile(world, human, route, midIndex, /*offsetTiles*/ 40, 9002);
     ASSERT_NE(tower, nullptr);
-    auto* storage = tower->GetComponent<StorageComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(storage, nullptr);
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(10);
 
@@ -233,6 +233,50 @@ TEST(TowerAttackSystemTests, TowerDoesNotFireAtEnemyBeyondRange)
     EXPECT_EQ(storage->buffers[ResourceType::ARROWS].buffer.size(), 10u)
         << "a tower with nothing ever in range should never fire";
     EXPECT_TRUE(world.GetProjectiles().empty());
+}
+
+TEST(TowerAttackSystemTests, IdleTowerDoesNotAccumulateAnOpeningBurst)
+{
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, MakeSmallRingParams(307));
+    Player* human = world.GetPlayerHandler().players.at(0).get();
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+
+    std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(1, 0);
+    ASSERT_GT(route.size(), 20u);
+    const int midIndex = static_cast<int>(route.size()) / 2;
+    Building* tower = PlaceTowerNearRouteTile(world, human, route, midIndex, 2, 9007);
+    ASSERT_NE(tower, nullptr);
+    auto* combat = tower->GetComponent<TowerCombatComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
+    ASSERT_NE(combat, nullptr);
+    ASSERT_NE(storage, nullptr);
+    storage->buffers[ResourceType::ARROWS].SetStoredAmount(20);
+
+    // A long idle/full-ammo period used to drive attackTimer deeply negative.
+    for (int i = 0; i < 200; ++i)
+        TowerAttackSystem::Update(world, FixedSimulationClock::FixedDt);
+    EXPECT_DOUBLE_EQ(combat->attackTimer, 0.0);
+
+    const int unitId = ai->id * 100000 + ai->nextUnitInstanceId++;
+    BattleUnit incoming(unitId, ai->id, "militia");
+    incoming.currentHp = incoming.GetEffectiveMaxHp(*ai);
+    incoming.state = BattleUnitState::Marching;
+    incoming.routeFromPlayerId = ai->id;
+    incoming.routeToPlayerId = human->id;
+    incoming.tileIndex = midIndex;
+    world.GetDeployedUnits()[unitId] = std::move(incoming);
+
+    const size_t ammoBefore = storage->buffers[ResourceType::ARROWS].buffer.size();
+    TowerAttackSystem::Update(world, FixedSimulationClock::FixedDt);
+    ASSERT_EQ(world.GetProjectiles().size(), 1u);
+    EXPECT_GT(combat->attackTimer, 0.0);
+    EXPECT_EQ(storage->buffers[ResourceType::ARROWS].buffer.size(), ammoBefore - 1);
+
+    TowerAttackSystem::Update(world, FixedSimulationClock::FixedDt);
+    EXPECT_EQ(world.GetProjectiles().size(), 1u)
+        << "the next simulation tick must not release a second backlog shot";
+    EXPECT_EQ(storage->buffers[ResourceType::ARROWS].buffer.size(), ammoBefore - 1);
 }
 
 TEST(TowerAttackSystemTests, TowerStopsFiringWithoutAmmo)
@@ -252,7 +296,7 @@ TEST(TowerAttackSystemTests, TowerStopsFiringWithoutAmmo)
 
     Building* tower = PlaceTowerNearRouteTile(world, human, route, midIndex, /*offsetTiles*/ 2, 9003);
     ASSERT_NE(tower, nullptr);
-    auto* storage = tower->GetComponent<StorageComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(storage, nullptr);
     storage->buffers[ResourceType::ARROWS].SetStoredAmount(0); // no ammo at all
 
@@ -375,7 +419,7 @@ TEST(TowerAttackSystemTests, SaveAndLoadPreservesTowerAmmoAndAttackTimer)
         world.GetTileMap().GetIdFromCoords({5, 5}), human, std::make_unique<DefenseTower>(9005));
     ASSERT_NE(tower, nullptr);
     auto* combat = tower->GetComponent<TowerCombatComponent>();
-    auto* storage = tower->GetComponent<StorageComponent>();
+    auto* storage = tower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(combat, nullptr);
     ASSERT_NE(storage, nullptr);
     combat->attackTimer = 0.42;
@@ -391,12 +435,28 @@ TEST(TowerAttackSystemTests, SaveAndLoadPreservesTowerAmmoAndAttackTimer)
     Building* loadedTower = loaded.GetTileMap().GetBuilding(tower->positionId);
     ASSERT_NE(loadedTower, nullptr);
     const auto* loadedCombat = loadedTower->GetComponent<TowerCombatComponent>();
-    const auto* loadedStorage = loadedTower->GetComponent<StorageComponent>();
+    const auto* loadedStorage = loadedTower->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(loadedCombat, nullptr);
     ASSERT_NE(loadedStorage, nullptr);
     EXPECT_DOUBLE_EQ(loadedCombat->attackTimer, 0.42);
     EXPECT_EQ(loadedCombat->targetMode, TowerTargetMode::StrongestUnit);
     EXPECT_EQ(loadedStorage->buffers.at(ResourceType::ARROWS).buffer.size(), 7u);
+
+    // v33 stored this exact private tower buffer under STOR. Preserve old
+    // saves by routing that legacy block into LocalResourceBufferComponent.
+    std::string legacyState = world.SerializeSimulationState();
+    ASSERT_NE(legacyState.find("RTS_SAVE 34"), std::string::npos);
+    legacyState.replace(legacyState.find("RTS_SAVE 34"), 11, "RTS_SAVE 33");
+    for (size_t pos = 0; (pos = legacyState.find("LOCALBUF", pos)) != std::string::npos;)
+        legacyState.replace(pos, 8, "STOR");
+
+    GameWorld legacyLoaded;
+    ASSERT_TRUE(legacyLoaded.RestoreSimulationState(legacyState));
+    Building* legacyTower = legacyLoaded.GetTileMap().GetBuilding(tower->positionId);
+    ASSERT_NE(legacyTower, nullptr);
+    const auto* legacyStorage = legacyTower->GetComponent<LocalResourceBufferComponent>();
+    ASSERT_NE(legacyStorage, nullptr);
+    EXPECT_EQ(legacyStorage->buffers.at(ResourceType::ARROWS).buffer.size(), 7u);
 
     std::filesystem::remove(path);
 }

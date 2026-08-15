@@ -182,11 +182,16 @@ void TowerAttackSystem::Update(GameWorld& world, double dt)
         for (Building* towerBuilding : sortedTowers)
         {
             auto* combat = towerBuilding->GetComponent<TowerCombatComponent>();
-            auto* storage = towerBuilding->GetComponent<StorageComponent>();
+            auto* storage = towerBuilding->GetComponent<LocalResourceBufferComponent>();
             if (combat == nullptr || storage == nullptr)
                 continue;
 
-            combat->attackTimer -= dt;
+            // Cooldown is elapsed time until the NEXT shot, not a debt that
+            // may accumulate while the tower has no target or ammunition.
+            // Letting it run deeply negative caused a freshly supplied tower
+            // to fire once per simulation tick until the negative balance was
+            // repaid (the reported ~20-shot opening burst).
+            combat->attackTimer = std::max(0.0, combat->attackTimer - dt);
             if (combat->attackTimer > 0.0)
                 continue;
 
@@ -206,7 +211,7 @@ void TowerAttackSystem::Update(GameWorld& world, double dt)
                 bufferIt->second.FreeResource();
 
             double attackSpeed = combat->GetModifiedAttackSpeed(*towerBuilding);
-            combat->attackTimer += attackSpeed > 0.0 ? 1.0 / attackSpeed : 1.0;
+            combat->attackTimer = attackSpeed > 0.0 ? 1.0 / attackSpeed : 1.0;
 
             AttackEmission projectile;
             projectile.sourcePlayerId = playerId;

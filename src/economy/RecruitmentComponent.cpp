@@ -12,7 +12,7 @@ namespace
     // Checks this building's own buffer for every cost in `def`; if it's all
     // there, consumes it and returns true. Pure check-and-consume — never
     // requests anything, so callers stay free of transport side effects.
-    bool TryConsumeCostFromBuffer(StorageComponent& storage, const UnitDefinition& def)
+    bool TryConsumeCostFromBuffer(LocalResourceBufferComponent& storage, const UnitDefinition& def)
     {
         for (const auto& cost : def.cost)
         {
@@ -33,7 +33,7 @@ namespace
     // never re-orders what's already on the road (the over-request bug this
     // replaced: RequestResource dispatches physical transport immediately and
     // does NOT net out incoming, unlike MaintainRequests).
-    void RequestMissingCost(Building& self, StorageComponent& storage, LogisticsComponent& logistics,
+    void RequestMissingCost(Building& self, LocalResourceBufferComponent& storage, LogisticsComponent& logistics,
                             const UnitDefinition& def)
     {
         for (const auto& cost : def.cost)
@@ -58,7 +58,7 @@ bool RecruitmentComponent::QueueRecruitment(Building& self, const std::string& u
     if (!def->requiredTechnology.empty() && !self.owner->technologies.HasTechnology(def->requiredTechnology))
         return false;
 
-    auto* storage = self.GetComponent<StorageComponent>();
+    auto* storage = self.GetComponent<LocalResourceBufferComponent>();
     auto* logistics = self.GetComponent<LogisticsComponent>();
     if (storage == nullptr || logistics == nullptr)
         return false;
@@ -111,7 +111,7 @@ std::string RecruitmentComponent::DiagnoseRecruitmentBlock(const Building& self,
     // building's own buffer — a cost that has physically arrived here is the
     // most available it can possibly be, and StockpileIndex deliberately does
     // not count a Barracks' local buffer as shared stock.
-    const auto* localStorage = self.GetComponent<StorageComponent>();
+    const auto* localStorage = self.GetComponent<LocalResourceBufferComponent>();
     std::vector<std::string> reasons;
     for (const auto& cost : def->cost)
     {
@@ -156,7 +156,7 @@ void RecruitmentComponent::Update(Building& self, double dt)
     // is physically here, even while an earlier entry still trains. Only the
     // FIRST waiting entry places a request, and only for what's neither
     // buffered nor already on the road — one unit's cost at a time.
-    auto* storage = self.GetComponent<StorageComponent>();
+    auto* storage = self.GetComponent<LocalResourceBufferComponent>();
     auto* logistics = self.GetComponent<LogisticsComponent>();
     if (storage != nullptr && logistics != nullptr)
     {

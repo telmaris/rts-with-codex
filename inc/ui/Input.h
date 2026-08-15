@@ -21,6 +21,7 @@ enum InputMap
     OPEN_ROSTER_GUI,
     CENTER_CAMERA_ON_HEADQUARTERS,
     DEBUG_GRANT_RESOURCES,
+    DEBUG_DEPLOY_ENEMY_UNITS,
 
     LEFT_BUTTON_DOWN,
     LEFT_BUTTON_UP,
@@ -84,6 +85,7 @@ inline void InputProcessor::Init(GuiController* gui)
     actionInputs[OPEN_ROSTER_GUI].key = KEY_U;
     actionInputs[CENTER_CAMERA_ON_HEADQUARTERS].key = KEY_SPACE;
     actionInputs[DEBUG_GRANT_RESOURCES].key = KEY_F10;
+    actionInputs[DEBUG_DEPLOY_ENEMY_UNITS].key = KEY_F12;
     
     actionInputs[LEFT_BUTTON_DOWN].button = MOUSE_BUTTON_LEFT;
     actionInputs[LEFT_BUTTON_UP].button = MOUSE_BUTTON_LEFT;

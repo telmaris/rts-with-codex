@@ -181,7 +181,7 @@ double Player::GetAmmunitionSupplyRatio() const
     for (const auto* building : GetTrackedBuildingsWithComponent<TowerCombatComponent>())
     {
         const auto* tower = building != nullptr ? building->GetComponent<TowerCombatComponent>() : nullptr;
-        const auto* storage = building != nullptr ? building->GetComponent<StorageComponent>() : nullptr;
+        const auto* storage = building != nullptr ? building->GetComponent<LocalResourceBufferComponent>() : nullptr;
         if (tower == nullptr || storage == nullptr || building->owner != this || building->IsUnderConstruction())
             continue;
 

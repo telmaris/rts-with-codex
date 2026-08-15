@@ -27,6 +27,7 @@ std::string GameWorld::SerializeSimulationState() const
 bool GameWorld::SaveToStream(std::ostream& out) const
 {
 
+    // Save v34: private Barracks/tower buffers separated from StorageComponent.
     // Save v33: independent household/urban Village upkeep timers.
     // Save v32: runtime identifiers and simulation tick for multiplayer restore.
     // Save v31: transparent per-tile resource-overlay cells.
@@ -38,7 +39,7 @@ bool GameWorld::SaveToStream(std::ostream& out) const
     // deterministic checksum; the default stream precision silently rounds
     // timers and resource rates after a few ticks.
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    out << "RTS_SAVE 33\n";
+    out << "RTS_SAVE 34\n";
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "RUNTIME " << localPlayerId << ' ' << simulationTick << ' ' << nextCommandId << ' '
         << nextProjectileId << '\n';
@@ -221,6 +222,13 @@ bool GameWorld::SaveToStream(std::ostream& out) const
                 SaveResourceBuffer(out, "BUF", buffer);
             out << "ENDSTOR\n";
         }
+        if (const auto* local = building->GetComponent<LocalResourceBufferComponent>())
+        {
+            out << "LOCALBUF " << local->buffers.size() << '\n';
+            for (const auto& [type, buffer] : local->buffers)
+                SaveResourceBuffer(out, "BUF", buffer);
+            out << "ENDLOCALBUF\n";
+        }
 
         if (const auto* hq = building->GetComponent<HqComponent>())
         {
@@ -232,9 +240,8 @@ bool GameWorld::SaveToStream(std::ostream& out) const
 
         if (const auto* tower = building->GetComponent<TowerCombatComponent>())
         {
-            // Ammo itself is already covered by the generic STOR block above
-            // (an ordinary StorageComponent buffer) — only the attack
-            // cooldown needs its own field here.
+            // Ammo itself is already covered by the LOCALBUF block above;
+            // only the attack cooldown and targeting policy live here.
             out << "TOWER " << tower->damage.GetBase() << ' ' << tower->range.GetBase() << ' '
                 << tower->attackSpeed.GetBase() << ' ' << tower->attackTimer << ' '
                 << static_cast<int>(tower->ammoResource) << ' ' << tower->ammoPerShot.GetBase() << ' '
@@ -356,6 +363,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v34: private Barracks/tower buffers separated from StorageComponent.
     // v33: independent household/urban Village upkeep timers.
     // v32: runtime identifiers and simulation tick for multiplayer restore.
     // v31: transparent per-tile resource-overlay cells.
@@ -363,7 +371,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
     if (tag != "RTS_SAVE" ||
-        (version != 30 && version != 31 && version != 32 && version != 33))
+        (version != 30 && version != 31 && version != 32 && version != 33 && version != 34))
         return false;
 
     render = renderer;
@@ -853,14 +861,24 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
                 }
                 if (tag != "ENDPROD") return false;
             }
-            else if (tag == "STOR")
+            else if (tag == "STOR" || tag == "LOCALBUF")
             {
+                const bool localBlock = tag == "LOCALBUF";
                 auto* storage = placed->GetComponent<StorageComponent>();
-                if (storage == nullptr) return false;
+                auto* local = placed->GetComponent<LocalResourceBufferComponent>();
+                // v30-v33 encoded Barracks/tower private buffers as STOR, so
+                // an old STOR block may fall back to the new local component.
+                // A v34 LOCALBUF block, however, must never populate a real
+                // warehouse if a future specialized building owns both.
+                std::map<ResourceType, ResourceBuffer>* buffers = localBlock
+                    ? (local != nullptr ? &local->buffers : nullptr)
+                    : (storage != nullptr ? &storage->buffers
+                                          : (local != nullptr ? &local->buffers : nullptr));
+                if (buffers == nullptr) return false;
 
                 int count = 0;
                 in >> count;
-                storage->buffers.clear();
+                buffers->clear();
                 for (int n = 0; n < count; n++)
                 {
                     int type = 0, capacity = 0, amount = 0;
@@ -868,11 +886,11 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
                     if (tag != "BUF") return false;
                     ResourceBuffer buffer{static_cast<ResourceType>(type), capacity};
                     LoadResourceBuffer(buffer, static_cast<ResourceType>(type), capacity, amount);
-                    storage->buffers[static_cast<ResourceType>(type)] = std::move(buffer);
+                    (*buffers)[static_cast<ResourceType>(type)] = std::move(buffer);
                 }
 
                 in >> tag;
-                if (tag != "ENDSTOR") return false;
+                if (tag != (localBlock ? "ENDLOCALBUF" : "ENDSTOR")) return false;
             }
             else if (tag == "VIL")
             {

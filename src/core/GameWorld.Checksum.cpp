@@ -137,6 +137,8 @@ std::uint64_t GameWorld::BuildChecksum() const
             }
             if (const auto* storage = building->GetComponent<StorageComponent>(); storage != nullptr)
                 HashResourceBuffers(hash, storage->buffers);
+            if (const auto* local = building->GetComponent<LocalResourceBufferComponent>(); local != nullptr)
+                HashResourceBuffers(hash, local->buffers);
             if (const auto* population = building->GetComponent<PopulationComponent>(); population != nullptr)
             {
                 HashDouble(hash, population->upkeepTimer);
@@ -181,7 +183,7 @@ std::uint64_t GameWorld::BuildChecksum() const
             {
                 HashInt(hash, static_cast<int>(tower->attackTimer * 1000.0));
                 HashInt(hash, static_cast<int>(tower->targetMode));
-                if (const auto* storage = building->GetComponent<StorageComponent>(); storage != nullptr)
+                if (const auto* storage = building->GetComponent<LocalResourceBufferComponent>(); storage != nullptr)
                 {
                     auto ammoIt = storage->buffers.find(tower->ammoResource);
                     HashInt(hash, ammoIt != storage->buffers.end()

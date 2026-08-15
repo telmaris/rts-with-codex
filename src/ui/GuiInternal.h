@@ -86,6 +86,8 @@ Building* FindLocalHeadquarters(GameScene* scene);
 // Grants the local player's HQ a package of every resource — debug worlds
 // only (params.debugMode). Wired to the F10 action in WireCommonSystemActions.
 void GrantDebugResources(GameScene* scene, int amount);
+// Submits a deterministic debug-only enemy attack command (F12).
+void DeployDebugEnemyUnits(GameScene* scene, int count);
 
 // ─── Strategic HUD buttons ───────────────────────────────────────────────────
 
@@ -153,6 +155,7 @@ void WireCommonSystemActions(SystemT& system, CameraMovement& cameraMovement)
     system.actionMap["mmbp"] = [&cameraMovement] { cameraMovement.isMoving = true; };
     system.actionMap["mmbr"] = [&cameraMovement] { cameraMovement.isMoving = false; };
     system.actionMap["debug_resources"] = [&system] { GrantDebugResources(system.scene, 50); };
+    system.actionMap["debug_enemy_units"] = [&system] { DeployDebugEnemyUnits(system.scene, 4); };
     system.actionMap["scroll"] = [&system] { system.Scroll(); };
 }
 

@@ -899,16 +899,20 @@ void ApplyProductionRecipes(Building& building, const BuildingDefinition& defini
 // Applies parsed configuration to runtime state.
 void ApplyStorageDefinition(Building& building, const BuildingDefinition& definition)
 {
-    auto* storage = building.GetComponent<StorageComponent>();
-    if (storage == nullptr)
+    std::map<ResourceType, ResourceBuffer>* buffers = nullptr;
+    if (auto* storage = building.GetComponent<StorageComponent>())
+        buffers = &storage->buffers;
+    else if (auto* local = building.GetComponent<LocalResourceBufferComponent>())
+        buffers = &local->buffers;
+    if (buffers == nullptr)
         return;
 
-    storage->buffers.clear();
+    buffers->clear();
     for (const auto& buffer : definition.storageBuffers)
     {
         ResourceBuffer resourceBuffer{buffer.type, buffer.capacity};
         resourceBuffer.SetStoredAmount(buffer.initialAmount);
-        storage->buffers[buffer.type] = std::move(resourceBuffer);
+        (*buffers)[buffer.type] = std::move(resourceBuffer);
     }
 }
 

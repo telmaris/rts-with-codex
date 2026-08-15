@@ -387,7 +387,7 @@ public:
     UpgradeComponent upgrade;
 };
 
-// Recruitment factory. Holds a StorageComponent buffer for delivered unit
+// Recruitment factory. Holds a private local buffer for delivered unit
 // costs, a LogisticsComponent that actively requests those costs over the
 // road network (T3 fix, docs/post_pivot_audit_2026-07-12.md — mirrors
 // DefenseTower's ammo pull, RecruitmentComponent::Update drives it every
@@ -400,7 +400,7 @@ public:
     Barracks(int);
 
     // --- Component members ---
-    StorageComponent storage;
+    LocalResourceBufferComponent storage;
     LogisticsComponent logistics;
     RecruitmentComponent recruitment;
 };
@@ -408,7 +408,7 @@ public:
 // Defensive tower (TD etap-7). One class handles every tower tier — combat
 // stats are data-driven (TowerCombatComponent), same as Barracks handles
 // every recruitable unit type via UnitDefinition rather than a class per
-// unit. Ammo is an ordinary StorageComponent buffer fed by the existing road
+// unit. Ammo is a private local buffer fed by the existing road
 // network (LogisticsComponent); crew is an ordinary WorkerComponent, so
 // manpower auto-returns on destruction for free via the existing generic path.
 class DefenseTower : public Building
@@ -418,7 +418,7 @@ public:
     DefenseTower(int);
 
     // --- Component members ---
-    StorageComponent storage;
+    LocalResourceBufferComponent storage;
     LogisticsComponent logistics;
     WorkerComponent workers;
     TowerCombatComponent combat;

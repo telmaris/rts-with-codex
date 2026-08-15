@@ -61,6 +61,64 @@ TEST(GameCommandTests, SerializesAndDeserializesTowerTargetMode)
     EXPECT_EQ(parsed.targetTileId, static_cast<int>(TowerTargetMode::StrongestUnit));
 }
 
+TEST(GameCommandTests, SerializesDebugEnemyDeployment)
+{
+    GameCommand original = GameCommand::DebugDeployEnemyUnits(2, 4);
+    GameCommand parsed;
+    ASSERT_TRUE(GameCommand::TryDeserialize(original.Serialize(), parsed));
+    EXPECT_EQ(parsed.type, GameCommandType::DebugDeployEnemyUnits);
+    EXPECT_EQ(parsed.playerId, 2);
+    EXPECT_EQ(parsed.targetTileId, 4);
+}
+
+TEST(GameCommandTests, DebugEnemyDeploymentRequiresDebugModeAndSpawnsEnemyColumn)
+{
+    MapParameters params;
+    params.sizeX = 81;
+    params.sizeY = 81;
+    params.aiOpponentCount = 1;
+    params.seed = 8128;
+    params.debugMode = true;
+
+    GameWorld world;
+    world.InitWorld("test", nullptr, nullptr, params);
+    ASSERT_TRUE(world.GetMilitaryRoads().AreConnected(0, 1));
+    const std::vector<int> route = world.GetMilitaryRoads().GetDirectedTiles(1, 0);
+    ASSERT_FALSE(route.empty());
+    const int expectedHeadIndex = std::min(
+        std::max(0, static_cast<int>(route.size()) - 2),
+        (static_cast<int>(route.size()) - 1) * 3 / 4);
+
+    const std::uint64_t commandId = world.SubmitCommand(GameCommand::DebugDeployEnemyUnits(0, 4));
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+
+    const auto results = world.ConsumeCommandResults();
+    const auto resultIt = std::find_if(results.begin(), results.end(), [commandId](const GameCommandResult& result)
+    {
+        return result.commandId == commandId;
+    });
+    ASSERT_NE(resultIt, results.end());
+    EXPECT_TRUE(resultIt->accepted);
+
+    int spawnedEnemyUnits = 0;
+    std::vector<int> spawnedTileIndices;
+    for (const auto& [instanceId, unit] : world.GetDeployedUnits())
+    {
+        (void)instanceId;
+        if (unit.ownerPlayerId == 1 && unit.routeFromPlayerId == 1 && unit.routeToPlayerId == 0)
+        {
+            ++spawnedEnemyUnits;
+            spawnedTileIndices.push_back(unit.tileIndex);
+            EXPECT_EQ(unit.unitDefId, "militia");
+        }
+    }
+    EXPECT_EQ(spawnedEnemyUnits, 4);
+    std::sort(spawnedTileIndices.begin(), spawnedTileIndices.end(), std::greater<int>());
+    ASSERT_EQ(spawnedTileIndices.size(), 4u);
+    for (size_t i = 0; i < spawnedTileIndices.size(); ++i)
+        EXPECT_EQ(spawnedTileIndices[i], std::max(0, expectedHeadIndex - static_cast<int>(i)));
+}
+
 TEST(GameCommandTests, RejectsMalformedPayload)
 {
     GameCommand parsed;

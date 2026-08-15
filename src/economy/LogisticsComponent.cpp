@@ -93,7 +93,7 @@ void LogisticsComponent::SetReceiver(ResourceType type, Building* receiver, Buil
         prev->RemoveSupplier(type, &self);
         if (prev->owner != nullptr && prev->CanAcceptResource(type) && !prev->HasSupplier(type))
         {
-            Building* storage = prev->owner->tilemap.FindNearestStorage(prev, prev->owner);
+            Building* storage = prev->owner->tilemap.FindDefaultStorage(prev, prev->owner);
             if (storage != nullptr && storage != prev)
                 prev->SetSupplier(type, storage);
         }
@@ -230,7 +230,7 @@ void LogisticsComponent::DispatchOutputs(Building& self, ProductionComponent& pr
         Building* recv = recvIt != receivers.end() ? recvIt->second : nullptr;
         if (recv == nullptr && self.owner != nullptr)
         {
-            Building* storage = self.owner->tilemap.FindNearestStorage(&self, self.owner);
+            Building* storage = self.owner->tilemap.FindDefaultStorage(&self, self.owner);
             if (storage != nullptr && storage->CanAcceptResource(res))
             {
                 receivers[res] = storage;
@@ -257,7 +257,7 @@ void LogisticsComponent::DispatchOutputs(Building& self, ProductionComponent& pr
             targets.push_back(recv);
         if (self.owner != nullptr)
         {
-            Building* storage = self.owner->tilemap.FindNearestStorage(&self, self.owner);
+            Building* storage = self.owner->tilemap.FindDefaultStorage(&self, self.owner);
             if (storage != nullptr && storage != recv && storage->CanAcceptResource(res) &&
                 std::find(targets.begin(), targets.end(), storage) == targets.end())
                 targets.push_back(storage);

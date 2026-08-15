@@ -300,13 +300,17 @@ void StrategicResourceHudWidget::Update(double dt)
         UiControlIcons::DrawRoyalCrest(crestRect);
 
     const float chipWidth = std::clamp(bounds.height * 1.55f, 118.0f, 138.0f);
+    const float populationChipWidth = std::clamp(bounds.height * 1.95f, 154.0f, 174.0f);
     const float chipGap = 3.0f;
     const float chipHeight = std::max(52.0f, bounds.height - 18.0f);
     const float chipY = bounds.y + (bounds.height - chipHeight) * 0.5f;
     const float chipStartX = crestRect.x + crestRect.width + 8.0f;
     auto chipAt = [&](int index)
     {
-        return Rectangle{chipStartX + static_cast<float>(index) * (chipWidth + chipGap),
+        if (index == 0)
+            return Rectangle{chipStartX, chipY, populationChipWidth, chipHeight};
+        return Rectangle{chipStartX + populationChipWidth + chipGap +
+                             static_cast<float>(index - 1) * (chipWidth + chipGap),
                          chipY, chipWidth, chipHeight};
     };
     auto chipIconRect = [](Rectangle chip)
@@ -390,10 +394,16 @@ void StrategicResourceHudWidget::Update(double dt)
                         24, Color{228, 210, 180, 255});
     };
 
+    const bool populationCapped = stats.populationCap > 0 &&
+                                  stats.totalPopulation >= stats.populationCap;
+    const Color populationAccent = (highlightManpower || populationCapped)
+        ? UiTheme::Gold : Color{188, 150, 96, 255};
     drawStatChip(manpowerChip, manpowerIcon,
-                 std::to_string(stats.totalPopulation) + "/" + std::to_string(stats.populationCap),
-                 highlightManpower ? UiTheme::Gold : Color{188, 150, 96, 255}, drawManpowerIcon,
-                 highlightManpower);
+                 std::to_string(stats.freeManpower) + " | " +
+                     std::to_string(stats.totalPopulation) + "/" +
+                     std::to_string(stats.populationCap),
+                 populationAccent, drawManpowerIcon,
+                 highlightManpower || populationCapped);
 
     drawStatChip(foodChip, foodIcon, std::to_string(stats.foodSupplyPercent) + "%",
                  highlightFood ? UiTheme::Gold : Color{145, 198, 118, 255}, [&](Rectangle icon)
@@ -529,6 +539,9 @@ void StrategicResourceHudWidget::Update(double dt)
                              Color fallbackFill, Color outline, bool enabled = true,
                              bool attention = false)
     {
+        // Availability always wins over the attention hint. A locked tutorial
+        // action or research button must remain visually quiet.
+        attention = attention && enabled;
         if (!UiControlIcons::DrawPixelHudWidgetFrame(rect, hovered && enabled))
         {
             const Color fill = hovered
@@ -999,17 +1012,21 @@ void StatsPanelWidget::Update(double dt)
         Color color{};
     };
     std::vector<SeriesEndpoint> endpoints;
+    std::vector<ResourceFlowSnapshot> chartSamples(flowHistory.begin(), flowHistory.end());
+    chartSamples.push_back(player->economyTelemetry.current);
 
+    BeginScissorMode(static_cast<int>(plot.x), static_cast<int>(plot.y),
+                     static_cast<int>(plot.width), static_cast<int>(plot.height));
     for (ResourceType type : visibleResources)
     {
-        bool hasPrevious = false;
-        Vector2 previous{};
-        Vector2 lastPoint{};
-        int lastRate = 0;
+        struct SeriesPoint
+        {
+            Vector2 position{};
+            int rate{0};
+        };
+        std::vector<SeriesPoint> rawPoints;
         Color color = ResourceChartColor(type);
-        std::vector<ResourceFlowSnapshot> samples(flowHistory.begin(), flowHistory.end());
-        samples.push_back(player->economyTelemetry.current);
-        for (const auto& sample : samples)
+        for (const auto& sample : chartSamples)
         {
             if (sample.time < startTime)
                 continue;
@@ -1021,18 +1038,46 @@ void StatsPanelWidget::Update(double dt)
             float age = static_cast<float>((historyTime - sample.time) / windowSeconds);
             float x = plot.x + plot.width - std::clamp(age, 0.0f, 1.0f) * plot.width;
             float y = plot.y + plot.height - static_cast<float>(rate) / static_cast<float>(maxRate) * plot.height;
-            Vector2 point{x, y};
-            if (hasPrevious)
-                DrawLineEx(previous, point, 2.0f, color);
-            DrawCircleV(point, rate > 0 ? 3.0f : 2.0f, rate > 0 ? color : Color{110, 92, 70, 190});
-            previous = point;
-            lastPoint = point;
-            lastRate = rate;
-            hasPrevious = true;
+            rawPoints.push_back({Vector2{x, y}, rate});
         }
-        if (hasPrevious && lastRate > 0)
-            endpoints.push_back({type, lastPoint, lastRate, color});
+
+        if (rawPoints.empty())
+            continue;
+
+        // A centered 1-2-1 filter removes one-sample spikes without changing
+        // the newest value reported by the endpoint label. Catmull-Rom then
+        // rounds the joins, so the graph remains readable without looking
+        // like a staircase.
+        std::vector<Vector2> smoothPoints;
+        smoothPoints.reserve(rawPoints.size());
+        for (const auto& point : rawPoints)
+            smoothPoints.push_back(point.position);
+        for (size_t i = 1; i + 1 < rawPoints.size(); ++i)
+        {
+            smoothPoints[i].y = (rawPoints[i - 1].position.y +
+                                 rawPoints[i].position.y * 2.0f +
+                                 rawPoints[i + 1].position.y) * 0.25f;
+        }
+
+        if (smoothPoints.size() >= 4)
+            DrawSplineCatmullRom(smoothPoints.data(), static_cast<int>(smoothPoints.size()), 2.2f, color);
+        else
+            for (size_t i = 1; i < smoothPoints.size(); ++i)
+                DrawLineEx(smoothPoints[i - 1], smoothPoints[i], 2.2f, color);
+
+        for (size_t i = 0; i < smoothPoints.size(); ++i)
+        {
+            if (i + 1 != smoothPoints.size() && i % 2 != 0)
+                continue;
+            DrawCircleV(smoothPoints[i], rawPoints[i].rate > 0 ? 2.4f : 1.7f,
+                        rawPoints[i].rate > 0 ? color : Color{110, 92, 70, 190});
+        }
+
+        const SeriesPoint& last = rawPoints.back();
+        if (last.rate > 0)
+            endpoints.push_back({type, last.position, last.rate, color});
     }
+    EndScissorMode();
 
     UiText::DrawFit("0", Rectangle{plot.x - 28.0f, plot.y + plot.height - 16.0f, 24.0f, 16.0f}, 16, Color{190, 172, 140, 255});
     UiText::DrawFit(std::to_string(maxObservedRate) + "/m", Rectangle{plot.x - 42.0f, plot.y - 4.0f, 40.0f, 18.0f}, 16, Color{190, 172, 140, 255});
@@ -1043,26 +1088,47 @@ void StatsPanelWidget::Update(double dt)
     {
         return a.point.y < b.point.y;
     });
-    float lastLabelY = plot.y - 18.0f;
-    int endpointLabels = 0;
-    for (const auto& endpoint : endpoints)
+    constexpr int maxEndpointLabels = 8;
+    constexpr float endpointChipHeight = 24.0f;
+    constexpr float endpointChipGap = 2.0f;
+    const size_t endpointCount = std::min(endpoints.size(),
+                                          static_cast<size_t>(maxEndpointLabels));
+    std::vector<float> endpointLabelYs(endpointCount);
+    const float labelTop = plot.y + 4.0f;
+    const float labelBottom = plot.y + plot.height - endpointChipHeight - 4.0f;
+    const float labelStep = endpointChipHeight + endpointChipGap;
+    for (size_t i = 0; i < endpointCount; ++i)
     {
-        if (endpointLabels >= 8)
-            break;
-        float labelY = std::clamp(endpoint.point.y - 10.0f, plot.y + 4.0f, plot.y + plot.height - 22.0f);
-        if (labelY < lastLabelY + 22.0f)
-            labelY = std::min(plot.y + plot.height - 22.0f, lastLabelY + 22.0f);
-        lastLabelY = labelY;
+        endpointLabelYs[i] = std::clamp(endpoints[i].point.y - endpointChipHeight * 0.5f,
+                                        labelTop, labelBottom);
+        if (i > 0)
+            endpointLabelYs[i] = std::max(endpointLabelYs[i], endpointLabelYs[i - 1] + labelStep);
+    }
+    if (!endpointLabelYs.empty() && endpointLabelYs.back() > labelBottom)
+    {
+        endpointLabelYs.back() = labelBottom;
+        for (size_t i = endpointLabelYs.size() - 1; i > 0; --i)
+            endpointLabelYs[i - 1] = std::min(endpointLabelYs[i - 1],
+                                              endpointLabelYs[i] - labelStep);
+    }
+
+    for (size_t i = 0; i < endpointCount; ++i)
+    {
+        const auto& endpoint = endpoints[i];
+        const float labelY = endpointLabelYs[i];
 
         std::string label = std::string(ResourceChipShortName(endpoint.type)) + " " +
             (showingConsumption ? "-" : "+") + std::to_string(endpoint.rate) + "/m";
-        float labelWidth = std::min(104.0f, std::max(58.0f, static_cast<float>(MeasureText(label.c_str(), 13) + 18)));
-        Rectangle chip{plot.x + plot.width - labelWidth - 6.0f, labelY, labelWidth, 18.0f};
+        float labelWidth = std::min(132.0f, std::max(76.0f,
+            static_cast<float>(UiText::Measure(label, 16) + 24)));
+        Rectangle chip{plot.x + plot.width - labelWidth - 6.0f, labelY,
+                       labelWidth, endpointChipHeight};
         DrawLineEx(endpoint.point, Vector2{chip.x, chip.y + chip.height * 0.5f}, 1.0f, Color{endpoint.color.r, endpoint.color.g, endpoint.color.b, 180});
         UiControlIcons::DrawPixelHudWidgetFrame(chip, false, endpoint.color);
-        DrawRectangleRounded(Rectangle{chip.x + 5.0f, chip.y + 5.0f, 7.0f, 7.0f}, 0.35f, 4, endpoint.color);
-        UiText::DrawFit(label, Rectangle{chip.x + 15.0f, chip.y + 2.0f, chip.width - 19.0f, 14.0f}, 13, UiTheme::Parchment);
-        endpointLabels++;
+        DrawRectangleRounded(Rectangle{chip.x + 6.0f, chip.y + 7.0f, 9.0f, 9.0f}, 0.35f, 4, endpoint.color);
+        UiText::DrawFit(label, Rectangle{chip.x + 20.0f, chip.y + 3.0f,
+                                         chip.width - 25.0f, 18.0f},
+                        16, UiTheme::Parchment);
     }
 
     Rectangle allButton = GetAllFilterButtonRect(chart);

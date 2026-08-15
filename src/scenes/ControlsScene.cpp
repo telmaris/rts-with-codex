@@ -103,7 +103,7 @@ void ControlsScene::Update(double dt)
     float sw = static_cast<float>(GetScreenWidth());
     float sh = static_cast<float>(GetScreenHeight());
 
-    float panelW = sw * 0.70f;
+    float panelW = sw * 0.90f;
     float panelH = sh * 0.82f;
     float panelX = (sw - panelW) * 0.5f;
     float panelY = sh * 0.07f;
@@ -117,14 +117,17 @@ void ControlsScene::Update(double dt)
     }
     DrawLineEx({panelX + 24.0f, panelY + 54.0f}, {panelX + panelW - 24.0f, panelY + 54.0f}, 1.0f, Color{70, 84, 106, 200});
 
+    const float columnWidth = (panelW - 64.0f) / 3.0f;
     float col1X = panelX + 32.0f;
-    float col2X = panelX + panelW * 0.5f + 16.0f;
+    float col2X = col1X + columnWidth;
+    float col3X = col2X + columnWidth;
     float startY = panelY + 68.0f;
 
     float y1 = startY;
     DrawControlsSection(col1X, y1, "Camera & navigation", {
         {"Space",       "Center on Headquarters"},
-        {"RMB drag",    "Pan camera"},
+        {"RMB drag",    "Pan camera / tree view"},
+        {"MMB drag",    "Pan camera"},
         {"Scroll",      "Zoom in / out"},
         {"ESC",         "Open game menu / cancel mode"},
     });
@@ -144,27 +147,52 @@ void ControlsScene::Update(double dt)
     DrawControlsSection(col1X, y1, "Selection", {
         {"LMB",         "Select building on map"},
         {"LMB (build)", "Confirm building placement"},
-        {"LMB drag (road)", "Paint road tiles"},
+        {"RMB click",   "Connect selected building"},
+        {"Ctrl+RMB",    "Add alternative receiver"},
     });
 
     float y2 = startY;
-    DrawControlsSection(col2X, y2, "Military", {
-        {"U",            "Open roster and choose a target"},
-        {"LMB unit",    "Select units for deployment"},
-        {"Deploy",      "Send selected units to an active enemy HQ"},
-    });
-
-    DrawControlsSection(col2X, y2, "Build panel", {
+    DrawControlsSection(col2X, y2, "Building & roads", {
         {"LMB on card",  "Select building to place"},
         {"LMB on map",   "Place selected building"},
-        {"Scroll",       "Scroll build list"},
+        {"LMB drag",     "Paint an axis-locked road"},
+        {"Pause drag",   "Arm a road direction change"},
+        {"Scroll",       "Scroll build / info panels"},
         {"ESC / Q",      "Cancel build mode"},
+    });
+
+    DrawControlsSection(col2X, y2, "Military", {
+        {"U",            "Open roster and choose a target"},
+        {"LMB unit",     "Select or order deployment group"},
+        {"LMB target",   "Choose an active enemy HQ"},
+        {"LMB Deploy",   "Send selected units"},
     });
 
     DrawControlsSection(col2X, y2, "Research & decisions", {
         {"LMB node",     "Research technology / choose decision"},
         {"RMB drag",     "Pan technology / decisions view"},
         {"Scroll",       "Zoom tree view"},
+        {"Ctrl+Scroll",  "Pan embedded research tree"},
+    });
+
+    float y3 = startY;
+    DrawControlsSection(col3X, y3, "Debug & rendering", {
+        {"F5",           "Toggle night preview"},
+        {"F6",           "Toggle day/night cycle"},
+        {"F7",           "Toggle dynamic lights"},
+        {"F8",           "Cycle renderer debug view"},
+        {"F10",          "Grant HQ resources (debug)"},
+        {"F11",          "Advance tutorial step"},
+        {"F12",          "Deploy 4 enemy militia (debug)"},
+    });
+
+    DrawControlsSection(col3X, y3, "Menus, lobby & text", {
+        {"LMB",          "Activate buttons / fields"},
+        {"Enter",        "Confirm / send lobby chat"},
+        {"Up / Down",    "Navigate dropdown options"},
+        {"Backspace",    "Delete text"},
+        {"Ctrl+C",       "Copy selected text"},
+        {"Ctrl+V",       "Paste text"},
     });
 
     UiText::Draw("Tip: hover over widgets in the New Game screen for detailed descriptions.",

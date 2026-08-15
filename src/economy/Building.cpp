@@ -134,6 +134,12 @@ void Building::AddResource(Resource* res)
         return;
     }
 
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+    {
+        local->AddResource(res, *this);
+        return;
+    }
+
     if (auto* storage = GetComponent<StorageComponent>())
     {
         storage->AddResource(res, *this);
@@ -170,6 +176,8 @@ Resource Building::GetResource(ResourceType type)
         Resource::DestroyOwned(res);
         return value;
     }
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+        return local->GetResource(type);
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->GetResource(type);
     if (auto* pop = GetComponent<PopulationComponent>())
@@ -192,6 +200,11 @@ void Building::ReturnOutgoingResource(Resource* res)
     if (auto* prod = GetComponent<ProductionComponent>())
     {
         prod->outputBuffers[res->type].AddResource(res);
+        return;
+    }
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+    {
+        local->ReturnOutgoingResource(res);
         return;
     }
     if (auto* storage = GetComponent<StorageComponent>())
@@ -271,6 +284,8 @@ bool Building::CanAcceptResource(ResourceType type) const
 {
     if (auto* prod = GetComponent<ProductionComponent>())
         return prod->inputBuffers.contains(type);
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+        return local->CanAccept(type);
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanAccept(type);
     if (auto* pop = GetComponent<PopulationComponent>())
@@ -286,6 +301,8 @@ bool Building::CanReceiveResource(ResourceType type) const
         return it != prod->inputBuffers.end() &&
                static_cast<int>(it->second.buffer.size()) < it->second.bufferSize;
     }
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+        return local->CanReceive(type);
     if (auto* storage = GetComponent<StorageComponent>())
         return storage->CanReceive(type);
     if (auto* pop = GetComponent<PopulationComponent>())
@@ -315,17 +332,13 @@ std::vector<ResourceBufferView> Building::GetInputBufferViews() const
         }
         return views;
     }
-    // T3 fix (docs/post_pivot_audit_2026-07-12.md): a tower's ammo buffer and
-    // Barracks' unit-cost buffers are ordinary StorageComponent entries that
+    // Tower-ammo and Barracks unit-cost buffers are private local entries that
     // this building needs delivered TO it, unlike a plain warehouse/HQ where
     // StorageComponent is only ever offered FROM (GetOutputBufferViews) —
     // without exposing them as inputs too, AutoConnectBuilding has no input
     // view to wire a supplier from, so ammo/unit costs never auto-connect.
-    if (auto* storage = GetComponent<StorageComponent>())
-    {
-        if (HasComponent<TowerCombatComponent>() || HasComponent<RecruitmentComponent>())
-            return storage->GetBufferViews();
-    }
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+        return local->GetBufferViews();
     return {};
 }
 

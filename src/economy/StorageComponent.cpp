@@ -111,3 +111,56 @@ std::vector<ResourceBufferView> StorageComponent::GetBufferViews() const
     return result;
 }
 
+bool LocalResourceBufferComponent::CanAccept(ResourceType type) const
+{
+    return buffers.contains(type);
+}
+
+bool LocalResourceBufferComponent::CanReceive(ResourceType type) const
+{
+    auto it = buffers.find(type);
+    return it != buffers.end() &&
+           static_cast<int>(it->second.buffer.size()) < it->second.bufferSize;
+}
+
+void LocalResourceBufferComponent::AddResource(Resource* res, Building& self)
+{
+    if (res == nullptr)
+        return;
+
+    auto it = buffers.find(res->type);
+    if (it == buffers.end() || static_cast<int>(it->second.buffer.size()) >= it->second.bufferSize)
+    {
+        if (res->sourceBuilding != nullptr)
+            res->sourceBuilding->ReturnOutgoingResource(res);
+        return;
+    }
+
+    Log::Msg(self.tag, "local resource added!");
+    it->second.AddResource(res);
+}
+
+void LocalResourceBufferComponent::ReturnOutgoingResource(Resource* res)
+{
+    if (res != nullptr)
+        buffers[res->type].AddResource(res);
+}
+
+Resource LocalResourceBufferComponent::GetResource(ResourceType type)
+{
+    auto [available, resource] = buffers[type].GetResource();
+    if (!available)
+        return Resource{};
+    Resource value = *resource;
+    Resource::DestroyOwned(resource);
+    return value;
+}
+
+std::vector<ResourceBufferView> LocalResourceBufferComponent::GetBufferViews() const
+{
+    std::vector<ResourceBufferView> result;
+    for (const auto& [type, buffer] : buffers)
+        result.push_back({type, static_cast<int>(buffer.buffer.size()), buffer.bufferSize, 0});
+    return result;
+}
+

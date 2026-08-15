@@ -40,6 +40,31 @@ struct CameraMovement
     bool rmbDragged = false;
 };
 
+// Stabilizes a road-paint gesture to one axis. A short deliberate pause arms
+// a new corner; ordinary sideways hand jitter never bends the active segment.
+struct RoadDragStabilizer
+{
+    enum class Axis { None, Horizontal, Vertical };
+
+    void Begin(Vec2i tile, Vector2 mousePosition);
+    void End();
+    Vec2i Constrain(Vec2i rawTile, Vector2 mousePosition, double dt, Vec2i lastPlacedTile);
+    bool IsActive() const { return active; }
+    Axis GetAxis() const { return axis; }
+
+private:
+    static constexpr float DirectionLockPixels = 5.0f;
+    static constexpr float StationaryPixelTolerance = 1.5f;
+    static constexpr double TurnPauseSeconds = 0.18;
+
+    bool active{false};
+    Axis axis{Axis::None};
+    Vec2i segmentAnchor{-9999, -9999};
+    Vector2 gestureOriginMouse{};
+    Vector2 lastMousePosition{};
+    double stationaryTime{0.0};
+};
+
 // One selectable item in the build panel.
 struct BuildOption
 {
@@ -480,7 +505,8 @@ public:
     void Scroll() override;
 
 private:
-    bool TryPlaceRoadAtHovered();
+    bool TryPlaceRoadTowards(Vec2i tilePos);
+    bool TryPlaceRoadAt(Vec2i tilePos);
     // Road mode has no visible option panel (Update never draws buildPanel),
     // so the Road/Bridge choice can't be a manual selection — instead it
     // follows the cursor: hovering an isMilitaryRoad tile selects Bridge,
@@ -488,9 +514,11 @@ private:
     // therefore inserts the bridge automatically (B6 follow-up #2, playtest
     // 2026-07-14 — both "can't build roads" and "can't build bridges" were
     // this same invisible, unswitchable selection stuck on one type).
-    void SyncSelectionToHoveredTile();
+    void SyncSelectionToTile(Vec2i tilePos);
+    Vec2i GetRoadPlacementTile(double dt);
 
     Vec2i lastRoadDragTile{-9999, -9999};
+    RoadDragStabilizer dragStabilizer;
 };
 
 class DestroyGuiSystem : public GuiSystem

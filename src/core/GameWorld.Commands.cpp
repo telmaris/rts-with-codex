@@ -388,5 +388,52 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         return acceptCommand();
     }
 
+    if (command.type == GameCommandType::DebugDeployEnemyUnits)
+    {
+        if (!tilemap.params.debugMode || command.targetTileId < 1 || command.targetTileId > 16)
+            return false;
+
+        Player* enemy = nullptr;
+        for (int neighborId : militaryRoads.GetNeighbors(player->id))
+        {
+            auto it = playerHandler.players.find(neighborId);
+            if (it != playerHandler.players.end() && it->second != nullptr && !it->second->defeated)
+            {
+                enemy = it->second.get();
+                break;
+            }
+        }
+        if (enemy == nullptr)
+            return false;
+
+        const std::vector<int> route = militaryRoads.GetDirectedTiles(enemy->id, player->id);
+        if (route.empty())
+            return false;
+
+        // Debug attacks are meant for rapid combat iteration. Put the head of
+        // the injected column three quarters of the way toward the local HQ,
+        // with following units staggered behind it instead of waiting at the
+        // enemy gate like a normal deployment.
+        const int lastRouteIndex = static_cast<int>(route.size()) - 1;
+        const int furthestMarchIndex = std::max(0, lastRouteIndex - 1);
+        const int debugStartIndex = std::min(furthestMarchIndex, lastRouteIndex * 3 / 4);
+        for (int i = 0; i < command.targetTileId; ++i)
+        {
+            const int instanceId = enemy->id * 100000 + enemy->nextUnitInstanceId++;
+            BattleUnit unit(instanceId, enemy->id, "militia");
+            unit.currentHp = unit.GetEffectiveMaxHp(*enemy);
+            unit.state = BattleUnitState::Marching;
+            unit.routeFromPlayerId = enemy->id;
+            unit.routeToPlayerId = player->id;
+            unit.tileIndex = std::max(0, debugStartIndex - i);
+            unit.tileProgress = 0.0;
+            unit.attackTimer = 0.0;
+            deployedUnits[instanceId] = std::move(unit);
+        }
+
+        playFx("build");
+        return acceptCommand();
+    }
+
     return false;
 }

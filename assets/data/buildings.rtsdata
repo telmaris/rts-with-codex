@@ -398,7 +398,7 @@ building Inn
         input BREAD 4
         input MEAT 2
         input WATER 4
-        output FOOD_PROVISIONS 8
+        output FOOD_PROVISIONS 3
         input_buffer BREAD 20
         input_buffer MEAT 12
         input_buffer WATER 20

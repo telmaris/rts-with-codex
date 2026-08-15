@@ -355,7 +355,7 @@ namespace
     // storage buffer (the only stock a roadless Barracks can ever consume).
     bool CostLocallyBuffered(const Building& barracks, const UnitDefinition& def)
     {
-        const auto* storage = barracks.GetComponent<StorageComponent>();
+        const auto* storage = barracks.GetComponent<LocalResourceBufferComponent>();
         if (storage == nullptr)
             return false;
         for (const auto& cost : def.cost)

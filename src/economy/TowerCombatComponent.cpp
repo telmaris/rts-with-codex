@@ -26,7 +26,7 @@ int TowerCombatComponent::GetModifiedAmmoPerShot(const Building& self) const
 void TowerCombatComponent::Update(Building& self, double dt)
 {
     (void)dt;
-    auto* storage = self.GetComponent<StorageComponent>();
+    auto* storage = self.GetComponent<LocalResourceBufferComponent>();
     auto* logistics = self.GetComponent<LogisticsComponent>();
     if (storage == nullptr || logistics == nullptr)
         return;

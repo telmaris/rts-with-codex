@@ -555,7 +555,7 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
     ASSERT_FALSE(barracks->IsUnderConstruction());
 
     // Stock militia's cost locally + manpower for the remaining recruits.
-    auto* storage = barracks->GetComponent<StorageComponent>();
+    auto* storage = barracks->GetComponent<LocalResourceBufferComponent>();
     ASSERT_NE(storage, nullptr);
     auto foodIt = storage->buffers.find(ResourceType::FOOD_PROVISIONS);
     if (foodIt == storage->buffers.end())

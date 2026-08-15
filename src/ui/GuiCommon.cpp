@@ -88,6 +88,17 @@ void GrantDebugResources(GameScene* scene, int amount)
     Log::Msg("[Debug]", "granted ", amount, " of every resource to local HQ");
 }
 
+void DeployDebugEnemyUnits(GameScene* scene, int count)
+{
+    if (scene == nullptr || scene->game == nullptr ||
+        !scene->game->GetTileMap().params.debugMode || count <= 0)
+        return;
+
+    scene->SubmitLocalCommand(GameCommand::DebugDeployEnemyUnits(
+        scene->game->GetLocalPlayerId(), count));
+    Log::Msg("[Debug]", "requested immediate enemy deployment: ", count, " militia");
+}
+
 namespace
 {
     float StrategicHudHeightForWindow(Vec2i windowSize)

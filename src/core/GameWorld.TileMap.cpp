@@ -1,5 +1,6 @@
 #include "core/GameWorldInternal.h"
 #include "core/Log.h"
+#include "economy/StockpileIndex.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -350,11 +351,11 @@ bool TileMap::CanBuildFootprint(Vec2i anchor, Vec2i footprint, Player* player, B
 
     // User request (2026-07-17): keep a clear apron around every HQ so the
     // base exit doesn't jam with buildings ("szybko się klinuje"). Roads and
-    // Bridges are exempt — logistics must be able to reach the HQ — and so
-    // is a Headquarters being placed itself.
+    // Bridges are exempt — logistics must be able to reach the HQ. Defense
+    // Towers are exempt as well so the protected apron can be fortified.
     constexpr int kHqClearanceRadius = 6;
     if (type != BuildingType::Road && type != BuildingType::Bridge &&
-        type != BuildingType::Headquarters &&
+        type != BuildingType::Headquarters && type != BuildingType::DefenseTower &&
         IsWithinHqClearance(anchor, footprint, kHqClearanceRadius))
         return false;
 
@@ -693,6 +694,44 @@ Building* TileMap::FindNearestStorage(Building* source, Player* player)
     return best;
 }
 
+Building* TileMap::FindDefaultStorage(Building* source, Player* player)
+{
+    if (source == nullptr || player == nullptr)
+        return nullptr;
+
+    Building* headquarters = nullptr;
+    for (Building* warehouse : StockpileIndex::Warehouses(*player))
+    {
+        if (warehouse == source)
+            continue;
+        if (warehouse->buildingType == BuildingType::Headquarters)
+        {
+            if (headquarters == nullptr || warehouse->id < headquarters->id)
+                headquarters = warehouse;
+        }
+    }
+    if (headquarters != nullptr)
+        return headquarters;
+
+    Vec2i origin = GetCoordsFromId(source->positionId);
+    Building* best = nullptr;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (Building* warehouse : StockpileIndex::Warehouses(*player))
+    {
+        if (warehouse == source)
+            continue;
+        Vec2i pos = GetCoordsFromId(warehouse->positionId);
+        int distance = std::abs(pos.x - origin.x) + std::abs(pos.y - origin.y);
+        if (distance < bestDistance ||
+            (distance == bestDistance && (best == nullptr || warehouse->id < best->id)))
+        {
+            bestDistance = distance;
+            best = warehouse;
+        }
+    }
+    return best;
+}
+
 // Initializes TileMap::ConnectReceiver.
 void TileMap::ConnectReceiver(Building* source, Building* receiver, bool alternative)
 {
@@ -720,7 +759,7 @@ void TileMap::ConnectReceiver(Building* source, Building* receiver, bool alterna
             receiver->RemoveSupplier(output.type, source);
             if (receiver->CanAcceptResource(output.type) && !receiver->HasSupplier(output.type))
             {
-                Building* storage = FindNearestStorage(receiver, receiver->owner);
+                Building* storage = FindDefaultStorage(receiver, receiver->owner);
                 if (storage != nullptr && storage != receiver)
                     receiver->SetSupplier(output.type, storage);
             }
@@ -746,7 +785,7 @@ void TileMap::AutoConnectBuilding(Building* building)
     if (isStorageHub)
     {
         // OPTIMIZATION: tracked buildings (ETAP 10 registry) instead of a full
-        // tilemap scan, same pattern as StorageComponent::Update. Sorted by
+        // tilemap scan. Sorted by
         // id (not the set's native pointer order) because this loop's
         // outcome — which building wins a receiver/supplier slot — is
         // simulation-visible and must be identical across processes/hosts;
@@ -764,10 +803,8 @@ void TileMap::AutoConnectBuilding(Building* building)
             for (const auto& output : other->GetOutputBufferViews())
             {
                 // T3 fix (docs/post_pivot_audit_2026-07-12.md): only wire the
-                // new storage-like building as a receiver for types it can
-                // actually accept — a tower/Barracks is storage-like too, but
-                // only declares the few resource types it needs, unlike a
-                // plain warehouse/HQ. Without this check, building one next
+                // new warehouse/HQ as a receiver only for types it can
+                // actually accept. Without this check, building one next
                 // to a producer of an unrelated resource silently hijacked
                 // that producer's receiver, blocking its real fallback
                 // delivery to the nearest storage.
@@ -784,7 +821,7 @@ void TileMap::AutoConnectBuilding(Building* building)
         return;
     }
 
-    Building* storage = FindNearestStorage(building, building->owner);
+    Building* storage = FindDefaultStorage(building, building->owner);
     if (storage == nullptr)
         return;
 
