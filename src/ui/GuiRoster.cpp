@@ -230,7 +230,7 @@ RosterGuiSystem::RosterGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     rosterPanel.scene = scene;
-    rosterPanel.ChangePositionAnchor({0.06f, 0.10f});
+    rosterPanel.ChangePositionAnchor({0.06f, 0.15f});
     rosterPanel.ChangeSizeAnchor({0.88f, 0.82f});
     rosterPanel.UpdateSize({GetScreenWidth(), GetScreenHeight()});
     SetupStrategicHud(strategicHudWidget, scene);

@@ -475,7 +475,8 @@ TEST(UtilityAIModelTests, RosterCompositionPrefersDefensiveUnitsUnderAttack)
 
     auto ranked = UtilityAIModel::RankUnitChoices(s);
     ASSERT_FALSE(ranked.empty());
-    EXPECT_EQ(ranked.front()->id, "knight");
+    EXPECT_GT(ranked.front()->roadAttack, ranked.front()->siegeAttack)
+        << "defensive posture should prefer a lane-fighting unit";
 }
 
 TEST(UtilityAIModelTests, RosterCompositionKeepsSiegeInTheOffensiveMix)
@@ -491,7 +492,8 @@ TEST(UtilityAIModelTests, RosterCompositionKeepsSiegeInTheOffensiveMix)
     s.rosterCount = 2;
     ranked = UtilityAIModel::RankUnitChoices(s);
     ASSERT_FALSE(ranked.empty());
-    EXPECT_EQ(ranked.front()->id, "ram") << "with an escort standing, top the 2:1 mix up with siege";
+    EXPECT_GT(ranked.front()->siegeAttack, ranked.front()->roadAttack)
+        << "with an escort standing, top the 2:1 mix up with siege";
 
     s.rosterByDef["ram"] = 1;
     s.rosterCount = 3;

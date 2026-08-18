@@ -387,13 +387,6 @@ namespace
             DrawRectangleRounded(bounds, 0.10f, 8, UiTheme::Inset);
             DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.0f, UiTheme::Iron);
         }
-        if (hovered)
-        {
-            DrawRectangleRounded(Rectangle{bounds.x + 5.0f, bounds.y + 5.0f,
-                                           bounds.width - 10.0f, bounds.height - 10.0f},
-                                 0.10f, 8, Fade(UiTheme::Cyan, 0.18f));
-            DrawRectangleRoundedLines(bounds, 0.10f, 8, 1.5f, UiTheme::SteelHover);
-        }
 
         float padding = std::max(6.0f, std::min(bounds.width, bounds.height) * 0.10f);
         float iconSize = std::max(1.0f, std::min(bounds.width, bounds.height) - padding * 2.0f);
@@ -417,9 +410,9 @@ namespace
         std::string amount = view.capacity > 0
             ? std::to_string(view.amount) + "/" + std::to_string(view.capacity)
             : std::to_string(view.amount);
-        int fontSize = std::clamp(static_cast<int>(bounds.height * 0.22f), 14, 18);
+        int fontSize = std::clamp(static_cast<int>(bounds.height * 0.24f), 18, 24);
         int textWidth = MeasureUiText(amount, fontSize);
-        constexpr float badgePadding = 5.0f;
+        constexpr float badgePadding = 6.0f;
         Rectangle badge{
             bounds.x + bounds.width - textWidth - badgePadding * 2.0f - 1.0f,
             bounds.y + bounds.height - fontSize - badgePadding * 2.0f - 1.0f,
@@ -432,7 +425,7 @@ namespace
         if (view.recipeAmount > 0)
         {
             std::string recipe = "x" + std::to_string(view.recipeAmount);
-            int recipeFont = std::clamp(static_cast<int>(bounds.height * 0.20f), 13, 17);
+            int recipeFont = std::clamp(static_cast<int>(bounds.height * 0.21f), 14, 18);
             int recipeWidth = MeasureUiText(recipe, recipeFont);
             Rectangle recipeBadge{
                 bounds.x + 1.0f,
@@ -1002,7 +995,7 @@ namespace
         if (bounds.y + bounds.height > GetScreenHeight() - 10.0f)
             bounds.y = std::max(10.0f, mouse.y - bounds.height - 18.0f);
 
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+        if (!UiControlIcons::DrawPixelHudPanelFrame(bounds))
         {
             DrawRectangleRec(bounds, UiTheme::Panel);
             DrawRectangleLinesEx(bounds, 1.0f, UiTheme::Iron);
@@ -1218,7 +1211,7 @@ namespace
         if (university == nullptr || workers == nullptr)
             return;
 
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+        if (!UiControlIcons::DrawPixelHudPanelFrame(bounds))
         {
             DrawRectangleRounded(bounds, 0.045f, 8, UiTheme::Inset);
             DrawRectangleRoundedLines(bounds, 0.045f, 8, 1.0f, UiTheme::Iron);
@@ -1579,23 +1572,44 @@ namespace
 void UiButton::Update(double dt)
 {
     Rectangle bounds = WidgetBounds(*this);
+    // Layout containers intentionally keep a generous hit box, but the new
+    // frame should hug the label instead of becoming a full-width strip. Keep
+    // the button centred so all existing text anchors remain unchanged.
+    const float minButtonWidth = std::min(bounds.width, bounds.height * 4.0f);
+    const float maxButtonWidth = std::min(bounds.width, bounds.height * 5.0f);
+    Rectangle visualBounds{bounds.x + (bounds.width - maxButtonWidth) * 0.5f,
+                           bounds.y, maxButtonWidth, bounds.height};
+
+        int fontSize = std::max(16, std::min(24, size.y / 3 + 2));
+    int textWidth = UiText::Measure(text, fontSize);
+    constexpr float buttonTextPadding = 32.0f;
+    const float textAreaWidth = std::max(20.0f, maxButtonWidth - buttonTextPadding);
+    while (fontSize > 9 && textWidth > textAreaWidth)
+    {
+        fontSize--;
+        textWidth = UiText::Measure(text, fontSize);
+    }
+
+    const float textFitWidth = static_cast<float>(textWidth + buttonTextPadding);
+    visualBounds.width = std::clamp(textFitWidth, minButtonWidth, maxButtonWidth);
+    visualBounds.x = bounds.x + (bounds.width - visualBounds.width) * 0.5f;
     Vector2 mouse = GetMousePosition();
-    bool hovered = CheckCollisionPointRec(mouse, bounds);
+    bool hovered = CheckCollisionPointRec(mouse, visualBounds);
     bool pressed = hovered && InputManager::IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
-    const bool frameDrawn = UiControlIcons::DrawPixelHudWidgetFrame(bounds, hovered);
+    const bool frameDrawn = UiControlIcons::DrawPixelHudWidgetFrame(visualBounds, hovered);
     if (!frameDrawn)
     {
         const Color fill = hovered ? UiTheme::SurfaceHover : UiTheme::Surface;
         const Color line = hovered ? UiTheme::SteelHover : UiTheme::Iron;
         // A separate steel bezel keeps large action buttons from reading as
         // a clipped piece of the panel directly behind them.
-        DrawRectangleRounded(bounds, 0.06f, 8, UiTheme::Ink);
-        DrawRectangleRoundedLines(bounds, 0.06f, 8, 1.4f, line);
-        const float inset = std::min(4.0f, std::max(2.0f, bounds.height * 0.08f));
-        Rectangle face{bounds.x + inset, bounds.y + inset,
-                       std::max(0.0f, bounds.width - inset * 2.0f),
-                       std::max(0.0f, bounds.height - inset * 2.0f)};
+        DrawRectangleRounded(visualBounds, 0.06f, 8, UiTheme::Ink);
+        DrawRectangleRoundedLines(visualBounds, 0.06f, 8, 1.4f, line);
+        const float inset = std::min(4.0f, std::max(2.0f, visualBounds.height * 0.08f));
+        Rectangle face{visualBounds.x + inset, visualBounds.y + inset,
+                       std::max(0.0f, visualBounds.width - inset * 2.0f),
+                       std::max(0.0f, visualBounds.height - inset * 2.0f)};
         DrawRectangleRounded(face, 0.05f, 8, fill);
         DrawRectangleRoundedLines(face, 0.05f, 8, 1.0f, Fade(line, hovered ? 0.88f : 0.62f));
         DrawLineEx({face.x + 7.0f, face.y + 2.0f},
@@ -1608,18 +1622,9 @@ void UiButton::Update(double dt)
 
     if (drawText)
     {
-        int fontSize = std::max(14, std::min(22, size.y / 3 + 2));
-        int textWidth = UiText::Measure(text, fontSize);
-        int maxTextWidth = std::max(20, size.x - 18);
-        while (fontSize > 9 && textWidth > maxTextWidth)
-        {
-            fontSize--;
-            textWidth = UiText::Measure(text, fontSize);
-        }
-
         UiText::Draw(text,
-                     bounds.x + (bounds.width - textWidth) * 0.5f,
-                     bounds.y + (bounds.height - fontSize) * 0.5f,
+                     visualBounds.x + (visualBounds.width - textWidth) * 0.5f,
+                     visualBounds.y + (visualBounds.height - fontSize) * 0.5f,
                      fontSize,
                      UiTheme::Parchment);
     }
@@ -1927,7 +1932,7 @@ void TutorialTaskWidget::Update(double dt)
     UpdateSize({GetScreenWidth(), GetScreenHeight()});
     Rectangle panel{static_cast<float>(pos.x), static_cast<float>(pos.y),
                     static_cast<float>(size.x), static_cast<float>(size.y)};
-    if (!UiControlIcons::DrawPixelHudWidgetFrame(panel))
+    if (!UiControlIcons::DrawPixelHudPanelFrame(panel))
     {
         DrawRectangleRounded(panel, 0.06f, 8, Color{25, 19, 14, 224});
         DrawRectangleRoundedLines(panel, 0.06f, 8, 1.0f, UiTheme::Bronze);
@@ -1974,7 +1979,103 @@ bool UiImage::LoadTextureFromFile(const std::string& path)
 
     texture = LoadTexture(path.c_str());
     hasTexture = texture.id != 0;
+    if (hasTexture)
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
     return hasTexture;
+}
+
+UiImage::~UiImage()
+{
+    if (hasTexture && texture.id != 0 && IsWindowReady())
+        UnloadTexture(texture);
+}
+
+UiParallaxBackground::~UiParallaxBackground()
+{
+    ClearTextures();
+}
+
+bool UiParallaxBackground::LoadFromDirectory(const std::string& directory)
+{
+    ClearTextures();
+    scrollOffset = 0.0;
+
+    for (int layer = 1; layer <= 4; ++layer)
+    {
+        const std::string path = directory + "/layer_" + std::to_string(layer) + ".png";
+        if (!FileExists(path.c_str()))
+            break;
+
+        Texture2D texture = LoadTexture(path.c_str());
+        if (texture.id == 0)
+            return !layers.empty();
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+        layers.push_back(texture);
+    }
+
+    return !layers.empty();
+}
+
+void UiParallaxBackground::ClearTextures()
+{
+    for (Texture2D& texture : layers)
+    {
+        if (texture.id != 0 && IsWindowReady())
+            UnloadTexture(texture);
+    }
+    layers.clear();
+}
+
+void UiParallaxBackground::Update(double dt)
+{
+    if (layers.empty())
+        return;
+
+    const Rectangle bounds = WidgetBounds(*this);
+    if (bounds.width <= 0.0f || bounds.height <= 0.0f)
+        return;
+
+    scrollOffset += std::max(0.0, dt) * scrollSpeed;
+
+    for (std::size_t index = 0; index < layers.size(); ++index)
+    {
+        const Texture2D texture = layers[index];
+        const float imageRatio = texture.width / static_cast<float>(texture.height);
+        const float drawHeight = std::max(bounds.height, bounds.width / imageRatio);
+        const float drawWidth = drawHeight * imageRatio;
+        const float drawY = bounds.y + (bounds.height - drawHeight) * 0.5f;
+
+        if (index != scrollLayerIndex)
+        {
+            Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width),
+                             static_cast<float>(texture.height)};
+            if (drawWidth > bounds.width)
+            {
+                const float cropWidth = texture.height * bounds.width / bounds.height;
+                source.x = (texture.width - cropWidth) * 0.5f;
+                source.width = cropWidth;
+            }
+            else if (drawHeight > bounds.height)
+            {
+                const float cropHeight = texture.width * bounds.height / bounds.width;
+                source.y = (texture.height - cropHeight) * 0.5f;
+                source.height = cropHeight;
+            }
+            DrawTexturePro(texture, source, bounds, {0.0f, 0.0f}, 0.0f, WHITE);
+            continue;
+        }
+
+        const float offset = std::fmod(static_cast<float>(scrollOffset), drawWidth);
+        const float firstX = bounds.x - offset - drawWidth;
+        for (float x = firstX; x < bounds.x + bounds.width; x += drawWidth)
+        {
+            DrawTexturePro(texture,
+                           {0.0f, 0.0f, static_cast<float>(texture.width),
+                            static_cast<float>(texture.height)},
+                           {x, drawY, drawWidth, drawHeight},
+                           {0.0f, 0.0f}, 0.0f, WHITE);
+        }
+    }
 }
 
 // Advances this object's state for one frame.
@@ -2011,6 +2112,78 @@ void UiImage::Update(double dt)
     }
 }
 
+UiAnimation::~UiAnimation()
+{
+    ClearFrames();
+}
+
+bool UiAnimation::AddFrameFromFile(const std::string& path)
+{
+    if (!FileExists(path.c_str()))
+        return false;
+
+    Texture2D frame = LoadTexture(path.c_str());
+    if (frame.id == 0)
+        return false;
+
+    SetTextureFilter(frame, TEXTURE_FILTER_POINT);
+    frames.push_back(frame);
+    return true;
+}
+
+void UiAnimation::ClearFrames()
+{
+    for (Texture2D& frame : frames)
+    {
+        if (frame.id != 0 && IsWindowReady())
+            UnloadTexture(frame);
+    }
+    frames.clear();
+}
+
+void UiAnimation::SetFrameDuration(float seconds)
+{
+    frameDuration = std::max(0.01f, seconds);
+}
+
+void UiAnimation::SetFloating(float amplitudePixels, float periodSeconds, float phase)
+{
+    floatAmplitude = std::max(0.0f, amplitudePixels);
+    floatPeriod = std::max(0.1f, periodSeconds);
+    floatPhase = phase;
+}
+
+void UiAnimation::Reset()
+{
+    elapsed = 0.0;
+}
+
+void UiAnimation::Update(double dt)
+{
+    if (frames.empty())
+        return;
+
+    elapsed += std::max(0.0, dt);
+    const std::size_t frameIndex = static_cast<std::size_t>(
+        std::floor(elapsed / static_cast<double>(frameDuration))) % frames.size();
+    const Texture2D texture = frames[frameIndex];
+    Rectangle bounds = WidgetBounds(*this);
+    const float imageRatio = texture.width / static_cast<float>(texture.height);
+    const float drawWidth = std::min(bounds.width, bounds.height * imageRatio);
+    const float drawHeight = drawWidth / imageRatio;
+    const float floatOffset = floatAmplitude *
+        std::sin(static_cast<float>(elapsed * 2.0 * PI / floatPeriod) + floatPhase);
+    Rectangle destination{
+        bounds.x + (bounds.width - drawWidth) * 0.5f,
+        bounds.y + (bounds.height - drawHeight) * 0.5f + floatOffset,
+        drawWidth,
+        drawHeight};
+    DrawTexturePro(texture,
+                   {0.0f, 0.0f, static_cast<float>(texture.width),
+                    static_cast<float>(texture.height)},
+                   destination, {0.0f, 0.0f}, 0.0f, WHITE);
+}
+
 // Loads the requested data into runtime state.
 void ResourceIconAtlas::Load(const std::string& path, Vec2i iconSize)
 {
@@ -2045,8 +2218,9 @@ Rectangle ResourceIconAtlas::GetRect(ResourceType type) const
 bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
 {
     Rectangle bounds = WidgetBounds(*this);
-    int margin = std::max(10, size.x / 24);
     int titleBar = std::max(34, size.y / 12);
+    const float frameInset = UiControlIcons::PixelHudFrameInset(bounds);
+    const int margin = std::max(10, size.x / 24);
 
     const bool panelDrawn = UiControlIcons::DrawPixelHudFrame(bounds);
     if (!panelDrawn)
@@ -2061,7 +2235,6 @@ bool GuiPanel::DrawChrome(double dt, Rectangle& outContentArea)
         bounds.width,
         static_cast<float>(titleBar)};
     Vector2 mouse = GetMousePosition();
-    const float frameInset = UiControlIcons::PixelHudFrameInset(bounds);
     Rectangle titleVisual{titleBounds.x + frameInset + 2.0f, titleBounds.y + 4.0f,
                           std::max(0.0f, titleBounds.width - (frameInset + 2.0f) * 2.0f),
                           std::max(0.0f, titleBounds.height - 8.0f)};
@@ -2510,7 +2683,7 @@ void GuiPanel::Update(double dt)
                         int rowCount = static_cast<int>(levelIt->cost.size()) + (levelIt->buildTime > 0.0 ? 1 : 0);
                         float boxH = std::max(1, rowCount) * rowH + 12.0f;
                         Rectangle box{upgradeRect.x, upgradeRect.y - boxH - 6.0f, upgradeRect.width, boxH};
-                        if (!UiControlIcons::DrawPixelHudWidgetFrame(box))
+                        if (!UiControlIcons::DrawPixelHudPanelFrame(box))
                         {
                             DrawRectangleRounded(box, 0.08f, 8, UiTheme::Inset);
                             DrawRectangleRoundedLines(box, 0.08f, 8, 1.0f, UiTheme::Iron);
@@ -2660,103 +2833,155 @@ void GuiPanel::Update(double dt)
 
     auto* panelProduction = building->GetComponent<ProductionComponent>();
     auto* panelRecipes = building->GetComponent<RecipeComponent>();
-    int connectionsH = std::max(48, size.y / 9);
-    int statsH = std::max(92, size.y / 5);
-    // Production is the primary live signal in this panel, not a separator.
-    // Keep it comfortably readable even after a player resizes the window.
-    int progressH = std::clamp(size.y / 14, 28, 36);
-    int headerH = 22;
-    int columnGap = std::max(8, margin / 2);
-    int columnW = (contentW - columnGap) / 2;
-    // Production slots stay fixed-size; reserve precisely as many rows as
-    // each side needs, so the cycle bar always follows the last icon row.
-    constexpr float productionIconSize = 76.0f;
-    constexpr float productionIconGap = 15.0f;
-    constexpr float productionIconLeadingPadding = 8.0f;
+    const int sectionGap = std::max(10, margin / 2);
+    const int columnGap = std::max(32, margin);
+    const int columnW = std::max(1, (contentW - columnGap) / 2);
+    const int headerH = 24;
     const auto inputBuffers = building->GetInputBufferViews();
     const auto outputBuffers = building->GetOutputBufferViews();
-    const int inputRows = static_cast<int>((inputBuffers.size() + 2) / 3);
-    const int outputRows = static_cast<int>((outputBuffers.size() + 1) / 2);
-    const int iconRows = std::max(1, std::max(inputRows, outputRows));
+
+    // Keep the requested 15% enlargement where the panel can afford it, but
+    // reduce the slot size on narrow windows instead of letting three inputs
+    // spill into the output column.
+    constexpr float requestedIconSize = 114.0f; // 25% above the previous 91.2 px slot
+    constexpr float productionIconGap = 3.0f;
+    const int inputColumns = inputBuffers.empty()
+        ? 1 : std::min(3, static_cast<int>(inputBuffers.size()));
+    const int outputColumns = outputBuffers.empty()
+        ? 1 : std::min(2, static_cast<int>(outputBuffers.size()));
+    const float inputMaxSize = (static_cast<float>(columnW) -
+                                productionIconGap * (inputColumns - 1) -
+                                0.0f) / inputColumns;
+    const float outputMaxSize = (static_cast<float>(columnW) -
+                                 productionIconGap * (outputColumns - 1) -
+                                 0.0f) / outputColumns;
+    const float productionIconSize = std::min(
+        requestedIconSize,
+        std::max(42.0f, std::min(inputMaxSize, outputMaxSize)));
+    const float inputLeadingPadding = std::max(
+        0.0f, (static_cast<float>(columnW) - inputColumns * productionIconSize -
+               productionIconGap * (inputColumns - 1)) * 0.5f);
+    const float outputLeadingPadding = std::max(
+        0.0f, (static_cast<float>(columnW) - outputColumns * productionIconSize -
+               productionIconGap * (outputColumns - 1)) * 0.5f);
+    const int inputRows = std::max(1, static_cast<int>((inputBuffers.size() + inputColumns - 1) / inputColumns));
+    const int outputRows = std::max(1, static_cast<int>((outputBuffers.size() + outputColumns - 1) / outputColumns));
+    const int iconRows = std::max(inputRows, outputRows);
     const int iconGridH = static_cast<int>(iconRows * productionIconSize +
                                            (iconRows - 1) * productionIconGap);
-    const int resourcesH = headerH + iconGridH;
 
-    UiText::Draw("Input", contentX, y, 20, Color{224, 204, 168, 255});
-    UiText::Draw("Output", contentX + columnW + columnGap, y, 20, Color{224, 204, 168, 255});
+    UiText::Draw("Input", contentX, y, 22, Color{224, 204, 168, 255});
+    UiText::Draw("Output", contentX + columnW + columnGap, y, 22, Color{224, 204, 168, 255});
+    const float arrowX = static_cast<float>(contentX + columnW + columnGap / 2);
+    DrawLineEx({arrowX - 7.0f, static_cast<float>(y + 11)},
+               {arrowX + 7.0f, static_cast<float>(y + 11)}, 1.0f, UiTheme::Bronze);
+    DrawTriangle({arrowX + 7.0f, static_cast<float>(y + 11)},
+                 {arrowX + 2.0f, static_cast<float>(y + 7)},
+                 {arrowX + 2.0f, static_cast<float>(y + 15)}, UiTheme::Bronze);
     y += headerH;
 
-    Rectangle inputGrid{
-        static_cast<float>(contentX),
-        static_cast<float>(y),
-        static_cast<float>(columnW),
-        static_cast<float>(resourcesH - headerH)};
-    Rectangle outputGrid{
-        static_cast<float>(contentX + columnW + columnGap),
-        static_cast<float>(y),
-        static_cast<float>(columnW),
-        static_cast<float>(resourcesH - headerH)};
-    // Fixed production slots: three inputs and two outputs always use the
-    // same Inn-sized icon, independently of how many buffers this recipe has.
-    DrawResourceIconGrid(inputBuffers, inputGrid, 3, nullptr,
-                         nullptr, nullptr, nullptr, nullptr, productionIconSize,
-                         productionIconGap, productionIconLeadingPadding);
-    DrawResourceIconGrid(outputBuffers, outputGrid, 2, nullptr,
-                         nullptr, nullptr, nullptr, nullptr, productionIconSize,
-                         productionIconGap, productionIconLeadingPadding);
+    Rectangle inputGrid{static_cast<float>(contentX), static_cast<float>(y),
+                        static_cast<float>(columnW), static_cast<float>(iconGridH)};
+    Rectangle outputGrid{static_cast<float>(contentX + columnW + columnGap),
+                         static_cast<float>(y), static_cast<float>(columnW),
+                         static_cast<float>(iconGridH)};
+    DrawResourceIconGrid(inputBuffers, inputGrid, inputColumns, nullptr, nullptr, nullptr,
+                         nullptr, nullptr, productionIconSize, productionIconGap,
+                         inputLeadingPadding);
+    DrawResourceIconGrid(outputBuffers, outputGrid, outputColumns, nullptr, nullptr, nullptr,
+                         nullptr, nullptr, productionIconSize, productionIconGap,
+                         outputLeadingPadding);
+    y += iconGridH + sectionGap;
 
-    y = static_cast<int>(inputGrid.y + inputGrid.height + margin);
-    progressBar.pos = Vec2i{contentX, y};
-    progressBar.size = Vec2i{contentW, progressH};
-    progressBar.ChangeText("Cycle");
-    progressBar.SetValue(building->GetProductionProgress());
-    progressBar.Update(dt);
+    const float productionProgress = std::clamp(building->GetProductionProgress(), 0.0f, 1.0f);
+    const bool productionBlocked = building->IsProductionBlocked();
+    const auto* panelLogistics = building->GetComponent<LogisticsComponent>();
+    const bool roadNotConnected = panelLogistics != nullptr &&
+                                   !panelLogistics->IsConnectedToRoadNetwork(*building);
+    const int progressH = std::clamp(size.y / 20, 34, 42);
+    Rectangle progressBounds{static_cast<float>(contentX), static_cast<float>(y),
+                             static_cast<float>(contentW), static_cast<float>(progressH)};
+    DrawRectangleRec(progressBounds, UiTheme::Ink);
+    DrawRectangleLinesEx(progressBounds, 2.0f, UiTheme::Iron);
+    Rectangle progressFill{progressBounds.x + 3.0f, progressBounds.y + 3.0f,
+                           std::max(0.0f, (progressBounds.width - 6.0f) * productionProgress),
+                           progressBounds.height - 6.0f};
+    if (progressFill.width > 0.0f)
+        DrawRectangleRec(progressFill, productionBlocked ? Color{156, 112, 70, 255}
+                                                         : Color{140, 176, 96, 255});
+    DrawLineEx({progressBounds.x + 4.0f, progressBounds.y + 3.0f},
+               {progressBounds.x + progressBounds.width - 4.0f, progressBounds.y + 3.0f},
+               1.0f, Fade(UiTheme::Bronze, 0.72f));
+    const std::string progressLabel = "Production cycle - " +
+        std::to_string(static_cast<int>(std::round(productionProgress * 100.0f))) + "%";
+    const int progressFont = std::clamp(progressH / 2, 17, 21);
+    const int progressTextW = UiText::Measure(progressLabel, progressFont);
+    const float progressTextX = progressBounds.x + (progressBounds.width - progressTextW) * 0.5f;
+    const float progressTextY = progressBounds.y + (progressBounds.height - progressFont) * 0.5f;
+    const bool progressHovered = CheckCollisionPointRec(GetMousePosition(), progressBounds);
+    if (progressHovered)
+    {
+        // Keep the requested black hover label readable over the dark half of
+        // a partially filled bar with a restrained light keyline.
+        UiText::Draw(progressLabel, progressTextX + 1.0f, progressTextY + 1.0f,
+                     progressFont, Fade(WHITE, 0.72f));
+    }
+    UiText::Draw(progressLabel, progressTextX, progressTextY, progressFont,
+                 progressHovered ? Color{12, 12, 12, 255} : UiTheme::Parchment);
+    y += progressH + sectionGap;
 
-    y += progressH + margin;
     auto receivers = building->GetReceiverViews();
     auto suppliers = building->GetSupplierViews();
-    int connectionLine = std::max(18, std::min(22, connectionsH / 3));
-    int connectionGap = std::max(8, margin / 2);
-    int connectionColumnW = (contentW - connectionGap) / 2;
-    int connectionStartY = y;
-    int leftY = y + 22;
-    int rightY = y + 22;
-
-    UiText::Draw("Supply", contentX, y, 18, UiTheme::AmberBright);
-    UiText::Draw("Output", contentX + connectionColumnW + connectionGap, y, 18, UiTheme::AmberBright);
-
+    const int connectionLine = 23;
+    const int connectionColumnW = std::max(1, (contentW - columnGap) / 2);
+    const int connectionRightX = contentX + connectionColumnW + columnGap;
+    UiText::Draw("Supply", contentX, y, 20, UiTheme::AmberBright);
+    UiText::Draw("Delivery", connectionRightX, y, 20, UiTheme::AmberBright);
+    int leftY = y + 23;
+    int rightY = y + 23;
+    const std::string arrow = " -> ";
     if (suppliers.empty())
     {
-        DrawTextFit("No supplier", Rectangle{static_cast<float>(contentX), static_cast<float>(leftY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, Color{238, 184, 84, 255});
+        const std::string label = "No supplier" + arrow + building->name;
+        DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(leftY),
+                                     static_cast<float>(connectionColumnW), 20.0f},
+                    18, Color{238, 184, 84, 255});
         leftY += connectionLine;
     }
     for (const auto& supplier : suppliers)
     {
-        std::string label = (supplier.building != nullptr ? supplier.building->name : "No supplier") + " -> " + ResourceDisplayName(supplier.type);
-        Color color = supplier.building != nullptr ? UiTheme::AmberBright : Color{238, 184, 84, 255};
-        DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(leftY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, color);
+        const std::string label = (supplier.building != nullptr ? supplier.building->name : "No supplier") +
+                                  arrow + building->name;
+        const Color color = supplier.building != nullptr ? UiTheme::Parchment : Color{238, 184, 84, 255};
+        DrawTextFit(label, Rectangle{static_cast<float>(contentX), static_cast<float>(leftY),
+                                     static_cast<float>(connectionColumnW), 22.0f}, 18, color);
         leftY += connectionLine;
     }
-
     if (receivers.empty() && !outputBuffers.empty())
     {
-        DrawTextFit("No receiver", Rectangle{static_cast<float>(contentX + connectionColumnW + connectionGap), static_cast<float>(rightY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, Color{238, 184, 84, 255});
+        const std::string label = building->name + arrow + "No receiver";
+        DrawTextFit(label, Rectangle{static_cast<float>(connectionRightX), static_cast<float>(rightY),
+                                     static_cast<float>(connectionColumnW), 20.0f},
+                    18, Color{238, 184, 84, 255});
         rightY += connectionLine;
     }
     for (const auto& receiver : receivers)
     {
-        std::string label = ResourceDisplayName(receiver.type) + " -> " + (receiver.building != nullptr ? receiver.building->name : "No receiver");
+        std::string label = building->name + arrow +
+            (receiver.building != nullptr ? receiver.building->name : "No receiver");
         if (receiver.alternative)
             label += " (alt)";
-        Color color = receiver.building != nullptr ? UiTheme::Parchment : Color{238, 184, 84, 255};
-        DrawTextFit(label, Rectangle{static_cast<float>(contentX + connectionColumnW + connectionGap), static_cast<float>(rightY), static_cast<float>(connectionColumnW), static_cast<float>(connectionLine)}, connectionLine - 3, color);
+        const Color color = receiver.building != nullptr ? UiTheme::Parchment : Color{238, 184, 84, 255};
+        DrawTextFit(label, Rectangle{static_cast<float>(connectionRightX), static_cast<float>(rightY),
+                                     static_cast<float>(connectionColumnW), 22.0f}, 18, color);
         rightY += connectionLine;
     }
+    y = std::max(leftY, rightY) + sectionGap;
+    DrawLineEx({static_cast<float>(contentX), static_cast<float>(y)},
+               {static_cast<float>(contentX + contentW), static_cast<float>(y)},
+               1.0f, Fade(UiTheme::Bronze, 0.72f));
+    y += 10;
 
-    y = std::max(leftY, rightY);
-    y = std::max(y, connectionStartY + connectionsH);
-
-    y += margin / 2;
     float efficiency = building->GetEfficiency() * 100.0f;
     double foodProductivityRatio = building->owner != nullptr ? building->owner->GetFoodProductivity() : 1.0;
     int foodProductivity = static_cast<int>(std::round(foodProductivityRatio * 100.0));
@@ -2770,68 +2995,122 @@ void GuiPanel::Update(double dt)
             : std::numeric_limits<double>::infinity();
     }
 
-    std::vector<std::string> stats{
-        "Cycle time: " + FormatSeconds(cycleTime),
-        "Workers: " + std::to_string(building->GetAssignedWorkers()) + "/" + std::to_string(building->GetWorkerCapacity()),
-        "Worker output: " + std::to_string(workerOutput) + "%",
-        "Food productivity: " + std::to_string(foodProductivity) + "%",
-        "Produced: " + std::to_string(building->GetTotalProduced()),
-        "Efficiency: " + std::to_string(static_cast<int>(efficiency)) + "%",
-        "Active: " + std::to_string(static_cast<int>(building->GetActiveTime())) + "s",
-        "Lifetime: " + std::to_string(static_cast<int>(building->GetLifetime())) + "s"};
-    if (panelRecipes != nullptr && !panelRecipes->recipes.empty())
-        stats.insert(stats.begin(), "Recipe: " + panelRecipes->GetActiveRecipeName());
-    int localRichness = GetLocalTerrainRichness(building);
-    if (localRichness >= 0)
-        stats.insert(stats.begin(), "Local richness: " + std::to_string(localRichness));
-
-    int statColumns = 2;
-    int statRows = static_cast<int>((stats.size() + statColumns - 1) / statColumns);
-    int statGap = std::max(8, margin / 2);
-    int statColumnW = (contentW - statGap) / statColumns;
-    int statLine = std::max(16, std::min(21, statsH / std::max(1, statRows)));
-    for (int i = 0; i < static_cast<int>(stats.size()); i++)
+    using StatRow = std::pair<std::string, std::string>;
+    auto drawStatGroup = [&](const std::string& title, const std::vector<StatRow>& rows,
+                             int x, int top, int width, Color valueColor,
+                             bool compactColumns = false)
     {
-        int col = i % statColumns;
-        int row = i / statColumns;
-        Rectangle statBounds{
-            static_cast<float>(contentX + col * (statColumnW + statGap)),
-            static_cast<float>(y + row * statLine),
-            static_cast<float>(statColumnW),
-            static_cast<float>(statLine)};
-        const bool highlight = tutorialHighlight &&
-            (stats[i].rfind("Workers:", 0) == 0 ||
-             stats[i].rfind("Worker output:", 0) == 0 ||
-             stats[i].rfind("Food productivity:", 0) == 0);
-        if (highlight)
+        UiText::Draw(title, static_cast<float>(x), static_cast<float>(top), 20, UiTheme::AmberBright);
+        int rowY = top + 25;
+        const int labelWidth = compactColumns
+            ? std::clamp(static_cast<int>(width * 0.40f), 150, 230)
+            : static_cast<int>(width * 0.62f);
+        const int valueStart = x + labelWidth + (compactColumns ? 16 : 0);
+        for (const auto& [label, value] : rows)
         {
-            const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.5f);
-            DrawRectangleRounded(statBounds, 0.12f, 6,
-                                 Color{184, 132, 48, static_cast<unsigned char>(42.0f + pulse * 44.0f)});
-            DrawRectangleRoundedLines(statBounds, 0.12f, 6, 1.0f + pulse * 1.2f,
-                                      Color{UiTheme::Gold.r, UiTheme::Gold.g, UiTheme::Gold.b,
-                                            static_cast<unsigned char>(160.0f + pulse * 95.0f)});
+            const bool highlight = tutorialHighlight &&
+                (label == "Workers" || label == "Worker output" || label == "Food productivity");
+            if (highlight)
+            {
+                const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.5f);
+                DrawRectangleRounded(Rectangle{static_cast<float>(x), static_cast<float>(rowY),
+                                               static_cast<float>(width), 22.0f},
+                                     0.12f, 6,
+                                     Color{184, 132, 48, static_cast<unsigned char>(42.0f + pulse * 44.0f)});
+            }
+            UiText::DrawFit(label, Rectangle{static_cast<float>(x), static_cast<float>(rowY),
+                                             static_cast<float>(labelWidth), 22.0f},
+                            17, highlight ? UiTheme::Gold : UiTheme::ParchmentDim);
+            const int valueWidth = UiText::Measure(value, 18);
+            const int valueX = compactColumns
+                ? valueStart
+                : x + width - valueWidth;
+            UiText::Draw(value, static_cast<float>(valueX),
+                         static_cast<float>(rowY), 18, highlight ? UiTheme::Gold : valueColor);
+            rowY += 24;
         }
-        DrawTextFit(stats[i], statBounds, statLine - 3,
-                    highlight ? UiTheme::Gold : UiTheme::Parchment);
-    }
+        return rowY;
+    };
 
-    if (panelRecipes != nullptr && panelRecipes->HasSelectableRecipes())
-    {
-        recipeButton.pos = Vec2i{contentX, bottom - destroyButton.size.y - margin - lockButton.size.y * 2 - margin};
-        recipeButton.size = Vec2i{contentW, lockButton.size.y};
-        recipeButton.ChangeText("Recipe: " + panelRecipes->GetActiveRecipeName());
-        recipeButton.Update(dt);
-    }
+    const int statGap = std::max(12, margin / 2);
+    const int statColumnW = std::max(1, (contentW - statGap) / 2);
+    const std::vector<StatRow> productionStats{
+        {"Cycle time", FormatSeconds(cycleTime)},
+        {"Output", std::to_string(building->GetTotalProduced())},
+        {"Efficiency", std::to_string(static_cast<int>(efficiency)) + "%"}};
+    const std::vector<StatRow> workforceStats{
+        {"Workers", std::to_string(building->GetAssignedWorkers()) + "/" + std::to_string(building->GetWorkerCapacity())},
+        {"Worker output", std::to_string(workerOutput) + "%"},
+        {"Food productivity", std::to_string(foodProductivity) + "%"}};
+    const int productionStatsBottom = drawStatGroup("Production", productionStats,
+                                                    contentX, y, statColumnW, UiTheme::Parchment);
+    const int workforceStatsBottom = drawStatGroup("Workforce", workforceStats,
+                                                   contentX + statColumnW + statGap, y, statColumnW,
+                                                   UiTheme::Parchment);
+    y = std::max(productionStatsBottom, workforceStatsBottom) + 7;
+    DrawLineEx({static_cast<float>(contentX), static_cast<float>(y)},
+               {static_cast<float>(contentX + contentW), static_cast<float>(y)},
+               1.0f, Fade(UiTheme::Bronze, 0.72f));
+    y += sectionGap;
 
-    if (building->CanBlockProduction())
+    std::vector<StatRow> statusStats{
+        {"Status", roadNotConnected ? "Road not connected" :
+                   productionBlocked ? "Blocked" : "Active"},
+        {"Lifetime", std::to_string(static_cast<int>(building->GetLifetime())) + "s"}};
+    const int localRichness = GetLocalTerrainRichness(building);
+    if (localRichness >= 0)
+        statusStats.push_back({"Local richness", std::to_string(localRichness)});
+    const int statusBottom = drawStatGroup(
+        "Status", statusStats, contentX, y, contentW,
+        roadNotConnected || productionBlocked
+            ? Color{232, 104, 92, 255}
+            : Color{140, 196, 122, 255}, true);
+    y = statusBottom + sectionGap;
+
+    DrawLineEx({static_cast<float>(contentX), static_cast<float>(y)},
+               {static_cast<float>(contentX + contentW), static_cast<float>(y)},
+               1.0f, Fade(UiTheme::Bronze, 0.72f));
+    y += sectionGap;
+
+    const int actionGap = 10;
+    const int mainActionH = std::max(44, std::min(56, size.y / 15));
+    const bool hasRecipeAction = panelRecipes != nullptr && panelRecipes->HasSelectableRecipes();
+    const bool hasLockAction = building->CanBlockProduction();
+    const bool hasDestroyAction = building->CanBeManuallyDestroyed();
+    const int actionCount = static_cast<int>(hasRecipeAction) +
+                            static_cast<int>(hasLockAction) +
+                            static_cast<int>(hasDestroyAction);
+    if (actionCount > 0)
     {
-        lockButton.pos = Vec2i{contentX, bottom - destroyButton.size.y - margin - lockButton.size.y};
-        lockButton.size = Vec2i{contentW, lockButton.size.y};
-        lockButton.ChangeText(building->IsProductionBlocked() ? "Unlock production" : "Block production");
-        lockButton.Update(dt);
+        const int actionWidth = std::max(1, (contentW - actionGap * (actionCount - 1)) / actionCount);
+        int actionIndex = 0;
+        const int actionY = bottom - mainActionH;
+        auto placeAction = [&](UiButton& button)
+        {
+            button.pos = Vec2i{contentX + actionIndex * (actionWidth + actionGap), actionY};
+            button.size = Vec2i{actionWidth, mainActionH};
+            ++actionIndex;
+        };
+
+        if (hasRecipeAction)
+        {
+            placeAction(recipeButton);
+            recipeButton.ChangeText("Recipe: " + panelRecipes->GetActiveRecipeName());
+            recipeButton.Update(dt);
+        }
+        if (hasLockAction)
+        {
+            placeAction(lockButton);
+            lockButton.ChangeText(building->IsProductionBlocked() ? "Unlock production" : "Block production");
+            lockButton.Update(dt);
+        }
+        if (hasDestroyAction)
+        {
+            placeAction(destroyButton);
+            destroyButton.ChangeText("Destroy building");
+            destroyButton.Update(dt);
+        }
     }
-    drawDestroyButton();
     DrawPendingTooltip();
 }
 
@@ -2868,6 +3147,19 @@ GuiPanel::GuiPanel()
         if (building != nullptr)
             destroyRequested = true;
     };
+}
+
+void BuildingInfoPanel::UpdateSize(Vec2i windowSize)
+{
+    const Vec2f savedAnchor = sizeAnchor;
+    const bool compactProduction = building != nullptr &&
+        building->GetComponent<ProductionComponent>() != nullptr &&
+        building->GetComponent<RecruitmentComponent>() == nullptr;
+    if (compactProduction)
+        sizeAnchor.y = 0.64f;
+
+    GuiPanel::UpdateSize(windowSize);
+    sizeAnchor = savedAnchor;
 }
 
 // Advances UpdateSize for one frame or simulation tick.

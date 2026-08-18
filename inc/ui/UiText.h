@@ -15,11 +15,11 @@
 // Which typeface subsequent UiText calls use.
 enum class UiFontRole
 {
-    // The game's primary serif face (EB Garamond), reserved for titles and
-    // panel chrome.
+    // Display role, reserved for titles and panel chrome. The pilot currently
+    // maps this role to Departure Mono as well as Plain.
     Display,
-    // Alegreya Sans, used for dense forms, tooltips and long value strings.
-    // It falls back to Display when it has not been loaded.
+    // Dense forms, tooltips and long value strings. It falls back to Display
+    // when it has not been loaded.
     Plain
 };
 

@@ -5,6 +5,7 @@
 #include "multiplayer/TcpGameTransport.h"
 #include "ui/GuiController.h"
 #include "ui/Renderer.h"
+#include "ui/UiText.h"
 
 #include <algorithm>
 #include <set>
@@ -202,6 +203,12 @@ void GameScene::OnDeactivated()
         runtimeLoop->SetPaused(true);
 }
 
+bool GameScene::IsSceneTransitionOpaque() const
+{
+    auto* window = dynamic_cast<GameWindow*>(broker);
+    return window != nullptr && window->IsSceneTransitionOpaque();
+}
+
 namespace
 {
     void DrawRuntimeLoadingScreen(const std::string& message)
@@ -215,6 +222,7 @@ namespace
                      GetScreenHeight() * 0.5f,
                      fontSize,
                      Color{210, 224, 242, 255});
+        DrawSceneTransitionOverlay();
         EndDrawing();
     }
 
@@ -365,11 +373,14 @@ namespace
                     int sw = GetScreenWidth(), sh = GetScreenHeight();
                     DrawRectangle(0, sh / 2 - 70, sw, 140, Color{0, 0, 0, 190});
                     int fs = 72;
-                    int tw = MeasureText(banner, fs);
-                    DrawText(banner, sw / 2 - tw / 2, sh / 2 - fs / 2, fs, col);
+                    int tw = UiText::Measure(banner, fs);
+                    UiText::Draw(banner, static_cast<float>(sw / 2 - tw / 2),
+                                 static_cast<float>(sh / 2 - fs / 2), fs, col);
                     const char* hint = "Press Esc for the menu";
-                    int hw = MeasureText(hint, 22);
-                    DrawText(hint, sw / 2 - hw / 2, sh / 2 + 44, 22, Color{210, 214, 220, 235});
+                    int hw = UiText::Measure(hint, 22);
+                    UiText::Draw(hint, static_cast<float>(sw / 2 - hw / 2),
+                                 static_cast<float>(sh / 2 + 44), 22,
+                                 Color{210, 214, 220, 235});
                 }
             }
 
@@ -478,6 +489,13 @@ void GameScene::HandleRenderDebugInput()
 // Advances this object's state for one frame.
 void GameScene::Update(double dt)
 {
+    if (pendingNewGame.has_value() && IsSceneTransitionOpaque())
+    {
+        PendingNewGame pending = std::move(*pendingNewGame);
+        pendingNewGame.reset();
+        StartNewGame(std::move(pending.name), pending.params);
+    }
+
     if (game == nullptr || runtimeLoop == nullptr)
         return;
 
@@ -583,13 +601,10 @@ void GameScene::HandleEvent(std::shared_ptr<Event> e)
     auto ptr2 = std::dynamic_pointer_cast<NewGameEvent>(e);
     if (ptr2 != nullptr)
     {
-        StartNewGame(ptr2->name, ptr2->params);
-
-        auto msg = std::make_shared<ChangeSceneEvent>();
-        msg->sender = this;
-        msg->sceneName = "GameScene";
-        msg->previousSceneName = name;
-        broker->Broadcast(msg);
+        // GameWindow starts the fade immediately. Defer the potentially
+        // expensive map generation until the transition is fully opaque.
+        pendingNewGame = PendingNewGame{ptr2->name, ptr2->params};
+        return;
     }
 
     auto ptr3 = std::dynamic_pointer_cast<LoadGameEvent>(e);
@@ -653,7 +668,8 @@ void GameScene::StartNewGame(std::string name, MapParameters params)
     prevUnlockedFocusCount = 0;
     knownIncomingUnitIds.clear();
     if (audioSystem != nullptr)
-        audioSystem->PlayMusic("gameplay");
+        audioSystem->PlayMusicRotation("gameplay_rotation", "gameplay",
+                                       DefaultMusicCrossfadeSeconds);
 }
 
 // Creates and hosts a LAN multiplayer world.
@@ -671,7 +687,8 @@ void GameScene::StartMultiplayerHost(std::string name, MapParameters params, uns
     runtimeLoop = std::make_unique<HostRuntimeLoop>(
         std::make_unique<HostSession>(*game, transport, 1, requireRemoteSync));
     if (audioSystem != nullptr)
-        audioSystem->PlayMusic("gameplay");
+        audioSystem->PlayMusicRotation("gameplay_rotation", "gameplay",
+                                       DefaultMusicCrossfadeSeconds);
 }
 
 // Joins a LAN multiplayer world with a local mirror.
@@ -688,7 +705,8 @@ void GameScene::StartMultiplayerClient(std::string name, MapParameters params, c
     runtimeLoop = std::make_unique<MultiplayerClientRuntimeLoop>(
         std::make_unique<ClientSession>(game.get(), transport, 1));
     if (audioSystem != nullptr)
-        audioSystem->PlayMusic("gameplay");
+        audioSystem->PlayMusicRotation("gameplay_rotation", "gameplay",
+                                       DefaultMusicCrossfadeSeconds);
 }
 
 // Loads the requested data into runtime state.
@@ -718,7 +736,8 @@ bool GameScene::LoadGame(std::string name)
         }
         Log::Msg("GameScene", "Save ", saveName, " loaded!");
         if (audioSystem != nullptr)
-            audioSystem->PlayMusic("gameplay");
+            audioSystem->PlayMusicRotation("gameplay_rotation", "gameplay",
+                                           DefaultMusicCrossfadeSeconds);
         return true;
     }
     else

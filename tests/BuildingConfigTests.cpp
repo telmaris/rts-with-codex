@@ -52,7 +52,7 @@ TEST(BuildingConfigTests, CoreDefinitionsAreLoaded)
     EXPECT_EQ(bridge.buildCosts[1].amount, 6);
 
     const auto& university = GetBuildingDefinition(BuildingType::University);
-    EXPECT_EQ(university.production.workerCapacity, 40);
+    EXPECT_EQ(university.production.workerCapacity, 60);
 
     // Decisions can gate only access to the University. Buildings otherwise
     // use technology prerequisites, leaving the decision tree free for its

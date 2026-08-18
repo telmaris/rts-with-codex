@@ -58,6 +58,7 @@ target_sources(game
                multiplayer/SnapshotTransfer.cpp
                multiplayer/TcpGameTransport.cpp
                scenes/GameWindow.cpp
+               scenes/StudioSplashScene.cpp
                scenes/SceneUtils.cpp
                scenes/MainMenuScene.cpp
                scenes/OptionsScene.cpp
@@ -113,6 +114,7 @@ source_group("warfare" FILES warfare/UnitDefinition.cpp warfare/BattleUnit.cpp w
              warfare/TowerAttackSystem.cpp)
 source_group("multiplayer" FILES multiplayer/FaultInjectingGameTransport.cpp multiplayer/NetworkProtocol.cpp multiplayer/SnapshotTransfer.cpp multiplayer/TcpGameTransport.cpp)
 source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUtils.cpp
+             scenes/StudioSplashScene.cpp
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
              scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp
              scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/TutorialScene.cpp scenes/GameMenuScene.cpp)

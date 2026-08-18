@@ -586,9 +586,8 @@ void Tooltip::Draw(const std::string& title, const std::vector<std::string>& lin
     bounds.x = std::max(8.0f, bounds.x);
     bounds.y = std::max(8.0f, bounds.y);
 
-    // A tooltip is a secondary overlay, so it uses the quieter companion
-    // 9-slice rather than competing with the main window frame.
-    if (!UiControlIcons::DrawPixelHudWidgetFrame(bounds))
+    // Tooltips are panels, so they use the same panel_hud chrome as windows.
+    if (!UiControlIcons::DrawPixelHudPanelFrame(bounds))
     {
         DrawRectangleRounded(bounds, 0.05f, 8, UiTheme::Ink);
         DrawRectangleRoundedLines(bounds, 0.05f, 8, 1.4f, UiTheme::Iron);

@@ -5,6 +5,16 @@
 #include "ui/GuiHandler.h"
 #include "core/Events.h"
 
+#include <utility>
+
+enum class SceneTransitionPhase
+{
+    Idle,
+    FadeOut,
+    Hold,
+    FadeIn
+};
+
 // Base scene that owns a renderer and receives events from the window broker.
 class Scene : public EventClient
 {
@@ -65,27 +75,43 @@ class GameWindow : public EventBroker
     // Activates a registered scene and records where navigation came from.
     inline void ChangeScene(std::string name, std::string previousSceneName)
     {
-        if (activeScene != nullptr)
-            activeScene->OnDeactivated();
-        activeScene = scenes[name];
-        activeScene->previousSceneName = previousSceneName;
-        // Central input-gate reset (see IGuiHandler): every activated scene
-        // starts with its GUI input gated until it has presented a frame and
-        // ESC is released — no scene can react to the same key edge that
-        // caused this very transition. Done here, once, so individual scenes
-        // can't forget it.
-        if (auto* guiHandler = dynamic_cast<IGuiHandler*>(activeScene.get()))
-            guiHandler->ResetGuiInputGate();
-        activeScene->OnActivated();
+        RequestSceneChange(std::move(name), std::move(previousSceneName), false);
     }
 
-    std::map<std::string, std::shared_ptr<Scene>> scenes;
-    std::shared_ptr<Scene> activeScene;
+    // Returns true while the transition has reached a fully opaque frame.
+    // Gameplay setup uses this moment so expensive world creation happens
+    // behind the black transition instead of freezing a visible menu.
+    bool IsSceneTransitionOpaque() const
+    {
+        return transitionPhase == SceneTransitionPhase::Hold &&
+               transitionAlpha >= 1.0f;
+    }
 
     AudioSystem audio;
 
     bool isRunning{true};
     const std::string tag{"GameWindow"};
     Vec2i lastWindowSize{};
+
+private:
+    void ActivateScene(const std::string& name, const std::string& previousSceneName);
+    void RequestSceneChange(std::string name, std::string previousSceneName,
+                            bool stopMusicBeforeGameplayStart);
+    void UpdateSceneTransition(float dt);
+
+public:
+    std::map<std::string, std::shared_ptr<Scene>> scenes;
+    std::shared_ptr<Scene> activeScene;
+
+private:
+    SceneTransitionPhase transitionPhase{SceneTransitionPhase::Idle};
+    std::string pendingSceneName;
+    std::string pendingPreviousSceneName;
+    float transitionAlpha{0.0f};
+    float transitionElapsed{0.0f};
+    float transitionHoldRemaining{0.0f};
+    static constexpr float FadeOutSeconds = 0.32f;
+    static constexpr float FadeInSeconds = 0.55f;
+    static constexpr float HoldSeconds = 0.12f;
 };
 #endif

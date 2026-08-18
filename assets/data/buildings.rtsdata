@@ -259,42 +259,42 @@ building Foundry
     tag "[Foundry]"
     placement_category metal
     texture "assets/textures/building/generated/foundry_idle_v2/foundry_idle_sheet_5x1.png"
-    build_cost WOOD 30
-    build_cost STONE 40
+    build_cost WOOD 50
+    build_cost STONE 30
     build_cost PLANKS 40
     build_cost IRON 10
-    build_time 10.0
+    build_time 15.0
     footprint 3 3
     texture_id 3
     production
         workers 12
-        cycle_time 2.0
-        input IRON_ORE 1
-        input COAL 1
-        output IRON 2
+        cycle_time 12.0
+        input IRON_ORE 4
+        input COAL 4
+        output IRON 1
         input_buffer IRON_ORE 8
         input_buffer COAL 8
-        output_buffer IRON 16
+        output_buffer IRON 4
     end
     recipe "Iron"
         workers 12
-        cycle_time 2.0
-        input IRON_ORE 1
-        input COAL 1
-        output IRON 2
+        cycle_time 12.0
+        input IRON_ORE 4
+        input COAL 4
+        output IRON 1
         input_buffer IRON_ORE 8
         input_buffer COAL 8
-        output_buffer IRON 16
+        output_buffer IRON 4
     end
     recipe "Copper"
         workers 12
-        cycle_time 2.0
-        input COPPER_ORE 1
-        input COAL 1
-        output COPPER 2
-        input_buffer COPPER_ORE 8
+        cycle_time 10.0
+        input COPPER_ORE 5
+        input COAL 4
+        output COPPER 1
+        input_buffer COPPER_ORE 10
         input_buffer COAL 8
-        output_buffer COPPER 16
+        output_buffer COPPER 4
     end
 end
 
@@ -305,12 +305,12 @@ building Well
     texture "assets/textures/building/generated/well_idle_v2/well_idle_2x2.png"
     build_cost WOOD 25
     build_cost STONE 30
-    build_time 4.0
+    build_time 8.0
     footprint 2 2
     texture_id 10
     production
         workers 2
-        cycle_time 4.0
+        cycle_time 6.0
         output WATER 2
         output_buffer WATER 12
     end
@@ -324,7 +324,7 @@ building WheatFarm
     build_cost WOOD 30
     build_cost STONE 15
     build_cost PLANKS 20
-    build_time 7.0
+    build_time 10.0
     footprint 4 4
     texture_id 11
     production
@@ -345,16 +345,16 @@ building Windmill
     build_cost WOOD 30
     build_cost STONE 35
     build_cost PLANKS 50
-    build_time 10.0
+    build_time 12.0
     footprint 4 4
     texture_id 12
     production
         workers 6
         cycle_time 8.0
-        input WHEAT 2
+        input WHEAT 4
         output FLOUR 2
         input_buffer WHEAT 12
-        output_buffer FLOUR 16
+        output_buffer FLOUR 8
     end
 end
 
@@ -366,18 +366,18 @@ building Bakery
     build_cost WOOD 35
     build_cost STONE 40
     build_cost PLANKS 30
-    build_time 28.0
+    build_time 20.0
     footprint 3 3
     texture_id 13
     production
         workers 8
         cycle_time 10.0
-        input FLOUR 2
-        input WATER 2
+        input FLOUR 4
+        input WATER 6
         output BREAD 2
-        input_buffer FLOUR 12
-        input_buffer WATER 8
-        output_buffer BREAD 18
+        input_buffer FLOUR 8
+        input_buffer WATER 12
+        output_buffer BREAD 6
     end
 end
 
@@ -395,14 +395,14 @@ building Inn
     production
         workers 8
         cycle_time 20.0
-        input BREAD 4
-        input MEAT 2
-        input WATER 4
+        input BREAD 6
+        input MEAT 3
+        input WATER 8
         output FOOD_PROVISIONS 3
-        input_buffer BREAD 20
-        input_buffer MEAT 12
-        input_buffer WATER 20
-        output_buffer FOOD_PROVISIONS 5
+        input_buffer BREAD 12
+        input_buffer MEAT 6
+        input_buffer WATER 16
+        output_buffer FOOD_PROVISIONS 6
     end
 end
 
@@ -412,8 +412,8 @@ building Paperworks
     placement_category wood
     texture "assets/textures/building/generated/paperworks_idle_v2/paperworks_idle_3x3.png"
     build_cost WOOD 50
-    build_cost STONE 80
-    build_cost PLANKS 100
+    build_cost STONE 60
+    build_cost PLANKS 50
     build_cost IRON 15
     build_time 20.0
     footprint 3 3
@@ -421,32 +421,32 @@ building Paperworks
     production
         workers 8
         cycle_time 10.0
-        input WOOD 2
-        input WATER 1
-        output PAPER 3
-        input_buffer WOOD 14
-        input_buffer WATER 8
-        output_buffer PAPER 18
+        input WOOD 5
+        input WATER 5
+        output PAPER 2
+        input_buffer WOOD 10
+        input_buffer WATER 10
+        output_buffer PAPER 6
     end
     recipe "Wood Pulp Paper"
         workers 8
         cycle_time 10.0
-        input WOOD 2
-        input WATER 1
-        output PAPER 3
-        input_buffer WOOD 14
-        input_buffer WATER 8
-        output_buffer PAPER 18
+        input WOOD 5
+        input WATER 5
+        output PAPER 2
+        input_buffer WOOD 10
+        input_buffer WATER 10
+        output_buffer PAPER 6
     end
     recipe "Hemp Paper"
         workers 8
         cycle_time 9.0
-        input FIBRE 2
-        input WATER 1
+        input FIBRE 5
+        input WATER 5
         output PAPER 4
-        input_buffer FIBRE 14
-        input_buffer WATER 8
-        output_buffer PAPER 20
+        input_buffer FIBRE 10
+        input_buffer WATER 10
+        output_buffer PAPER 8
     end
 end
 
@@ -456,9 +456,9 @@ building Smith
     placement_category metal
     texture "assets/textures/building/generated/smith_idle_v2/smith_idle_2x2.png"
     build_cost WOOD 50
-    build_cost STONE 70
+    build_cost STONE 40
     build_cost PLANKS 50
-    build_cost IRON 45
+    build_cost IRON 20
     build_time 15.0
     footprint 3 3
     texture_id 16
@@ -466,21 +466,21 @@ building Smith
         workers 10
         cycle_time 12.0
         input IRON 2
-        input WOOD 1
+        input WOOD 2
         output TOOLS 1
-        input_buffer IRON 12
-        input_buffer WOOD 8
-        output_buffer TOOLS 10
+        input_buffer IRON 6
+        input_buffer WOOD 6
+        output_buffer TOOLS 3
     end
     recipe "Tools"
         workers 10
         cycle_time 12.0
         input IRON 2
-        input WOOD 1
+        input WOOD 2
         output TOOLS 1
-        input_buffer IRON 12
-        input_buffer WOOD 8
-        output_buffer TOOLS 10
+        input_buffer IRON 6
+        input_buffer WOOD 6
+        output_buffer TOOLS 3
     end
     recipe "Iron Sword"
         workers 10
@@ -488,9 +488,9 @@ building Smith
         input IRON 3
         input WOOD 1
         output IRON_SWORD 1
-        input_buffer IRON 12
-        input_buffer WOOD 8
-        output_buffer IRON_SWORD 8
+        input_buffer IRON 6
+        input_buffer WOOD 6
+        output_buffer IRON_SWORD 3
     end
 end
 
@@ -588,8 +588,8 @@ building University
     placement_category knowledge
     texture "assets/textures/building/generated/university_idle_v2/university_idle_sheet_5x1.png"
     build_cost WOOD 100
-    build_cost STONE 320
-    build_cost PLANKS 250
+    build_cost STONE 150
+    build_cost PLANKS 200
     build_cost IRON 120
     build_cost TOOLS 30
     requires_focus pursuit_of_knowledge
@@ -597,7 +597,7 @@ building University
     footprint 5 5
     texture_id 17
     production
-        workers 40
+        workers 60
         cycle_time 20.0
         input PAPER 5
         input_buffer PAPER 30
@@ -697,12 +697,12 @@ building AnimalFarm
     production
         workers 10
         cycle_time 24.0
-        input WHEAT 4
-        input WATER 4
+        input WHEAT 10
+        input WATER 10
         output CATTLE 2
-        input_buffer WHEAT 16
-        input_buffer WATER 16
-        output_buffer CATTLE 8
+        input_buffer WHEAT 20
+        input_buffer WATER 20
+        output_buffer CATTLE 6
     end
 end
 
@@ -711,9 +711,9 @@ building Butcher
     tag "[Butcher]"
     placement_category food
     texture "assets/textures/building/generated/butcher_idle_v2/butcher_idle_2x2.png"
-    build_cost WOOD 35
-    build_cost PLANKS 20
-    build_cost STONE 25
+    build_cost WOOD 40
+    build_cost PLANKS 40
+    build_cost STONE 30
     build_time 9.0
     footprint 2 2
     texture_id 9
@@ -737,8 +737,8 @@ building Tannery
     placement_category construction
     texture "assets/textures/building/generated/tannery_idle_v2/tannery_idle_4x4.png"
     build_cost WOOD 40
-    build_cost PLANKS 25
-    build_cost STONE 25
+    build_cost PLANKS 40
+    build_cost STONE 30
     build_time 11.0
     footprint 4 4
     texture_id 16
@@ -747,7 +747,7 @@ building Tannery
         cycle_time 12.0
         input RAW_HIDE 2
         input WATER 2
-        output LEATHER 2
+        output LEATHER 1
         input_buffer RAW_HIDE 12
         input_buffer WATER 12
         output_buffer LEATHER 12
@@ -775,20 +775,20 @@ building Tailor
     end
     recipe "Leather Clothes"
         workers 8
-        cycle_time 10.0
+        cycle_time 20.0
         input LEATHER 2
         output CLOTHES 2
-        input_buffer LEATHER 12
-        output_buffer CLOTHES 12
+        input_buffer LEATHER 6
+        output_buffer CLOTHES 6
     end
     recipe "Cloth Clothes"
         requires_tech guild_apprenticeship
         workers 8
-        cycle_time 8.0
+        cycle_time 16.0
         input CLOTH 2
         output CLOTHES 3
-        input_buffer CLOTH 12
-        output_buffer CLOTHES 16
+        input_buffer CLOTH 6
+        output_buffer CLOTHES 6
     end
 end
 
@@ -800,7 +800,7 @@ building Armorer
     build_cost PLANKS 45
     build_cost STONE 50
     build_cost IRON 25
-    build_cost TOOLS 8
+    build_cost TOOLS 5
     build_time 16.0
     footprint 4 4
     texture_id 16
@@ -853,8 +853,8 @@ building HorseStable
     tag "[HorseStable]"
     placement_category food
     texture "assets/textures/building/generated/horse_stable_idle_v2/horse_stable_idle_4x4.png"
-    build_cost WOOD 55
-    build_cost PLANKS 45
+    build_cost WOOD 60
+    build_cost PLANKS 60
     build_cost STONE 20
     build_time 18.0
     footprint 4 4
@@ -865,9 +865,9 @@ building HorseStable
         input WHEAT 5
         input WATER 5
         output HORSE 1
-        input_buffer WHEAT 20
-        input_buffer WATER 20
-        output_buffer HORSE 6
+        input_buffer WHEAT 10
+        input_buffer WATER 10
+        output_buffer HORSE 2
     end
 end
 
@@ -876,8 +876,8 @@ building Kiln
     tag "[Kiln]"
     placement_category construction
     texture "assets/textures/building/generated/kiln_idle_v2/kiln_idle_3x3.png"
-    build_cost WOOD 30
-    build_cost STONE 45
+    build_cost WOOD 50
+    build_cost STONE 80
     build_cost PLANKS 20
     build_time 12.0
     footprint 3 3
@@ -1023,56 +1023,56 @@ building Copperworks
     tag "[Copperworks]"
     placement_category metal
     texture "assets/textures/building/generated/copperworks_idle_v2/copperworks_idle_3x3.png"
+    build_cost WOOD 40
+    build_cost STONE 50
     build_cost PLANKS 50
-    build_cost STONE 55
-    build_cost COPPER 20
-    build_cost TOOLS 6
-    build_time 18.0
+    build_cost TOOLS 20
+    build_time 25.0
     footprint 3 3
     texture_id 16
     production
         workers 10
         cycle_time 10.0
         input COPPER 2
-        output COPPERWARE 2
-        input_buffer COPPER 14
-        output_buffer COPPERWARE 12
+        output COPPERWARE 1
+        input_buffer COPPER 4
+        output_buffer COPPERWARE 2
     end
     recipe "Copperware"
         workers 10
         cycle_time 10.0
         input COPPER 2
-        output COPPERWARE 2
-        input_buffer COPPER 14
-        output_buffer COPPERWARE 12
+        output COPPERWARE 1
+        input_buffer COPPER 4
+        output_buffer COPPERWARE 2
     end
     recipe "Copper Vessel"
         workers 12
-        cycle_time 14.0
-        input COPPER 4
+        cycle_time 25.0
+        input COPPER 8
         output COPPER_VESSEL 1
-        input_buffer COPPER 18
-        output_buffer COPPER_VESSEL 8
+        input_buffer COPPER 16
+        output_buffer COPPER_VESSEL 2
     end
     recipe "Copper Pipe"
         requires_tech pump_engineering
         workers 10
         cycle_time 10.0
-        input COPPER 3
+        input COPPER 5
         output COPPER_PIPE 2
-        input_buffer COPPER 16
-        output_buffer COPPER_PIPE 12
+        input_buffer COPPER 10
+        output_buffer COPPER_PIPE 4
     end
     recipe "Mechanical Parts"
         requires_tech waterwheel_gearing
         workers 14
-        cycle_time 14.0
+        cycle_time 15.0
         input COPPER 3
         input TOOLS 1
-        output MECHANICAL_PARTS 2
-        input_buffer COPPER 16
-        input_buffer TOOLS 6
-        output_buffer MECHANICAL_PARTS 12
+        output MECHANICAL_PARTS 1
+        input_buffer COPPER 6
+        input_buffer TOOLS 2
+        output_buffer MECHANICAL_PARTS 2
     end
 end
 
@@ -1107,19 +1107,19 @@ building HempFarm
     tag "[HempFarm]"
     placement_category food
     texture "assets/textures/building/generated/hemp_farm_idle_v2/hemp_farm_idle_4x4.png"
-    build_cost WOOD 25
-    build_cost PLANKS 20
-    build_cost STONE 10
-    build_time 8.0
+    build_cost WOOD 50
+    build_cost PLANKS 50
+    build_cost STONE 20
+    build_time 18.0
     footprint 4 4
     texture_id 11
     production
         workers 7
         cycle_time 10.0
-        input WATER 3
-        output HEMP 4
-        input_buffer WATER 12
-        output_buffer HEMP 16
+        input WATER 5
+        output HEMP 2
+        input_buffer WATER 10
+        output_buffer HEMP 6
     end
 end
 

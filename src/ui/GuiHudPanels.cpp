@@ -277,34 +277,40 @@ void StrategicResourceHudWidget::Update(double dt)
     const bool disableDecisions = tutorialDisableDecisions || scene->AreTutorialDecisionsLocked();
     const bool disableStatistics = tutorialDisableStatistics || scene->AreTutorialStatisticsLocked();
     Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(size.x), static_cast<float>(size.y)};
-    Rectangle hudChrome{0.0f, 0.0f, static_cast<float>(GetScreenWidth()), bounds.height};
-    if (!UiControlIcons::DrawPixelHudFrame(hudChrome))
+    Rectangle hudChrome{bounds.x, bounds.y, bounds.width, bounds.height};
+    if (!UiControlIcons::DrawPixelTopHudFrame(hudChrome))
     {
-        DrawRectangle(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), UiTheme::Ink);
-        DrawRectangleGradientV(0, 0, GetScreenWidth(), static_cast<int>(bounds.height), UiTheme::Surface, UiTheme::Panel);
-        DrawRectangle(0, 0, GetScreenWidth(), 1, Fade(UiTheme::SteelHover, 0.82f));
-        DrawRectangle(0, static_cast<int>(bounds.height - 2.0f), GetScreenWidth(), 2, UiTheme::Bronze);
+        DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                      static_cast<int>(bounds.width), static_cast<int>(bounds.height), UiTheme::Ink);
+        DrawRectangleGradientV(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                               static_cast<int>(bounds.width), static_cast<int>(bounds.height),
+                               UiTheme::Surface, UiTheme::Panel);
+        DrawRectangle(static_cast<int>(bounds.x), static_cast<int>(bounds.y),
+                      static_cast<int>(bounds.width), 1, Fade(UiTheme::SteelHover, 0.82f));
+        DrawRectangle(static_cast<int>(bounds.x),
+                      static_cast<int>(bounds.y + bounds.height - 2.0f),
+                      static_cast<int>(bounds.width), 2, UiTheme::Bronze);
     }
 
-    // The crest belongs only to this left cap; it is not part of the reusable
-    // frame texture, so other 9-sliced panels never inherit heraldry.
-    const float crestHeight = std::max(52.0f, bounds.height - 18.0f);
-    const float crestWidth = crestHeight;
-    // Leave the complete left 9-slice cap visible. Both outer corners now sit
-    // on x=0; the standalone shield is inset instead of carrying a fake lower
-    // corner on its pointed tip.
-    Rectangle crestRect{bounds.x + 13.0f,
-                        bounds.y + (bounds.height - crestHeight) * 0.5f,
-                        crestWidth, crestHeight};
-    if (!UiControlIcons::DrawPixelTopHudCrest(crestRect))
-        UiControlIcons::DrawRoyalCrest(crestRect);
+    // Keep content on the dark centre field, past the scaled ornamental left
+    // cap. The standalone heraldic crest was intentionally removed from this
+    // pilot so it cannot collide with the first statistic panel.
+    const float topHudCornerScale = std::min({
+        1.0f,
+        bounds.height / 148.0f,
+        bounds.width / 256.0f});
+    const float chipStartX = bounds.x + 128.0f * topHudCornerScale + 8.0f;
 
-    const float chipWidth = std::clamp(bounds.height * 1.55f, 118.0f, 138.0f);
-    const float populationChipWidth = std::clamp(bounds.height * 1.95f, 154.0f, 174.0f);
+    // Keep every HUD panel and action button at least 20 px shorter than the
+    // previous compact layout. Widths follow the same reduction so the whole
+    // content row stays inside the dark field of the new frame.
+    const float chipWidth = std::clamp(bounds.height * 1.55f - 20.0f,
+                                       98.0f, 118.0f);
+    const float populationChipWidth = std::clamp(bounds.height * 1.95f - 20.0f,
+                                                 134.0f, 154.0f);
     const float chipGap = 3.0f;
-    const float chipHeight = std::max(52.0f, bounds.height - 18.0f);
+    const float chipHeight = std::clamp(bounds.height - 52.0f, 44.0f, 60.0f);
     const float chipY = bounds.y + (bounds.height - chipHeight) * 0.5f;
-    const float chipStartX = crestRect.x + crestRect.width + 8.0f;
     auto chipAt = [&](int index)
     {
         if (index == 0)
@@ -346,7 +352,7 @@ void StrategicResourceHudWidget::Update(double dt)
             ? 0.5f + 0.5f * std::sin(static_cast<float>(GetTime()) * 4.5f)
             : 0.0f;
         const bool hovered = CheckCollisionPointRec(GetMousePosition(), chip);
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(chip, hovered))
+        if (!UiControlIcons::DrawPixelTopHudWidgetFrame(chip, hovered))
         {
             DrawRectangleRec(chip, UiTheme::Surface);
             DrawRectangleLinesEx(chip, 1.0f, UiTheme::Iron);
@@ -445,7 +451,8 @@ void StrategicResourceHudWidget::Update(double dt)
     // entirely with no towers built — an "ammo 100%" chip for a player who
     // has no towers is noise.
     const float actionStripLeft = buildButton.x;
-    const float desiredResourcePanelWidth = std::clamp(bounds.height * 3.45f, 230.0f, 330.0f);
+    const float desiredResourcePanelWidth = std::clamp(bounds.height * 3.45f - 20.0f,
+                                                       210.0f, 310.0f);
     bool showAmmo = stats.towerCount > 0 &&
                     ammoChip.x + ammoChip.width + desiredResourcePanelWidth + 20.0f <=
                         actionStripLeft - 12.0f;
@@ -469,7 +476,7 @@ void StrategicResourceHudWidget::Update(double dt)
         const float resourcePanelWidth = std::min(desiredResourcePanelWidth,
                                                    resourceAvailableWidth);
         Rectangle resourcePanel{resourceX, chipY, resourcePanelWidth, chipHeight};
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(resourcePanel))
+        if (!UiControlIcons::DrawPixelTopHudWidgetFrame(resourcePanel))
         {
             DrawRectangleRec(resourcePanel, UiTheme::Surface);
             DrawRectangleLinesEx(resourcePanel, 1.0f, UiTheme::Iron);
@@ -542,7 +549,7 @@ void StrategicResourceHudWidget::Update(double dt)
         // Availability always wins over the attention hint. A locked tutorial
         // action or research button must remain visually quiet.
         attention = attention && enabled;
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(rect, hovered && enabled))
+        if (!UiControlIcons::DrawPixelTopHudWidgetFrame(rect, hovered && enabled))
         {
             const Color fill = hovered
                 ? Color{static_cast<unsigned char>(std::min(255, fallbackFill.r + 24)),
@@ -907,7 +914,7 @@ void StatsPanelWidget::Update(double dt)
 
     auto drawColumn = [](Rectangle col, const std::string& titleText)
     {
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(col))
+        if (!UiControlIcons::DrawPixelHudPanelFrame(col))
         {
             DrawRectangleRounded(col, 0.035f, 8, UiTheme::Ink);
             Rectangle inner{col.x + 3.0f, col.y + 3.0f,
@@ -940,7 +947,7 @@ void StatsPanelWidget::Update(double dt)
 
     drawColumn(chart, showingConsumption ? "Consumption graph" : "Production graph");
     Rectangle plot{chart.x + 46.0f, chart.y + 64.0f, chart.width - 72.0f, chart.height - 142.0f};
-    if (!UiControlIcons::DrawPixelHudWidgetFrame(plot))
+    if (!UiControlIcons::DrawPixelHudPanelFrame(plot))
     {
         DrawRectangleRounded(plot, 0.02f, 8, UiTheme::Ink);
         DrawRectangleRounded(Rectangle{plot.x + 2.0f, plot.y + 2.0f,
@@ -1220,7 +1227,7 @@ StatsGuiSystem::StatsGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     statsPanel.scene = scene;
-    statsPanel.ChangePositionAnchor({0.06f, 0.10f});
+    statsPanel.ChangePositionAnchor({0.06f, 0.15f});
     statsPanel.ChangeSizeAnchor({0.88f, 0.82f});
     statsPanel.UpdateSize({GetScreenWidth(), GetScreenHeight()});
     SetupStrategicHud(strategicHudWidget, scene);

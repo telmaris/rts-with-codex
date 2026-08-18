@@ -44,7 +44,7 @@ technology standardized_timber_sizes
     research_time 210
     requires sawmill_discipline
     modifier BuildTime multiplier 0.909091
-    modifier WorkerCapacity additive 1 building LumberMill
+    modifier WorkerCapacity additive 3 building LumberMill
 end
 
 technology master_builders_guild
@@ -58,7 +58,7 @@ technology master_builders_guild
     requires standardized_timber_sizes
     modifier BuilderAmount additive 1
     modifier BuildCost multiplier 1.1
-    modifier PopulationCap additive 20 building Village
+    modifier BuildTime multiplier 0.909090909091
 end
 
 technology village_path_wardens
@@ -97,8 +97,7 @@ technology shared_mining_claims
     tags production
     research_time 120
     requires organized_work
-    modifier ProductionOutputAmount multiplier 1.1 category Ore
-    modifier ProductionOutputAmount multiplier 1.1 category Mineral
+    modifier ProductionCycleTime multiplier 0.909090909091 building Mine
 end
 
 technology furnace_rebuilding_program
@@ -123,6 +122,7 @@ technology practical_surveyors
     research_time 180
     requires furnace_rebuilding_program
     modifier ProductionCycleTime multiplier 0.909091 building Mine
+    modifier ProductionCycleTime multiplier 0.909090909091 building Foundry
 end
 
 technology continuous_furnace_watch
@@ -148,7 +148,6 @@ technology crown_manufactories
     research_time 300
     requires continuous_furnace_watch
     modifier ProductionCycleTime multiplier 0.833333 building UrbanWorkshop
-    modifier ProductionOutputAmount multiplier 1.2 category CraftedGood
     modifier WorkerCapacity multiplier 1.1
     modifier BuildCost multiplier 1.1
     modifier PopulationCap additive 20 building Village
@@ -162,7 +161,7 @@ technology muster_rolls
     layout_order 500
     tags military manpower
     research_time 120
-    modifier UnitRecruitTime multiplier 0.909091
+    modifier UnitRecruitTime multiplier 0.9
 end
 
 technology drill_on_the_commons
@@ -358,7 +357,7 @@ end
 
 technology pursuit_of_knowledge
     name "Pursuit of Knowledge"
-    description "A permanent stipend gives scholars a room, instruments, and the freedom to pursue questions without an immediate buyer."
+    description "Learning becomes valuable not only for immediate use, but for the understanding it may bring."
     category SOCIAL
     layout_lane "Social"
     layout_order 3400
@@ -369,7 +368,7 @@ end
 
 technology council_of_elders
     name "Council of Elders"
-    description "No major work begins without counsel; decisions are slower, but the settlement avoids its most dangerous mistakes."
+    description "The settlement's most respected voices gather to settle disputes and guide decisions of greater importance."
     category SOCIAL
     layout_lane "Social"
     layout_order 2250
@@ -382,7 +381,7 @@ end
 
 technology market_days
     name "Market Days"
-    description "Regular market days synchronize carts, meals, news, and exchange across the settlement."
+    description "Regular market days bring craftsmen, farmers, and merchants together, turning surplus into opportunity."
     category SOCIAL
     layout_lane "Social"
     layout_order 3250
@@ -396,7 +395,7 @@ end
 
 technology written_custom
     name "Written Custom"
-    description "Obligations written once need not be argued at every worksite, gate, and warehouse."
+    description "Long-standing customs are put into writing, giving disputes a clearer and more predictable resolution."
     category SOCIAL
     layout_lane "Social"
     layout_order 4250
@@ -464,6 +463,7 @@ technology timber_yard_committees
     research_time 210
     requires sawmill_discipline
     modifier ProductionOutputAmount additive 1 building LumberMill resource PLANKS
+    modifier WorkerCapacity additive 2 building LumberMill
 end
 
 technology public_timber_contracts
@@ -544,7 +544,7 @@ technology parish_road_stewards
     description "Elected stewards inspect local repairs and settle claims for labor, keeping each parish's road work modest, regular, and answerable."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 3975
+    layout_order 3999
     tags logistics construction production
     research_time 150
     requires local_road_duties
@@ -570,7 +570,7 @@ technology provincial_road_board
     description "Parishes send delegates to a provincial board that assigns repairs across boundaries and reserves the busiest routes for common traffic."
     category PRODUCTION
     layout_lane "Production"
-    layout_order 5900
+    layout_order 5999
     tags logistics construction production
     research_time 240
     requires milestone_posts
@@ -606,7 +606,7 @@ end
 
 technology sanitary_ordinance
     name "Sanitary Ordinance"
-    description "Waste left to gather in streets and alleys breeds foul air and disease. New ordinances place the cleanliness of the town under public authority."
+    description "Simple rules of cleanliness begin separating everyday life from the filth that once surrounded it."
     category SOCIAL
     layout_lane "Social"
     layout_order 1900
@@ -665,7 +665,7 @@ end
 
 technology learning_gatherings
     name "Learning Gatherings"
-    description "Where people gather, ideas travel with them. Craftsmen, merchants and travelers share knowledge that would otherwise remain confined to their trades and homelands."
+    description "Curious minds begin meeting to exchange knowledge, observations, and ideas beyond everyday necessity."
     category SOCIAL
     layout_lane "Social"
     layout_order 2400
@@ -678,6 +678,7 @@ end
 
 technology worship_figures
     name "Worship Figures"
+    description "Shared symbols of worship give the community a common faith and a sense of belonging."
     category SOCIAL
     layout_lane "Social"
     layout_order 2100
@@ -687,29 +688,36 @@ technology worship_figures
     modifier ManpowerRate multiplier 1.1
 end
 
-technology new_focus_1
-    name "New Node"
+technology proclamation_of_the_faith
+    name "Proclamation of the Faith"
+    description "What was once a private belief becomes a public declaration, binding the faithful under one creed."
     category SOCIAL
     layout_lane "Social"
     layout_order 3100
     tags manpower
     research_time 60
     requires worship_figures
+    modifier ProductionCycleTime multiplier 0.869565217391
+    modifier ManpowerRate multiplier 0.95
+    modifier PopulationCap multiplier 1.1
 end
 
-technology new_focus_2
-    name "New Node"
+technology invest_in_education
+    name "Invest in Education"
+    description "Resources are set aside so that knowledge can be taught rather than rediscovered by every generation."
     category SOCIAL
     layout_lane "Social"
     layout_order 4400
     tags manpower
     research_time 60
     requires pursuit_of_knowledge
+    modifier WorkerCapacity additive 20 building University
+    modifier ProductionCycleTime multiplier 0.909090909091 building University
 end
 
 technology milling_rights
     name "Milling Rights"
-    description "Granting the right to establish and operate local mills encourages grain to be processed closer to where it is grown, securing a steady supply of flour."
+    description "Control over mills is formalized, bringing order to one of the settlement's most important trades."
     category SOCIAL
     layout_lane "Social"
     layout_order 2600
@@ -721,7 +729,7 @@ end
 
 technology grain_reserves
     name "Grain Reserves"
-    description "A portion of every harvest is kept in reserve, protecting the settlement against poor yields and unexpected shortages."
+    description "Part of every good harvest is kept aside, preparing the settlement for leaner seasons."
     category SOCIAL
     layout_lane "Social"
     layout_order 3600
@@ -730,24 +738,215 @@ technology grain_reserves
     requires milling_rights
     modifier ProductionCycleTime multiplier 1.05263 building WheatFarm
     modifier ProductionCycleTime multiplier 1.05263157895 building Windmill
+    modifier UnitRecruitTime multiplier 0.9
 end
 
-technology new_focus_3
-    name "New Node"
+technology separated_food_housing
+    name "Separated food housing"
+    description "Food is kept apart from waste, animals, and other sources of contamination, slowing spoilage and disease."
     category SOCIAL
     layout_lane "Social"
     layout_order 3750
     tags manpower
     research_time 60
     requires public_wells
+    modifier ProductionCycleTime multiplier 0.909090909091 category Foodstuff
 end
 
-technology bathhouses
-    name "Bathhouses"
+technology public_bathhouses
+    name "Public Bathhouses"
+    description "Regular bathing becomes accessible to ordinary townsfolk rather than remaining a privilege of the wealthy."
     category SOCIAL
     layout_lane "Social"
     layout_order 3900
     tags manpower
     research_time 60
     requires public_wells
+    modifier ProductionCycleTime multiplier 1.11111111111
+    modifier ManpowerRate multiplier 1.05
+    modifier UnitHp multiplier 1.1
+end
+
+technology fight_against_the_unfaithful
+    name "Fight against the Unfaithful"
+    description "Faith draws a clear line between those who belong and those who stand against it."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4000
+    research_time 60
+    requires proclamation_of_the_faith
+    modifier UnitRoadAttack multiplier 1.2
+    modifier UnitHp multiplier 1.1
+end
+
+technology religion_of_peace
+    name "Religion of Peace"
+    description "The faith turns away from conquest, teaching restraint, reconciliation, and peaceful coexistence."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4125
+    research_time 60
+    requires proclamation_of_the_faith
+    modifier PopulationCap additive 20 building Village
+    modifier ProductionCycleTime multiplier 0.833333333333
+    modifier UnitRecruitTime multiplier 1.2
+end
+
+technology public_lectures
+    name "Public Lectures"
+    description "Learning leaves private chambers as scholars begin sharing their knowledge before wider audiences."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 5400
+    research_time 60
+    requires invest_in_education
+    modifier WorkerCapacity multiplier 1.2 building University
+    modifier ProductionCycleTime multiplier 0.833333333333 building University
+end
+
+technology scholarly_patronage
+    name "Scholarly Patronage"
+    description "Promising thinkers are given the means and time to pursue questions few others can afford to ask."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 6350
+    research_time 60
+    requires public_lectures
+    requires common_weights
+    modifier ProductionCycleTime multiplier 0.833333333333 building University
+end
+
+technology common_weights
+    name "Common Weights"
+    description "Shared measures make trade fairer and leave less room for deceit at the marketplace."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 5250
+    research_time 60
+    requires written_custom
+    modifier BuildCost multiplier 0.95
+    modifier BuildTime multiplier 0.909090909091
+end
+
+technology town_registers
+    name "Town Registers"
+    description "Land, households, and obligations are recorded, giving the settlement a clearer picture of what it governs."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 6250
+    research_time 60
+    requires common_weights
+    modifier PopulationCap multiplier 1.2
+    modifier ManpowerRate multiplier 1.1
+end
+
+technology acts_of_mercy
+    name "Acts of Mercy"
+    description "Feeding the hungry and sheltering the weak becomes a duty owed not only to man, but to faith itself."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 5125
+    research_time 60
+    requires religion_of_peace
+    modifier ManpowerRate multiplier 1.2
+    modifier ProductionCycleTime multiplier 0.909090909091
+    modifier UnitRecruitManpowerCost additive 2
+end
+
+technology holy_refuge
+    name "Holy Refuge"
+    description "Temples and sacred grounds offer protection to those who have nowhere else to turn."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 6125
+    research_time 60
+    requires acts_of_mercy
+    modifier HqMaxHp multiplier 1.2
+    modifier HqThorns additive 3
+    modifier TowerDamage multiplier 1.2
+end
+
+technology zealous_brotherhood
+    name "Zealous Brotherhood"
+    description "The most devoted faithful organize themselves into a brotherhood bound by discipline, loyalty, and conviction."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 5000
+    research_time 60
+    requires fight_against_the_unfaithful
+    modifier UnitRecruitTime multiplier 1.1
+    modifier UnitMoveSpeed multiplier 1.1
+    modifier UnitArmor additive 1
+end
+
+technology sacred_muster
+    name "Sacred Muster"
+    description "When faith itself is threatened, every able believer may be called to defend it."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 6000
+    research_time 60
+    requires zealous_brotherhood
+    modifier UnitRecruitTime multiplier 0.7
+    modifier ProductionCycleTime multiplier 1.17647058824
+    modifier UnitRecruitManpowerCost additive -2
+    modifier UnitRoadAttack multiplier 0.9
+end
+
+technology storage_network
+    name "Storage Network"
+    description "A network of storehouses keeps food closer to where it is needed and reduces losses along the way."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4600
+    research_time 60
+    requires grain_reserves
+    modifier BuildTime multiplier 0.8 building StorageBuilding
+    modifier BuildCost multiplier 0.8 building StorageBuilding
+end
+
+technology rationing_rules
+    name "Rationing Rules"
+    description "When supplies run short, careful distribution ensures that scarcity does not immediately become famine."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 5600
+    research_time 60
+    requires storage_network
+    modifier ManpowerRate multiplier 1.05
+    modifier UnitRecruitManpowerCost additive -1
+end
+
+technology clean_market_stalls
+    name "Clean Market Stalls"
+    description "Marketplaces are kept orderly and clean, protecting both food and those who come to buy it."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4750
+    research_time 60
+    requires separated_food_housing
+    modifier ProductionCycleTime multiplier 0.909090909091 category Foodstuff
+    modifier ManpowerRate multiplier 1.05
+end
+
+technology primitive_medicine
+    name "Primitive Medicine"
+    description "Experience, observation, and simple remedies begin replacing superstition in the treatment of common ailments."
+    category SOCIAL
+    layout_lane "Social"
+    layout_order 4900
+    research_time 60
+    requires public_bathhouses
+    modifier ManpowerRate multiplier 1.2
+    modifier UnitHp multiplier 1.1
+    modifier UnitRecruitManpowerCost additive -1
+end
+
+technology new_focus_1
+    name "New Node"
+    category WARFARE
+    layout_lane "Warfare"
+    layout_order 1050
+    research_time 60
+    requires muster_rolls
 end

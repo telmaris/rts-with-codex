@@ -20,6 +20,10 @@ namespace
     Texture2D royalCloseButton{};
     Texture2D royalCloseButtonHover{};
     Texture2D pixelHudFrame{};
+    Texture2D pixelHudPanel{};
+    Texture2D pixelHudButton{};
+    Texture2D pixelHudButtonHover{};
+    Texture2D pixelTopHudStyle{};
     Texture2D pixelHudWidgetFrame{};
     Texture2D pixelHudCrest{};
     Texture2D pixelHudGlyphs{};
@@ -184,6 +188,146 @@ namespace
         return true;
     }
 
+    bool DrawAsymmetricNineSlice(Texture2D texture, Rectangle source,
+                                 float sourceLeft, float sourceRight,
+                                 float sourceTop, float sourceBottom,
+                                 Rectangle destination, float destinationLeft,
+                                 float destinationRight, float destinationTop,
+                                 float destinationBottom, Color tint,
+                                 bool drawCenter = true)
+    {
+        if (texture.id == 0 || destination.width <= 0.0f || destination.height <= 0.0f ||
+            source.width <= 0.0f || source.height <= 0.0f)
+            return false;
+
+        const float left = std::round(destination.x);
+        const float top = std::round(destination.y);
+        const float right = std::round(destination.x + destination.width);
+        const float bottom = std::round(destination.y + destination.height);
+        destination = {left, top, std::max(1.0f, right - left),
+                        std::max(1.0f, bottom - top)};
+
+        sourceLeft = std::clamp(sourceLeft, 0.0f, source.width);
+        sourceRight = std::clamp(sourceRight, 0.0f, source.width - sourceLeft);
+        sourceTop = std::clamp(sourceTop, 0.0f, source.height);
+        sourceBottom = std::clamp(sourceBottom, 0.0f, source.height - sourceTop);
+
+        // Keep both rails visible on narrow window sizes without letting them
+        // overlap. This is only a fallback for unusually small destinations;
+        // normal game resolutions retain the authored border sizes below.
+        const float sourceHorizontalTotal = sourceLeft + sourceRight;
+        const float sourceVerticalTotal = sourceTop + sourceBottom;
+        if (sourceHorizontalTotal > source.width)
+        {
+            const float factor = source.width / sourceHorizontalTotal;
+            sourceLeft *= factor;
+            sourceRight *= factor;
+        }
+        if (sourceVerticalTotal > source.height)
+        {
+            const float factor = source.height / sourceVerticalTotal;
+            sourceTop *= factor;
+            sourceBottom *= factor;
+        }
+
+        auto fitDestinationCaps = [](float total, float& first, float& second)
+        {
+            const float requested = first + second;
+            if (requested > total && requested > 0.0f)
+            {
+                const float factor = total / requested;
+                first *= factor;
+                second *= factor;
+            }
+        };
+        destinationLeft = std::max(0.0f, destinationLeft);
+        destinationRight = std::max(0.0f, destinationRight);
+        destinationTop = std::max(0.0f, destinationTop);
+        destinationBottom = std::max(0.0f, destinationBottom);
+        fitDestinationCaps(destination.width, destinationLeft, destinationRight);
+        fitDestinationCaps(destination.height, destinationTop, destinationBottom);
+
+        const float sourceMiddleW = source.width - sourceLeft - sourceRight;
+        const float sourceMiddleH = source.height - sourceTop - sourceBottom;
+        const float destinationMiddleW = std::max(
+            0.0f, destination.width - destinationLeft - destinationRight);
+        const float destinationMiddleH = std::max(
+            0.0f, destination.height - destinationTop - destinationBottom);
+        auto drawSlice = [&](Rectangle src, Rectangle dest)
+        {
+            if (src.width > 0.0f && src.height > 0.0f &&
+                dest.width > 0.0f && dest.height > 0.0f)
+                DrawTexturePro(texture, src, dest, {0.0f, 0.0f}, 0.0f, tint);
+        };
+
+        drawSlice({source.x, source.y, sourceLeft, sourceTop},
+                  {destination.x, destination.y, destinationLeft, destinationTop});
+        drawSlice({source.x + sourceLeft, source.y, sourceMiddleW, sourceTop},
+                  {destination.x + destinationLeft, destination.y,
+                   destinationMiddleW, destinationTop});
+        drawSlice({source.x + source.width - sourceRight, source.y,
+                   sourceRight, sourceTop},
+                  {destination.x + destination.width - destinationRight,
+                   destination.y, destinationRight, destinationTop});
+        drawSlice({source.x, source.y + sourceTop, sourceLeft, sourceMiddleH},
+                  {destination.x, destination.y + destinationTop,
+                   destinationLeft, destinationMiddleH});
+        if (drawCenter)
+            drawSlice({source.x + sourceLeft, source.y + sourceTop,
+                       sourceMiddleW, sourceMiddleH},
+                      {destination.x + destinationLeft, destination.y + destinationTop,
+                       destinationMiddleW, destinationMiddleH});
+        drawSlice({source.x + source.width - sourceRight, source.y + sourceTop,
+                   sourceRight, sourceMiddleH},
+                  {destination.x + destination.width - destinationRight,
+                   destination.y + destinationTop, destinationRight,
+                   destinationMiddleH});
+        drawSlice({source.x, source.y + source.height - sourceBottom,
+                   sourceLeft, sourceBottom},
+                  {destination.x, destination.y + destination.height - destinationBottom,
+                   destinationLeft, destinationBottom});
+        drawSlice({source.x + sourceLeft, source.y + source.height - sourceBottom,
+                   sourceMiddleW, sourceBottom},
+                  {destination.x + destinationLeft,
+                   destination.y + destination.height - destinationBottom,
+                   destinationMiddleW, destinationBottom});
+        drawSlice({source.x + source.width - sourceRight,
+                   source.y + source.height - sourceBottom,
+                   sourceRight, sourceBottom},
+                  {destination.x + destination.width - destinationRight,
+                   destination.y + destination.height - destinationBottom,
+                   destinationRight, destinationBottom});
+        return true;
+    }
+
+    bool DrawPixelPilotFrame(Texture2D texture, Rectangle source,
+                             float sourceLeft, float sourceRight,
+                             float sourceTop, float sourceBottom,
+                             Rectangle destination, Color tint,
+                             bool drawCenter = true)
+    {
+        if (texture.id == 0 || source.width <= 0.0f || source.height <= 0.0f)
+            return false;
+
+        // Preserve the authored corner aspect ratio when a compact control is
+        // smaller than the full border budget. Once it fits, the corners stay
+        // at their native pixel dimensions and only rails/centre stretch.
+        const float cornerScale = std::min({
+            1.0f,
+            destination.width / (sourceLeft + sourceRight),
+            destination.height / (sourceTop + sourceBottom)});
+        const float destinationLeft = std::round(sourceLeft * cornerScale);
+        const float destinationRight = std::round(sourceRight * cornerScale);
+        const float destinationTop = std::round(sourceTop * cornerScale);
+        const float destinationBottom = std::round(sourceBottom * cornerScale);
+        return DrawAsymmetricNineSlice(
+            texture,
+            source,
+            sourceLeft, sourceRight, sourceTop, sourceBottom,
+            destination, destinationLeft, destinationRight,
+            destinationTop, destinationBottom, tint, drawCenter);
+    }
+
     bool DrawWidgetNineSlice(Texture2D texture, Rectangle destination, Color tint)
     {
         if (texture.id == 0 || destination.width <= 0.0f || destination.height <= 0.0f)
@@ -331,6 +475,7 @@ void UiControlIcons::Load(const std::string& directory)
     }
 
     constexpr const char* PixelHudFramePath = "assets/ui/hud/pixel_pilot/top_hud_frame.png";
+    constexpr const char* PixelTopHudStylePath = "assets/ui/hud/pixel_pilot/top_hud_style.png";
     constexpr const char* PixelHudWidgetFramePath = "assets/ui/hud/pixel_pilot/widget_frame.png";
     constexpr const char* PixelHudCrestPath = "assets/ui/hud/pixel_pilot/top_hud_crest.png";
     constexpr const char* PixelGlyphAtlasPath = "assets/ui/hud/pixel_pilot/action_glyphs.png";
@@ -350,6 +495,10 @@ void UiControlIcons::Load(const std::string& directory)
         return texture;
     };
     pixelHudFrame = loadPixelTexture(PixelHudFramePath);
+    pixelHudPanel = loadPixelTexture("assets/ui/hud/pixel_pilot/panel_hud.png");
+    pixelHudButton = loadPixelTexture("assets/ui/hud/pixel_pilot/button_hud.png");
+    pixelHudButtonHover = loadPixelTexture("assets/ui/hud/pixel_pilot/button_hud_hover.png");
+    pixelTopHudStyle = loadPixelTexture(PixelTopHudStylePath);
     pixelHudWidgetFrame = loadPixelTexture(PixelHudWidgetFramePath);
     pixelHudCrest = loadPixelTexture(PixelHudCrestPath);
     pixelHudGlyphs = loadPixelTexture(PixelGlyphAtlasPath);
@@ -414,6 +563,18 @@ void UiControlIcons::Unload()
     if (pixelHudFrame.id != 0)
         UnloadTexture(pixelHudFrame);
     pixelHudFrame = {};
+    if (pixelHudPanel.id != 0)
+        UnloadTexture(pixelHudPanel);
+    pixelHudPanel = {};
+    if (pixelHudButton.id != 0)
+        UnloadTexture(pixelHudButton);
+    pixelHudButton = {};
+    if (pixelHudButtonHover.id != 0)
+        UnloadTexture(pixelHudButtonHover);
+    pixelHudButtonHover = {};
+    if (pixelTopHudStyle.id != 0)
+        UnloadTexture(pixelTopHudStyle);
+    pixelTopHudStyle = {};
     if (pixelHudWidgetFrame.id != 0)
         UnloadTexture(pixelHudWidgetFrame);
     pixelHudWidgetFrame = {};
@@ -497,11 +658,7 @@ bool UiControlIcons::DrawHudGlyph(HudIcon icon, Rectangle destination, Color tin
 
 bool UiControlIcons::DrawPixelHudFrame(Rectangle destination, bool hovered, Color tint)
 {
-    constexpr Rectangle source{0.0f, 0.0f, 256.0f, 256.0f};
-    constexpr float sourceCap = 32.0f;
-    const float cap = std::clamp(std::min(destination.width, destination.height) * 0.32f,
-                                 14.0f, 26.0f);
-    if (!DrawNineSlice(pixelHudFrame, source, sourceCap, destination, cap, tint))
+    if (!DrawPixelHudPanelFrame(destination, tint))
         return false;
 
     if (hovered)
@@ -514,8 +671,61 @@ bool UiControlIcons::DrawPixelHudFrame(Rectangle destination, bool hovered, Colo
     return true;
 }
 
+bool UiControlIcons::DrawPixelHudPanelFrame(Rectangle destination, Color tint)
+{
+    // The artwork is authored on a 256 px transparent canvas. These are the
+    // actual visible bounds and the equivalent cap sizes after removing that
+    // canvas gutter. Keeping the crop here makes the frame's visible edge
+    // coincide with the layout rectangle passed by every panel.
+    constexpr Rectangle source{47.0f, 64.0f, 159.0f, 122.0f};
+    return DrawPixelPilotFrame(pixelHudPanel, source, 23.0f, 20.0f, 26.0f, 20.0f,
+                               destination, tint);
+}
+
+bool UiControlIcons::DrawPixelHudButtonFrame(Rectangle destination, bool hovered,
+                                              Color tint)
+{
+    // Same treatment as the panel frame: button_hud has a transparent gutter
+    // around its authored 160x154 visible frame.
+    constexpr Rectangle source{48.0f, 50.0f, 160.0f, 154.0f};
+    const Texture2D frame = hovered && pixelHudButtonHover.id != 0
+        ? pixelHudButtonHover
+        : pixelHudButton;
+    return DrawPixelPilotFrame(frame, source, 32.0f, 32.0f, 34.0f, 32.0f,
+                               destination, tint);
+}
+
+bool UiControlIcons::DrawPixelTopHudFrame(Rectangle destination, Color tint)
+{
+    constexpr Rectangle source{0.0f, 0.0f, 344.0f, 192.0f};
+    constexpr float sourceLeft = 128.0f;
+    constexpr float sourceRight = 128.0f;
+    constexpr float sourceTop = 74.0f;
+    constexpr float sourceBottom = 74.0f;
+
+    // The authored frame is taller than the current strategic HUD. Scale the
+    // complete corner rectangles uniformly to fit the existing bar; this
+    // keeps their proportions intact. Only the four rails and the centre are
+    // allowed to stretch along their respective axes.
+    const float cornerScale = std::min({
+        1.0f,
+        destination.height / (sourceTop + sourceBottom),
+        destination.width / (sourceLeft + sourceRight)});
+    const float destinationLeft = sourceLeft * cornerScale;
+    const float destinationRight = sourceRight * cornerScale;
+    const float destinationTop = sourceTop * cornerScale;
+    const float destinationBottom = sourceBottom * cornerScale;
+    return DrawAsymmetricNineSlice(pixelTopHudStyle, source,
+                                   sourceLeft, sourceRight, sourceTop, sourceBottom,
+                                   destination, destinationLeft, destinationRight,
+                                   destinationTop, destinationBottom, tint);
+}
+
 float UiControlIcons::PixelHudFrameInset(Rectangle destination)
 {
+    // This inset is a layout affordance, not the source 9-slice cap. Keep the
+    // historical values so existing title and body text do not move when the
+    // frame artwork changes.
     return std::clamp(std::min(destination.width, destination.height) * 0.025f,
                       12.0f, 20.0f);
 }
@@ -533,6 +743,12 @@ Rectangle UiControlIcons::PixelHudCloseButtonRect(Rectangle destination)
 }
 
 bool UiControlIcons::DrawPixelHudWidgetFrame(Rectangle destination, bool hovered, Color tint)
+{
+    return DrawPixelHudButtonFrame(destination, hovered, tint);
+}
+
+bool UiControlIcons::DrawPixelTopHudWidgetFrame(Rectangle destination, bool hovered,
+                                                Color tint)
 {
     if (!DrawWidgetNineSlice(pixelHudWidgetFrame, destination, tint))
         return false;

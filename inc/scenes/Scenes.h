@@ -10,12 +10,29 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
 class TcpGameTransport;
 class GameScene;
+
+// Startup splash shown before the main menu with the studio logo and wordmark.
+class StudioSplashScene : public Scene
+{
+public:
+    StudioSplashScene();
+    ~StudioSplashScene() override;
+
+    void Update(double dt) override;
+    void OnDeactivated() override;
+
+private:
+    double elapsed{0.0};
+    bool transitionRequested{false};
+    Texture2D studioLogo{};
+};
 
 // Strategy object for mode-specific gameplay update/render details.
 class IGameRuntimeLoop
@@ -39,6 +56,7 @@ class MainMenuScene : public Scene, public IGuiHandler
     public:
 
     MainMenuScene();
+    ~MainMenuScene() override;
 
     // Updates main menu widgets.
     void Update(double dt) override;
@@ -65,8 +83,17 @@ class MainMenuScene : public Scene, public IGuiHandler
 
     VBox buttonsColumn;
     UiImage menuGraphic;
+    UiImage menuSkyBg;
+    FuncWidget menuCloudsBgParallax;
+    UiImage menuGrassBg;
+    UiImage menuVillageBg;
+    UiAnimation menuTvorinLogo;
     UiLabel statusLabel;
     double statusTimer{0.0};
+
+private:
+    Texture2D menuCloudTexture{};
+    double menuCloudScroll{0.0};
 };
 
 // Options scene for display and audio preferences.
@@ -89,6 +116,7 @@ class OptionsScene : public Scene, public IGuiHandler
         void OnBackPressed();
 
         UiButton backButton;
+        UiParallaxBackground menuBackground;
         CheckBox fullScreenCheckBox;
         SliderBar masterVolume;
         SliderBar musicVolume;
@@ -130,6 +158,7 @@ class NewGameScene : public Scene, public IGuiHandler
         MapParameters BuildMapParameters();
 
         UiButton backButton;
+        UiParallaxBackground menuBackground;
         TextBox gameName;
         UiButton sizeButton;
         UiButton difficultyButton;
@@ -265,6 +294,7 @@ class LoadGameScene : public Scene, public IGuiHandler
         void OnSavePressed(std::string);
 
         UiButton backButton;
+        UiParallaxBackground menuBackground;
         VBox saveButtons;
 };
 
@@ -321,6 +351,8 @@ class GameScene : public Scene, public IGuiHandler
         void Update(double dt) override;
         void OnActivated() override;
         void OnDeactivated() override;
+        // True when GameWindow has reached the opaque part of a transition.
+        bool IsSceneTransitionOpaque() const;
         // Handles game lifecycle and menu events.
         void HandleEvent(std::shared_ptr<Event>) override;
         // Routes gameplay input through this scene's InputProcessor into the
@@ -370,6 +402,12 @@ class GameScene : public Scene, public IGuiHandler
         std::size_t prevUnlockedTechCount{0};
         std::size_t prevUnlockedFocusCount{0};
         std::set<int> knownIncomingUnitIds;
+        struct PendingNewGame
+        {
+            std::string name;
+            MapParameters params;
+        };
+        std::optional<PendingNewGame> pendingNewGame;
 };
 
 // Scripted single-player scene. It reuses GameScene wholesale and drives a
@@ -404,6 +442,7 @@ private:
     bool IsScriptedDefenseAttackCleared() const;
     bool IsCounterattackDeployed() const;
     void UpdateTutorialTasks();
+    void FinishPendingTutorialStart();
 
     PopupWindowWidget tutorialPopup;
     TutorialTriggerType activePopupTrigger{TutorialTriggerType::None};
@@ -418,6 +457,12 @@ private:
     bool awaitingDefense{false};
     bool defenseAttackStarted{false};
     bool defenseReported{false};
+    struct PendingTutorialStart
+    {
+        std::string name;
+        MapParameters params;
+    };
+    std::optional<PendingTutorialStart> pendingTutorialStart;
     bool counterattackStageActive{false};
     bool counterattackDeployed{false};
     bool tutorialHudLocked{false};

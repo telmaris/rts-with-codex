@@ -250,6 +250,9 @@ void TutorialScene::PrepareGameplayRender()
 
 void TutorialScene::Update(double dt)
 {
+    if (pendingTutorialStart.has_value() && IsSceneTransitionOpaque())
+        FinishPendingTutorialStart();
+
     GameScene::Update(dt);
     UpdateTutorialTasks();
 
@@ -363,6 +366,38 @@ void TutorialScene::Update(double dt)
         defenseRouteRevealActive = false;
         EmitTrigger(TutorialTriggerType::DefenseRepelled);
     }
+}
+
+void TutorialScene::FinishPendingTutorialStart()
+{
+    PendingTutorialStart pending = std::move(*pendingTutorialStart);
+    pendingTutorialStart.reset();
+    StartNewGame(std::move(pending.name), pending.params);
+
+    activePopupTrigger = TutorialTriggerType::None;
+    awaitingWoodcutter = false;
+    woodcutterCompletionReported = false;
+    awaitingRoadConnection = false;
+    roadConnectionReported = false;
+    awaitingBasicProduction = false;
+    basicProductionReported = false;
+    foodChainReported = false;
+    decisionSelectedReported = false;
+    awaitingDefense = false;
+    defenseAttackStarted = false;
+    defenseReported = false;
+    counterattackStageActive = false;
+    counterattackDeployed = false;
+    tutorialDecisionsUnlocked = false;
+    scriptedEnemyPlayerId = -1;
+    scriptedEnemyUnitIds.clear();
+    defenseRouteRevealActive = false;
+    taskCameraBaselineSet = false;
+    taskBuildModeSeen = false;
+    tutorialTasks.tasks.clear();
+    ClearTutorialHighlights();
+    SetTutorialHudLock(true);
+    ShowPopupForTrigger(TutorialTriggerType::None);
 }
 
 void TutorialScene::UpdateTutorialTasks()
@@ -576,37 +611,9 @@ void TutorialScene::HandleEvent(std::shared_ptr<Event> e)
 
     if (auto tutorial = std::dynamic_pointer_cast<TutorialGameEvent>(e))
     {
-        StartNewGame(tutorial->name, tutorial->params);
-        activePopupTrigger = TutorialTriggerType::None;
-        awaitingWoodcutter = false;
-        woodcutterCompletionReported = false;
-        awaitingRoadConnection = false;
-        roadConnectionReported = false;
-        awaitingBasicProduction = false;
-        basicProductionReported = false;
-        foodChainReported = false;
-        decisionSelectedReported = false;
-        awaitingDefense = false;
-        defenseAttackStarted = false;
-        defenseReported = false;
-        counterattackStageActive = false;
-        counterattackDeployed = false;
-        tutorialDecisionsUnlocked = false;
-        scriptedEnemyPlayerId = -1;
-        scriptedEnemyUnitIds.clear();
-        defenseRouteRevealActive = false;
-        taskCameraBaselineSet = false;
-        taskBuildModeSeen = false;
-        tutorialTasks.tasks.clear();
-        ClearTutorialHighlights();
-        SetTutorialHudLock(true);
-        ShowPopupForTrigger(TutorialTriggerType::None);
-
-        auto changeScene = std::make_shared<ChangeSceneEvent>();
-        changeScene->sender = this;
-        changeScene->sceneName = "TutorialScene";
-        changeScene->previousSceneName = name;
-        broker->Broadcast(changeScene);
+        // GameWindow has already begun the fade. Keep world generation behind
+        // the opaque frame, just like the regular new-game path.
+        pendingTutorialStart = PendingTutorialStart{tutorial->name, tutorial->params};
         return;
     }
 

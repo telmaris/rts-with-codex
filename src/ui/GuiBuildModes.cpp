@@ -338,7 +338,7 @@ namespace
         if (box.y + box.height > GetScreenHeight() - 10.0f)
             box.y = std::max(10.0f, mouse.y - box.height - 18.0f);
 
-        if (!UiControlIcons::DrawPixelHudWidgetFrame(box))
+        if (!UiControlIcons::DrawPixelHudPanelFrame(box))
         {
             DrawRectangleRounded(box, 0.06f, 8, UiTheme::Inset);
             DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f, UiTheme::Iron);
@@ -666,7 +666,7 @@ void BuildPanelWidget::Update(double dt)
                         viewportTop - 5.0f,
                         bounds.width - scrollBoxInset * 2.0f,
                         viewportBottom - viewportTop + 10.0f};
-    UiControlIcons::DrawPixelHudWidgetFrame(scrollBox);
+    UiControlIcons::DrawPixelHudPanelFrame(scrollBox);
     const float gridLeftInset = 10.0f;
     const float gridRightInset = scrollbarW + 14.0f;
     const float gridX = scrollBox.x + gridLeftInset;
@@ -700,7 +700,7 @@ void BuildPanelWidget::Update(double dt)
                 headerH};
             if (header.y + header.height >= viewportTop && header.y <= viewportBottom)
             {
-                UiControlIcons::DrawPixelHudWidgetFrame(header);
+                UiControlIcons::DrawPixelHudPanelFrame(header);
                 UiFontRoleScope displayRole{UiFontRole::Display};
                 int headerFont = 21;
                 int headerWidth = UiText::Measure(currentCategory, headerFont);
@@ -933,7 +933,7 @@ BuildGuiSystem::BuildGuiSystem(GuiController* con)
 
     WireCommonSystemActions(*this, cameraMovement);
 
-    buildPanel.ChangePositionAnchor({0.61f, 0.08f});
+    buildPanel.ChangePositionAnchor({0.61f, 0.13f});
     buildPanel.ChangeSizeAnchor({0.38f, 0.82f});
     buildPanel.scene = scene;
     buildPanel.options = &options;

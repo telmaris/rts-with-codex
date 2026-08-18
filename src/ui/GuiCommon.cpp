@@ -101,21 +101,28 @@ void DeployDebugEnemyUnits(GameScene* scene, int count)
 
 namespace
 {
+    constexpr float StrategicHudScreenMargin = 4.0f;
+
     float StrategicHudHeightForWindow(Vec2i windowSize)
     {
-        return std::clamp(windowSize.y * 0.082f, 70.0f, 94.0f);
+        // The pilot frame reads better with a little more vertical room than
+        // the original compact strip, while staying small enough not to hide
+        // the map. At 1080p this resolves to roughly 123 px (+10%).
+        return std::clamp(windowSize.y * 0.114f, 106.0f, 130.0f);
     }
 
     float StrategicHudTopPaddingForWindow(Vec2i windowSize)
     {
-        return StrategicHudHeightForWindow(windowSize) + 6.0f;
+        return StrategicHudScreenMargin + StrategicHudHeightForWindow(windowSize) + 6.0f;
     }
 }
 
 void UpdateStrategicHudLayout(StrategicResourceHudWidget& hud, Vec2i windowSize)
 {
-    hud.ChangePosition(0, 0);
-    hud.ChangeSize(windowSize.x, static_cast<int>(StrategicHudHeightForWindow(windowSize)));
+    const int margin = static_cast<int>(StrategicHudScreenMargin);
+    hud.ChangePosition(margin, margin);
+    hud.ChangeSize(std::max(1, windowSize.x - margin * 2),
+                   static_cast<int>(StrategicHudHeightForWindow(windowSize)));
 }
 
 void ApplyStrategicHudCameraPadding(GameScene* scene)
@@ -283,9 +290,14 @@ Rectangle StatsHudButtonRect(const StrategicResourceHudWidget& hud)
     constexpr int buttonCount = 8;
     constexpr int resourcesIndex = 4;
     constexpr float leftHudReserve = 450.0f;
-    constexpr float rightMargin = 18.0f;
+    // Keep the action strip clear of the top frame's ornamental right cap.
+    // This also leaves a small visual breathing room between the last button
+    // and the screen-side frame margin.
+    constexpr float rightMargin = 96.0f;
     constexpr float buttonAspect = 1.0f;
-    const float desiredButtonHeight = std::max(50.0f, height - 18.0f);
+    // Keep the buttons visually compact even though the frame gained some
+    // vertical room. They must not grow with the taller top panel.
+    const float desiredButtonHeight = std::clamp(height - 52.0f, 44.0f, 60.0f);
     const float desiredButtonWidth = desiredButtonHeight * buttonAspect;
     const float widthLimitedButtonWidth =
         (static_cast<float>(hud.size.x) - leftHudReserve - rightMargin -

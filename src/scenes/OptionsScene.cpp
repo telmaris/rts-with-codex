@@ -3,6 +3,11 @@
 // Initializes OptionsScene::OptionsScene.
 OptionsScene::OptionsScene()
 {
+    menuBackground.ChangePositionAnchor({0.0f, 0.0f});
+    menuBackground.ChangeSizeAnchor({1.0f, 1.0f});
+    menuBackground.SetScrollLayer(0);
+    menuBackground.LoadFromDirectory("assets/ui/menu/options");
+
     backButton.ChangeText("Back");
     backButton.ChangePositionAnchor(Vec2f{0.40f, 0.79f});
     backButton.ChangeSizeAnchor(Vec2f{0.20f, 0.075f});
@@ -53,7 +58,7 @@ OptionsScene::OptionsScene()
 void OptionsScene::Update(double dt)
 {
     ProcessGuiInput(dt);
-    render.Draw({&backButton, &fullScreenCheckBox, &masterVolume, &musicVolume, &sfxVolume,
+    render.Draw({&menuBackground, &backButton, &fullScreenCheckBox, &masterVolume, &musicVolume, &sfxVolume,
         &fogOfWarCheckBox, &colorGradingCheckBox, &retroFilterCheckBox,
         &localLightBloomCheckBox, &rainOverlayCheckBox, &logisticsOverlayCheckBox}, dt);
 
@@ -149,6 +154,7 @@ void OptionsScene::HandleEvent(std::shared_ptr<Event> e)
     auto ptr = std::dynamic_pointer_cast<WindowSizeChangedEvent>(e);
     if (ptr != nullptr)
     {
+        menuBackground.UpdateSize(ptr->windowSize);
         backButton.UpdateSize(ptr->windowSize);
         fullScreenCheckBox.UpdateSize(ptr->windowSize);
         masterVolume.UpdateSize(ptr->windowSize);

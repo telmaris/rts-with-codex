@@ -342,7 +342,19 @@ TEST(BattleUnitTests, WaitingEntriesConsumeInFifoOrder)
     Barracks* barracks = PlaceReadyBarracks(map, player);
     ASSERT_NE(barracks, nullptr);
 
-    // Swordsman (1 IRON_SWORD + 3 FOOD) queued first with no sword available;
+    const UnitDefinition* swordsman = FindUnitDefinition("swordsman");
+    ASSERT_NE(swordsman, nullptr);
+    const auto swordsmanCost = [&](ResourceType type)
+    {
+        for (const auto& cost : swordsman->cost)
+            if (cost.type == type)
+                return cost.amount;
+        return 0;
+    };
+    const int swordCost = swordsmanCost(ResourceType::IRON_SWORD);
+    const int swordsmanFoodCost = swordsmanCost(ResourceType::FOOD_PROVISIONS);
+
+    // Swordsman queued first with no sword available;
     // militia (3 FOOD) queued second with its FOOD fully in the buffer.
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "swordsman"));
     ASSERT_TRUE(barracks->recruitment.QueueRecruitment(*barracks, "militia"));
@@ -357,14 +369,16 @@ TEST(BattleUnitTests, WaitingEntriesConsumeInFifoOrder)
         << "nothing may be consumed while the front entry is blocked";
 
     // The missing sword arrives: the whole queue unblocks in FIFO order in
-    // one readiness pass (swordsman consumes 1 sword + 3 FOOD, militia 3 FOOD).
-    barracks->storage.buffers[ResourceType::IRON_SWORD] = ResourceBuffer{ResourceType::IRON_SWORD, 4};
-    barracks->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(1);
+    // one readiness pass (the current swordsman cost plus militia's FOOD).
+    barracks->storage.buffers[ResourceType::IRON_SWORD] =
+        ResourceBuffer{ResourceType::IRON_SWORD, swordCost};
+    barracks->storage.buffers[ResourceType::IRON_SWORD].SetStoredAmount(swordCost);
     barracks->recruitment.Update(*barracks, 0.01);
     EXPECT_TRUE(barracks->recruitment.queue[0].resourcesReady);
     EXPECT_TRUE(barracks->recruitment.queue[1].resourcesReady);
     EXPECT_TRUE(barracks->storage.buffers[ResourceType::IRON_SWORD].buffer.empty());
-    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(), 34u);
+    EXPECT_EQ(barracks->storage.buffers[ResourceType::FOOD_PROVISIONS].buffer.size(),
+              static_cast<size_t>(40 - swordsmanFoodCost - 3));
 }
 
 TEST(BattleUnitTests, SaveAndLoadPreservesRosterAndInstanceCounter)

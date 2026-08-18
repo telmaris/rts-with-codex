@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "economy/Building.h"
 #include "economy/Player.h"
+#include "ui/UiText.h"
 #include "rlgl.h"
 
 #include <algorithm>
@@ -16,6 +17,7 @@ namespace
     bool localLightBloomPreferenceEnabled = true;
     bool rainOverlayPreferenceEnabled = false;
     bool logisticsOverlayPreferenceEnabled = false;
+    float sceneTransitionOverlayAlpha = 0.0f;
 
     struct MineralOverlayStyle
     {
@@ -252,6 +254,22 @@ bool IsLogisticsOverlayPreferenceEnabled()
 void SetLogisticsOverlayPreferenceEnabled(bool enabled)
 {
     logisticsOverlayPreferenceEnabled = enabled;
+}
+
+void SetSceneTransitionOverlayAlpha(float alpha)
+{
+    sceneTransitionOverlayAlpha = std::clamp(alpha, 0.0f, 1.0f);
+}
+
+void DrawSceneTransitionOverlay()
+{
+    if (sceneTransitionOverlayAlpha <= 0.0f || !IsWindowReady())
+        return;
+
+    const unsigned char opacity = static_cast<unsigned char>(
+        std::round(sceneTransitionOverlayAlpha * 255.0f));
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                  Color{0, 0, 0, opacity});
 }
 
 int ResolveAnimationFrame(const AnimationClip& clip, float elapsedTime)
@@ -1029,8 +1047,8 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         // the backbuffer flips the complete world vertically.
         DrawRenderTarget(presentedWorld, dest, RenderTargetDestination::Window);
         if (debugLabel != nullptr)
-            DrawText(debugLabel, static_cast<int>(offset.x + 18.0f),
-                     static_cast<int>(offset.y + 18.0f), 22, Color{255, 236, 152, 255});
+            UiText::Draw(debugLabel, offset.x + 18.0f, offset.y + 18.0f,
+                         22, Color{255, 236, 152, 255});
     }
 
     for(auto ptr : ui)
@@ -1043,6 +1061,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
 // world lock the caller held for drawing must already be released here.
 void Renderer::PresentFrame()
 {
+    DrawSceneTransitionOverlay();
     EndDrawing();
 }
 

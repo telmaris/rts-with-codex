@@ -108,8 +108,12 @@ void ControlsScene::Update(double dt)
     float panelX = (sw - panelW) * 0.5f;
     float panelY = sh * 0.07f;
 
-    DrawRectangleRounded({panelX, panelY, panelW, panelH}, 0.03f, 8, Color{18, 22, 30, 242});
-    DrawRectangleRoundedLines({panelX, panelY, panelW, panelH}, 0.03f, 8, 1.0f, Color{90, 106, 130, 255});
+    Rectangle panel{panelX, panelY, panelW, panelH};
+    if (!UiControlIcons::DrawPixelHudPanelFrame(panel))
+    {
+        DrawRectangleRounded(panel, 0.03f, 8, Color{18, 22, 30, 242});
+        DrawRectangleRoundedLines(panel, 0.03f, 8, 1.0f, Color{90, 106, 130, 255});
+    }
 
     {
         UiFontRoleScope displayRole{UiFontRole::Display};
@@ -200,7 +204,7 @@ void ControlsScene::Update(double dt)
 
     backButton.Update(dt);
 
-    EndDrawing();
+    render.PresentFrame();
 }
 
 // Handles the UI action represented by OnBackPressed.

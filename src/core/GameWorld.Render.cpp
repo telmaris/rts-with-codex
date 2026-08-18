@@ -127,6 +127,12 @@ namespace
         return road != nullptr && road->HasRecentSaturation();
     }
 
+    bool IsBuildingRoadDisconnected(Building& building)
+    {
+        const auto* logistics = building.GetComponent<LogisticsComponent>();
+        return logistics != nullptr && !logistics->IsConnectedToRoadNetwork(building);
+    }
+
     void DrawRoadUtilizationOverlay(Vec2f position, float utilization,
                                     bool left, bool right, bool up, bool down)
     {
@@ -641,9 +647,13 @@ void GameWorld::DrawMap()
 
                 if(tile.building)
                 {
+                    const bool roadDisconnected = !IsRoadLike(tile.building->buildingType) &&
+                                                  IsBuildingRoadDisconnected(*tile.building);
                     const Color tint = tile.building->IsUnderConstruction()
                         ? Color{118, 122, 132, 215}
-                        : WHITE;
+                        : roadDisconnected
+                            ? Color{224, 78, 72, 235}
+                            : WHITE;
                     if (IsRoadLike(tile.building->buildingType))
                         render->DrawRoadTexture(tile.building->buildingType, pos,
                                                 GetRoadConnectionMask(tilemap, x, y), tint);

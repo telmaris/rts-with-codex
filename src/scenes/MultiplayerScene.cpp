@@ -2,6 +2,7 @@
 #include "scenes/SceneUtils.h"
 #include "core/Log.h"
 #include "multiplayer/TcpGameTransport.h"
+#include "ui/ControlIcons.h"
 
 #include <array>
 #include <fstream>
@@ -459,7 +460,7 @@ void MultiplayerScene::Update(double dt)
             widget->Update(dt);
     if (connectingToLobby || connectionMessageTimer > 0.0)
         DrawConnectionDialog();
-    EndDrawing();
+    render.PresentFrame();
 
     if (lobbyActive && !showGameSettings && InputManager::IsKeyPressed(KEY_ENTER) && !chatInput.GetText().empty())
         OnSendChatPressed();
@@ -893,8 +894,13 @@ void MultiplayerScene::DrawConnectionDialog() const
     int x = (GetScreenWidth() - width) / 2;
     int y = (GetScreenHeight() - height) / 2;
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{0, 0, 0, 120});
-    DrawRectangle(x, y, width, height, Color{20, 24, 31, 245});
-    DrawRectangleLines(x, y, width, height, Color{96, 116, 142, 255});
+    Rectangle dialog{static_cast<float>(x), static_cast<float>(y),
+                     static_cast<float>(width), static_cast<float>(height)};
+    if (!UiControlIcons::DrawPixelHudPanelFrame(dialog))
+    {
+        DrawRectangle(x, y, width, height, Color{20, 24, 31, 245});
+        DrawRectangleLines(x, y, width, height, Color{96, 116, 142, 255});
+    }
 
     std::string title = connectingToLobby ? "Connecting" : "Connection failed";
     UiText::DrawFit(title,
@@ -922,8 +928,13 @@ void MultiplayerScene::DrawLobbyLog() const
     int y = static_cast<int>(GetScreenHeight() * 0.045f);
     int width = static_cast<int>(GetScreenWidth() * 0.92f);
     int height = static_cast<int>(GetScreenHeight() * 0.80f);
-    DrawRectangle(x, y, width, height, Color{20, 24, 31, 225});
-    DrawRectangleLines(x, y, width, height, Color{86, 100, 120, 255});
+    Rectangle lobbyPanel{static_cast<float>(x), static_cast<float>(y),
+                         static_cast<float>(width), static_cast<float>(height)};
+    if (!UiControlIcons::DrawPixelHudPanelFrame(lobbyPanel))
+    {
+        DrawRectangle(x, y, width, height, Color{20, 24, 31, 225});
+        DrawRectangleLines(x, y, width, height, Color{86, 100, 120, 255});
+    }
 
     UiText::DrawFit("Multiplayer Lobby", Rectangle{static_cast<float>(x + 18), static_cast<float>(y + 14), static_cast<float>(width - 36), 34.0f}, 30, RAYWHITE);
     std::string status = isLobbyHost
@@ -938,8 +949,11 @@ void MultiplayerScene::DrawLobbyLog() const
         static_cast<float>(y + 96),
         static_cast<float>(width - static_cast<int>(GetScreenWidth() * 0.33f)),
         static_cast<float>(height - 124)};
-    DrawRectangleRec(chatPanel, Color{15, 18, 24, 210});
-    DrawRectangleLinesEx(chatPanel, 1.0f, Color{70, 84, 104, 255});
+    if (!UiControlIcons::DrawPixelHudPanelFrame(chatPanel))
+    {
+        DrawRectangleRec(chatPanel, Color{15, 18, 24, 210});
+        DrawRectangleLinesEx(chatPanel, 1.0f, Color{70, 84, 104, 255});
+    }
     UiText::Draw("Chat", chatPanel.x + 12.0f, chatPanel.y + 10.0f, 22, Color{220, 230, 244, 255});
 
     int visibleLines = std::max(1, static_cast<int>((chatPanel.height - 50.0f) / 24.0f));
@@ -982,8 +996,11 @@ void MultiplayerScene::DrawLobbyPlayerPanels() const
         static_cast<float>(y - 40),
         static_cast<float>(width),
         static_cast<float>(GetScreenHeight() * 0.66f)};
-    DrawRectangleRec(panel, Color{15, 18, 24, 210});
-    DrawRectangleLinesEx(panel, 1.0f, Color{70, 84, 104, 255});
+    if (!UiControlIcons::DrawPixelHudPanelFrame(panel))
+    {
+        DrawRectangleRec(panel, Color{15, 18, 24, 210});
+        DrawRectangleLinesEx(panel, 1.0f, Color{70, 84, 104, 255});
+    }
     UiText::Draw("Players", panel.x + 12.0f, panel.y + 10.0f, 22, Color{220, 230, 244, 255});
 
     auto drawCard = [&](int index, const std::string& label, const std::string& role, Color color)
@@ -993,8 +1010,11 @@ void MultiplayerScene::DrawLobbyPlayerPanels() const
             static_cast<float>(y + index * (cardHeight + gap)),
             static_cast<float>(width - 24),
             static_cast<float>(cardHeight)};
-        DrawRectangleRec(card, Color{25, 31, 40, 230});
-        DrawRectangleLinesEx(card, 1.0f, Color{78, 94, 116, 255});
+        if (!UiControlIcons::DrawPixelHudPanelFrame(card))
+        {
+            DrawRectangleRec(card, Color{25, 31, 40, 230});
+            DrawRectangleLinesEx(card, 1.0f, Color{78, 94, 116, 255});
+        }
         Rectangle swatch{card.x + 10.0f, card.y + 9.0f, 22.0f, card.height - 18.0f};
         DrawRectangleRec(swatch, color);
         DrawRectangleLinesEx(swatch, 1.0f, Color{220, 230, 245, 180});
@@ -1019,8 +1039,13 @@ void MultiplayerScene::DrawGameSettingsPanel() const
     int y = static_cast<int>(GetScreenHeight() * 0.08f);
     int width = static_cast<int>(GetScreenWidth() * 0.64f);
     int height = static_cast<int>(GetScreenHeight() * 0.84f);
-    DrawRectangle(x, y, width, height, Color{20, 24, 31, 225});
-    DrawRectangleLines(x, y, width, height, Color{86, 100, 120, 255});
+    Rectangle settingsPanel{static_cast<float>(x), static_cast<float>(y),
+                            static_cast<float>(width), static_cast<float>(height)};
+    if (!UiControlIcons::DrawPixelHudPanelFrame(settingsPanel))
+    {
+        DrawRectangle(x, y, width, height, Color{20, 24, 31, 225});
+        DrawRectangleLines(x, y, width, height, Color{86, 100, 120, 255});
+    }
     UiText::DrawFit("Game Settings", Rectangle{static_cast<float>(x + 18), static_cast<float>(y + 14), static_cast<float>(width - 36), 34.0f}, 30, RAYWHITE);
     UiText::DrawFit("Host configuration. These settings are sent to every client on Start.",
         Rectangle{static_cast<float>(x + 22), static_cast<float>(y + 56), static_cast<float>(width - 44), 26.0f},

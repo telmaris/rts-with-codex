@@ -4,6 +4,11 @@
 // Loads the requested data into runtime state.
 LoadGameScene::LoadGameScene()
 {
+    menuBackground.ChangePositionAnchor({0.0f, 0.0f});
+    menuBackground.ChangeSizeAnchor({1.0f, 1.0f});
+    menuBackground.SetScrollLayer(0);
+    menuBackground.LoadFromDirectory("assets/ui/menu/loadgame");
+
     backButton.ChangeText("Back");
     backButton.ChangePositionAnchor(Vec2f{0.7f, 0.7f});
     backButton.func = std::bind(&LoadGameScene::OnBackPressed, this);
@@ -20,7 +25,7 @@ LoadGameScene::LoadGameScene()
 void LoadGameScene::Update(double dt)
 {
     ProcessGuiInput(dt);
-    render.Draw({&backButton, &saveButtons}, dt);
+    render.Draw({&menuBackground, &backButton, &saveButtons}, dt);
 }
 
 // Handles the UI action represented by OnBackPressed.
@@ -59,6 +64,7 @@ void LoadGameScene::HandleEvent(std::shared_ptr<Event> e)
     auto ptr = std::dynamic_pointer_cast<WindowSizeChangedEvent>(e);
     if (ptr != nullptr)
     {
+        menuBackground.UpdateSize(ptr->windowSize);
         backButton.UpdateSize(ptr->windowSize);
         saveButtons.UpdateSize(ptr->windowSize);
     }

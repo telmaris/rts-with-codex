@@ -728,7 +728,7 @@ FocusGuiSystem::FocusGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     focusPanel.scene = scene;
-    focusPanel.ChangePositionAnchor({0.06f, 0.10f});
+    focusPanel.ChangePositionAnchor({0.06f, 0.15f});
     focusPanel.ChangeSizeAnchor({0.88f, 0.82f});
     focusPanel.UpdateSize({GetScreenWidth(), GetScreenHeight()});
     SetupStrategicHud(strategicHudWidget, scene);
@@ -870,7 +870,7 @@ TechGuiSystem::TechGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     techPanel.scene = scene;
-    techPanel.ChangePositionAnchor({0.06f, 0.10f});
+    techPanel.ChangePositionAnchor({0.06f, 0.15f});
     techPanel.ChangeSizeAnchor({0.88f, 0.82f});
     techPanel.UpdateSize({GetScreenWidth(), GetScreenHeight()});
     SetupStrategicHud(strategicHudWidget, scene);

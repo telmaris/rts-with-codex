@@ -963,9 +963,11 @@ TEST(BuildingDomainTests, BarracksRequestsAndReceivesUnitCostsOnDemandThroughRoa
     ASSERT_NE(roadA, nullptr);
     ASSERT_NE(roadB, nullptr);
 
-    warehouse->storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
-    for (int i = 0; i < 3; i++)
-        warehouse->storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    const UnitDefinition* swordsman = FindUnitDefinition("swordsman");
+    ASSERT_NE(swordsman, nullptr);
+    for (const auto& cost : swordsman->cost)
+        for (int i = 0; i < cost.amount; i++)
+            warehouse->storage.buffers[cost.type].GenerateResource(cost.type);
 
     // No ticks have run yet: nothing has moved toward the Barracks on its
     // own, unlike the removed background poll.
@@ -987,7 +989,7 @@ TEST(BuildingDomainTests, BarracksRequestsAndReceivesUnitCostsOnDemandThroughRoa
         resourcesArrived = !barracks->recruitment.queue.empty() && barracks->recruitment.queue.front().resourcesReady;
     }
 
-    EXPECT_TRUE(resourcesArrived) << "swordsman costs (IRON_SWORD 1, FOOD_PROVISIONS 3) never arrived at Barracks";
+    EXPECT_TRUE(resourcesArrived) << "current swordsman costs never arrived at Barracks";
 }
 
 // Regression: each advanced unit must have its current definition's storage
@@ -1066,11 +1068,13 @@ TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpo
     // Stock it directly: Diagnose returns empty. The order queued above is
     // still waiting, and strict FIFO (TODO #1, 2026-07-16) means a fresh
     // order must NOT grab the buffer past it — Update()'s readiness pass
-    // serves the oldest waiting entry first. Swordsman costs IRON_SWORD 1 +
-    // FOOD_PROVISIONS 3 (assets/data/units.rtsdata).
-    barracks.storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
-    for (int i = 0; i < 3; i++)
-        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    // serves the oldest waiting entry first. Stock the current configured
+    // swordsman cost rather than duplicating balance constants here.
+    const UnitDefinition* swordsman = FindUnitDefinition("swordsman");
+    ASSERT_NE(swordsman, nullptr);
+    for (const auto& cost : swordsman->cost)
+        for (int i = 0; i < cost.amount; i++)
+            barracks.storage.buffers[cost.type].GenerateResource(cost.type);
     EXPECT_TRUE(barracks.recruitment.DiagnoseRecruitmentBlock(barracks, "swordsman").empty());
     ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
     EXPECT_FALSE(barracks.recruitment.queue.back().resourcesReady)
@@ -1082,9 +1086,9 @@ TEST(BuildingDomainTests, DiagnoseRecruitmentBlockReportsMissingResourceAndManpo
     // With no earlier waiting entries, a fresh order whose cost is already
     // buffered consumes immediately and starts counting down right away.
     barracks.recruitment.queue.clear();
-    barracks.storage.buffers[ResourceType::IRON_SWORD].GenerateResource(ResourceType::IRON_SWORD);
-    for (int i = 0; i < 3; i++)
-        barracks.storage.buffers[ResourceType::FOOD_PROVISIONS].GenerateResource(ResourceType::FOOD_PROVISIONS);
+    for (const auto& cost : swordsman->cost)
+        for (int i = 0; i < cost.amount; i++)
+            barracks.storage.buffers[cost.type].GenerateResource(cost.type);
     ASSERT_TRUE(barracks.recruitment.QueueRecruitment(barracks, "swordsman"));
     EXPECT_TRUE(barracks.recruitment.queue.back().resourcesReady);
 }

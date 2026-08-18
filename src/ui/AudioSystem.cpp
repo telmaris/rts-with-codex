@@ -1,6 +1,7 @@
 #include "ui/AudioSystem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 
@@ -10,6 +11,9 @@ static bool SoundOk(const Sound& s)  { return s.frameCount > 0; }
 
 namespace
 {
+    constexpr float HalfPi = 1.57079632679f;
+    constexpr float RotationLeadSeconds = 2.5f;
+
     float ParseClampedFloatOrDefault(const std::string& text, float fallback)
     {
         try
@@ -76,9 +80,11 @@ void AudioSystem::Cleanup()
         if (SoundOk(sound))
             UnloadSound(sound);
     tracks.clear();
+    rotations.clear();
     sounds.clear();
     currentId.clear();
     nextId.clear();
+    activeRotationId.clear();
     initialized = false;
 }
 
@@ -86,6 +92,39 @@ void AudioSystem::RegisterMusic(const std::string& id, const std::string& filepa
 {
     if (!initialized) return;
     tracks[id].filepath = filepath;
+}
+
+void AudioSystem::RegisterMusicRotation(const std::string& rotationId,
+                                        std::vector<std::string> trackIds)
+{
+    if (!initialized || rotationId.empty() || trackIds.empty())
+        return;
+
+    rotations[rotationId].trackIds = std::move(trackIds);
+}
+
+bool AudioSystem::EnsureMusicLoaded(MusicEntry& entry)
+{
+    if (entry.loaded)
+        return MusicOk(entry.music);
+
+    entry.music  = LoadMusicStream(entry.filepath.c_str());
+    entry.loaded = true;
+    if (!MusicOk(entry.music))
+        return false;
+
+    entry.music.looping = true;
+    ::SetMusicVolume(entry.music, 0.0f);
+    return true;
+}
+
+bool AudioSystem::PreloadMusic(const std::string& id)
+{
+    if (!initialized)
+        return false;
+
+    auto it = tracks.find(id);
+    return it != tracks.end() && EnsureMusicLoaded(it->second);
 }
 
 void AudioSystem::RegisterSound(const std::string& id, const std::string& filepath)
@@ -99,6 +138,31 @@ void AudioSystem::RegisterSound(const std::string& id, const std::string& filepa
 
 void AudioSystem::PlayMusic(const std::string& id, float fadeSecs)
 {
+    activeRotationId.clear();
+    PlayMusicInternal(id, fadeSecs);
+}
+
+void AudioSystem::PlayMusicRotation(const std::string& rotationId,
+                                    const std::string& firstTrackId,
+                                    float fadeSecs)
+{
+    if (!initialized)
+        return;
+
+    auto rotationIt = rotations.find(rotationId);
+    if (rotationIt == rotations.end() || rotationIt->second.trackIds.empty())
+        return;
+
+    if (std::find(rotationIt->second.trackIds.begin(), rotationIt->second.trackIds.end(),
+                  firstTrackId) == rotationIt->second.trackIds.end())
+        return;
+
+    activeRotationId = rotationId;
+    PlayMusicInternal(firstTrackId, fadeSecs);
+}
+
+void AudioSystem::PlayMusicInternal(const std::string& id, float fadeSecs)
+{
     if (!initialized) return;
     auto it = tracks.find(id);
     if (it == tracks.end()) return;
@@ -108,20 +172,28 @@ void AudioSystem::PlayMusic(const std::string& id, float fadeSecs)
 
     if (id == currentId)
     {
+        if (!nextId.empty())
+        {
+            auto nextIt = tracks.find(nextId);
+            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+            {
+                StopMusicStream(nextIt->second.music);
+                ::SetMusicVolume(nextIt->second.music, 0.0f);
+            }
+        }
         nextId.clear();
+        nextVol = 0.0f;
+        crossfadeProgress = 0.0f;
         return;
     }
 
-    if (!it->second.loaded)
-    {
-        it->second.music  = LoadMusicStream(it->second.filepath.c_str());
-        it->second.loaded = true;
-        if (MusicOk(it->second.music))
-            ::SetMusicVolume(it->second.music, 0.0f);
-    }
+    // A transition may request the same destination once before and once
+    // after scene activation. Do not restart an already running crossfade.
+    if (id == nextId)
+        return;
 
     // Missing/unsupported file: mark as inactive and bail out.
-    if (!MusicOk(it->second.music))
+    if (!EnsureMusicLoaded(it->second))
     {
         if (currentId == id) currentId.clear();
         if (nextId    == id) nextId.clear();
@@ -136,18 +208,71 @@ void AudioSystem::PlayMusic(const std::string& id, float fadeSecs)
     }
     else
     {
+        if (!nextId.empty())
+        {
+            auto nextIt = tracks.find(nextId);
+            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+            {
+                StopMusicStream(nextIt->second.music);
+                ::SetMusicVolume(nextIt->second.music, 0.0f);
+            }
+        }
         nextId  = id;
         nextVol = 0.0f;
+        crossfadeProgress = 0.0f;
+        crossfadeSourceVol = std::clamp(currentVol, 0.0f, 1.0f);
         PlayMusicStream(it->second.music);
+    }
+}
+
+void AudioSystem::QueueRandomRotationTrack(float fadeSecs)
+{
+    if (activeRotationId.empty() || !nextId.empty() || currentId.empty())
+        return;
+
+    auto rotationIt = rotations.find(activeRotationId);
+    if (rotationIt == rotations.end())
+        return;
+
+    std::vector<std::string> candidates;
+    candidates.reserve(rotationIt->second.trackIds.size());
+    for (const std::string& trackId : rotationIt->second.trackIds)
+    {
+        if (trackId != currentId)
+            candidates.push_back(trackId);
+    }
+    std::shuffle(candidates.begin(), candidates.end(), randomEngine);
+
+    for (const std::string& candidate : candidates)
+    {
+        auto trackIt = tracks.find(candidate);
+        if (trackIt == tracks.end() || !EnsureMusicLoaded(trackIt->second))
+            continue;
+
+        PlayMusicInternal(candidate, fadeSecs);
+        return;
     }
 }
 
 void AudioSystem::StopMusic(float fadeSecs)
 {
+    activeRotationId.clear();
     if (!initialized || currentId.empty()) return;
     fadeSpeed       = (fadeSecs > 0.0f) ? (1.0f / fadeSecs) : 1000.0f;
     fadingToSilence = true;
+
+    if (!nextId.empty())
+    {
+        auto nextIt = tracks.find(nextId);
+        if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+        {
+            StopMusicStream(nextIt->second.music);
+            ::SetMusicVolume(nextIt->second.music, 0.0f);
+        }
+    }
     nextId.clear();
+    nextVol = 0.0f;
+    crossfadeProgress = 0.0f;
 }
 
 void AudioSystem::Update(float dt)
@@ -168,6 +293,14 @@ void AudioSystem::Update(float dt)
         return;
     }
 
+    if (nextId.empty() && !fadingToSilence && !activeRotationId.empty())
+    {
+        const float length = GetMusicTimeLength(current.music);
+        const float played = GetMusicTimePlayed(current.music);
+        if (length > 0.0f && played > 0.0f && length - played <= RotationLeadSeconds)
+            QueueRandomRotationTrack(1.6f);
+    }
+
     if (!nextId.empty())
     {
         MusicEntry& next = tracks[nextId];
@@ -177,19 +310,26 @@ void AudioSystem::Update(float dt)
             return;
         }
 
-        currentVol = std::max(0.0f, currentVol - fadeSpeed * dt);
-        nextVol    = std::min(1.0f, nextVol    + fadeSpeed * dt);
+        // Equal-power curves keep the combined perceived energy stable in
+        // the middle of the transition. Linear volume ramps sounded weak
+        // there, especially when switching from menu to gameplay.
+        crossfadeProgress = std::min(1.0f, crossfadeProgress + fadeSpeed * dt);
+        const float angle = crossfadeProgress * HalfPi;
+        currentVol = crossfadeSourceVol * std::cos(angle);
+        nextVol    = std::sin(angle);
 
         ::SetMusicVolume(current.music, currentVol * EffectiveMusicVol());
         ::SetMusicVolume(next.music,    nextVol    * EffectiveMusicVol());
 
-        if (currentVol <= 0.0f)
+        if (crossfadeProgress >= 1.0f)
         {
             StopMusicStream(current.music);
             currentId  = nextId;
-            currentVol = nextVol;
+            currentVol = 1.0f;
             nextId.clear();
             nextVol = 0.0f;
+            crossfadeProgress = 0.0f;
+            crossfadeSourceVol = 1.0f;
         }
     }
     else if (fadingToSilence)

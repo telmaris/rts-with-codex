@@ -120,7 +120,7 @@ BasicMapViewSystem::BasicMapViewSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
     actionMap["space"] = [this] { CenterOnHeadquartersPressed(); };
 
-    buildingInfoPanel.ChangePositionAnchor({0.66f, 0.08f});
+    buildingInfoPanel.ChangePositionAnchor({0.66f, 0.13f});
     buildingInfoPanel.ChangeSizeAnchor({0.31f, 0.82f});
     buildingInfoPanel.scene = scene;
     researchPanel.scene = scene;

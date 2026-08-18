@@ -245,7 +245,7 @@ StockpileGuiSystem::StockpileGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     stockpilePanel.scene = scene;
-    stockpilePanel.ChangePositionAnchor({0.06f, 0.10f});
+    stockpilePanel.ChangePositionAnchor({0.06f, 0.15f});
     stockpilePanel.ChangeSizeAnchor({0.88f, 0.82f});
     stockpilePanel.UpdateSize({GetScreenWidth(), GetScreenHeight()});
     SetupStrategicHud(strategicHudWidget, scene);

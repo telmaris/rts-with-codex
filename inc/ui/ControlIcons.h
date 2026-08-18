@@ -61,6 +61,18 @@ namespace UiControlIcons
     // the heraldic left cap is a separate top-HUD-only overlay.
     bool DrawPixelHudFrame(Rectangle destination, bool hovered = false,
                            Color tint = WHITE);
+    // Draws the new pixel-pilot frame for regular panels and windows.
+    bool DrawPixelHudPanelFrame(Rectangle destination, Color tint = WHITE);
+    // Draws the new pixel-pilot frame for regular buttons and compact controls.
+    bool DrawPixelHudButtonFrame(Rectangle destination, bool hovered = false,
+                                 Color tint = WHITE);
+    // Keeps the original compact frame for controls embedded in the strategic
+    // top HUD; those controls intentionally do not use button_hud.png.
+    bool DrawPixelTopHudWidgetFrame(Rectangle destination, bool hovered = false,
+                                    Color tint = WHITE);
+    // Pilot top-HUD skin. The source artwork uses asymmetric 9-slice borders:
+    // 128 px left/right and 74 px top/bottom.
+    bool DrawPixelTopHudFrame(Rectangle destination, Color tint = WHITE);
     // Content-safe inset matching the fixed corner modules of the main frame.
     float PixelHudFrameInset(Rectangle destination);
     // Symmetric top-right close control, kept clear of the main frame corners.

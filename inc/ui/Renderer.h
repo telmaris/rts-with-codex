@@ -85,6 +85,11 @@ void SetRainOverlayPreferenceEnabled(bool enabled);
 bool IsLogisticsOverlayPreferenceEnabled();
 void SetLogisticsOverlayPreferenceEnabled(bool enabled);
 
+// Global presentation overlay used by GameWindow for scene transitions.
+// The alpha is intentionally render-only and never touches simulation state.
+void SetSceneTransitionOverlayAlpha(float alpha);
+void DrawSceneTransitionOverlay();
+
 struct FogRevealView
 {
     Vector2 worldPosition{};

@@ -1,15 +1,76 @@
 #include "scenes/Scenes.h"
 
+#include <algorithm>
+#include <cmath>
+
+namespace
+{
+    void DrawMenuClouds(Texture2D texture, Rectangle bounds, float scroll)
+    {
+        if (texture.id == 0 || bounds.width <= 0.0f || bounds.height <= 0.0f)
+            return;
+
+        const float imageRatio = texture.width / static_cast<float>(texture.height);
+        const float drawHeight = std::max(bounds.height, bounds.width / imageRatio);
+        const float drawWidth = drawHeight * imageRatio;
+        const float drawY = bounds.y + (bounds.height - drawHeight) * 0.5f;
+        const float offset = std::fmod(scroll, drawWidth);
+        const float firstX = bounds.x - offset - drawWidth;
+
+        for (float x = firstX; x < bounds.x + bounds.width; x += drawWidth)
+        {
+            DrawTexturePro(texture,
+                           {0.0f, 0.0f, static_cast<float>(texture.width),
+                            static_cast<float>(texture.height)},
+                           {x, drawY, drawWidth, drawHeight},
+                           {0.0f, 0.0f}, 0.0f, WHITE);
+        }
+    }
+}
+
 // Initializes MainMenuScene::MainMenuScene.
 MainMenuScene::MainMenuScene()
 {
     buttonsColumn.ChangeSizeAnchor(Vec2f{0.4f, 0.3f});
     buttonsColumn.ChangePositionAnchor(Vec2f{0.3f, 0.4f});
 
-    menuGraphic.ChangeSizeAnchor(Vec2f{1.0f, 1.0f});
-    menuGraphic.ChangePositionAnchor(Vec2f{0.0f, 0.0f});
-    menuGraphic.cover = true;
-    menuGraphic.LoadTextureFromFile("assets/ui/menu/main_menu.png");
+    const Vec2f fullScreen{1.0f, 1.0f};
+    menuSkyBg.ChangeSizeAnchor(fullScreen);
+    menuSkyBg.ChangePositionAnchor({0.0f, 0.0f});
+    menuSkyBg.cover = true;
+    menuSkyBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_1.png");
+
+    menuCloudsBgParallax.ChangeSizeAnchor(fullScreen);
+    menuCloudsBgParallax.ChangePositionAnchor({0.0f, 0.0f});
+    menuCloudTexture = LoadTexture("assets/ui/menu/nature_5/layer_2.png");
+    if (menuCloudTexture.id != 0)
+        SetTextureFilter(menuCloudTexture, TEXTURE_FILTER_POINT);
+    menuCloudsBgParallax.func = [this](double dt)
+    {
+        menuCloudScroll += std::max(0.0, dt) * 3.2;
+        DrawMenuClouds(menuCloudTexture,
+                       {static_cast<float>(menuCloudsBgParallax.pos.x),
+                        static_cast<float>(menuCloudsBgParallax.pos.y),
+                        static_cast<float>(menuCloudsBgParallax.size.x),
+                        static_cast<float>(menuCloudsBgParallax.size.y)},
+                       static_cast<float>(menuCloudScroll));
+    };
+
+    menuGrassBg.ChangeSizeAnchor(fullScreen);
+    menuGrassBg.ChangePositionAnchor({0.0f, 0.0f});
+    menuGrassBg.cover = true;
+    menuGrassBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_3.png");
+
+    menuVillageBg.ChangeSizeAnchor(fullScreen);
+    menuVillageBg.ChangePositionAnchor({0.0f, 0.0f});
+    menuVillageBg.cover = true;
+    menuVillageBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_4.png");
+
+    menuTvorinLogo.ChangePositionAnchor({0.24f, 0.15f});
+    menuTvorinLogo.ChangeSizeAnchor({0.52f, 0.20f});
+    menuTvorinLogo.SetFloating(5.0f, 4.8f, 0.35f);
+    menuTvorinLogo.SetFrameDuration(0.18f);
+    menuTvorinLogo.AddFrameFromFile("assets/ui/menu/tvorin_logo.png");
 
     statusLabel.ChangePositionAnchor(Vec2f{0.26f, 0.82f});
     statusLabel.ChangeSizeAnchor(Vec2f{0.48f, 0.05f});
@@ -47,11 +108,17 @@ MainMenuScene::MainMenuScene()
     buttonsColumn.AddChild(quitButton);
 }
 
+MainMenuScene::~MainMenuScene()
+{
+    if (menuCloudTexture.id != 0 && IsWindowReady())
+        UnloadTexture(menuCloudTexture);
+}
+
 // Starts the menu music theme.
 void MainMenuScene::OnActivated()
 {
     if (audioSystem != nullptr)
-        audioSystem->PlayMusic("menu");
+        audioSystem->PlayMusic("menu", DefaultMusicCrossfadeSeconds);
 }
 
 // Advances this object's state for one frame.
@@ -61,7 +128,13 @@ void MainMenuScene::Update(double dt)
     if (statusTimer > 0.0)
         statusTimer = std::max(0.0, statusTimer - dt);
 
-    std::vector<UiWidget*> widgets{&menuGraphic, &buttonsColumn};
+    std::vector<UiWidget*> widgets{
+        &menuSkyBg,
+        &menuCloudsBgParallax,
+        &menuGrassBg,
+        &menuVillageBg,
+        &menuTvorinLogo,
+        &buttonsColumn};
     if (statusTimer > 0.0)
         widgets.push_back(&statusLabel);
     render.Draw(widgets, dt);
@@ -132,7 +205,11 @@ void MainMenuScene::HandleEvent(std::shared_ptr<Event> e)
     if (ptr != nullptr)
     {
         buttonsColumn.UpdateSize(ptr->windowSize);
-        menuGraphic.UpdateSize(ptr->windowSize);
+        menuSkyBg.UpdateSize(ptr->windowSize);
+        menuCloudsBgParallax.UpdateSize(ptr->windowSize);
+        menuGrassBg.UpdateSize(ptr->windowSize);
+        menuVillageBg.UpdateSize(ptr->windowSize);
+        menuTvorinLogo.UpdateSize(ptr->windowSize);
         statusLabel.UpdateSize(ptr->windowSize);
     }
 

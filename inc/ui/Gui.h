@@ -26,6 +26,8 @@ class GameScene;
 class UiWidget
 {
 public:
+    virtual ~UiWidget() = default;
+
     // Draws and updates widget state for the current frame.
     virtual void Update(double dt) = 0;
 
@@ -400,6 +402,8 @@ class ProgressBar : public UiWidget
 class UiImage : public UiWidget
 {
     public:
+        ~UiImage() override;
+
         // Draws the loaded image when available.
         void Update(double dt) override;
         // Loads a texture from disk for this widget.
@@ -408,6 +412,52 @@ class UiImage : public UiWidget
         Texture2D texture{};
         bool hasTexture{false};
         bool cover{false};
+};
+
+// Layered menu background with a gently scrolling second layer. The widget
+// owns the textures so scenes only need to provide their asset directory.
+class UiParallaxBackground : public UiWidget
+{
+public:
+    ~UiParallaxBackground() override;
+
+    bool LoadFromDirectory(const std::string& directory);
+    void SetScrollSpeed(float pixelsPerSecond) { scrollSpeed = pixelsPerSecond; }
+    void SetScrollLayer(std::size_t layerIndex) { scrollLayerIndex = layerIndex; }
+    void Update(double dt) override;
+
+private:
+    void ClearTextures();
+
+    std::vector<Texture2D> layers;
+    float scrollSpeed{3.2f};
+    std::size_t scrollLayerIndex{1};
+    double scrollOffset{0.0};
+};
+
+// Small reusable frame animation for menu/UI artwork. It intentionally keeps
+// motion presentation-only: a frame sequence can be added later without
+// changing the owning scene, while the optional sine motion provides the
+// subtle floating used by the main-menu logo.
+class UiAnimation : public UiWidget
+{
+public:
+    ~UiAnimation() override;
+
+    bool AddFrameFromFile(const std::string& path);
+    void ClearFrames();
+    void SetFrameDuration(float seconds);
+    void SetFloating(float amplitudePixels, float periodSeconds, float phase = 0.0f);
+    void Reset();
+    void Update(double dt) override;
+
+private:
+    std::vector<Texture2D> frames;
+    float frameDuration{0.18f};
+    float floatAmplitude{0.0f};
+    float floatPeriod{1.0f};
+    float floatPhase{0.0f};
+    double elapsed{0.0};
 };
 
 // Calls a user-supplied function each frame — useful for inline custom draws inside render.Draw().
@@ -583,6 +633,9 @@ class BuildingInfoPanel : public GuiPanel
 {
 public:
     using GuiPanel::GuiPanel;
+    // Production buildings use the compact information layout; recruitment
+    // and other building panels retain the taller shared layout.
+    void UpdateSize(Vec2i windowSize) override;
 };
 
 // Full-screen technology tree panel used by university buildings.
