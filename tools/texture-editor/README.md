@@ -107,34 +107,15 @@ powierzchnia robocza czytana godzinami, a brąz/pergamin gry jest strojony pod k
 kontrast w tabeli liczb. Jeden krój (Segoe UI), bo małe kapitaliki `MarcellusSC` są nieczytelne
 w formularzu.
 
-## Znaleziska
+## Stan po migracji
 
-Stan gry, który edytor pokazał. Nic z tego nie zostało naprawione w grze — to materiał na decyzje:
-
-1. **18 z 49 surowców celuje poza atlas ikon.** `ResourceIconAtlas::GetRect` bierze wartość enuma
-   jako indeks, `basic_resources.png` ma 32 komórki, enum sięga 49. Wszystko od `CROSSBOW = 32`
-   w górę czyta prostokąt spoza tekstury. Jawne `icon atlas N texture M` to naprawia — ale kafli
-   dla nich w arkuszu i tak jeszcze nie ma.
-2. **`texture_id` z `buildings.rtsdata` jest dziś martwy** — parsuje się, ląduje w save'ie, żaden
-   renderer go nie czyta. W nowym schemacie `textureId` odzyskuje sens jako „kafel w atlasie slotu",
-   i to bez zmiany formatu save'a (atlas należy do typu, kafel do instancji).
-3. **Animacje budynków są data-driven.** `AnimationClip` i `Renderer::RegisterBuildingAnimation`
-   dostają klip z `textures.rtsdata`; HQ jest pierwszym użyciem produkcyjnym. Klatki zawsze są
-   kolejnymi komórkami atlasu od lewej do prawej.
-4. **8 typów budynków dzieli 4 sprite'y**: `foundry.png` → Foundry + Mint, `smith.png` → Smith +
-   Glassworks + Powderworks, `road.png` → Road + Bridge, `guard_tower.png` → DefenseTower.
-5. **19 luźnych PNG-ów terenu, których gra nigdy nie ładuje** (`grass1..4`, `forest1..3`, …) —
-   cały teren idzie z `terrain_tileset.png`. Plus 8 z 24 kafli tego atlasu nieużywanych.
-6. **`UiButton` ładuje `assets/ui/button_plain.png` i `button_hover.png` — obu nie ma w repo.**
-   `FileExists` to wycisza, więc referencja wisi niezauważona.
-7. **Autotiling dróg jest zepsuty na papierze**: `GetRoadTextureId` zwraca `5 + maska_9_bitowa`,
-   czyli ID 5–516, a żaden atlas w repo nie ma tylu kafli (`roads.png` ma 120). Nie widać tego
-   tylko dlatego, że nikt tego `textureId` nie rysuje.
+Pierwotna lista znalezisk z pilota została usunięta, ponieważ opisywała stan sprzed
+wdrożenia `textures.rtsdata`, animacji budynków i nowych atlasów dróg/zasobów.
+Źródłem prawdy jest teraz `assets/data/textures.rtsdata`, a bieżące problemy i wyniki
+walidacji assetów są zapisane w `docs/code_audit_2026-08-20.md`.
 
 ## Ograniczenia
 
-- Gra czyta `textures.rtsdata` dla sprite'ów i animacji budynków; teren i ikony zasobów czekają
-  na osobną migrację runtime'u.
 - **Brak undo.** `F5` przeładowuje z dysku i wyrzuca niezapisane zmiany.
 - Nie zna slotów UI/menu — pliki z `assets/ui/**` są oznaczone jako „unbound" niesłusznie.
   To argument za piątą zakładką, nie błąd w danych.

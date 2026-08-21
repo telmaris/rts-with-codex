@@ -25,9 +25,8 @@ struct TechnologyDefinition;
 //      research / focus — all real GameCommands).
 // Deterministic by construction: reads + SubmitCommand only; every
 // first-match iteration over tracked buildings is sorted by building id
-// (see docs/tech_debt.md); the only randomness is the difficulty-scaled
-// decision noise seeded from (map seed, player id) — identical across
-// same-seed worlds (etap 4).
+// (see docs/tech_debt.md); the only randomness is a small personality skew
+// seeded from (map seed, player id) — identical across same-seed worlds.
 enum class AINeed
 {
     Defense,        // towers + ammo + emergency deploy (etap 3)
@@ -184,6 +183,10 @@ public:
     // (seed, player id) pair reproduces them exactly.
     double GetPersonalityNeedBias(AINeed need) const { return personalityNeedBias[static_cast<int>(need)]; }
     int GetPersonalityWaveBias() const { return personalityWaveBias; }
+    // Bounded failure diagnostics for the long-running AI harness. The model
+    // records snapshots only every few simulated seconds; callers should
+    // print this after a failed scenario, never on every tick.
+    std::string GetDecisionTrace() const;
 
 private:
     AISituation Sense(GameWorld& world, Player* player);
@@ -196,7 +199,7 @@ private:
     bool ExecuteLogistics(GameWorld& world, Player* player, const AISituation& s);
     bool ExecuteResearch(GameWorld& world, Player* player, const AISituation& s);
     // Focuses run in parallel with ordinary actions and cost no resources.
-    // This is called every simulation tick, outside the throttled/noisy need
+    // This is called every simulation tick, outside the throttled need
     // cycle, so completion is followed by the next valid choice immediately.
     bool TryStartBestFocus(GameWorld& world, Player* player, const AISituation& s);
     int GetCachedAttackTargetPlayer(GameWorld& world, Player* player);
@@ -204,9 +207,20 @@ private:
     // missing input in its chain). Returns false when nothing can be placed
     // or afforded right now.
     bool TryBuildProducerFor(GameWorld& world, Player* player, ResourceType resource);
+    // Keeps a renewable FOOD_PROVISIONS producer reachable by Barracks after
+    // villages have claimed the producer's primary receiver. The route is a
+    // normal command/road delivery, not a resource grant.
+    bool EnsureFoodRecoveryRoute(GameWorld& world, Player* player, Building* barracks);
+    // Repairs the food lane after the first military wave. Route recovery is
+    // intentionally handled before scaling producers: a disconnected healthy
+    // chain must not be mistaken for a capacity deficit.
+    bool TryScaleFoodRecovery(GameWorld& world, Player* player);
     // Fixed, deterministic opening build order that bootstraps the food/
     // manpower chain before telemetry has any consumption signal to react to.
     bool TryOpeningPlan(GameWorld& world, Player* player);
+    // Once Barracks exists, recover the three food buildings independently of
+    // an earlier opening step that may still be blocked (for example Foundry).
+    bool TryFoodRecoveryPlan(GameWorld& world, Player* player);
     bool TryUnlockBarracks(GameWorld& world, Player* player, const AISituation& s);
     void UpdateWaveEvaluation(GameWorld& world, Player* player);
     void StartWaveEvaluation(GameWorld& world, Player* player, int targetPlayerId,
@@ -238,28 +252,30 @@ private:
     // from the C1-era model, where calling it per tick cost ~32 ms/tick).
     double attackTargetCacheTimer{0.0};
     int cachedAttackTargetPlayer{-1};
-    // Difficulty noise (etap 4): lower levels imitate a worse player by
-    // randomly swinging need utilities and occasionally skipping a whole
-    // decision cycle. Seeded once from (map seed, player id) — two
-    // same-seed worlds draw the identical sequence, so lockstep holds.
-    // Deliberately NOT serialized (same as every other AI-internal state).
+    // Deterministic personality RNG, seeded once from (map seed, player id).
+    // Difficulty does not alter decisions; it only selects the starting
+    // profile applied by GameWorld initialization.
     std::mt19937 noiseRng;
     bool noiseSeeded{false};
     int difficulty{0};
-    // AI economy bias (ai/AIEconomyBias.h, user design 2026-07-17), scaled
-    // for the current difficulty — refreshed in Update, consumed by Sense's
-    // deficit diagnosis and the producer-chain walk.
+    // AI economy bias (ai/AIEconomyBias.h, user design 2026-07-17), consumed
+    // by Sense's deficit diagnosis and the producer-chain walk. Production
+    // configuration uses the same scale for every difficulty.
     std::map<ResourceType, int> consumptionBias;
     // Build-order priority weights (ai/AIEconomyBias.h's `priority` table,
     // user design 2026-07-19), normalized [0,1] — NOT difficulty-scaled
     // (build order is a design choice, unlike the consumption bias's
     // magnitude). Cached alongside consumptionBias in Update.
     std::map<ResourceType, double> priorityWeights;
+    std::array<std::string, 64> decisionTrace{};
+    std::size_t decisionTraceNext{0};
+    std::size_t decisionTraceCount{0};
+    double decisionTraceTimer{0.0};
+    std::string lastDecisionAction;
+    std::string lastScoreSummary;
     // Personality bias (user design 2026-07-20: "2 AI nie gra identycznie") —
     // a small, PERMANENT per-need skew (+/-2.5%, see AIModel.cpp for why that
-    // exact bound) drawn once from noiseRng right after it's seeded, active
-    // at every difficulty (unlike NoiseAmplitude/SkipChance in AIModel.cpp,
-    // which are difficulty levers and zero on Hard). Sized to the tightest
+    // exact bound) drawn once from noiseRng right after it's seeded. Sized to the tightest
     // hard-won gap between ScoreNeed's floors so it can only break near-ties
     // and shift pace, never invert the priority architecture. Two same-seed
     // worlds draw the identical values (seed XOR player id), so lockstep

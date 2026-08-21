@@ -1,5 +1,7 @@
 #include "scenes/Game.h"
 
+#include <chrono>
+
 // Initializes runtime state for this object.
 void Game::InitGame()
 {

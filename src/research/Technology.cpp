@@ -505,9 +505,9 @@ namespace
             const std::string& key = tokens[i];
             const std::string& value = tokens[i + 1];
             if (key == "additive")
-                modifier.additive = std::stod(value);
+                modifier.additive = RtsDataDoubleOr(value);
             else if (key == "multiplier")
-                modifier.multiplier = std::stod(value);
+                modifier.multiplier = RtsDataDoubleOr(value);
             else if (key == "building")
                 modifier.buildingType = ParseBuildingType(value);
             else if (key == "resource")
@@ -549,11 +549,11 @@ namespace
             else if (command == "category" && tokens.size() >= 2)
                 definition.category = tokens[1];
             else if (command == "research_time" && tokens.size() >= 2)
-                definition.researchTime = std::stod(tokens[1]);
+                definition.researchTime = RtsDataDoubleOr(tokens[1]);
             else if (command == "layout_lane" && tokens.size() >= 2)
                 definition.layoutLane = tokens[1];
             else if (command == "layout_order" && tokens.size() >= 2)
-                definition.layoutOrder = std::stoi(tokens[1]);
+                definition.layoutOrder = RtsDataIntOr(tokens[1]);
             else if ((command == "tag" || command == "tags") && tokens.size() >= 2)
             {
                 for (size_t tokenIndex = 1; tokenIndex < tokens.size(); tokenIndex++)
@@ -562,7 +562,7 @@ namespace
             else if (command == "requires" && tokens.size() >= 2)
                 definition.prerequisites.push_back(tokens[1]);
             else if (command == "cost" && tokens.size() >= 3)
-                definition.costs.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                definition.costs.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
             else if (command == "modifier")
                 definition.modifiers.push_back(ParseModifier(tokens, definition.id));
         }

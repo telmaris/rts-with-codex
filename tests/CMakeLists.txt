@@ -6,14 +6,16 @@ if (NOT GTest_FOUND)
     FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+        URL_HASH SHA256=1F357C27CA988C3F7C6B4BF68A9395005AC6761F034046E9DDE0896E3ABA00E4
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-add_executable(rts_tests
+add_executable(tvorin_tests
     AIBehaviorHarnessTests.cpp
+    AtomicFileTests.cpp
     BalanceModifierTests.cpp
     BattleUnitTests.cpp
     BridgeTests.cpp
@@ -33,8 +35,10 @@ add_executable(rts_tests
     NetworkProtocolTests.cpp
     PathingServiceTests.cpp
     PlayerEconomyTests.cpp
+    PersistenceValidationTests.cpp
     RendererAnimationTests.cpp
     ResourceBufferTests.cpp
+    RtsDataFileTests.cpp
     RoadNetworkTests.cpp
     SceneUtilsTests.cpp
     GameSessionPauseTests.cpp
@@ -51,7 +55,7 @@ add_executable(rts_tests
     WorldLightingTests.cpp
 )
 
-target_link_libraries(rts_tests
+target_link_libraries(tvorin_tests
     PRIVATE
         game
         GTest::gtest_main
@@ -62,12 +66,12 @@ target_link_libraries(rts_tests
 # winmm is not linked here: WinmmStubs.cpp (in game) provides timeBeginPeriod/timeEndPeriod
 # via dynamic loading, avoiding the PlaySound symbol conflict with raylib.
 
-target_include_directories(rts_tests PRIVATE
+target_include_directories(tvorin_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/inc
 )
 
 if (ENABLE_BUILD_ACCELERATION)
-    target_precompile_headers(rts_tests PRIVATE
+    target_precompile_headers(tvorin_tests PRIVATE
         <gmock/gmock.h>
         <gtest/gtest.h>
         <algorithm>
@@ -85,18 +89,24 @@ if (ENABLE_BUILD_ACCELERATION)
     )
 
     if (MSVC)
-        target_compile_options(rts_tests PRIVATE /MP)
+        target_compile_options(tvorin_tests PRIVATE /MP)
     endif()
 endif()
 
 if (ENABLE_COVERAGE AND MSVC)
-    target_compile_options(rts_tests PRIVATE /Od /Zi)
-    target_link_options(rts_tests PRIVATE /DEBUG)
+    target_compile_options(tvorin_tests PRIVATE /Od /Zi)
+    target_link_options(tvorin_tests PRIVATE /DEBUG)
 endif()
 
-add_test(NAME rts_tests COMMAND rts_tests)
-set_tests_properties(rts_tests PROPERTIES
+add_test(NAME tvorin_tests COMMAND tvorin_tests --gtest_filter=-AIBehaviorHarnessTests.*)
+set_tests_properties(tvorin_tests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    LABELS "fast;integration;network;data"
+)
+add_test(NAME tvorin_ai_long COMMAND tvorin_tests --gtest_filter=AIBehaviorHarnessTests.*)
+set_tests_properties(tvorin_ai_long PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    LABELS "ai_long;integration"
 )
 
 if (ENABLE_COVERAGE AND MSVC)
@@ -115,10 +125,10 @@ if (ENABLE_COVERAGE AND MSVC)
                     --excluded_sources ${COVERAGE_TESTS_DIR}
                     --export_type html:${COVERAGE_HTML_DIR}
                     --export_type cobertura:${COVERAGE_XML_FILE}
-                    -- $<TARGET_FILE:rts_tests>
+                    -- $<TARGET_FILE:tvorin_tests>
                     --gtest_filter=-AIBehaviorHarnessTests.*
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            DEPENDS rts_tests
+            DEPENDS tvorin_tests
             COMMENT "Running fast unit tests and generating OpenCppCoverage report"
         )
     else()
@@ -133,7 +143,7 @@ elseif (ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_program(GCOVR_EXECUTABLE gcovr)
     if (GCOVR_EXECUTABLE)
         add_custom_target(coverage
-            COMMAND $<TARGET_FILE:rts_tests>
+            COMMAND $<TARGET_FILE:tvorin_tests>
                     --gtest_filter=-AIBehaviorHarnessTests.*
             COMMAND ${GCOVR_EXECUTABLE}
                     --root ${CMAKE_SOURCE_DIR}
@@ -144,7 +154,7 @@ elseif (ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
                     --html-details ${CMAKE_BINARY_DIR}/coverage.html
                     --xml ${CMAKE_BINARY_DIR}/coverage.xml
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            DEPENDS rts_tests
+            DEPENDS tvorin_tests
             COMMENT "Running fast unit tests and generating gcov coverage report"
         )
     else()

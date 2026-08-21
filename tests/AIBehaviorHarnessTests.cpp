@@ -223,14 +223,17 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
     // AI economy tuning plan (2026-07-18, Task 4): the planks chain must
     // actually stand up, not just spawn an endless forest of Woodcutters
     // (the "no LumberMill" playtest report, Tasks 1-3 above fix the root
-    // causes). Woodcutter count is a soft ceiling, not exact - it can
-    // legitimately vary with map layout/timing, but a runaway tunnel-vision
-    // count (>4) is the specific regression signature to catch.
+    // causes). Check the strict ceiling at 10 minutes, while tunnel vision
+    // would be visible. The late-game ceiling is wider because finite forest
+    // patches legitimately require replacement over 20 sim-minutes.
     EXPECT_GE(AIActions::CountOwnedBuildings(ai, BuildingType::LumberMill), 1)
         << "no LumberMill - the planks chain never stood up" << report();
     EXPECT_GE(samples.back().woodcutters, 1) << report();
-    EXPECT_LE(samples.back().woodcutters, 4)
-        << "Woodcutter tunnel vision is back (deficit ladder not rotating)" << report();
+    ASSERT_GE(samples.size(), 20u);
+    EXPECT_LE(samples[19].woodcutters, 4)
+        << "early Woodcutter tunnel vision is back (deficit ladder not rotating)" << report();
+    EXPECT_LE(samples.back().woodcutters, 8)
+        << "late Woodcutter replacement became unbounded" << report();
 
     // Weapon economy end-to-end (2026-07-20, user report: "AI wciąż nie
     // buduje żelaza/węgla/narzędzi broni" — passive militia-only games).
@@ -255,7 +258,8 @@ TEST(AIBehaviorHarnessTests, HardAIMakesSteadyProgressAndAttacks)
     EXPECT_GE(samples.back().smiths, 1)
         << "no Smith - the tools/weapon chain never stood up" << report();
     EXPECT_TRUE(sawNonMilitiaUnit)
-        << "the AI never recruited or deployed anything beyond bare militia" << report();
+        << "the AI never recruited or deployed anything beyond bare militia" << report()
+        << "\nAI decision trace:\n" << world.GetAITrace(ai->id);
 }
 
 TEST(AIBehaviorHarnessTests, PrimitiveDoesNotBrickAfterBarracks)
@@ -279,6 +283,7 @@ TEST(AIBehaviorHarnessTests, PrimitiveDoesNotBrickAfterBarracks)
         int initialUnitId = ai->nextUnitInstanceId;
         int buildingsAtBarracks = -1;
         int secondsAtBarracks = -1;
+        int secondsAtFirstDeploy = -1;
         constexpr int TotalTicks = 120000;
         for (int tick = 0; tick < TotalTicks; tick++)
         {
@@ -295,6 +300,8 @@ TEST(AIBehaviorHarnessTests, PrimitiveDoesNotBrickAfterBarracks)
                 if (unit.ownerPlayerId == ai->id && unit.state != BattleUnitState::Dying)
                     deployed++;
             maxDeployed = std::max(maxDeployed, deployed);
+            if (secondsAtFirstDeploy < 0 && deployed > 0)
+                secondsAtFirstDeploy = tick / 100;
 
             if (secondsAtBarracks < 0 &&
                 AIActions::CountOwnedBuildings(ai, BuildingType::Barracks) > 0)
@@ -307,14 +314,63 @@ TEST(AIBehaviorHarnessTests, PrimitiveDoesNotBrickAfterBarracks)
         const int recruited = ai->nextUnitInstanceId - initialUnitId;
         SCOPED_TRACE("difficulty=" + std::to_string(difficulty) +
                      " barracks_s=" + std::to_string(secondsAtBarracks) +
+                     " first_deploy_s=" + std::to_string(secondsAtFirstDeploy) +
                      " accepted=" + std::to_string(accepted) +
                      " rejected=" + std::to_string(rejected));
         ASSERT_GE(secondsAtBarracks, 0) << "the military milestone was never reached";
         EXPECT_GT(static_cast<int>(ai->GetTrackedBuildings().size()), buildingsAtBarracks)
             << "AI stopped expanding immediately after placing Barracks";
-        EXPECT_GE(recruited, 1) << "Barracks never trained its primitive opening raider";
-        EXPECT_GE(maxDeployed, 1) << "the opening raider never entered the military route";
+        EXPECT_GE(recruited, 1) << "Barracks never trained its primitive opening raider\n"
+                                << world.GetAITrace(ai->id);
+        EXPECT_GE(maxDeployed, 1) << "the opening raider never entered the military route\n"
+                                   << world.GetAITrace(ai->id);
+        EXPECT_GE(secondsAtFirstDeploy, 0);
+        EXPECT_LE(secondsAtFirstDeploy, 600)
+            << "Primitive must inherit the former Hard attack pace (first wave within 10 sim-minutes)\n"
+            << world.GetAITrace(ai->id);
         EXPECT_LE(rejected, accepted / 2 + 10) << "AI is retrying refused commands instead of recovering";
+}
+
+TEST(AIBehaviorHarnessTests, HardAIContinuesLaunchingWaves)
+{
+    MapParameters params;
+    params.sizeX = 301;
+    params.sizeY = 301;
+    params.aiOpponentCount = 1;
+    params.seed = 20260716;
+    params.aiDifficulty = 3;
+
+    GameWorld world;
+    world.InitWorld("ai-hard-follow-up-wave-harness", nullptr, nullptr, params);
+    Player* ai = world.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(ai, nullptr);
+
+    int deployCommands = 0;
+    int accepted = 0;
+    int rejected = 0;
+    constexpr int TotalTicks = 120000; // 20 simulated minutes
+    for (int tick = 0; tick < TotalTicks; tick++)
+    {
+        world.UpdateSimulation(0.01);
+        for (const auto& result : world.ConsumeCommandResults())
+        {
+            if (result.playerId != ai->id)
+                continue;
+            if (result.accepted)
+            {
+                accepted++;
+                if (result.type == GameCommandType::DeployUnits)
+                    deployCommands++;
+            }
+            else
+                rejected++;
+        }
+    }
+
+    EXPECT_GE(deployCommands, 2)
+        << "Hard AI launched only one wave; accepted=" << accepted
+        << " rejected=" << rejected << "\nAI decision trace:\n"
+        << world.GetAITrace(ai->id);
 }
 
 TEST(AIBehaviorHarnessTests, DebugMapPrimitiveDoesNotBrickAcrossSeeds)
@@ -399,15 +455,21 @@ TEST(AIBehaviorHarnessTests, DebugMapPrimitiveDoesNotBrickAcrossSeeds)
                     AIActions::GetResourceRate(ai->economyTelemetry.current.productionRatesPerMinute, ResourceType::FOOD_PROVISIONS));
 
         EXPECT_GE(AIActions::CountOwnedBuildings(ai, BuildingType::Barracks), 1) << "seed=" << seed;
-        EXPECT_GE(ai->nextUnitInstanceId - initialUnitId, 5) << "opening roster was not concentrated, seed=" << seed;
+        EXPECT_GE(ai->nextUnitInstanceId - initialUnitId, 2)
+            << "Primitive did not replace its opening raider, seed=" << seed << '\n'
+            << world.GetAITrace(ai->id);
         EXPECT_GE(maxDeployed, 1) << "seed=" << seed;
-        EXPECT_GE(deployCommands, 1) << "AI never launched its available primitive raid, seed=" << seed;
+        EXPECT_GE(deployCommands, 2)
+            << "Primitive failed to launch a follow-up raid, seed=" << seed << '\n'
+            << world.GetAITrace(ai->id);
         EXPECT_GT(maxRouteTile, 0) << "accepted raid never progressed along the military lane, seed=" << seed;
         if (seed == Seeds[0])
             EXPECT_GT(world.GetCombatTelemetry().GetHqDamage(ai->id, 0), 0.0)
                 << "pinned offensive wave never reached and damaged the enemy HQ, seed=" << seed;
         if (!world.IsPlayerDefeated(0))
-            EXPECT_GE(lastAcceptedSecond, TotalSeconds - 180) << "AI had no accepted action for 3 minutes, seed=" << seed;
+            EXPECT_GE(lastAcceptedSecond, TotalSeconds - 180)
+                << "AI had no accepted action for 3 minutes, seed=" << seed << '\n'
+                << world.GetAITrace(ai->id);
         EXPECT_LE(rejected, accepted / 2 + 10) << "seed=" << seed;
     }
 }

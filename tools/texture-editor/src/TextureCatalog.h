@@ -14,9 +14,9 @@
 
 struct TextureAsset
 {
-    // "textures/terrain/grass1.png" — relative to assets/, the stable identity.
+    // "textures/terrain/terrain_tileset_64.png" — relative to assets/, the stable identity.
     std::string relativePath;
-    // "assets/textures/terrain/grass1.png" — the spelling buildings.rtsdata uses.
+    // "assets/textures/terrain/terrain_tileset_64.png" — spelling used by textures.rtsdata.
     std::string gamePath;
     std::string absolutePath;
     // Directory group used for filtering ("textures/terrain", "ui/menu", ...).

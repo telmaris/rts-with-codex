@@ -1,5 +1,6 @@
 #include "core/GameWorldInternal.h"
 #include "core/Log.h"
+#include "ai/AIDifficulty.h"
 
 #include <limits>
 #include <set>
@@ -381,49 +382,15 @@ namespace
         }
     }
 
-    // AI rework etap 4 (TODO #2): difficulty is a head start, not different
-    // logic — one deterministic model for every level, higher levels start
-    // with more resources and manpower (and lower levels additionally take
-    // noisier decisions, see UtilityAIModel). Indexed by
-    // MapParameters::aiDifficulty (0 Primitive .. 3 Hard). Deliberately
-    // grants ECONOMIC basics only — no swords/ammo, the AI raises its
-    // military chains like everyone else. Init-only and purely
-    // params-driven, so it is identical on host and client mirrors
-    // (lockstep-safe) and needs no save-format change. Extra starting
-    // BUILDINGS (TODO mentions them) are deferred: placement helpers are
-    // entangled with patch generation, and the resource+manpower head start
-    // buys the same economic lead without new placement code.
+    // Difficulty is an init-only starting advantage. All levels run the same
+    // decision model; the profile controls only resources and manpower. The
+    // grant is params-driven and therefore identical on host/client mirrors
+    // (lockstep-safe) and requires no save-format change.
     void GrantDifficultyStartingBonus(Player* aiPlayer, int aiDifficulty)
     {
         if (aiPlayer == nullptr)
             return;
-
-        // Starting grant is a LIGHT head start, not a crutch (user 2026-07-20:
-        // "kilka sztuk a nie 200 ironu"). Two tiers, because granting a lot of
-        // the WEAPON-chain goods is exactly what masked the iron chain the AI is
-        // supposed to build: 200 IRON at HQ meant DiagnoseResourceNeed(IRON)
-        // never went urgent, so it never descended to build a Foundry/IRON_ORE+
-        // COAL mine (see AIActions::TryBuildProducerFor).
-        //   - build materials (WOOD, STONE, PLANKS, FOOD_PROVISIONS): a modest
-        //     buffer — on TOP of the ~120/120/60 every HQ already starts with —
-        //     so the opening buildout and first road stubs don't stall before
-        //     the base's own producers ramp. These are raw construction inputs;
-        //     granting them masks nothing the AI ought to be building itself.
-        //   - IRON: enough on Hard for Smith plus the first siege unit, still
-        //     far below a self-sustaining weapon economy;
-        //   - TOOLS: up to exactly one Barracks cost on Hard. This unlocks an
-        //     early militia foothold but grants no weapons, so stronger unit
-        //     profiles still require the real smelting/forging chain.
-        static constexpr std::array<int, 4> materialGrant{0, 10, 20, 30};
-        static constexpr std::array<int, 4> militaryStoneReserve{0, 0, 10, 20};
-        static constexpr std::array<int, 4> militaryPlankReserve{0, 0, 5, 10};
-        static constexpr std::array<int, 4> ironGrant{0, 3, 10, 30};
-        // Hard starts with exactly one Barracks' worth of tools. This creates
-        // an early military foothold without gifting weapons or replacing the
-        // Smith chain needed for stronger units.
-        static constexpr std::array<int, 4> toolsGrant{0, 3, 6, 10};
-        static constexpr std::array<double, 4> manpowerCapFraction{0.0, 0.10, 0.25, 0.50};
-        int level = std::clamp(aiDifficulty, 0, 3);
+        const AIDifficultyProfile& profile = GetAIDifficultyProfile(aiDifficulty);
 
         auto grantResource = [](StorageComponent* storage, ResourceType type, int amount)
         {
@@ -437,7 +404,7 @@ namespace
                 buffer.GenerateResource(type);
         };
 
-        if (materialGrant[level] > 0 || ironGrant[level] > 0 || toolsGrant[level] > 0)
+        if (!profile.startingResources.empty())
         {
             for (auto* building : aiPlayer->GetTrackedBuildingsWithComponent<StorageComponent>())
             {
@@ -445,18 +412,13 @@ namespace
                 if (storage == nullptr || building->buildingType != BuildingType::Headquarters)
                     continue;
 
-                for (ResourceType type : {ResourceType::WOOD, ResourceType::STONE,
-                                          ResourceType::PLANKS, ResourceType::FOOD_PROVISIONS})
-                    grantResource(storage, type, materialGrant[level]);
-                grantResource(storage, ResourceType::STONE, militaryStoneReserve[level]);
-                grantResource(storage, ResourceType::PLANKS, militaryPlankReserve[level]);
-                grantResource(storage, ResourceType::IRON, ironGrant[level]);
-                grantResource(storage, ResourceType::TOOLS, toolsGrant[level]);
+                for (const AIStartingResourceGrant& grant : profile.startingResources)
+                    grantResource(storage, grant.resource, grant.amount);
                 break;  // a player owns at most one HQ
             }
         }
 
-        double manpowerGift = aiPlayer->GetPopulationCap() * manpowerCapFraction[level];
+        double manpowerGift = aiPlayer->GetPopulationCap() * profile.manpowerCapFraction;
         if (manpowerGift > 0.0)
             aiPlayer->AddManpower(manpowerGift);
     }

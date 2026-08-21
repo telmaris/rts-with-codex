@@ -121,7 +121,20 @@ void LogisticsComponent::SetAltReceiver(ResourceType type, Building* receiver, B
         prev->second->RemoveSupplier(type, &self);
 
     altReceivers[type] = receiver;
-    receiver->SetSupplier(type, &self);
+    // An alternative receiver is a fallback destination for the producer;
+    // symmetrically, it must be a fallback supplier for the consumer. Keep an
+    // existing warehouse supplier instead of letting the direct producer
+    // evict it — otherwise a Barracks wired as Inn's alternative starves every
+    // time the Inn output buffer is between production cycles, even though HQ
+    // still has a package available.
+    auto* receiverLogistics = receiver->GetComponent<LogisticsComponent>();
+    if (receiverLogistics != nullptr)
+    {
+        auto& suppliersForType = receiverLogistics->suppliers[type];
+        if (std::find(suppliersForType.begin(), suppliersForType.end(), &self) == suppliersForType.end())
+            suppliersForType.push_back(&self);
+        receiverLogistics->pendingRequests[type] = CountIncomingResources(receiver, type);
+    }
 }
 
 void LogisticsComponent::RemoveSupplier(ResourceType type, Building* supplier)

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows ZIP
+    name: Build Tvorin Windows ZIP
     runs-on: windows-latest
 
     env:
@@ -56,7 +56,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path test-results | Out-Null
-          $testExe = "build\tests\${{ env.BUILD_TYPE }}\rts_tests.exe"
+          $testExe = "build\tests\${{ env.BUILD_TYPE }}\tvorin_tests.exe"
           & $testExe `
             --gtest_filter=-AIBehaviorHarnessTests.* `
             --gtest_output=xml:test-results\gtest-results.xml
@@ -72,19 +72,19 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $dist = "dist\rts-windows-x64"
+          $dist = "dist\tvorin-windows-x64"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          $exe = Get-ChildItem -Path build -Recurse -Filter rts.exe |
+          $exe = Get-ChildItem -Path build -Recurse -Filter tvorin.exe |
             Where-Object { (Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq "${{ env.BUILD_TYPE }}" } |
             Select-Object -First 1
           if (-not $exe) {
-            $exe = Get-ChildItem -Path build -Recurse -Filter rts.exe | Select-Object -First 1
+            $exe = Get-ChildItem -Path build -Recurse -Filter tvorin.exe | Select-Object -First 1
           }
           if (-not $exe) {
             Write-Host "Build tree:"
             Get-ChildItem -Path build -Recurse | Select-Object FullName, Length
-            throw "rts.exe not found in build output"
+            throw "tvorin.exe not found in build output"
           }
 
           Copy-Item $exe.FullName $dist
@@ -102,13 +102,13 @@ jobs:
           Write-Host "Package contents:"
           Get-ChildItem -Path $dist -Recurse | Select-Object FullName, Length
 
-          Compress-Archive -Path "$dist\*" -DestinationPath "dist\rts-windows-x64.zip" -Force
+          Compress-Archive -Path "$dist\*" -DestinationPath "dist\tvorin-windows-x64.zip" -Force
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rts-windows-x64
-          path: dist/rts-windows-x64.zip
+          name: tvorin-windows-x64
+          path: dist/tvorin-windows-x64.zip
           if-no-files-found: error
 
       - name: Resolve release version
@@ -152,5 +152,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_version.outputs.tag_name }}
-          files: dist/rts-windows-x64.zip
+          files: dist/tvorin-windows-x64.zip
           generate_release_notes: true

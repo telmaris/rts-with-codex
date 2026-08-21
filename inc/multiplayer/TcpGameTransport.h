@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <cstddef>
 #include <string>
 #include <thread>
 
@@ -52,7 +53,8 @@ private:
     void QueueIncomingFrame(const NetworkFrame& frame);
     bool SendFrame(NetworkMessageType type, NetworkChannel channel, const std::string& payload,
                    bool priority = false);
-    std::vector<std::string> Drain(std::deque<std::string>& queue);
+    bool QueueBounded(std::deque<std::string>& queue, std::size_t& queuedBytes, std::string payload);
+    std::vector<std::string> Drain(std::deque<std::string>& queue, std::size_t& queuedBytes);
     void SetStatus(std::string value);
 
     Mode mode;
@@ -70,7 +72,15 @@ private:
     std::deque<std::string> clientSnapshots;
     std::deque<std::string> lobbyMessages;
     std::deque<std::string> outboundFrames;
+    std::size_t outboundBytes{0};
+    std::size_t hostCommandsBytes{0};
+    std::size_t clientResultsBytes{0};
+    std::size_t clientReliableFramesBytes{0};
+    std::size_t clientLatestFrameBytes{0};
+    std::size_t clientSnapshotsBytes{0};
+    std::size_t lobbyMessagesBytes{0};
     std::uint64_t nextOutboundSequence{1};
+    NetworkSequenceTracker inboundSequence;
     std::string status{"Idle"};
     std::atomic<int> pingMs{-1};
 

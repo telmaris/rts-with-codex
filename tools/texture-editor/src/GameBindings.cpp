@@ -86,12 +86,12 @@ std::vector<BuildingSlot> LoadBuildingSlots(const std::string& dataPath)
         }
         else if (command == "footprint" && tokens.size() >= 3)
         {
-            current.footprintX = std::stoi(tokens[1]);
-            current.footprintY = std::stoi(tokens[2]);
+            current.footprintX = RtsDataIntOr(tokens[1], current.footprintX);
+            current.footprintY = RtsDataIntOr(tokens[2], current.footprintY);
         }
         else if (command == "texture_id" && tokens.size() >= 2)
         {
-            current.legacyTextureId = std::stoi(tokens[1]);
+            current.legacyTextureId = RtsDataIntOr(tokens[1], current.legacyTextureId);
             current.hasLegacyTextureId = true;
         }
     }

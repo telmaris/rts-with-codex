@@ -142,3 +142,13 @@ TEST(NetworkProtocolTests, RejectsUnsupportedProtocolVersion)
     EXPECT_FALSE(result);
     EXPECT_EQ(result.error, FrameDecodeError::UnsupportedVersion);
 }
+
+TEST(NetworkProtocolTests, SequenceTrackerRejectsGapsAndDuplicates)
+{
+    NetworkSequenceTracker tracker;
+    EXPECT_FALSE(tracker.Accept(0));
+    EXPECT_TRUE(tracker.Accept(1));
+    EXPECT_FALSE(tracker.Accept(1));
+    EXPECT_FALSE(tracker.Accept(3));
+    EXPECT_TRUE(tracker.Accept(2));
+}

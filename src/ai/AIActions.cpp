@@ -224,16 +224,52 @@ int CountProducersOrPendingForResource(Player* player, ResourceType resource)
     return count;
 }
 
+bool TryAssignRecipe(GameWorld& world, Player* player, BuildingType buildingType,
+                     int buildingOrdinal, ResourceType resource)
+{
+    if (player == nullptr || resource == ResourceType::Null || buildingOrdinal < 0)
+        return false;
+
+    const auto& tracked = player->GetTrackedBuildingsWithComponent<ProductionComponent>();
+    std::vector<Building*> candidates(tracked.begin(), tracked.end());
+    std::sort(candidates.begin(), candidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
+
+    int ordinal = 0;
+    for (Building* building : candidates)
+    {
+        if (building == nullptr || building->owner != player || building->IsUnderConstruction() ||
+            building->buildingType != buildingType)
+            continue;
+
+        if (ordinal++ != buildingOrdinal)
+            continue;
+
+        const auto* recipes = building->GetComponent<RecipeComponent>();
+        if (recipes == nullptr || !recipes->HasSelectableRecipes())
+            return false;
+
+        for (int i = 0; i < static_cast<int>(recipes->recipes.size()); i++)
+        {
+            auto it = recipes->recipes[i].outputs.find(resource);
+            if (it == recipes->recipes[i].outputs.end() || it->second <= 0)
+                continue;
+            if (i == recipes->activeRecipeIndex || !recipes->IsRecipeAvailable(*building, i))
+                return false;
+            world.SubmitCommand(GameCommand::SetRecipe(player->id, building->positionId, i));
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
 bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource)
 {
     if (player == nullptr || resource == ResourceType::Null)
         return false;
-    // Something already actively smelts/forges this — no switch needed.
     if (CountProducersOfResource(player, resource) > 0)
         return false;
 
-    // Simulation-visible (which building changes recipe, and its cleared
-    // buffers) — sort by id, same determinism rule as every other actuator.
     const auto& tracked = player->GetTrackedBuildingsWithComponent<ProductionComponent>();
     std::vector<Building*> candidates(tracked.begin(), tracked.end());
     std::sort(candidates.begin(), candidates.end(), [](Building* a, Building* b) { return a->id < b->id; });
@@ -242,11 +278,29 @@ bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource)
         if (building == nullptr || building->owner != player || building->IsUnderConstruction())
             continue;
         const auto* recipes = building->GetComponent<RecipeComponent>();
-        if (recipes == nullptr || !recipes->HasSelectableRecipes())
+        const auto* production = building->GetComponent<ProductionComponent>();
+        if (recipes == nullptr || production == nullptr || !recipes->HasSelectableRecipes())
             continue;
+
+        // Recipe switches clear buffers and sever logistics connections. Do
+        // not destroy the player's only active line for another demanded
+        // resource merely because the next deficit happens to rank first.
+        bool protectsUniqueOutput = false;
+        for (const auto& [currentOutput, amount] : production->products)
+        {
+            if (amount > 0 && currentOutput != resource &&
+                CountProducersOfResource(player, currentOutput) <= 1)
+            {
+                protectsUniqueOutput = true;
+                break;
+            }
+        }
+        if (protectsUniqueOutput)
+            continue;
+
         for (int i = 0; i < static_cast<int>(recipes->recipes.size()); i++)
         {
-            if (i == recipes->activeRecipeIndex)
+            if (i == recipes->activeRecipeIndex || !recipes->IsRecipeAvailable(*building, i))
                 continue;
             auto it = recipes->recipes[i].outputs.find(resource);
             if (it == recipes->recipes[i].outputs.end() || it->second <= 0)

@@ -12,7 +12,7 @@
 
 TEST(GameCommandTests, SerializesAndDeserializesBuildCommand)
 {
-    GameCommand original = GameCommand::BuildBuilding(2, BuildingType::LumberMill, {12, 34}, false);
+    GameCommand original = GameCommand::BuildBuilding(2, BuildingType::LumberMill, {12, 34});
     original.commandId = 42;
     original.targetTick = 7;
 
@@ -26,7 +26,6 @@ TEST(GameCommandTests, SerializesAndDeserializesBuildCommand)
     EXPECT_EQ(parsed.buildingType, BuildingType::LumberMill);
     EXPECT_EQ(parsed.tilePos.x, 12);
     EXPECT_EQ(parsed.tilePos.y, 34);
-    EXPECT_FALSE(parsed.chargeCost);
 }
 
 TEST(GameCommandTests, SerializesAndDeserializesFocusAndResearchIds)
@@ -125,6 +124,19 @@ TEST(GameCommandTests, RejectsMalformedPayload)
     EXPECT_FALSE(GameCommand::TryDeserialize("1 999 0", parsed));
     EXPECT_FALSE(GameCommand::TryDeserialize("0 0 1 2 3 4 5 6 1 0 0 -1 \"bad\"", parsed));
     EXPECT_FALSE(GameCommand::TryDeserialize("not a command", parsed));
+}
+
+TEST(GameCommandTests, RejectsPreviousWireVersionAndTrailingFields)
+{
+    Archive old(14);
+    old << std::uint64_t{1} << std::uint64_t{1}
+        << static_cast<int>(GameCommandType::BuildBuilding) << 0
+        << static_cast<int>(BuildingType::LumberMill) << 2 << 3
+        << -1 << -1 << 0 << 0 << std::string{} << 0;
+
+    GameCommand parsed;
+    EXPECT_FALSE(GameCommand::TryDeserialize(old.GetString(), parsed));
+    EXPECT_FALSE(GameCommand::TryDeserialize(GameCommand::DestroyBuilding(0, 4).Serialize() + " 123", parsed));
 }
 
 TEST(GameCommandTests, SerializesAndDeserializesCommandResult)

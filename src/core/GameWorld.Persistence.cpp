@@ -1,19 +1,46 @@
 #include "core/GameWorldInternal.h"
+#include "core/PersistenceLimits.h"
+#include "platform/AtomicFile.h"
 
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 using namespace GameWorldInternal;
 
 // Serializes current runtime state.
 bool GameWorld::SaveToFile(const std::string& path) const
 {
-    std::ofstream out(path, std::ios::trunc);
-    if (!out.is_open())
+    namespace fs = std::filesystem;
+    const fs::path destination(path);
+    std::ostringstream serialized;
+    if (!SaveToStream(serialized) || !serialized.good())
         return false;
 
-    return SaveToStream(out) && out.good();
+    std::error_code ignored;
+    if (fs::exists(destination, ignored))
+    {
+        const fs::path backup1 = destination.string() + ".bak.1";
+        const fs::path backup2 = destination.string() + ".bak.2";
+        const fs::path backup3 = destination.string() + ".bak.3";
+        fs::remove(backup3, ignored);
+        fs::rename(backup2, backup3, ignored);
+        ignored.clear();
+        fs::rename(backup1, backup2, ignored);
+        ignored.clear();
+        fs::copy_file(destination, backup1, fs::copy_options::overwrite_existing, ignored);
+    }
+
+    std::string error;
+    return AtomicFileTransaction::Write(destination,
+        [&](std::ostream& out)
+        {
+            out << serialized.str();
+            return out.good();
+        }, &error);
 }
 
 std::string GameWorld::SerializeSimulationState() const
@@ -39,7 +66,7 @@ bool GameWorld::SaveToStream(std::ostream& out) const
     // deterministic checksum; the default stream precision silently rounds
     // timers and resource rates after a few ticks.
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    out << "RTS_SAVE 34\n";
+    out << "RTS_SAVE " << SerializationVersion::GameWorldSaveVersion << '\n';
     out << "WORLD " << std::quoted(worldName) << '\n';
     out << "RUNTIME " << localPlayerId << ' ' << simulationTick << ' ' << nextCommandId << ' '
         << nextProjectileId << '\n';
@@ -316,11 +343,28 @@ bool GameWorld::SaveToStream(std::ostream& out) const
 // Loads the requested data into runtime state.
 bool GameWorld::LoadFromFile(const std::string& path, Renderer* renderer, AudioSystem* a)
 {
-    std::ifstream in(path);
+    std::ifstream in(path, std::ios::binary);
     if (!in.is_open())
         return false;
 
-    return LoadFromStream(in, renderer, a, -1);
+    std::string payload((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (payload.empty() || payload.size() > 64u * 1024u * 1024u)
+        return false;
+
+    try
+    {
+        GameWorld candidate;
+        std::istringstream state(payload);
+        if (!candidate.LoadFromStream(state, renderer, a, -1))
+            return false;
+        *this = std::move(candidate);
+        RebindMovedState();
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
 }
 
 bool GameWorld::RestoreSimulationState(std::string_view payload, int localPlayerIdOverride)
@@ -332,21 +376,30 @@ bool GameWorld::RestoreSimulationState(std::string_view payload, int localPlayer
     if (payload.empty() || payload.size() > MaxSimulationStateBytes)
         return false;
 
-    // Loading mutates GameWorld progressively. Preserve a known-good rollback
-    // representation so a malformed network state does not leave the client
-    // playing on a partial world. A failure to restore the rollback is still
-    // reported as failure to the caller.
-    const std::string rollback = SerializeSimulationState();
-    if (rollback.empty())
-        return false;
-
-    std::istringstream in{std::string(payload)};
-    if (LoadFromStream(in, render, audio, localPlayerIdOverride))
+    try
+    {
+        GameWorld candidate;
+        std::istringstream in{std::string(payload)};
+        if (!candidate.LoadFromStream(in, render, audio, localPlayerIdOverride))
+            return false;
+        *this = std::move(candidate);
+        RebindMovedState();
         return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
 
-    std::istringstream rollbackStream{rollback};
-    LoadFromStream(rollbackStream, render, audio, -1);
-    return false;
+void GameWorld::RebindMovedState()
+{
+    for (auto& [playerId, player] : playerHandler.players)
+    {
+        (void)playerId;
+        if (player != nullptr && player->roadNetwork != nullptr)
+            player->roadNetwork->RebindWorld(tilemap);
+    }
 }
 
 bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem* a,
@@ -400,6 +453,9 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     in >> tag >> tilemap.params.sizeX >> tilemap.params.sizeY >> tilemap.params.seed >> preset;
     if (tag != "PARAMS")
         return false;
+    std::size_t expectedTileCount = 0;
+    if (!PersistenceLimits::CheckedArea(tilemap.params.sizeX, tilemap.params.sizeY, expectedTileCount))
+        return false;
     tilemap.params.sizePreset = static_cast<MapSizePreset>(preset);
     if (version >= 3)
     {
@@ -429,7 +485,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     controllers.clear();
     int playerCount = 0;
     in >> tag >> playerCount;
-    if (tag != "PLAYERS")
+    if (tag != "PLAYERS" || !PersistenceLimits::IsCountInRange(playerCount, PersistenceLimits::MaxSupportedPlayers))
         return false;
 
     for (int i = 0; i < playerCount; i++)
@@ -508,7 +564,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
 
         int rosterCount = 0;
         in >> tag >> player->nextUnitInstanceId >> rosterCount;
-        if (tag != "ROSTER")
+        if (tag != "ROSTER" || !PersistenceLimits::IsCountInRange(rosterCount, PersistenceLimits::MaxUnits))
             return false;
         for (int u = 0; u < rosterCount; u++)
         {
@@ -549,6 +605,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
         if (tag != "CONQUERED")
             return false;
         std::vector<ConqueredBuildingRamp> ramps;
+        if (!PersistenceLimits::IsCountInRange(conqueredCount, PersistenceLimits::MaxBuildings))
+            return false;
         ramps.reserve(conqueredCount);
         for (int r = 0; r < conqueredCount; r++)
         {
@@ -592,7 +650,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
 
     int tileCount = 0;
     in >> tag >> tileCount;
-    if (tag != "TILES")
+    if (tag != "TILES" || !PersistenceLimits::IsCountInRange(tileCount, PersistenceLimits::MaxMapTiles) ||
+        static_cast<std::size_t>(tileCount) != expectedTileCount)
         return false;
 
     tilemap.tilemap.clear();
@@ -609,6 +668,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
             in >> resourceOverlayTextureId;
         in >> ownerId;
         if (tag != "T")
+            return false;
+        if (id < 0 || static_cast<std::size_t>(id) >= expectedTileCount || id != i)
             return false;
 
         Tile tile{id};
@@ -640,7 +701,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // reapply Tile::isMilitaryRoad from the saved tile lists.
     int militaryRouteCount = 0;
     in >> tag >> militaryRouteCount;
-    if (tag != "MILROADS")
+    if (tag != "MILROADS" || !PersistenceLimits::IsCountInRange(militaryRouteCount, PersistenceLimits::MaxRouteCount))
         return false;
 
     std::vector<MilitaryRoute> loadedRoutes;
@@ -653,13 +714,16 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
         if (tag != "MROUTE")
             return false;
 
+        if (!PersistenceLimits::IsCountInRange(tileCountInRoute, PersistenceLimits::MaxRouteTiles))
+            return false;
         route.tiles.reserve(tileCountInRoute);
         for (size_t t = 0; t < tileCountInRoute; t++)
         {
             int tileId = 0;
             in >> tileId;
-            if (tileId >= 0 && tileId < static_cast<int>(tilemap.tilemap.size()))
-                tilemap.tilemap[tileId].isMilitaryRoad = true;
+            if (tileId < 0 || static_cast<std::size_t>(tileId) >= expectedTileCount)
+                return false;
+            tilemap.tilemap[tileId].isMilitaryRoad = true;
             route.tiles.push_back(tileId);
         }
         loadedRoutes.push_back(std::move(route));
@@ -669,7 +733,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     std::vector<PendingConnection> pendingConnections;
     int buildingCount = 0;
     in >> tag >> buildingCount;
-    if (tag != "BUILDINGS")
+    if (tag != "BUILDINGS" || !PersistenceLimits::IsCountInRange(buildingCount, PersistenceLimits::MaxBuildings))
         return false;
 
     for (int i = 0; i < buildingCount; i++)
@@ -850,6 +914,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
                     int altCount = 0;
                     in >> altCount;
                     logistics->altReceivers.clear();
+                    if (!PersistenceLimits::IsCountInRange(altCount, PersistenceLimits::MaxBufferEntries))
+                        return false;
                     for (int n = 0; n < altCount; n++)
                     {
                         int type = 0, target = -1;
@@ -1035,7 +1101,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // TD(etap-4): deployed units, world-scoped.
     int deployedCount = 0;
     in >> tag >> deployedCount;
-    if (tag != "DEPLOYEDUNITS")
+    if (tag != "DEPLOYEDUNITS" || !PersistenceLimits::IsCountInRange(deployedCount, PersistenceLimits::MaxUnits))
         return false;
 
     deployedUnits.clear();
@@ -1071,7 +1137,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
 
     int spawnQueueCount = 0;
     in >> tag >> spawnQueueCount;
-    if (tag != "SPAWNQUEUES")
+    if (tag != "SPAWNQUEUES" || !PersistenceLimits::IsCountInRange(spawnQueueCount, PersistenceLimits::MaxSupportedPlayers * PersistenceLimits::MaxSupportedPlayers))
         return false;
 
     spawnQueues.clear();
@@ -1084,6 +1150,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
             return false;
 
         std::deque<int> queue;
+        if (!PersistenceLimits::IsCountInRange(queueLength, PersistenceLimits::MaxQueueEntries))
+            return false;
         for (size_t q = 0; q < queueLength; q++)
         {
             int unitInstanceId = 0;
@@ -1097,7 +1165,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     {
         int projectileCount = 0;
         in >> tag >> projectileCount;
-        if (tag != "PROJECTILES" || projectileCount < 0)
+        if (tag != "PROJECTILES" || !PersistenceLimits::IsCountInRange(projectileCount, PersistenceLimits::MaxProjectiles))
             return false;
         for (int i = 0; i < projectileCount; ++i)
         {
@@ -1120,6 +1188,10 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
             projectiles[id] = std::move(projectile);
         }
     }
+
+    in >> std::ws;
+    if (!in.eof())
+        return false;
 
     UpdateFogOfWar();
     return true;

@@ -36,16 +36,11 @@ target_sources(game
                economy/TowerCombatComponent.cpp
                economy/Player.cpp
                economy/StockpileIndex.cpp
-               economy/BalanceStatDisplay.cpp
                scenes/Game.cpp
-               data/Resource.cpp
-               data/Equipment.cpp
-               data/TextureConfig.cpp
                simulation/RoadNetwork.cpp
                simulation/PathingService.cpp
                simulation/MapGenerator.cpp
                simulation/MilitaryRoadNetwork.cpp
-               data/RtsDataFile.cpp
                warfare/UnitDefinition.cpp
                warfare/BattleUnit.cpp
                warfare/UnitMarchSystem.cpp
@@ -71,9 +66,6 @@ target_sources(game
                scenes/TutorialScene.cpp
                scenes/GameMenuScene.cpp
                ui/Gui.cpp
-               ui/ControlIcons.cpp
-               ui/UiText.cpp
-               ui/UiWidgets.cpp
                ui/GuiHandler.cpp
                ui/InputManager.cpp
                research/ResearchCatalog.cpp
@@ -105,10 +97,11 @@ source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInte
              economy/StorageComponent.cpp economy/PopulationComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/RecruitmentComponent.cpp
              economy/HqComponent.cpp economy/ConqueredEconomy.cpp economy/TowerCombatComponent.cpp
-             economy/Player.cpp economy/StockpileIndex.cpp economy/BalanceStatDisplay.cpp)
+             economy/Player.cpp economy/StockpileIndex.cpp)
 source_group("simulation" FILES simulation/RoadNetwork.cpp simulation/MapGenerator.cpp
              simulation/MilitaryRoadNetwork.cpp)
-source_group("data" FILES data/Resource.cpp data/Equipment.cpp data/TextureConfig.cpp data/RtsDataFile.cpp)
+source_group("data" FILES)
+source_group("platform" FILES)
 source_group("warfare" FILES warfare/UnitDefinition.cpp warfare/BattleUnit.cpp warfare/UnitMarchSystem.cpp
              warfare/CombatPipeline.cpp warfare/UnitCombatSystem.cpp warfare/HqCombatSystem.cpp
              warfare/TowerAttackSystem.cpp)
@@ -118,6 +111,6 @@ source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUt
              scenes/MainMenuScene.cpp scenes/OptionsScene.cpp scenes/NewGameScene.cpp
              scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp
              scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/TutorialScene.cpp scenes/GameMenuScene.cpp)
-source_group("ui" FILES ui/Gui.cpp ui/ControlIcons.cpp ui/UiText.cpp ui/UiWidgets.cpp ui/Renderer.cpp ui/ShaderLibrary.cpp ui/WorldLighting.cpp ui/GuiController.cpp ui/GuiCommon.cpp
+source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/ShaderLibrary.cpp ui/WorldLighting.cpp ui/GuiController.cpp ui/GuiCommon.cpp
              ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/GuiRoster.cpp ui/GuiStockpile.cpp ui/AudioSystem.cpp)

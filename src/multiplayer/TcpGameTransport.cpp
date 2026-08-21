@@ -19,6 +19,7 @@
 #include "core/Log.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdlib>
 
@@ -132,7 +133,7 @@ void TcpGameTransport::SendClientCommand(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveHostCommands()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    return Drain(hostCommands);
+    return Drain(hostCommands, hostCommandsBytes);
 }
 
 void TcpGameTransport::SendHostResult(const std::string& payload)
@@ -147,7 +148,7 @@ void TcpGameTransport::SendHostResult(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveClientResults()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    return Drain(clientResults);
+    return Drain(clientResults, clientResultsBytes);
 }
 
 void TcpGameTransport::SendHostFrame(const std::string& payload)
@@ -161,11 +162,12 @@ void TcpGameTransport::SendHostFrame(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveClientFrames()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    std::vector<std::string> result = Drain(clientReliableFrames);
+    std::vector<std::string> result = Drain(clientReliableFrames, clientReliableFramesBytes);
     if (clientLatestFrame.has_value())
     {
         result.push_back(std::move(*clientLatestFrame));
         clientLatestFrame.reset();
+        clientLatestFrameBytes = 0;
     }
     return result;
 }
@@ -190,7 +192,7 @@ void TcpGameTransport::SendHostSnapshot(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveClientSnapshots()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    return Drain(clientSnapshots);
+    return Drain(clientSnapshots, clientSnapshotsBytes);
 }
 
 void TcpGameTransport::SendLobbyMessage(const std::string& payload)
@@ -202,23 +204,13 @@ void TcpGameTransport::SendLobbyMessage(const std::string& payload)
 std::vector<std::string> TcpGameTransport::ReceiveLobbyMessages()
 {
     std::lock_guard<std::mutex> lock(mutex);
-    return Drain(lobbyMessages);
+    return Drain(lobbyMessages, lobbyMessagesBytes);
 }
 
 bool TcpGameTransport::SendFrame(NetworkMessageType type, NetworkChannel channel, const std::string& payload,
                                  bool priority)
 {
     std::lock_guard<std::mutex> lock(mutex);
-    constexpr size_t MaxOutboundFrames = 1024;
-    if (outboundFrames.size() >= MaxOutboundFrames)
-    {
-        failed = true;
-        running = false;
-        status = "Outbound queue full; connection closed";
-        Log::Msg("[TCP]", status);
-        return false;
-    }
-
     NetworkFrame frame;
     frame.type = type;
     frame.channel = channel;
@@ -236,18 +228,54 @@ bool TcpGameTransport::SendFrame(NetworkMessageType type, NetworkChannel channel
         return false;
     }
 
-    if (priority)
-        outboundFrames.push_front(std::move(encoded));
-    else
-        outboundFrames.push_back(std::move(encoded));
+    constexpr std::size_t MaxOutboundFrames = 1024;
+    constexpr std::size_t MaxOutboundBytes = 8u * 1024u * 1024u;
+    if (outboundFrames.size() >= MaxOutboundFrames ||
+        encoded.size() > MaxOutboundBytes - std::min(outboundBytes, MaxOutboundBytes))
+    {
+        failed = true;
+        running = false;
+        status = "Outbound queue budget exceeded; connection closed";
+        Log::Msg("[TCP]", status);
+        return false;
+    }
+
+    outboundBytes += encoded.size();
+    // A connection has one global sequence stream. Reordering a priority
+    // frame ahead of already queued data would make the peer observe a gap
+    // even though every frame is present. Keep wire order identical to the
+    // sequence order; priority may still be used by callers as a semantic
+    // hint, but cannot violate transport ordering.
+    (void)priority;
+    outboundFrames.push_back(std::move(encoded));
     return true;
 }
 
-std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue)
+bool TcpGameTransport::QueueBounded(std::deque<std::string>& queue, std::size_t& queuedBytes,
+                                    std::string payload)
+{
+    constexpr std::size_t MaxQueuedFrames = 1024;
+    constexpr std::size_t MaxQueuedBytes = 8u * 1024u * 1024u;
+    if (queue.size() >= MaxQueuedFrames ||
+        payload.size() > MaxQueuedBytes - std::min(queuedBytes, MaxQueuedBytes))
+    {
+        failed = true;
+        running = false;
+        status = "Inbound queue budget exceeded; connection closed";
+        Log::Msg("[TCP]", status);
+        return false;
+    }
+    queuedBytes += payload.size();
+    queue.push_back(std::move(payload));
+    return true;
+}
+
+std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue, std::size_t& queuedBytes)
 {
     std::vector<std::string> result;
     while (!queue.empty())
     {
+        queuedBytes -= std::min(queuedBytes, queue.front().size());
         result.push_back(std::move(queue.front()));
         queue.pop_front();
     }
@@ -256,17 +284,26 @@ std::vector<std::string> TcpGameTransport::Drain(std::deque<std::string>& queue)
 
 void TcpGameTransport::QueueIncomingFrame(const NetworkFrame& frame)
 {
+    if (!inboundSequence.Accept(frame.sequence))
+    {
+        failed = true;
+        running = false;
+        SetStatus("Protocol sequence gap or duplicate; connection closed");
+        Log::Msg("[TCP] ", GetStatus());
+        return;
+    }
+
     if (frame.type == NetworkMessageType::ClientCommand)
     {
         Log::Msg("[TCP]", "Received client command payload");
         std::lock_guard<std::mutex> lock(mutex);
-        hostCommands.push_back(frame.payload);
+        QueueBounded(hostCommands, hostCommandsBytes, frame.payload);
     }
     else if (frame.type == NetworkMessageType::CommandResult)
     {
         Log::Msg("[TCP]", "Received host result payload");
         std::lock_guard<std::mutex> lock(mutex);
-        clientResults.push_back(frame.payload);
+        QueueBounded(clientResults, clientResultsBytes, frame.payload);
     }
     else if (frame.type == NetworkMessageType::ServerFrame)
     {
@@ -274,11 +311,12 @@ void TcpGameTransport::QueueIncomingFrame(const NetworkFrame& frame)
         if (!GameServerFrame::TryDeserialize(frame.payload, serverFrame) || !serverFrame.results.empty())
         {
             std::lock_guard<std::mutex> lock(mutex);
-            clientReliableFrames.push_back(frame.payload);
+            QueueBounded(clientReliableFrames, clientReliableFramesBytes, frame.payload);
         }
         else
         {
             std::lock_guard<std::mutex> lock(mutex);
+            clientLatestFrameBytes = frame.payload.size();
             clientLatestFrame = frame.payload;
         }
     }
@@ -286,13 +324,13 @@ void TcpGameTransport::QueueIncomingFrame(const NetworkFrame& frame)
     {
         Log::Msg("[TCP]", "Received lobby message");
         std::lock_guard<std::mutex> lock(mutex);
-        lobbyMessages.push_back(frame.payload);
+        QueueBounded(lobbyMessages, lobbyMessagesBytes, frame.payload);
     }
     else if (frame.channel == NetworkChannel::Snapshot)
     {
         Log::Msg("[TCP]", "Received host snapshot payload");
         std::lock_guard<std::mutex> lock(mutex);
-        clientSnapshots.push_back(frame.payload);
+        QueueBounded(clientSnapshots, clientSnapshotsBytes, frame.payload);
     }
     else if (frame.type == NetworkMessageType::Ping)
     {
@@ -300,16 +338,17 @@ void TcpGameTransport::QueueIncomingFrame(const NetworkFrame& frame)
     }
     else if (frame.type == NetworkMessageType::Pong)
     {
-        try
+        long long sentAt = 0;
+        const char* first = frame.payload.data();
+        const char* last = first + frame.payload.size();
+        const auto parsed = std::from_chars(first, last, sentAt);
+        if (parsed.ec == std::errc{} && parsed.ptr == last)
         {
-            long long sentAt = std::stoll(frame.payload);
             int measuredPing = static_cast<int>(std::max<long long>(0, NowMillis() - sentAt));
             pingMs = measuredPing;
         }
-        catch (...)
-        {
+        else
             pingMs = -1;
-        }
     }
 }
 
@@ -503,6 +542,7 @@ void TcpGameTransport::NetworkLoop()
             constexpr size_t MaxBufferedFrames = 256;
             while (!outboundFrames.empty() && outgoing.size() < MaxBufferedFrames)
             {
+                outboundBytes -= std::min(outboundBytes, outboundFrames.front().size());
                 outgoing.push_back(std::move(outboundFrames.front()));
                 outboundFrames.pop_front();
             }

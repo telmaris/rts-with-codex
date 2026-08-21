@@ -6,9 +6,9 @@
 # production of these resources instead of stalling once its starting stock
 # runs dry (playtest 2026-07-17: roads stopped dead when STONE ran out).
 #
-# Values are hand-tuned per-minute averages. difficulty_scale multiplies
-# them per AI difficulty level (0 Primitive .. 3 Hard) — a better-tuned,
-# fuller bias equals a stronger economy, i.e. a harder opponent.
+# Values are hand-tuned per-minute averages. Every difficulty uses the same
+# planning targets and decision quality; difficulty is expressed solely by
+# the starting-resource profile in ai/AIDifficulty.h.
 #
 # Retuned 2026-07-18 (AI economy tuning plan, Task 5) after fixing the three
 # structural bugs the original values were masking (chain-walk poisoned by
@@ -23,7 +23,7 @@
 # (tests/AIBehaviorHarnessTests.cpp)'s planks/m column if it stalls forever
 # (bias too high) or the AI never bothers building the chain (bias too low).
 ai_economy_bias
-    difficulty_scale 0.4 0.6 0.8 1.0
+    difficulty_scale 1.0 1.0 1.0 1.0
     consumption WOOD 20
     consumption STONE 25
     consumption PLANKS 12

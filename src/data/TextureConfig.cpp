@@ -1,10 +1,12 @@
 #include "data/TextureConfig.h"
+#include "platform/AtomicFile.h"
 
 #include "data/RtsDataFile.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 
 namespace
@@ -32,7 +34,7 @@ namespace
             return fallback;
         try
         {
-            return std::stoi(raw);
+            return RtsDataIntOr(raw, fallback);
         }
         catch (const std::exception&)
         {
@@ -47,7 +49,7 @@ namespace
             return fallback;
         try
         {
-            return std::stod(raw);
+            return RtsDataDoubleOr(raw, fallback);
         }
         catch (const std::exception&)
         {
@@ -158,11 +160,11 @@ TextureConfig LoadTextureConfig(const std::string& path, std::string* outError)
                 TextureAtlasDefinition atlas;
                 try
                 {
-                    atlas.id = std::stoi(tokens[1]);
+                    atlas.id = RtsDataIntOr(tokens[1]);
                     atlas.name = tokens[2];
                     atlas.path = tokens[3];
-                    atlas.cellWidth = std::stoi(tokens[4]);
-                    atlas.cellHeight = std::stoi(tokens[5]);
+                    atlas.cellWidth = RtsDataIntOr(tokens[4]);
+                    atlas.cellHeight = RtsDataIntOr(tokens[5]);
                 }
                 catch (const std::exception&)
                 {
@@ -313,23 +315,17 @@ bool SaveTextureConfig(const std::string& path, const TextureConfig& config, std
     if (outError != nullptr)
         outError->clear();
 
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    if (!file.is_open())
-    {
-        if (outError != nullptr)
-            *outError = "cannot open for writing: " + path;
-        return false;
-    }
-
-    file << FormatTextureConfig(config);
-    if (!file.good())
-    {
-        if (outError != nullptr)
-            *outError = "write failed: " + path;
-        return false;
-    }
-
-    return true;
+    std::string error;
+    const bool written = AtomicFileTransaction::Write(
+        std::filesystem::path(path),
+        [&](std::ostream& file)
+        {
+            file << FormatTextureConfig(config);
+            return file.good();
+        }, &error);
+    if (!written && outError != nullptr)
+        *outError = error.empty() ? "atomic write failed: " + path : error;
+    return written;
 }
 
 bool TextureConfigEquals(const TextureConfig& a, const TextureConfig& b, std::string* outDifference)

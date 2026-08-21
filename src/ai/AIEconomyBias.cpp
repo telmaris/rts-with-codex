@@ -97,13 +97,13 @@ AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
         if (tokens[0] == "difficulty_scale" && tokens.size() >= 1 + bias.difficultyScale.size())
         {
             for (size_t i = 0; i < bias.difficultyScale.size(); i++)
-                bias.difficultyScale[i] = std::stod(tokens[1 + i]);
+                bias.difficultyScale[i] = RtsDataDoubleOr(tokens[1 + i]);
             continue;
         }
         if (tokens[0] == "consumption" && tokens.size() >= 3)
         {
             ResourceType type = ParseResourceType(tokens[1]);
-            int amount = std::stoi(tokens[2]);
+            int amount = RtsDataIntOr(tokens[2]);
             if (type != ResourceType::Null && amount > 0)
                 bias.virtualConsumptionPerMinute[type] = amount;
             continue;
@@ -111,26 +111,26 @@ AIEconomyBias LoadAIEconomyBiasFromFile(const std::string& path)
         if (tokens[0] == "priority" && tokens.size() >= 3)
         {
             ResourceType type = ParseResourceType(tokens[1]);
-            int weight = std::stoi(tokens[2]);
+            int weight = RtsDataIntOr(tokens[2]);
             if (type != ResourceType::Null && weight > 0)
                 bias.priorityWeight[type] = std::min(weight, PriorityCeiling);
             continue;
         }
         if (tokens[0] == "tower_readiness_buildings" && tokens.size() >= 2)
         {
-            bias.towerReadinessBuildings = std::max(0, std::stoi(tokens[1]));
+            bias.towerReadinessBuildings = std::max(0, RtsDataIntOr(tokens[1]));
             continue;
         }
         if (tokens[0] == "decision_interval" && tokens.size() >= 2)
         {
             // Floor at 0.2 s — below that the AI would submit faster than the
             // economy can physically react, burning CPU on refused commands.
-            bias.decisionIntervalSeconds = std::max(0.2, std::stod(tokens[1]));
+            bias.decisionIntervalSeconds = std::max(0.2, RtsDataDoubleOr(tokens[1]));
             continue;
         }
         if (tokens[0] == "manpower_reserve" && tokens.size() >= 2)
         {
-            bias.manpowerReserve = std::max(0.0, std::stod(tokens[1]));
+            bias.manpowerReserve = std::max(0.0, RtsDataDoubleOr(tokens[1]));
             continue;
         }
     }

@@ -17,6 +17,12 @@
 
 class AudioSystem;
 
+enum class BuildPaymentPolicy
+{
+    ChargeAuthoritativeCost,
+    FreeDebugHuman
+};
+
 #include <cstdint>
 #include <deque>
 #include <iosfwd>
@@ -38,6 +44,10 @@ class GameWorld
 {
     public:
         GameWorld() = default;
+        GameWorld(const GameWorld&) = delete;
+        GameWorld& operator=(const GameWorld&) = delete;
+        GameWorld(GameWorld&&) noexcept = default;
+        GameWorld& operator=(GameWorld&&) noexcept = default;
 
         // Creates a new world with generated terrain and starting entities.
         void InitWorld(std::string, Renderer*, AudioSystem* audio = nullptr, MapParameters params = {});
@@ -73,6 +83,8 @@ class GameWorld
         GameSnapshot BuildSnapshot() const;
         // Computes a deterministic low-cost gameplay checksum for mirror validation.
         std::uint64_t BuildChecksum() const;
+        // Bounded AI diagnostics for failed harness scenarios; not simulation state.
+        std::string GetAITrace(int playerId) const;
         // Returns the player controlled by local UI.
         int GetLocalPlayerId() const { return localPlayerId; }
         // True when a player's Headquarters has been captured (player eliminated).
@@ -180,6 +192,7 @@ class GameWorld
         // Derived state is intentionally rebuilt after load/snapshot rather than
         // serialized as a visual texture or GPU resource.
         void UpdateFogOfWar();
+        void RebindMovedState();
         bool SaveToStream(std::ostream& out) const;
         bool LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem* audio,
                             int localPlayerIdOverride);
@@ -209,6 +222,10 @@ class GameWorld
         Vec2f cachedCameraTarget{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
         float cachedCameraZoom{-1.0f};
 };
+
+// Resolves build payment from authoritative world state only. A command never
+// carries a price, construction shortcut, or permission bit.
+BuildPaymentPolicy ResolveBuildPaymentPolicy(const GameWorld& world, const Player& player);
 
 
 #endif

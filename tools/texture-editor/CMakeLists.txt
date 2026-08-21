@@ -2,13 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 # Standalone dev tool: texture viewer/editor for everything under assets/textures.
 #
-# Same deal as tools/tech-tree-editor: deliberately NOT wired into the game's
-# top-level CMakeLists, so a broken tool can never break the game build. It does
-# compile a handful of the game's REAL translation units by relative path
-# (RTS_SHARED_SOURCES below) — the .rtsdata tokenizer and the shared UI widgets —
-# because the tool reads files the game must read the same way.
+# The editor links the same production parser and shared UI targets as the game.
+# This keeps editor round-trips and runtime loading on one implementation.
 #
-# Pilot stage: read-only viewer. Nothing here writes to assets/.
+# Standalone editor: saving rewrites assets/data/textures.rtsdata after a
+# production-parser round-trip check (see Document::Save).
 
 project(TextureEditor LANGUAGES CXX)
 
@@ -25,7 +23,7 @@ endif()
 message(STATUS "Game root: ${RTS_ROOT}")
 
 find_package(raylib 5.0 QUIET)
-if (NOT raylib_FOUND)
+if (NOT TARGET raylib AND NOT raylib_FOUND)
     if (raylib_INCLUDE_DIR AND raylib_LIBRARY)
         add_library(raylib UNKNOWN IMPORTED)
         set_target_properties(raylib PROPERTIES
@@ -40,18 +38,7 @@ endif()
 
 # Game translation units compiled verbatim — the single source of truth for how
 # a .rtsdata file is tokenized and how the shared UI chrome renders.
-set(RTS_SHARED_SOURCES
-    # The textures.rtsdata model + parser + serializer, shared with the game's
-    # building-art runtime so editor saves are visible in the next game launch.
-    "${RTS_ROOT}/src/data/TextureConfig.cpp"
-    "${RTS_ROOT}/src/data/RtsDataFile.cpp"
-    "${RTS_ROOT}/src/data/Resource.cpp"
-    # ResourcePool's constructor calls FindEquipmentProfile.
-    "${RTS_ROOT}/src/data/Equipment.cpp"
-    # Shared UI: text metrics and input widgets, already extracted out of Gui.cpp
-    # for tools/tech-tree-editor.
-    "${RTS_ROOT}/src/ui/UiText.cpp"
-    "${RTS_ROOT}/src/ui/UiWidgets.cpp")
+set(RTS_SHARED_SOURCES)
 
 if (WIN32)
     # Same reason as the game: raylib references timeBeginPeriod/timeEndPeriod but
@@ -76,7 +63,7 @@ add_executable(texture_editor
 source_group("shared (game)" FILES ${RTS_SHARED_SOURCES})
 
 target_include_directories(texture_editor PRIVATE "${RTS_ROOT}/inc" src)
-target_link_libraries(texture_editor PRIVATE raylib)
+target_link_libraries(texture_editor PRIVATE raylib rts_data rts_ui_common)
 
 # Absolute paths baked in so the tool can be launched from any working directory
 # (unlike the game, which resolves "assets/..." relative to the exe).
@@ -85,4 +72,10 @@ target_compile_definitions(texture_editor PRIVATE
 
 if (UNIX AND NOT APPLE)
     target_link_libraries(texture_editor PRIVATE dl m pthread)
+endif()
+
+if (BUILD_TESTING)
+    add_test(NAME texture_editor_selftest
+             COMMAND texture_editor --selftest "${CMAKE_CURRENT_BINARY_DIR}/selftest")
+    set_tests_properties(texture_editor_selftest PROPERTIES LABELS "data;fast")
 endif()

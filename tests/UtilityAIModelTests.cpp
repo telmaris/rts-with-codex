@@ -1,5 +1,6 @@
 #include "core/GameWorld.h"
 #include "core/GameSession.h"
+#include "ai/AIDifficulty.h"
 #include "ai/AIActions.h"
 #include "ai/AIEconomyBias.h"
 #include "ai/AIModel.h"
@@ -37,6 +38,22 @@ namespace
             tile.tileType = TileType::GRASS;
             map.tilemap.push_back(std::move(tile));
         }
+    }
+
+    Vec2i FindFreeBuildingPosition(GameWorld& world, Player* owner, BuildingType type,
+                                   Vec2i origin, int minRadius = 5, int maxRadius = 50)
+    {
+        const Vec2i footprint = GetBuildingDefinition(type).footprint;
+        for (int radius = minRadius; radius <= maxRadius; radius += 2)
+            for (int y = origin.y - radius; y <= origin.y + radius; y++)
+                for (int x = origin.x - radius; x <= origin.x + radius; x++)
+                {
+                    const Vec2i position{x, y};
+                    if (world.GetTileMap().IsInside(position) &&
+                        world.GetTileMap().CanPlaceBuilding(type, position, footprint, owner))
+                        return position;
+                }
+        return {-1, -1};
     }
 }
 
@@ -241,18 +258,75 @@ TEST(UtilityAIModelTests, DebugMapDoesNotHideAIBuildCosts)
     params.sizeY = 101;
     params.aiOpponentCount = 1;
     params.aiDifficulty = 0;
-    params.debugMode = true;
     params.seed = 20260716;
 
-    GameWorld world;
-    world.InitWorld("debug-affordability", nullptr, nullptr, params);
-    Player* ai = world.GetPlayerHandler().players.at(1).get();
-    ASSERT_NE(ai, nullptr);
+    params.debugMode = false;
+    GameWorld regularWorld;
+    regularWorld.InitWorld("regular-affordability", nullptr, nullptr, params);
+
+    params.debugMode = true;
+    GameWorld debugWorld;
+    debugWorld.InitWorld("debug-affordability", nullptr, nullptr, params);
+
+    Player* regularAi = regularWorld.GetPlayerHandler().players.at(1).get();
+    Player* debugAi = debugWorld.GetPlayerHandler().players.at(1).get();
+    ASSERT_NE(regularAi, nullptr);
+    ASSERT_NE(debugAi, nullptr);
 
     const auto& barracks = GetBuildingDefinition(BuildingType::Barracks);
-    EXPECT_LT(AIActions::CountStoredResource(ai, ResourceType::TOOLS), 10);
-    EXPECT_FALSE(ai->CanBuildDefinition(barracks))
-        << "debug free-build belongs to the local human, not to AI opponents";
+    EXPECT_EQ(AIActions::CountStoredResource(debugAi, ResourceType::TOOLS),
+              AIActions::CountStoredResource(regularAi, ResourceType::TOOLS));
+    EXPECT_EQ(debugAi->CanBuildDefinition(barracks), regularAi->CanBuildDefinition(barracks))
+        << "debug free-build belongs to the local human and must not alter AI affordability";
+}
+
+TEST(UtilityAIModelTests, RecipeAssignmentKeepsTwoSmithsInStableRoles)
+{
+    MapParameters params;
+    params.sizeX = 101;
+    params.sizeY = 101;
+    params.aiOpponentCount = 0;
+    params.seed = 20260821;
+
+    GameWorld world;
+    world.InitWorld("smith-recipe-roles", nullptr, nullptr, params);
+    Player* player = world.GetPlayerHandler().players.at(0).get();
+    ASSERT_NE(player, nullptr);
+
+    Building* hq = AIActions::FindOwnedHeadquarters(player);
+    ASSERT_NE(hq, nullptr);
+    const Vec2i hqPosition = world.GetTileMap().GetCoordsFromId(hq->positionId);
+
+    Vec2i firstPosition = FindFreeBuildingPosition(world, player, BuildingType::Smith, hqPosition);
+    ASSERT_GE(firstPosition.x, 0);
+    Building* firstSmith = player->Build<Smith>(firstPosition, false);
+    ASSERT_NE(firstSmith, nullptr);
+
+    // A generic deficit must not sacrifice the sole tools line.
+    EXPECT_FALSE(AIActions::TrySwitchRecipeFor(world, player, ResourceType::IRON_SWORD));
+    EXPECT_TRUE(firstSmith->GetComponent<ProductionComponent>()->products.contains(ResourceType::TOOLS));
+
+    Vec2i secondPosition = FindFreeBuildingPosition(world, player, BuildingType::Smith, hqPosition);
+    ASSERT_GE(secondPosition.x, 0);
+    Building* secondSmith = player->Build<Smith>(secondPosition, false);
+    ASSERT_NE(secondSmith, nullptr);
+
+    // Policy may explicitly specialize stable ordinals.
+    ASSERT_TRUE(AIActions::TryAssignRecipe(
+        world, player, BuildingType::Smith, 1, ResourceType::IRON_SWORD));
+    world.UpdateSimulation(FixedSimulationClock::FixedDt);
+
+    const auto* firstProduction = firstSmith->GetComponent<ProductionComponent>();
+    const auto* secondProduction = secondSmith->GetComponent<ProductionComponent>();
+    ASSERT_NE(firstProduction, nullptr);
+    ASSERT_NE(secondProduction, nullptr);
+    EXPECT_TRUE(firstProduction->products.contains(ResourceType::TOOLS));
+    EXPECT_TRUE(secondProduction->products.contains(ResourceType::IRON_SWORD));
+
+    // Once both demanded products have a line, neither generic request
+    // produces churn or clears the workshops' buffers/connections.
+    EXPECT_FALSE(AIActions::TrySwitchRecipeFor(world, player, ResourceType::TOOLS));
+    EXPECT_FALSE(AIActions::TrySwitchRecipeFor(world, player, ResourceType::IRON_SWORD));
 }
 
 TEST(UtilityAIModelTests, IsConnectedToRoadNetworkDetectsRoadPathToStorage)
@@ -609,9 +683,11 @@ TEST(UtilityAIModelTests, AIRecruitsAndDeploysAWave)
             }
     }
 
-    EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road";
+    EXPECT_TRUE(deployed) << "the AI never got a unit marching on the military road\n"
+                          << world.GetAITrace(ai->id);
     EXPECT_GT(ai->nextUnitInstanceId, instanceCounterBefore)
-        << "the AI should have recruited at least one real unit itself";
+        << "the AI should have recruited at least one real unit itself\n"
+        << world.GetAITrace(ai->id);
 }
 
 // AI economy bias (user design 2026-07-17): amortized non-constant costs are
@@ -982,25 +1058,24 @@ TEST(UtilityAIModelTests, AIStartsNextFocusOnFirstTickAfterCompletion)
         << "focus selection must bypass the ordinary decision interval and difficulty skip";
 }
 
-// Etap 4: the difficulty noise must be seeded, never wall-clock or unseeded —
-// two independently constructed same-seed worlds with noise ACTIVE (Easy)
-// must draw the identical decision sequence and stay checksum-identical.
-TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
+// The per-player personality must be seeded, never wall-clock or unseeded.
+// Difficulty itself no longer changes decision quality.
+TEST(UtilityAIModelTests, TwoWorldsSameSeedAIStayInSync)
 {
     MapParameters params;
     params.sizeX = 101;
     params.sizeY = 101;
     params.aiOpponentCount = 1;
     params.seed = 31337;
-    params.aiDifficulty = 1;  // Easy — noise amplitude and cycle-skips active
+    params.aiDifficulty = 1;
 
     GameWorld worldA;
     GameWorld worldB;
-    worldA.InitWorld("noisy-determinism", nullptr, nullptr, params);
-    worldB.InitWorld("noisy-determinism", nullptr, nullptr, params);
+    worldA.InitWorld("ai-determinism", nullptr, nullptr, params);
+    worldB.InitWorld("ai-determinism", nullptr, nullptr, params);
 
-    // Ten simulated seconds cover multiple noisy decision cycles; map size is
-    // irrelevant to the seeded sequence this test guards.
+    // Ten simulated seconds cover multiple decision cycles; map size is
+    // irrelevant to the seeded personality sequence this test guards.
     for (int tick = 0; tick < 1000; tick++)
     {
         worldA.UpdateSimulation(FixedSimulationClock::FixedDt);
@@ -1010,9 +1085,7 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedWithNoisyAIStayInSync)
     }
 }
 
-// Personality bias (2026-07-20): unlike NoiseAmplitude/SkipChance, the
-// per-need personality skew and wave-size jitter are active on EVERY
-// difficulty, including Hard — which had ZERO randomness before this feature.
+// Personality bias and wave-size jitter are active on every difficulty.
 // Two same-seed Hard worlds must still stay checksum-identical.
 TEST(UtilityAIModelTests, TwoWorldsSameSeedHardDifficultyWithPersonalityStayInSync)
 {
@@ -1021,7 +1094,7 @@ TEST(UtilityAIModelTests, TwoWorldsSameSeedHardDifficultyWithPersonalityStayInSy
     params.sizeY = 101;
     params.aiOpponentCount = 1;
     params.seed = 31337;
-    params.aiDifficulty = 3;  // Hard — no difficulty noise, personality bias only
+    params.aiDifficulty = 3;
 
     GameWorld worldA;
     GameWorld worldB;
@@ -1078,15 +1151,54 @@ TEST(UtilityAIModelTests, PersonalityBiasDiffersAcrossPlayersButIsStablePerSeed)
     EXPECT_EQ(modelA.GetPersonalityWaveBias(), modelARepeat.GetPersonalityWaveBias());
 }
 
-// Etap 4: higher difficulty = a bigger head start (resources + manpower into
-// the AI's HQ at init), never a different algorithm.
+TEST(UtilityAIModelTests, DifficultyProfilesAreMonotonicAndPrimitiveMatchesFormerHard)
+{
+    const auto& primitive = GetAIDifficultyProfile(AIDifficulty::Primitive);
+    const auto& easy = GetAIDifficultyProfile(AIDifficulty::Easy);
+    const auto& normal = GetAIDifficultyProfile(AIDifficulty::Normal);
+    const auto& hard = GetAIDifficultyProfile(AIDifficulty::Hard);
+
+    auto amount = [](const AIDifficultyProfile& profile, ResourceType resource)
+    {
+        for (const auto& grant : profile.startingResources)
+            if (grant.resource == resource)
+                return grant.amount;
+        return 0;
+    };
+
+    EXPECT_EQ(amount(primitive, ResourceType::WOOD), 30);
+    EXPECT_EQ(amount(primitive, ResourceType::STONE), 50);
+    EXPECT_EQ(amount(primitive, ResourceType::PLANKS), 40);
+    EXPECT_EQ(amount(primitive, ResourceType::FOOD_PROVISIONS), 30);
+    EXPECT_EQ(amount(primitive, ResourceType::IRON), 30);
+    EXPECT_EQ(amount(primitive, ResourceType::TOOLS), 10);
+    EXPECT_DOUBLE_EQ(primitive.manpowerCapFraction, 0.50);
+
+    for (ResourceType resource : {ResourceType::WOOD, ResourceType::STONE,
+                                  ResourceType::PLANKS, ResourceType::FOOD_PROVISIONS,
+                                  ResourceType::IRON, ResourceType::TOOLS,
+                                  ResourceType::IRON_SWORD, ResourceType::LEATHER_ARMOR,
+                                  ResourceType::HEAVY_ARMOR, ResourceType::ARROWS,
+                                  ResourceType::BATTERING_RAM, ResourceType::BALLISTA})
+    {
+        EXPECT_LE(amount(primitive, resource), amount(easy, resource));
+        EXPECT_LE(amount(easy, resource), amount(normal, resource));
+        EXPECT_LE(amount(normal, resource), amount(hard, resource));
+    }
+    EXPECT_LT(primitive.manpowerCapFraction, easy.manpowerCapFraction);
+    EXPECT_LT(easy.manpowerCapFraction, normal.manpowerCapFraction);
+    EXPECT_LT(normal.manpowerCapFraction, hard.manpowerCapFraction);
+}
+
+// Higher difficulty = a broader head start (resources + manpower into the
+// AI's HQ at init), never a different algorithm.
 TEST(UtilityAIModelTests, HigherDifficultyGrantsStartingAdvantage)
 {
     MapParameters params;
     params.aiOpponentCount = 1;
     params.seed = 5150;
 
-    params.aiDifficulty = 0;  // Primitive — no head start
+    params.aiDifficulty = 0;  // Primitive — former Hard baseline
     GameWorld primitiveWorld;
     primitiveWorld.InitWorld("difficulty-baseline", nullptr, nullptr, params);
 
@@ -1109,4 +1221,13 @@ TEST(UtilityAIModelTests, HigherDifficultyGrantsStartingAdvantage)
     EXPECT_GT(aiHard->strategicResources.Get(StrategicResourceType::Manpower),
               humanHard->strategicResources.Get(StrategicResourceType::Manpower))
         << "the cushion is the AI's advantage over the human";
+    for (ResourceType resource : {ResourceType::IRON_SWORD, ResourceType::LEATHER_ARMOR,
+                                  ResourceType::HEAVY_ARMOR, ResourceType::ARROWS,
+                                  ResourceType::BATTERING_RAM, ResourceType::BALLISTA})
+    {
+        EXPECT_GT(AIActions::CountStoredResource(aiHard, resource),
+                  AIActions::CountStoredResource(humanHard, resource))
+            << "Hard profile did not reach the AI stockpile for resource "
+            << static_cast<int>(resource);
+    }
 }

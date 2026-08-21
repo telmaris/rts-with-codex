@@ -1,9 +1,11 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
+#include "ai/AIDifficulty.h"
 #include "economy/Player.h"
 
 #include <memory>
+#include <string>
 
 class GameWorld;
 
@@ -34,17 +36,6 @@ public:
     void Update(GameWorld& world, double dt) override;
 };
 
-// Difficulty scale for AI opponents, indexed by MapParameters::aiDifficulty
-// (0-3, set in the new-game / lobby UI). Higher levels grant a bigger
-// starting advantage and less decision noise (AI rework, TODO #2).
-enum class AIDifficulty
-{
-    Primitive,
-    Easy,
-    Normal,
-    Hard
-};
-
 class UtilityAIModel;
 
 // AI rework (TODO #2, 2026-07-16): the old PrimitiveAIModel decision layer
@@ -61,6 +52,7 @@ public:
 
     void Update(GameWorld& world, double dt) override;
     void SetDifficulty(AIDifficulty newDifficulty);
+    std::string GetDecisionTrace() const;
 
 private:
     AIDifficulty difficulty{AIDifficulty::Primitive};

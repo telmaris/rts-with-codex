@@ -37,6 +37,10 @@ class RoadNetwork
     RoadNetwork(TileMap&);
     ~RoadNetwork();
 
+    // GameWorld can commit a fully parsed temporary state by moving its
+    // owning graph. Rebind non-owning world pointers before publishing it.
+    void RebindWorld(TileMap& map);
+
     // Advances road network state.
     void Update(double);
     // Starts a resource transport if a valid path exists.

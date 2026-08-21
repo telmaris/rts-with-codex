@@ -143,14 +143,17 @@ namespace AIActions
                           TileType preferredTile, const Building* target, AIActionState& state);
     bool TrySubmitBuild(GameWorld& world, Player* player, BuildingType type, Vec2i anchor,
                         AIActionState& state);
-    // Cause-D fix (2026-07-20): a freshly built multi-recipe building defaults
-    // to recipe index 0 (RecipeComponent::SetRecipes) — Foundry -> COPPER,
-    // Smith -> TOOLS — which is NOT what the AI built it for (IRON, a sword).
-    // Nothing in the AI ever switched it, so the whole iron/weapon chain died
-    // at the smelter/forge regardless of ore supply. If the player owns a
-    // completed building whose recipe list can produce `resource` but isn't
-    // currently doing so (and no other building actively produces it), submit
-    // a SetRecipe command to switch it. Deterministic: candidates sorted by id.
+    // Assign an explicit role to the nth completed building of one type.
+    // Used by policy code for stable workshop roles (e.g. Smith #0 = tools,
+    // Smith #1 = swords). Returns true only when it submits a SetRecipe.
+    bool TryAssignRecipe(GameWorld& world, Player* player, BuildingType buildingType,
+                         int buildingOrdinal, ResourceType resource);
+
+    // Generic recovery for an inactive recipe. It may repurpose only a
+    // redundant production line: the last active producer of its current
+    // output is protected. This prevents a lone Smith from oscillating
+    // between TOOLS and IRON_SWORD as consecutive deficits are evaluated.
+    // Deterministic: candidates sorted by building id.
     bool TrySwitchRecipeFor(GameWorld& world, Player* player, ResourceType resource);
     // BFS road path between two buildings' adjacency, submitted as Road build
     // commands (capped per call); reserves tiles in `state` against re-orders.

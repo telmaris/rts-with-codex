@@ -1,4 +1,6 @@
 #include "simulation/RoadNetwork.h"
+
+#include <queue>
 #include "simulation/MapGenerator.h"
 #include "economy/Player.h"
 #include "core/Log.h"
@@ -168,6 +170,20 @@ RoadNetwork::~RoadNetwork()
         }
     }
     activeShipments.clear();
+}
+
+void RoadNetwork::RebindWorld(TileMap& map)
+{
+    tilemap = &map;
+    for (auto& [shipmentId, transport] : activeShipments)
+    {
+        (void)shipmentId;
+        if (transport != nullptr)
+        {
+            transport->map = &map;
+            transport->shipmentNetwork = this;
+        }
+    }
 }
 
 void Transportable::ReleaseShipment()

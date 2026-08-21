@@ -2,13 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 # Standalone dev tool: research-tree viewer/editor for assets/data/*.rtsdata.
 #
-# Deliberately NOT wired into the game's top-level CMakeLists — it configures and
-# builds on its own so a broken tool can never break the game build. It does,
-# however, compile the game's REAL parser translation units by relative path
-# (see RTS_SHARED_SOURCES below): the editor writes files the game must read, so
-# the parse/format semantics cannot be allowed to drift. Only the rendering was
-# copied (tools/tech-tree-editor/src/TreeView.cpp), because it is coupled to
-# Player/GameScene in the game and the editor extends it anyway.
+# The editor links the same production parser and shared UI targets as the game.
+# This keeps editor round-trips and runtime loading on one implementation.
 
 project(TechTreeEditor LANGUAGES CXX)
 
@@ -25,7 +20,7 @@ endif()
 message(STATUS "Game root: ${RTS_ROOT}")
 
 find_package(raylib 5.0 QUIET)
-if (NOT raylib_FOUND)
+if (NOT TARGET raylib AND NOT raylib_FOUND)
     if (raylib_INCLUDE_DIR AND raylib_LIBRARY)
         add_library(raylib UNKNOWN IMPORTED)
         set_target_properties(raylib PROPERTIES
@@ -42,20 +37,7 @@ endif()
 # a .rtsdata research file is tokenized, parsed and what a modifier means.
 set(RTS_SHARED_SOURCES
     "${RTS_ROOT}/src/research/Technology.cpp"
-    "${RTS_ROOT}/src/core/Log.cpp"
-    "${RTS_ROOT}/src/data/RtsDataFile.cpp"
-    "${RTS_ROOT}/src/data/Resource.cpp"
-    # ResourcePool's constructor calls FindEquipmentProfile.
-    "${RTS_ROOT}/src/data/Equipment.cpp"
-    # Shared UI: text metrics and input widgets. Extracted out of Gui.cpp exactly
-    # so the tool renders with the game's code instead of a hand-mirrored copy.
-    "${RTS_ROOT}/src/ui/UiText.cpp"
-    # UiText renders inline control icons when its caller uses that markup.
-    "${RTS_ROOT}/src/ui/ControlIcons.cpp"
-    "${RTS_ROOT}/src/ui/UiWidgets.cpp"
-    # Which direction of a stat is an improvement. Shared because a drifting copy
-    # renders a nerf green here and red in the game (it already happened once).
-    "${RTS_ROOT}/src/economy/BalanceStatDisplay.cpp")
+    "${RTS_ROOT}/src/core/Log.cpp")
 
 if (WIN32)
     # Same reason as the game: raylib references timeBeginPeriod/timeEndPeriod but
@@ -75,7 +57,7 @@ add_executable(tech_tree_editor
 source_group("shared (game)" FILES ${RTS_SHARED_SOURCES})
 
 target_include_directories(tech_tree_editor PRIVATE "${RTS_ROOT}/inc" src)
-target_link_libraries(tech_tree_editor PRIVATE raylib)
+target_link_libraries(tech_tree_editor PRIVATE raylib rts_data rts_ui_common)
 
 # Absolute paths baked in so the tool can be launched from any working directory
 # (unlike the game, which resolves "assets/..." relative to the exe).
@@ -84,4 +66,10 @@ target_compile_definitions(tech_tree_editor PRIVATE
 
 if (UNIX AND NOT APPLE)
     target_link_libraries(tech_tree_editor PRIVATE dl m pthread)
+endif()
+
+if (BUILD_TESTING)
+    add_test(NAME tech_tree_editor_selftest
+             COMMAND tech_tree_editor --selftest "${CMAKE_CURRENT_BINARY_DIR}/selftest")
+    set_tests_properties(tech_tree_editor_selftest PROPERTIES LABELS "data;fast")
 endif()

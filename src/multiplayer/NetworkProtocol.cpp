@@ -241,6 +241,14 @@ void NetworkFrameDecoder::Reset()
     lastError = FrameDecodeError::None;
 }
 
+bool NetworkSequenceTracker::Accept(std::uint64_t sequence)
+{
+    if (sequence != expected_ || expected_ == 0)
+        return false;
+    ++expected_;
+    return true;
+}
+
 FrameDecodeResult NetworkFrameDecoder::Fail(FrameDecodeError error, std::size_t decodedFrames)
 {
     buffered.clear();

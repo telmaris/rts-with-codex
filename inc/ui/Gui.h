@@ -83,9 +83,6 @@ public:
     UiButton();
     // Draws the button, handles hover state and dispatches clicks.
     void Update(double dt) override;
-    // Loads textures used for normal and hover visual states.
-    void LoadTextures(const std::string& normalPath, const std::string& hoverPath);
-
     // Replaces button label text.
     inline void ChangeText(std::string stryng)
     {
@@ -99,14 +96,14 @@ public:
     }
 
     // Executes the assigned click callback.
-    virtual void OnClick() { func(); }
+    virtual void OnClick()
+    {
+        if (func)
+            func();
+    }
 
     std::string text{"Default button text"};
     std::function<void()> func;
-    Texture2D normalTexture{};
-    Texture2D hoverTexture{};
-    bool hasNormalTexture{false};
-    bool hasHoverTexture{false};
     bool drawText{true};
 };
 

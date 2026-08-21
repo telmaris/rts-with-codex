@@ -1639,22 +1639,6 @@ UiButton::UiButton()
 {
 }
 
-// Loads the requested data into runtime state.
-void UiButton::LoadTextures(const std::string& normalPath, const std::string& hoverPath)
-{
-    if (FileExists(normalPath.c_str()))
-    {
-        normalTexture = LoadTexture(normalPath.c_str());
-        hasNormalTexture = normalTexture.id != 0;
-    }
-
-    if (FileExists(hoverPath.c_str()))
-    {
-        hoverTexture = LoadTexture(hoverPath.c_str());
-        hasHoverTexture = hoverTexture.id != 0;
-    }
-}
-
 // Advances this object's state for one frame.
 void CheckBox::Update(double dt)
 {

@@ -6,6 +6,14 @@
 
 using namespace GameWorldInternal;
 
+BuildPaymentPolicy ResolveBuildPaymentPolicy(const GameWorld& world, const Player& player)
+{
+    return world.GetTileMap().params.debugMode &&
+                   player.controllerType == PlayerControllerType::LocalHuman
+               ? BuildPaymentPolicy::FreeDebugHuman
+               : BuildPaymentPolicy::ChargeAuthoritativeCost;
+}
+
 // Submits this command to the simulation.
 std::uint64_t GameWorld::SubmitCommand(const GameCommand& command)
 {
@@ -146,9 +154,8 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             return false;
 
         const auto& definition = GetBuildingDefinition(command.buildingType);
-        bool debugFreeBuild = tilemap.params.debugMode && player->id == localPlayerId;
-        bool chargeCost = command.chargeCost && !debugFreeBuild;
-        if (!debugFreeBuild)
+        const bool freeBuild = ResolveBuildPaymentPolicy(*this, *player) == BuildPaymentPolicy::FreeDebugHuman;
+        if (!freeBuild)
         {
             auto failures = player->GetBuildRequirementFailures(definition);
             if (!failures.empty())
@@ -157,7 +164,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
                 return false;
             }
         }
-        if (chargeCost && !player->TryPayBuildCost(player->GetEffectiveBuildCosts(definition)))
+        if (!freeBuild && !player->TryPayBuildCost(player->GetEffectiveBuildCosts(definition)))
         {
             Log::Msg("[GameWorld]", "Command rejected: not enough resources to build ", definition.name);
             return false;
@@ -170,7 +177,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         double buildTime = player->ModifyBalanceAt(BalanceStat::BuildTime, definition.buildTime, command.buildingType, command.tilePos);
         building->buildTime = buildTime;
-        building->constructionRemaining = chargeCost ? buildTime : 0.0;
+        building->constructionRemaining = freeBuild ? 0.0 : buildTime;
         tilemap.BuildOnTile(tileId, player, std::move(building));
 
         Building* placed = tilemap.GetBuilding(tileId);
@@ -436,4 +443,15 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
     }
 
     return false;
+}
+
+std::string GameWorld::GetAITrace(int playerId) const
+{
+    for (const auto& controller : controllers)
+    {
+        const auto* ai = dynamic_cast<const AIController*>(controller.get());
+        if (ai != nullptr && ai->playerId == playerId)
+            return ai->GetDecisionTrace();
+    }
+    return {};
 }

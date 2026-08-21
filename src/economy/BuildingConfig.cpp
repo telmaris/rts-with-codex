@@ -2,6 +2,7 @@
 #include "data/RtsDataFile.h"
 
 #include <algorithm>
+#include <functional>
 
 namespace
 {
@@ -477,17 +478,17 @@ namespace
                 return;
 
             if (command == "cycle_time" && tokens.size() >= 2)
-                production.cycleTime = std::stod(tokens[1]);
+                production.cycleTime = RtsDataDoubleOr(tokens[1]);
             else if (command == "input" && tokens.size() >= 3)
-                production.inputs.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                production.inputs.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
             else if (command == "output" && tokens.size() >= 3)
-                production.outputs.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                production.outputs.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
             else if (command == "input_buffer" && tokens.size() >= 3)
-                production.inputBuffers.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                production.inputBuffers.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
             else if (command == "output_buffer" && tokens.size() >= 3)
-                production.outputBuffers.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                production.outputBuffers.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
             else if (command == "workers" && tokens.size() >= 2)
-                production.workerCapacity = std::stoi(tokens[1]);
+                production.workerCapacity = RtsDataIntOr(tokens[1]);
             else if (command == "requires_tech" && tokens.size() >= 2 && requiredTechnologies != nullptr)
                 requiredTechnologies->push_back(tokens[1]);
             else if (command == "requires_focus" && tokens.size() >= 2 && requiredFocuses != nullptr)
@@ -556,7 +557,7 @@ namespace
             else if (command == "build_cost" && tokens.size() >= 2)
             {
                 if (tokens.size() >= 3)
-                    definition.buildCosts.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                    definition.buildCosts.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
                 else
                     definition.buildCostText = tokens[1];
             }
@@ -565,19 +566,19 @@ namespace
             else if (command == "requires_focus" && tokens.size() >= 2)
                 definition.requiredFocuses.push_back(tokens[1]);
             else if (command == "footprint" && tokens.size() >= 3)
-                definition.footprint = {std::stoi(tokens[1]), std::stoi(tokens[2])};
+                definition.footprint = {RtsDataIntOr(tokens[1]), RtsDataIntOr(tokens[2])};
             else if (command == "texture_id" && tokens.size() >= 2)
-                definition.textureId = std::stoi(tokens[1]);
+                definition.textureId = RtsDataIntOr(tokens[1]);
             else if (command == "build_time" && tokens.size() >= 2)
-                definition.buildTime = std::stod(tokens[1]);
+                definition.buildTime = RtsDataDoubleOr(tokens[1]);
             else if (command == "transport_time" && tokens.size() >= 2)
-                definition.transportTime = std::stod(tokens[1]);
+                definition.transportTime = RtsDataDoubleOr(tokens[1]);
             else if (command == "dispatch_delay" && tokens.size() >= 2)
-                definition.dispatchDelay = std::max(0.0, std::stod(tokens[1]));
+                definition.dispatchDelay = std::max(0.0, RtsDataDoubleOr(tokens[1]));
             else if (command == "storage" && tokens.size() >= 3)
             {
-                int initialAmount = tokens.size() >= 4 ? std::stoi(tokens[3]) : 0;
-                definition.storageBuffers.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2]), initialAmount});
+                int initialAmount = tokens.size() >= 4 ? RtsDataIntOr(tokens[3]) : 0;
+                definition.storageBuffers.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2]), initialAmount});
             }
             else if (command == "production")
                 ParseProduction(lines, index, definition.production);
@@ -600,9 +601,9 @@ namespace
             {
                 ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
                 {
-                    if (key == "upgrade_level") definition.road.upgradeLevel = std::stoi(value);
-                    else if (key == "max_capacity") definition.road.maxCapacity = std::stoi(value);
-                    else if (key == "speed_modifier") definition.road.speedModifier = std::stod(value);
+                    if (key == "upgrade_level") definition.road.upgradeLevel = RtsDataIntOr(value);
+                    else if (key == "max_capacity") definition.road.maxCapacity = RtsDataIntOr(value);
+                    else if (key == "speed_modifier") definition.road.speedModifier = RtsDataDoubleOr(value);
                 });
             }
             else if (command == "upgrade" && tokens.size() >= 3 && tokens[1] == "level")
@@ -619,24 +620,24 @@ namespace
                 // single-token values) — "cost" needs a resource type AND an
                 // amount.
                 BuildingUpgradeLevelDefinition levelDef;
-                levelDef.level = std::stoi(tokens[2]);
+                levelDef.level = RtsDataIntOr(tokens[2]);
                 for (size_t i = 3; i < tokens.size(); i++)
                 {
                     if (tokens[i] == "cost" && i + 2 < tokens.size())
                     {
-                        levelDef.cost.push_back({ParseResourceType(tokens[i + 1]), std::stoi(tokens[i + 2])});
+                        levelDef.cost.push_back({ParseResourceType(tokens[i + 1]), RtsDataIntOr(tokens[i + 2])});
                         i += 2;
                     }
                     else if (tokens[i] == "build_time" && i + 1 < tokens.size())
                     {
-                        levelDef.buildTime = std::stod(tokens[i + 1]);
+                        levelDef.buildTime = RtsDataDoubleOr(tokens[i + 1]);
                         i += 1;
                     }
                     else if (tokens[i] == "capacity_additive" && i + 1 < tokens.size())
                     {
                         BalanceModifier modifier;
                         modifier.stat = BalanceStat::RoadCapacity;
-                        modifier.additive = std::stod(tokens[i + 1]);
+                        modifier.additive = RtsDataDoubleOr(tokens[i + 1]);
                         levelDef.modifiers.push_back(modifier);
                         i += 1;
                     }
@@ -644,18 +645,18 @@ namespace
                     {
                         BalanceModifier modifier;
                         modifier.stat = BalanceStat::RoadSpeed;
-                        modifier.multiplier = std::stod(tokens[i + 1]);
+                        modifier.multiplier = RtsDataDoubleOr(tokens[i + 1]);
                         levelDef.modifiers.push_back(modifier);
                         i += 1;
                     }
                     else if (tokens[i] == "population_cap" && i + 1 < tokens.size())
                     {
-                        levelDef.populationCap = std::stoi(tokens[i + 1]);
+                        levelDef.populationCap = RtsDataIntOr(tokens[i + 1]);
                         i += 1;
                     }
                     else if (tokens[i] == "manpower_rate" && i + 1 < tokens.size())
                     {
-                        levelDef.manpowerRate = std::stod(tokens[i + 1]);
+                        levelDef.manpowerRate = RtsDataDoubleOr(tokens[i + 1]);
                         i += 1;
                     }
                 }
@@ -665,34 +666,34 @@ namespace
             {
                 ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
                 {
-                    if (key == "manpower_rate") definition.village.manpowerRate = std::stod(value);
-                    else if (key == "population_cap") definition.village.populationCap = std::stoi(value);
-                    else if (key == "upkeep_interval") definition.village.upkeepInterval = std::stod(value);
-                    else if (key == "food_package_upkeep") definition.village.foodPackageUpkeep = std::stod(value);
+                    if (key == "manpower_rate") definition.village.manpowerRate = RtsDataDoubleOr(value);
+                    else if (key == "population_cap") definition.village.populationCap = RtsDataIntOr(value);
+                    else if (key == "upkeep_interval") definition.village.upkeepInterval = RtsDataDoubleOr(value);
+                    else if (key == "food_package_upkeep") definition.village.foodPackageUpkeep = RtsDataDoubleOr(value);
                 });
             }
             else if (command == "hq")
             {
                 ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
                 {
-                    if (key == "max_hp") definition.hq.maxHp = std::stod(value);
-                    else if (key == "hard_defense") definition.hq.hardDefense = std::stod(value);
-                    else if (key == "thorns_damage") definition.hq.thornsDamage = std::stod(value);
-                    else if (key == "thorns_interval") definition.hq.thornsInterval = std::stod(value);
-                    else if (key == "capture_stock_fraction") definition.hq.captureStockFraction = std::stod(value);
-                    else if (key == "conquest_ramp_duration") definition.hq.conquestRampDuration = std::stod(value);
+                    if (key == "max_hp") definition.hq.maxHp = RtsDataDoubleOr(value);
+                    else if (key == "hard_defense") definition.hq.hardDefense = RtsDataDoubleOr(value);
+                    else if (key == "thorns_damage") definition.hq.thornsDamage = RtsDataDoubleOr(value);
+                    else if (key == "thorns_interval") definition.hq.thornsInterval = RtsDataDoubleOr(value);
+                    else if (key == "capture_stock_fraction") definition.hq.captureStockFraction = RtsDataDoubleOr(value);
+                    else if (key == "conquest_ramp_duration") definition.hq.conquestRampDuration = RtsDataDoubleOr(value);
                 });
             }
             else if (command == "tower")
             {
                 ParseKeyValueLine(tokens, 1, [&](const std::string& key, const std::string& value)
                 {
-                    if (key == "damage") definition.tower.damage = std::stod(value);
-                    else if (key == "range") definition.tower.range = std::stod(value);
-                    else if (key == "attack_speed") definition.tower.attackSpeed = std::stod(value);
+                    if (key == "damage") definition.tower.damage = RtsDataDoubleOr(value);
+                    else if (key == "range") definition.tower.range = RtsDataDoubleOr(value);
+                    else if (key == "attack_speed") definition.tower.attackSpeed = RtsDataDoubleOr(value);
                     else if (key == "ammo_resource") definition.tower.ammoResource = ParseResourceType(value);
-                    else if (key == "ammo_per_shot") definition.tower.ammoPerShot = std::stoi(value);
-                    else if (key == "worker_capacity") definition.tower.workerCapacity = std::stoi(value);
+                    else if (key == "ammo_per_shot") definition.tower.ammoPerShot = RtsDataIntOr(value);
+                    else if (key == "worker_capacity") definition.tower.workerCapacity = RtsDataIntOr(value);
                 });
             }
         }

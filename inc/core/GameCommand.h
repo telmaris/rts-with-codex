@@ -42,16 +42,15 @@ struct GameCommand
     // (deploy has no tile target of its own) and adds the one genuinely new
     // field this command needs — a variable-length unit instance id list,
     // which nothing existing could be repurposed for.
-    static constexpr int WireVersion = 14;
+    static constexpr int WireVersion = SerializationVersion::GameCommandVersion;
 
-    static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos, bool chargeCost = true)
+    static GameCommand BuildBuilding(int playerId, BuildingType buildingType, Vec2i tilePos)
     {
         GameCommand command;
         command.playerId = playerId;
         command.type = GameCommandType::BuildBuilding;
         command.buildingType = buildingType;
         command.tilePos = tilePos;
-        command.chargeCost = chargeCost;
         return command;
     }
 
@@ -178,7 +177,6 @@ struct GameCommand
            << tilePos.y
            << sourceTileId
            << targetTileId
-           << (chargeCost ? 1 : 0)
            << (alternativeReceiver ? 1 : 0)
            << researchId
            << static_cast<int>(unitInstanceIds.size());
@@ -203,7 +201,6 @@ struct GameCommand
         int tileX = 0, tileY = 0;
         int sourceTileId = 0;
         int targetTileId = 0;
-        int chargeCost = 0;
         int alternativeReceiver = 0;
         std::string researchId;
         int unitInstanceIdCount = 0;
@@ -217,7 +214,6 @@ struct GameCommand
            >> tileY
            >> sourceTileId
            >> targetTileId
-           >> chargeCost
            >> alternativeReceiver
            >> researchId
            >> unitInstanceIdCount;
@@ -246,10 +242,11 @@ struct GameCommand
         parsed.tilePos = {tileX, tileY};
         parsed.sourceTileId = sourceTileId;
         parsed.targetTileId = targetTileId;
-        parsed.chargeCost = chargeCost != 0;
         parsed.alternativeReceiver = alternativeReceiver != 0;
         parsed.researchId = std::move(researchId);
         parsed.unitInstanceIds = std::move(unitInstanceIds);
+        if (!ar.AtEnd())
+            return false;
         command = std::move(parsed);
         return true;
     }
@@ -262,7 +259,6 @@ struct GameCommand
     Vec2i tilePos{0, 0};
     int sourceTileId{-1};
     int targetTileId{-1};
-    bool chargeCost{true};
     bool alternativeReceiver{false};
     std::string researchId;
     std::vector<int> unitInstanceIds;
@@ -292,7 +288,7 @@ struct GameCommandResult
 {
     static constexpr std::size_t MaxSerializedBytes = 256 * 1024;
     static constexpr std::size_t MaxReasonBytes = 1024;
-    static constexpr int WireVersion = 4;
+    static constexpr int WireVersion = SerializationVersion::GameCommandResultVersion;
 
     std::uint64_t commandId{0};
     std::uint64_t simulationTick{0};
@@ -363,7 +359,7 @@ struct GameCommandResult
 
 struct GameServerFrame
 {
-    static constexpr int WireVersion = 1;
+    static constexpr int WireVersion = SerializationVersion::GameServerFrameVersion;
     static constexpr std::size_t MaxSerializedBytes = 256 * 1024;
     static constexpr std::size_t MaxResults = 256;
 

@@ -12,16 +12,17 @@
 // assets/data/ai.rtsdata and added to the consumption side of what the AI
 // senses — the AI then works to keep production >= consumption, which makes
 // it stand up and sustain production for those costs instead of stalling
-// when its starting stock runs dry. The bias is also a difficulty lever: a
-// fuller (better-tuned) bias means a stronger economy.
+// when its starting stock runs dry. Every difficulty uses the same targets;
+// stronger opponents receive a larger starting profile instead.
 // Ceiling a `priority` line in ai.rtsdata is normalized against — see
 // AIEconomyBias::NormalizedPriority.
 constexpr int PriorityCeiling = 100;
 
 struct AIEconomyBias
 {
-    // Multiplier per MapParameters::aiDifficulty level (0 Primitive .. 3 Hard).
-    std::array<double, 4> difficultyScale{0.4, 0.6, 0.8, 1.0};
+    // Retained in the data format for compatibility and tuning experiments.
+    // Production data keeps all entries at 1.0 so every level plans equally.
+    std::array<double, 4> difficultyScale{1.0, 1.0, 1.0, 1.0};
     std::map<ResourceType, int> virtualConsumptionPerMinute;
 
     // Build-order priority weight per resource (0..PriorityCeiling, user

@@ -11,6 +11,20 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <type_traits>
+
+static_assert(!std::is_copy_constructible_v<Building>);
+static_assert(!std::is_move_constructible_v<Building>);
+static_assert(!std::is_copy_constructible_v<Road>);
+static_assert(!std::is_move_constructible_v<Road>);
+static_assert(!std::is_copy_constructible_v<Headquarters>);
+static_assert(!std::is_move_constructible_v<Headquarters>);
+static_assert(!std::is_copy_constructible_v<Barracks>);
+static_assert(!std::is_move_constructible_v<Barracks>);
+static_assert(!std::is_copy_constructible_v<LumberMill>);
+static_assert(!std::is_move_constructible_v<LumberMill>);
+static_assert(!std::is_copy_constructible_v<DefenseTower>);
+static_assert(!std::is_move_constructible_v<DefenseTower>);
 
 namespace
 {

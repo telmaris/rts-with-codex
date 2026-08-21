@@ -13,6 +13,8 @@
 #include "raylib.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -51,8 +53,46 @@ namespace
     }
 }
 
-int main()
+static int RunSelfTest(const std::string& outputDir)
 {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(outputDir, ec);
+    if (ec)
+    {
+        std::printf("self-test: cannot create output directory: %s\n", ec.message().c_str());
+        return 1;
+    }
+
+    const std::string source = AssetPath("data/textures.rtsdata");
+    std::string error;
+    const TextureConfig config = LoadTextureConfig(source, &error);
+    if (!error.empty() || config.IsEmpty())
+    {
+        std::printf("self-test: production config failed: %s\n", error.c_str());
+        return 1;
+    }
+
+    const fs::path target = fs::path(outputDir) / "textures.rtsdata";
+    if (!SaveTextureConfig(target.string(), config, &error))
+    {
+        std::printf("self-test: save failed: %s\n", error.c_str());
+        return 1;
+    }
+
+    const TextureConfig reloaded = LoadTextureConfig(target.string(), &error);
+    std::string difference;
+    const bool equal = error.empty() && TextureConfigEquals(config, reloaded, &difference);
+    std::printf("texture config round-trip: %s%s\n", equal ? "OK" : "FAIL",
+                equal ? "" : (": " + (error.empty() ? difference : error)).c_str());
+    return equal ? 0 : 1;
+}
+
+int main(int argc, char** argv)
+{
+    if (argc >= 3 && std::string(argv[1]) == "--selftest")
+        return RunSelfTest(argv[2]);
+
     // No FLAG_VSYNC_HINT: with vsync on, SetTargetFPS's own wait loop fights the
     // driver's swap wait. One limiter only, same as tools/tech-tree-editor.
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);

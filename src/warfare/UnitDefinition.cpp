@@ -82,33 +82,33 @@ namespace
             if (command == "name" && tokens.size() >= 2)
                 definition.displayName = tokens[1];
             else if (command == "texture_id" && tokens.size() >= 2)
-                definition.textureId = std::stoi(tokens[1]);
+                definition.textureId = RtsDataIntOr(tokens[1]);
             else if (command == "max_hp" && tokens.size() >= 2)
-                definition.maxHp = std::stod(tokens[1]);
+                definition.maxHp = RtsDataDoubleOr(tokens[1]);
             else if (command == "road_attack" && tokens.size() >= 2)
-                definition.roadAttack = std::stod(tokens[1]);
+                definition.roadAttack = RtsDataDoubleOr(tokens[1]);
             else if (command == "siege_attack" && tokens.size() >= 2)
-                definition.siegeAttack = std::stod(tokens[1]);
+                definition.siegeAttack = RtsDataDoubleOr(tokens[1]);
             else if (command == "armor" && tokens.size() >= 2)
-                definition.armor = std::stod(tokens[1]);
+                definition.armor = RtsDataDoubleOr(tokens[1]);
             else if (command == "move_speed" && tokens.size() >= 2)
-                definition.moveSpeed = std::stod(tokens[1]);
+                definition.moveSpeed = RtsDataDoubleOr(tokens[1]);
             else if (command == "attack_speed" && tokens.size() >= 2)
-                definition.attackSpeed = std::stod(tokens[1]);
+                definition.attackSpeed = RtsDataDoubleOr(tokens[1]);
             else if (command == "attack_range" && tokens.size() >= 2)
-                definition.attackRange = std::stod(tokens[1]);
+                definition.attackRange = RtsDataDoubleOr(tokens[1]);
             else if (command == "movement" && tokens.size() >= 2)
                 definition.movementType = tokens[1] == "flying" ? MovementType::Flying : MovementType::Ground;
             else if (command == "can_target_flying" && tokens.size() >= 2)
-                definition.canTargetFlying = std::stoi(tokens[1]) != 0;
+                definition.canTargetFlying = RtsDataIntOr(tokens[1]) != 0;
             else if (command == "cavalry" && tokens.size() >= 2)
-                definition.cavalry = std::stoi(tokens[1]) != 0;
+                definition.cavalry = RtsDataIntOr(tokens[1]) != 0;
             else if (command == "anti_cavalry_multiplier" && tokens.size() >= 2)
-                definition.antiCavalryMultiplier = std::stod(tokens[1]);
+                definition.antiCavalryMultiplier = RtsDataDoubleOr(tokens[1]);
             else if (command == "area_targets" && tokens.size() >= 2)
-                definition.areaTargets = std::max(1, std::stoi(tokens[1]));
+                definition.areaTargets = std::max(1, RtsDataIntOr(tokens[1]));
             else if (command == "collider_radius" && tokens.size() >= 2)
-                definition.colliderRadius = std::stod(tokens[1]);
+                definition.colliderRadius = RtsDataDoubleOr(tokens[1]);
             else if (command == "ability" && tokens.size() >= 2)
                 definition.abilities.push_back(tokens[1]);
             else if (command == "equipment_slot" && tokens.size() >= 2)
@@ -118,11 +118,11 @@ namespace
             else if (command == "requires_tech" && tokens.size() >= 2)
                 definition.requiredTechnology = tokens[1];
             else if (command == "recruit_time" && tokens.size() >= 2)
-                definition.recruitTime = std::stod(tokens[1]);
+                definition.recruitTime = RtsDataDoubleOr(tokens[1]);
             else if (command == "manpower_cost" && tokens.size() >= 2)
-                definition.manpowerCost = std::stod(tokens[1]);
+                definition.manpowerCost = RtsDataDoubleOr(tokens[1]);
             else if (command == "cost" && tokens.size() >= 3)
-                definition.cost.push_back({ParseResourceType(tokens[1]), std::stoi(tokens[2])});
+                definition.cost.push_back({ParseResourceType(tokens[1]), RtsDataIntOr(tokens[2])});
         }
 
         return definition;

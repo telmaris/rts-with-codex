@@ -6,20 +6,10 @@
 #include <sstream>
 #include <vector>
 #include <iomanip>
+#include "core/SerializationVersions.h"
 
 // Archive pattern: single serialize() function works in both write and read directions.
 // All types use the same version numbering and format.
-
-struct SerializationVersion
-{
-    // Unified serialization versions. Bump when format changes (add new field, reorder, etc).
-    // Keep in sync with original WireVersion/SaveVersion constants in source types.
-    static constexpr int GameCommandVersion = 14;  // WireVersion from GameCommand::WireVersion
-    static constexpr int GameCommandResultVersion = 4;  // WireVersion from GameCommandResult::WireVersion
-    static constexpr int GameServerFrameVersion = 1;  // WireVersion from GameServerFrame::WireVersion
-    static constexpr int GameSnapshotVersion = 14; // Adds visual resource-overlay cells.
-    static constexpr int GameWorldSaveVersion = 34;  // SaveVersion from GameWorld (file format "RTS_SAVE 34")
-};
 
 // Archive: bidirectional serialization (write to string, read from string)
 // Usage:
@@ -100,6 +90,15 @@ public:
 
     std::string GetString() const { return stream.str(); }
     bool IsValid() const { return isValid; }
+    // A decoder must consume the complete payload. This rejects both trailing
+    // fields and accidental concatenation of two messages.
+    bool AtEnd()
+    {
+        if (mode != Mode::Read || !isValid)
+            return false;
+        stream >> std::ws;
+        return stream.eof();
+    }
     int GetVersion() const { return version; }
     Mode GetMode() const { return mode; }
 

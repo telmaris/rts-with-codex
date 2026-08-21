@@ -132,4 +132,16 @@ private:
     FrameDecodeError lastError{FrameDecodeError::None};
 };
 
+// Frames on one TCP connection share one monotonically increasing sequence.
+class NetworkSequenceTracker
+{
+public:
+    bool Accept(std::uint64_t sequence);
+    void Reset(std::uint64_t firstExpected = 1) { expected_ = firstExpected; }
+    std::uint64_t Expected() const { return expected_; }
+
+private:
+    std::uint64_t expected_{1};
+};
+
 #endif

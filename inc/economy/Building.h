@@ -142,6 +142,10 @@ class Building
 public:
     Building() = default;
     Building(int i) : id(i) {}
+    Building(const Building&) = delete;
+    Building& operator=(const Building&) = delete;
+    Building(Building&&) = delete;
+    Building& operator=(Building&&) = delete;
     virtual ~Building();
 
     // Default tick: advances construction/lifetime, runs every component's
@@ -175,12 +179,9 @@ public:
     std::vector<BuildingConnectionView> GetReceiverViews() const;
     bool HasSupplier(ResourceType type) const;
     bool HasReceiver(ResourceType type) const;
-    // True when `supplier` is one of this building's explicitly wired
-    // suppliers for `type`, or when no supplier is wired at all yet (nothing
-    // to conflict with). False when a *different* supplier is already wired
-    // — lets ambient storage-to-storage redistribution (StorageComponent::
-    // Update) respect an explicit supplier reassignment instead of feeding a
-    // resource through the old link anyway.
+    // True when `supplier` is already the explicit supplier for `type`, or
+    // when the slot has not been explicitly assigned yet. This protects an
+    // explicit reassignment from an unrelated automatic connection.
     bool AcceptsSupplierFor(ResourceType type, const Building* supplier) const;
     bool IsStorageLike() const;
     float GetProductionProgress() const;

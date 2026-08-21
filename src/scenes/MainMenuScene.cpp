@@ -38,11 +38,11 @@ MainMenuScene::MainMenuScene()
     menuSkyBg.ChangeSizeAnchor(fullScreen);
     menuSkyBg.ChangePositionAnchor({0.0f, 0.0f});
     menuSkyBg.cover = true;
-    menuSkyBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_1.png");
+    menuSkyBg.LoadTextureFromFile("assets/ui/menu/layer_1.png");
 
     menuCloudsBgParallax.ChangeSizeAnchor(fullScreen);
     menuCloudsBgParallax.ChangePositionAnchor({0.0f, 0.0f});
-    menuCloudTexture = LoadTexture("assets/ui/menu/nature_5/layer_2.png");
+    menuCloudTexture = LoadTexture("assets/ui/menu/layer_2.png");
     if (menuCloudTexture.id != 0)
         SetTextureFilter(menuCloudTexture, TEXTURE_FILTER_POINT);
     menuCloudsBgParallax.func = [this](double dt)
@@ -59,12 +59,12 @@ MainMenuScene::MainMenuScene()
     menuGrassBg.ChangeSizeAnchor(fullScreen);
     menuGrassBg.ChangePositionAnchor({0.0f, 0.0f});
     menuGrassBg.cover = true;
-    menuGrassBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_3.png");
+    menuGrassBg.LoadTextureFromFile("assets/ui/menu/layer_3.png");
 
     menuVillageBg.ChangeSizeAnchor(fullScreen);
     menuVillageBg.ChangePositionAnchor({0.0f, 0.0f});
     menuVillageBg.cover = true;
-    menuVillageBg.LoadTextureFromFile("assets/ui/menu/nature_5/layer_4.png");
+    menuVillageBg.LoadTextureFromFile("assets/ui/menu/layer_4.png");
 
     menuTvorinLogo.ChangePositionAnchor({0.24f, 0.15f});
     menuTvorinLogo.ChangeSizeAnchor({0.52f, 0.20f});

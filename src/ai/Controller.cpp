@@ -34,3 +34,8 @@ void AIController::SetDifficulty(AIDifficulty newDifficulty)
 {
     difficulty = newDifficulty;
 }
+
+std::string AIController::GetDecisionTrace() const
+{
+    return model != nullptr ? model->GetDecisionTrace() : std::string{};
+}
