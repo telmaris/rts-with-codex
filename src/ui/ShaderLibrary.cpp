@@ -18,19 +18,19 @@ bool ShaderLibrary::LoadFragment(ShaderId id, const std::string& fragmentPath)
     auto existing = shaders.find(id);
     if (existing != shaders.end())
     {
-        UnloadShader(existing->second);
+        existing->second.Reset();
         shaders.erase(existing);
         locations.erase(id);
     }
 
-    Shader shader = LoadShader(nullptr, fragmentPath.c_str());
-    if (shader.id == 0)
+    tvorin::ui::ShaderHandle shader{LoadShader(nullptr, fragmentPath.c_str())};
+    if (!shader)
     {
         Log::Msg("[Shaders] Failed to load fragment shader: ", fragmentPath);
         return false;
     }
 
-    shaders.emplace(id, shader);
+    shaders.emplace(id, std::move(shader));
     Log::Msg("[Shaders] Loaded fragment shader: ", fragmentPath);
     return true;
 }
@@ -43,7 +43,7 @@ bool ShaderLibrary::IsAvailable(ShaderId id) const
 const Shader* ShaderLibrary::Find(ShaderId id) const
 {
     auto it = shaders.find(id);
-    return it != shaders.end() ? &it->second : nullptr;
+    return it != shaders.end() ? &it->second.Get() : nullptr;
 }
 
 int ShaderLibrary::GetLocation(ShaderId id, const std::string& uniformName)
@@ -64,13 +64,10 @@ int ShaderLibrary::GetLocation(ShaderId id, const std::string& uniformName)
 
 void ShaderLibrary::Shutdown()
 {
-    if (IsWindowReady())
+    if (!IsWindowReady())
     {
-        for (const auto& [id, shader] : shaders)
-        {
-            if (shader.id != 0)
-                UnloadShader(shader);
-        }
+        for (auto& [id, shader] : shaders)
+            shader.Forget();
     }
     shaders.clear();
     locations.clear();

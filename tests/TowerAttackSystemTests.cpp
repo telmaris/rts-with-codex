@@ -12,6 +12,8 @@
 #include <cmath>
 #include <filesystem>
 #include <memory>
+#include <sstream>
+#include <vector>
 
 // TD(etap-7) — tower targeting/range, ammo consumption, firing without ammo,
 // homing-projectile hits on a moving unit via CombatResolver, Tower*
@@ -445,8 +447,33 @@ TEST(TowerAttackSystemTests, SaveAndLoadPreservesTowerAmmoAndAttackTimer)
     // v33 stored this exact private tower buffer under STOR. Preserve old
     // saves by routing that legacy block into LocalResourceBufferComponent.
     std::string legacyState = world.SerializeSimulationState();
-    ASSERT_NE(legacyState.find("RTS_SAVE 34"), std::string::npos);
-    legacyState.replace(legacyState.find("RTS_SAVE 34"), 11, "RTS_SAVE 33");
+    ASSERT_NE(legacyState.find("RTS_SAVE 35"), std::string::npos);
+    legacyState.replace(legacyState.find("RTS_SAVE 35"), 11, "RTS_SAVE 33");
+    // v35 adds the build-cost state/count after the legacy B fields. Strip
+    // those two fields when constructing this v33 compatibility payload.
+    {
+        std::istringstream input(legacyState);
+        std::ostringstream output;
+        std::string line;
+        while (std::getline(input, line))
+        {
+            if (line.rfind("B ", 0) == 0)
+            {
+                std::istringstream lineInput(line);
+                std::vector<std::string> fields;
+                std::string field;
+                while (lineInput >> field)
+                    fields.push_back(field);
+                ASSERT_GE(fields.size(), 3u);
+                fields.resize(fields.size() - 2);
+                line.clear();
+                for (const auto& value : fields)
+                    line += (line.empty() ? "" : " ") + value;
+            }
+            output << line << '\n';
+        }
+        legacyState = output.str();
+    }
     for (size_t pos = 0; (pos = legacyState.find("LOCALBUF", pos)) != std::string::npos;)
         legacyState.replace(pos, 8, "STOR");
 

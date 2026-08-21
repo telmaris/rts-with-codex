@@ -4,6 +4,7 @@
 
 #include "ui/UiText.h"
 #include "ui/ControlIcons.h"
+#include "ui/RaylibResource.h"
 #include "ui/UiTheme.h"
 
 #include <algorithm>
@@ -14,14 +15,14 @@
 
 namespace
 {
-    Font uiFont{};
+    tvorin::ui::FontHandle uiFont{};
     bool uiFontLoaded{false};
     std::string uiFontPath;
-    std::map<int, Font> uiFontsBySize;
-    Font plainFont{};
+    std::map<int, tvorin::ui::FontHandle> uiFontsBySize;
+    tvorin::ui::FontHandle plainFont{};
     bool plainFontLoaded{false};
     std::string plainFontPath;
-    std::map<int, Font> plainFontsBySize;
+    std::map<int, tvorin::ui::FontHandle> plainFontsBySize;
     UiFontRole activeRole{UiFontRole::Display};
 
     std::string StripTooltipLinePrefix(const std::string& line)
@@ -102,33 +103,34 @@ namespace
     // Resolves the face for the active role. Plain without a loaded font falls
     // through to the Display font rather than raylib's blocky built-in, unless
     // nothing is loaded at all.
-    bool ExactSizeFont(const std::string& path, const Font& base,
-                       std::map<int, Font>& cache, int requestedSize, Font& out)
+    bool ExactSizeFont(const std::string& path, const tvorin::ui::FontHandle& base,
+                       std::map<int, tvorin::ui::FontHandle>& cache,
+                       int requestedSize, const Font*& out)
     {
         requestedSize = std::max(8, requestedSize);
-        if (requestedSize == base.baseSize || path.empty())
+        if (requestedSize == base.Get().baseSize || path.empty())
         {
-            out = base;
-            return base.texture.id != 0;
+            out = &base.Get();
+            return base.IsValid();
         }
 
         auto cached = cache.find(requestedSize);
         if (cached == cache.end())
         {
-            Font font = LoadFontEx(path.c_str(), requestedSize, nullptr, 0);
-            if (font.texture.id == 0)
+            tvorin::ui::FontHandle font{LoadFontEx(path.c_str(), requestedSize, nullptr, 0)};
+            if (!font)
                 return false;
             // The glyph atlas is rasterized at the exact requested size, so
             // point sampling preserves its authored antialiasing without a
             // second blurry interpolation pass.
-            SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
-            cached = cache.emplace(requestedSize, font).first;
+            SetTextureFilter(font.Get().texture, TEXTURE_FILTER_POINT);
+            cached = cache.emplace(requestedSize, std::move(font)).first;
         }
-        out = cached->second;
+        out = &cached->second.Get();
         return true;
     }
 
-    bool ActiveFont(Font& out, int requestedSize)
+    bool ActiveFont(const Font*& out, int requestedSize)
     {
         if (activeRole == UiFontRole::Plain && plainFontLoaded)
             return ExactSizeFont(plainFontPath, plainFont, plainFontsBySize,
@@ -172,17 +174,18 @@ void UiTextFont::Load(const std::string& path)
     if (!FileExists(path.c_str()))
         return;
 
-    if (uiFontLoaded)
-        UnloadFont(uiFont);
+    tvorin::ui::FontHandle next{LoadFontEx(path.c_str(), 32, nullptr, 0)};
+    if (!next)
+        return;
 
+    SetTextureFilter(next.Get().texture, TEXTURE_FILTER_POINT);
+    uiFont.Reset();
     for (auto& [size, font] : uiFontsBySize)
-        UnloadFont(font);
+        font.Reset();
     uiFontsBySize.clear();
     uiFontPath = path;
-    uiFont = LoadFontEx(path.c_str(), 32, nullptr, 0);
-    uiFontLoaded = uiFont.texture.id != 0;
-    if (uiFontLoaded)
-        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_POINT);
+    uiFont = std::move(next);
+    uiFontLoaded = true;
 }
 
 void UiTextFont::LoadPlain(const std::string& path, int baseSize)
@@ -190,20 +193,21 @@ void UiTextFont::LoadPlain(const std::string& path, int baseSize)
     if (!FileExists(path.c_str()))
         return;
 
-    if (plainFontLoaded)
-        UnloadFont(plainFont);
+    tvorin::ui::FontHandle next{LoadFontEx(path.c_str(), baseSize, nullptr, 0)};
+    if (!next)
+        return;
 
+    SetTextureFilter(next.Get().texture, TEXTURE_FILTER_POINT);
+    plainFont.Reset();
     for (auto& [size, font] : plainFontsBySize)
-        UnloadFont(font);
+        font.Reset();
     plainFontsBySize.clear();
     plainFontPath = path;
 
     // LoadFontEx (not LoadFont) so the rasterization size can be chosen: dense
     // form text is drawn around 13-16px, and a 32px atlas downscales cleanly.
-    plainFont = LoadFontEx(path.c_str(), baseSize, nullptr, 0);
-    plainFontLoaded = plainFont.texture.id != 0;
-    if (plainFontLoaded)
-        SetTextureFilter(plainFont.texture, TEXTURE_FILTER_POINT);
+    plainFont = std::move(next);
+    plainFontLoaded = true;
 }
 
 UiFontRole UiText::SetRole(UiFontRole role)
@@ -230,20 +234,18 @@ UiFontRole UiText::GetRole()
 
 void UiTextFont::Unload()
 {
-    if (uiFontLoaded)
-        UnloadFont(uiFont);
     for (auto& [size, font] : uiFontsBySize)
-        UnloadFont(font);
+        font.Reset();
     uiFontsBySize.clear();
     uiFontPath.clear();
     uiFontLoaded = false;
-    if (plainFontLoaded)
-        UnloadFont(plainFont);
     for (auto& [size, font] : plainFontsBySize)
-        UnloadFont(font);
+        font.Reset();
     plainFontsBySize.clear();
     plainFontPath.clear();
     plainFontLoaded = false;
+    uiFont.Reset();
+    plainFont.Reset();
 }
 
 bool UiTextFont::IsLoaded()
@@ -253,28 +255,28 @@ bool UiTextFont::IsLoaded()
 
 const Font& UiTextFont::Get()
 {
-    return uiFont;
+    return uiFont.Get();
 }
 
 const Font& UiTextFont::GetPlain()
 {
-    return plainFontLoaded ? plainFont : uiFont;
+    return plainFontLoaded ? plainFont.Get() : uiFont.Get();
 }
 
 int UiText::Measure(const std::string& text, int fontSize)
 {
-    Font font{};
+    const Font* font = nullptr;
     if (!ActiveFont(font, fontSize))
         return MeasureText(text.c_str(), fontSize);
 
-    return static_cast<int>(std::ceil(MeasureTextEx(font, text.c_str(), static_cast<float>(fontSize), 0.0f).x));
+    return static_cast<int>(std::ceil(MeasureTextEx(*font, text.c_str(), static_cast<float>(fontSize), 0.0f).x));
 }
 
 void UiText::Draw(const std::string& text, float x, float y, int fontSize, Color color)
 {
-    Font font{};
+    const Font* font = nullptr;
     if (ActiveFont(font, fontSize))
-        DrawTextEx(font, text.c_str(), {std::round(x), std::round(y)},
+        DrawTextEx(*font, text.c_str(), {std::round(x), std::round(y)},
                    static_cast<float>(fontSize), 0.0f, color);
     else
         DrawText(text.c_str(), static_cast<int>(x), static_cast<int>(y), fontSize, color);

@@ -60,6 +60,21 @@ TEST(GameCommandTests, SerializesAndDeserializesTowerTargetMode)
     EXPECT_EQ(parsed.targetTileId, static_cast<int>(TowerTargetMode::StrongestUnit));
 }
 
+TEST(GameCommandTests, SerializesAndDeserializesProductionBlock)
+{
+    for (bool blocked : {false, true})
+    {
+        GameCommand original = GameCommand::SetProductionBlocked(2, 123, blocked);
+        GameCommand parsed;
+        ASSERT_TRUE(GameCommand::TryDeserialize(original.Serialize(), parsed));
+
+        EXPECT_EQ(parsed.type, GameCommandType::SetProductionBlocked);
+        EXPECT_EQ(parsed.playerId, 2);
+        EXPECT_EQ(parsed.sourceTileId, 123);
+        EXPECT_EQ(parsed.targetTileId, blocked ? 1 : 0);
+    }
+}
+
 TEST(GameCommandTests, SerializesDebugEnemyDeployment)
 {
     GameCommand original = GameCommand::DebugDeployEnemyUnits(2, 4);

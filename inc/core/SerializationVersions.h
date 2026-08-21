@@ -6,11 +6,11 @@
 // literals in individual message/state classes.
 struct SerializationVersion
 {
-    static constexpr int GameCommandVersion = 15; // removed client-controlled build payment bit
+    static constexpr int GameCommandVersion = 16; // added authoritative production-block intent
     static constexpr int GameCommandResultVersion = 4;
     static constexpr int GameServerFrameVersion = 1;
     static constexpr int GameSnapshotVersion = 14;
-    static constexpr int GameWorldSaveVersion = 34;
+    static constexpr int GameWorldSaveVersion = 35;
 };
 
 #endif

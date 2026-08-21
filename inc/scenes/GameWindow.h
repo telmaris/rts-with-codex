@@ -3,6 +3,7 @@
 
 #include "ui/AudioSystem.h"
 #include "ui/GuiHandler.h"
+#include "ui/UiAssetContext.h"
 #include "core/Events.h"
 
 #include <utility>
@@ -88,6 +89,7 @@ class GameWindow : public EventBroker
     }
 
     AudioSystem audio;
+    tvorin::ui::UiAssetContext uiAssets;
 
     bool isRunning{true};
     const std::string tag{"GameWindow"};

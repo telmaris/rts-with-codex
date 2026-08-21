@@ -2,6 +2,7 @@
 // ghost-preview widgets they share.
 
 #include "GuiInternal.h"
+#include "economy/BuildingSalvage.h"
 
 #include "ui/ControlIcons.h"
 #include "scenes/Scenes.h"
@@ -115,13 +116,13 @@ namespace
     void DrawBuildingPreviewIcon(GameScene* scene, BuildingType type, Rectangle iconBox, Color tint = WHITE)
     {
         auto textureIt = scene->render.buildingTextures.find(type);
-        if (textureIt == scene->render.buildingTextures.end() || textureIt->second.id == 0)
+        if (textureIt == scene->render.buildingTextures.end() || !textureIt->second.IsValid())
         {
             DrawRectangleRounded(iconBox, 0.08f, 6, UiTheme::Surface);
             return;
         }
 
-        Texture2D texture = textureIt->second;
+        const Texture2D& texture = textureIt->second.Get();
         Rectangle source = scene->render.GetBuildingTextureFirstFrameSource(type);
         float sourceAspect = source.height > 0.0f ? source.width / source.height : 1.0f;
         float drawWidth = iconBox.width;
@@ -912,9 +913,9 @@ void BuildGhostWidget::Update(double dt)
     DrawRectangleRoundedLines(dest, 0.04f, 8, 1.25f, outline);
 
     auto textureIt = scene->render.buildingTextures.find(selectedOption->buildingType);
-    if (textureIt != scene->render.buildingTextures.end() && textureIt->second.id != 0)
+    if (textureIt != scene->render.buildingTextures.end() && textureIt->second.IsValid())
     {
-        Texture2D tex = textureIt->second;
+        const Texture2D& tex = textureIt->second.Get();
         // Match the build-card preview: animated horizontal strips show only
         // their first frame, while static building canvases stay intact.
         Rectangle src = scene->render.GetBuildingTextureFirstFrameSource(selectedOption->buildingType);
@@ -968,6 +969,7 @@ void BuildGuiSystem::Update(double dt)
     owner->AddUiWidget(&ghostWidget);
     owner->AddUiWidget(&buildPanel);
     owner->AddUiWidget(&strategicHudWidget);
+    owner->AddUiWidget(owner->GetGameplayClockWidget());
 }
 
 // Cancels build mode and returns to map view.
@@ -1230,6 +1232,7 @@ void RoadBuildSystem::Update(double dt)
     ghostWidget.canBuild = CanPlaceSelected(placementTile);
     owner->AddUiWidget(&ghostWidget);
     owner->AddUiWidget(&strategicHudWidget);
+    owner->AddUiWidget(owner->GetGameplayClockWidget());
 
     // Drag placement: keep painting roads while LMB is held, but never under
     // the strategic HUD buttons.
@@ -1342,6 +1345,7 @@ DestroyGuiSystem::DestroyGuiSystem(GuiController* con)
     WireCommonSystemActions(*this, cameraMovement);
 
     destroyTargetWidget.scene = scene;
+    destroyTooltipWidget.scene = scene;
     SetupStrategicHud(strategicHudWidget, scene);
 }
 
@@ -1364,13 +1368,26 @@ void DestroyGuiSystem::Update(double dt)
     hoveredBuilding = tilePos.x >= 0 && tilePos.y >= 0
         ? scene->game->GetTileMap().GetBuilding(tilePos)
         : nullptr;
-    if (hoveredBuilding != nullptr && hoveredBuilding->owner != GuiLocalPlayer(scene))
+    Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr ||
+        (hoveredBuilding != nullptr && hoveredBuilding->owner != localPlayer))
         hoveredBuilding = nullptr;
 
+    demolitionPreview = {};
+    if (hoveredBuilding != nullptr && localPlayer != nullptr)
+        demolitionPreview = BuildDemolitionPreview(scene->game->GetTileMap(), *hoveredBuilding,
+                                                    *localPlayer);
+
     destroyTargetWidget.building = hoveredBuilding;
+    destroyTargetWidget.actionable = demolitionPreview.allowed;
+    destroyTooltipWidget.building = hoveredBuilding;
+    destroyTooltipWidget.preview = demolitionPreview;
     if (hoveredBuilding != nullptr)
         owner->AddUiWidget(&destroyTargetWidget);
     owner->AddUiWidget(&strategicHudWidget);
+    if (hoveredBuilding != nullptr)
+        owner->AddUiWidget(&destroyTooltipWidget);
+    owner->AddUiWidget(owner->GetGameplayClockWidget());
 }
 
 // Drops the hover target before leaving destroy mode.
@@ -1378,6 +1395,9 @@ void DestroyGuiSystem::ClearHoverTarget()
 {
     hoveredBuilding = nullptr;
     destroyTargetWidget.building = nullptr;
+    destroyTooltipWidget.building = nullptr;
+    destroyTooltipWidget.preview = {};
+    demolitionPreview = {};
 }
 
 // Cancels destroy mode.
@@ -1449,13 +1469,18 @@ void DestroyGuiSystem::LmbPressed()
 
     if (scene->game == nullptr || hoveredBuilding == nullptr)
         return;
-    if (!hoveredBuilding->CanBeManuallyDestroyed())
+    const Player* localPlayer = GuiLocalPlayer(scene);
+    if (localPlayer == nullptr || hoveredBuilding->owner != localPlayer)
+        return;
+
+    const DemolitionPreview currentPreview = BuildDemolitionPreview(
+        scene->game->GetTileMap(), *hoveredBuilding, *localPlayer);
+    if (!currentPreview.allowed)
         return;
 
     int positionId = hoveredBuilding->positionId;
     ClearHoverTarget();
     scene->SubmitLocalCommand(GameCommand::DestroyBuilding(scene->game->GetLocalPlayerId(), positionId));
-    ReturnToMapView();
 }
 
 void DestroyGuiSystem::LmbReleased()

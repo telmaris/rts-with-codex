@@ -24,7 +24,9 @@ if (-not (Test-Path $RaylibLibrary)) {
     throw "raylib.lib not found. Set RAYLIB_ROOT or build raylib into: $RaylibRoot"
 }
 
-# Auto-increment the patch component on every build (MAJOR.MINOR stay human-driven).
+# Auto-increment the patch component on every local build (MAJOR.MINOR stay
+# human-driven). Bump before CMake configure so Version.h and the binary carry
+# the same version as VERSION.
 & (Join-Path $RepoRoot "scripts\bump_version.ps1")
 if (-not $?) { throw "Version bump failed" }
 
@@ -37,7 +39,7 @@ Assert-LastCommandSucceeded "CMake configure"
 cmake --build (Join-Path $RepoRoot "build") --parallel --config $Config
 Assert-LastCommandSucceeded "CMake build"
 
-$Exe = Join-Path $RepoRoot "build\$Config\rts.exe"
+$Exe = Join-Path $RepoRoot "build\$Config\tvorin.exe"
 if (-not (Test-Path $Exe)) {
     throw "Build finished, but executable was not found: $Exe"
 }

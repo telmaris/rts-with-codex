@@ -24,21 +24,19 @@ namespace
 
 StudioSplashScene::StudioSplashScene()
 {
-    studioLogo = LoadTexture("assets/studio_logo.png");
+    studioLogo = tvorin::ui::TextureHandle{LoadTexture("assets/studio_logo.png")};
 }
 
 StudioSplashScene::~StudioSplashScene()
 {
-    if (studioLogo.id != 0 && IsWindowReady())
-        UnloadTexture(studioLogo);
+    studioLogo.Reset();
 }
 
 void StudioSplashScene::OnDeactivated()
 {
-    if (studioLogo.id != 0 && IsWindowReady())
+    if (studioLogo.IsValid())
     {
-        UnloadTexture(studioLogo);
-        studioLogo = {};
+        studioLogo.Reset();
     }
 }
 
@@ -73,11 +71,11 @@ void StudioSplashScene::Update(double dt)
     const float centerY = GetScreenHeight() * 0.5f;
     const float logoTop = centerY - logoHeight * 0.5f;
 
-    if (studioLogo.id != 0)
+    if (studioLogo.IsValid())
     {
-        DrawTexturePro(studioLogo,
-                       {0.0f, 0.0f, static_cast<float>(studioLogo.width),
-                        static_cast<float>(studioLogo.height)},
+        DrawTexturePro(studioLogo.Get(),
+                       {0.0f, 0.0f, static_cast<float>(studioLogo.Get().width),
+                        static_cast<float>(studioLogo.Get().height)},
                        {compositionLeft, logoTop, logoWidth, logoHeight},
                        {0.0f, 0.0f}, 0.0f, WHITE);
     }

@@ -22,6 +22,7 @@ target_sources(game
                ai/AIEconomyBias.cpp
                research/Technology.cpp
                economy/Building.cpp
+               economy/BuildingSalvage.cpp
                economy/BuildingComponentsInternal.cpp
                economy/ProductionComponent.cpp
                economy/LogisticsComponent.cpp
@@ -75,6 +76,7 @@ target_sources(game
                ui/GuiController.cpp
                ui/GuiCommon.cpp
                ui/GuiMapWidgets.cpp
+               ui/GameplayClock.cpp
                ui/GuiHudPanels.cpp
                ui/GuiResearchTree.cpp
                ui/GuiBuildModes.cpp
@@ -92,7 +94,7 @@ source_group("core" FILES
 
 source_group("ai" FILES ai/Controller.cpp ai/AIActions.cpp ai/AIModel.cpp ai/AIEconomyBias.cpp)
 source_group("research" FILES research/Technology.cpp research/ResearchCatalog.cpp)
-source_group("economy" FILES economy/Building.cpp economy/BuildingComponentsInternal.cpp
+source_group("economy" FILES economy/Building.cpp economy/BuildingSalvage.cpp economy/BuildingComponentsInternal.cpp
              economy/ProductionComponent.cpp economy/LogisticsComponent.cpp economy/WorkersComponent.cpp
              economy/StorageComponent.cpp economy/PopulationComponent.cpp
              economy/BuildingConfig.cpp economy/ConstructionQueue.cpp economy/RecruitmentComponent.cpp
@@ -112,5 +114,5 @@ source_group("scenes" FILES scenes/Game.cpp scenes/GameWindow.cpp scenes/SceneUt
              scenes/MultiplayerScene.cpp scenes/ControlsScene.cpp scenes/LoadGameScene.cpp
              scenes/SaveGameScene.cpp scenes/GameScene.cpp scenes/TutorialScene.cpp scenes/GameMenuScene.cpp)
 source_group("ui" FILES ui/Gui.cpp ui/Renderer.cpp ui/ShaderLibrary.cpp ui/WorldLighting.cpp ui/GuiController.cpp ui/GuiCommon.cpp
-             ui/GuiMapWidgets.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
+             ui/GuiMapWidgets.cpp ui/GameplayClock.cpp ui/GuiHudPanels.cpp ui/GuiResearchTree.cpp
              ui/GuiBuildModes.cpp ui/GuiRoster.cpp ui/GuiStockpile.cpp ui/AudioSystem.cpp)

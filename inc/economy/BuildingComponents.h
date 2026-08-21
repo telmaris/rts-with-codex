@@ -131,6 +131,7 @@ struct ProductionComponent : IBuildingComponent
     BuildingCapability GetCapability() const override { return BuildingCapability::Production; }
     void Update(Building& self, double dt) override;
     void Produce(Building& self, double dt);
+    bool ShouldRequestInputs(const Building& self) const;
     // Fraction of the CURRENT cycle elapsed, against the same (tech/focus-
     // modified) cycle time Produce() actually completes the cycle against —
     // using the unmodified base here would desync the reported percentage

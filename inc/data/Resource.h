@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "simulation/Transport.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
@@ -446,6 +447,43 @@ struct Resource : Transportable
     // Broad economic/combat tag of this resource, derived from `type`.
     ResourceCategory category{ResourceCategory::None};
     bool ownedAllocation{false};
+};
+
+// Value-semantic quantity contract used by the WP-11 migration. It is kept
+// independent from the legacy pointer buffer until storage and shipment
+// callers have been migrated together. Failed operations are atomic.
+struct ResourceQuantity
+{
+    ResourceType type{ResourceType::Null};
+    int capacity{0};
+    int amount{0};
+
+    ResourceQuantity() = default;
+    ResourceQuantity(ResourceType resourceType, int maxCapacity) noexcept
+        : type(resourceType), capacity(std::max(0, maxCapacity))
+    {
+    }
+
+    int AvailableCapacity() const noexcept
+    {
+        return capacity - amount;
+    }
+
+    bool TryAdd(int units) noexcept
+    {
+        if (units < 0 || amount < 0 || amount > capacity || units > capacity - amount)
+            return false;
+        amount += units;
+        return true;
+    }
+
+    bool TryRemove(int units) noexcept
+    {
+        if (units < 0 || amount < 0 || amount > capacity || units > amount)
+            return false;
+        amount -= units;
+        return true;
+    }
 };
 
 // Single-resource-type FIFO/LIFO buffer used by buildings.

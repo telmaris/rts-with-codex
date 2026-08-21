@@ -1,5 +1,6 @@
 #include "core/GameWorldInternal.h"
 #include "core/Log.h"
+#include "economy/BuildingSalvage.h"
 #include "ui/AudioSystem.h"
 
 #include <algorithm>
@@ -155,6 +156,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         const auto& definition = GetBuildingDefinition(command.buildingType);
         const bool freeBuild = ResolveBuildPaymentPolicy(*this, *player) == BuildPaymentPolicy::FreeDebugHuman;
+        const auto effectiveCosts = player->GetEffectiveBuildCosts(definition);
         if (!freeBuild)
         {
             auto failures = player->GetBuildRequirementFailures(definition);
@@ -164,7 +166,7 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
                 return false;
             }
         }
-        if (!freeBuild && !player->TryPayBuildCost(player->GetEffectiveBuildCosts(definition)))
+        if (!freeBuild && !player->TryPayBuildCost(effectiveCosts))
         {
             Log::Msg("[GameWorld]", "Command rejected: not enough resources to build ", definition.name);
             return false;
@@ -173,7 +175,11 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
         int tileId = tilemap.GetIdFromCoords(command.tilePos);
         auto building = CreateBuildingFromType(command.buildingType, player->id * 100000 + player->build.buildingId++);
         if (building == nullptr)
+        {
+            if (!freeBuild)
+                player->RefundBuildCost(effectiveCosts);
             return false;
+        }
 
         double buildTime = player->ModifyBalanceAt(BalanceStat::BuildTime, definition.buildTime, command.buildingType, command.tilePos);
         building->buildTime = buildTime;
@@ -182,7 +188,15 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
 
         Building* placed = tilemap.GetBuilding(tileId);
         if (placed == nullptr)
+        {
+            if (!freeBuild)
+                player->RefundBuildCost(effectiveCosts);
             return false;
+        }
+        placed->buildCostRecordState = freeBuild ? BuildCostRecordState::Free
+                                                  : BuildCostRecordState::PaidRecorded;
+        placed->buildCostWasPaid = !freeBuild;
+        placed->paidBuildCosts = freeBuild ? std::vector<ResourceAmountDefinition>{} : effectiveCosts;
 
         if (placed->IsUnderConstruction())
         {
@@ -211,15 +225,8 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             return false;
         }
 
-        // Cancelling a still-unfinished build refunds what was paid for it —
-        // an under-construction building is always one the player was charged for.
-        if (building->IsUnderConstruction())
-        {
-            const auto& definition = GetBuildingDefinition(building->buildingType);
-            player->RefundBuildCost(player->GetEffectiveBuildCosts(definition));
-        }
-
-        tilemap.DestroyBuildingAt(building->positionId);
+        if (!ExecuteDemolition(tilemap, *player, *building))
+            return false;
         playFx("destroy");
         return acceptCommand();
     }
@@ -280,6 +287,19 @@ bool GameWorld::ExecuteCommand(const GameCommand& command)
             command.targetTileId > static_cast<int>(TowerTargetMode::StrongestUnit))
             return false;
         tower->targetMode = static_cast<TowerTargetMode>(command.targetTileId);
+        return acceptCommand();
+    }
+
+    if (command.type == GameCommandType::SetProductionBlocked)
+    {
+        Building* building = tilemap.GetBuilding(command.sourceTileId);
+        if (building == nullptr || building->owner != player ||
+            building->IsUnderConstruction() || !building->CanBlockProduction())
+            return false;
+        if (command.targetTileId != 0 && command.targetTileId != 1)
+            return false;
+
+        building->SetProductionBlocked(command.targetTileId == 1);
         return acceptCommand();
     }
 

@@ -117,6 +117,19 @@ enum class BiomeType : int
     WETLAND = 5
 };
 
+enum class BuildCostRecordState : std::uint8_t
+{
+    Free = 0,
+    PaidRecorded = 1,
+    LegacyUnknown = 2
+};
+
+struct ResourceAmountDefinition
+{
+    ResourceType type{ResourceType::Null};
+    int amount{0};
+};
+
 struct ResourceBufferView
 {
     ResourceType type{ResourceType::Null};
@@ -190,6 +203,10 @@ public:
     int GetWorkerCapacity() const;
     bool IsProductionStalled() const;
     bool CanBlockProduction() const;
+    // One canonical enumeration of every buffer owned by this building.
+    // Pointers are non-owning and valid only while the building is alive.
+    std::vector<ResourceBuffer*> GetResourceBuffers();
+    std::vector<const ResourceBuffer*> GetResourceBuffers() const;
 
     bool IsProductionBlocked() const { return productionBlocked; }
     void SetProductionBlocked(bool blocked) { productionBlocked = blocked; }
@@ -263,6 +280,11 @@ public:
     Vec2i footprint{1, 1};
     int textureId{0};
     bool productionBlocked{false};
+    // The exact construction payment is retained so demolition cannot
+    // retroactively apply today's balance modifiers to yesterday's build.
+    bool buildCostWasPaid{false};
+    BuildCostRecordState buildCostRecordState{BuildCostRecordState::Free};
+    std::vector<ResourceAmountDefinition> paidBuildCosts;
     Stat<double> buildTime{BalanceStat::BuildTime, 0.0};
     double constructionRemaining{0.0};
     // False while the building waits in the build queue with no free builder

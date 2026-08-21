@@ -107,7 +107,8 @@ public:
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
-        if (chargeCost && !TryPayBuildCost(GetEffectiveBuildCosts(definition)))
+        const auto effectiveCosts = GetEffectiveBuildCosts(definition);
+        if (chargeCost && !TryPayBuildCost(effectiveCosts))
         {
             ReportBuildCostFailure(definition.name);
             return nullptr;
@@ -120,6 +121,10 @@ public:
             double buildTime = ModifyBalanceAt(BalanceStat::BuildTime, definition.buildTime, preview.buildingType, anchor);
             bld->buildTime = buildTime;
             bld->constructionRemaining = chargeCost ? buildTime : 0.0;
+            bld->buildCostRecordState = chargeCost ? BuildCostRecordState::PaidRecorded
+                                                   : BuildCostRecordState::Free;
+            bld->buildCostWasPaid = chargeCost;
+            bld->paidBuildCosts = chargeCost ? effectiveCosts : std::vector<ResourceAmountDefinition>{};
             if (!bld->IsUnderConstruction())
             {
                 for (int occupiedTileId : tilemap.GetBuildingTileIds(bld))
@@ -271,6 +276,11 @@ public:
 
     // Rebuilds the modifier set entries emitted by unlocked technologies.
     void RefreshTechnologyModifiers();
+
+    // Rebuilds all per-building upgrade modifiers from the currently tracked
+    // buildings. Persistence calls this after the complete building section
+    // has been read, so modifier state never depends on serialization order.
+    void RefreshUpgradeModifiers();
 
     // (Re-)applies the BalanceModifiers for a building's current
     // UpgradeComponent::level, replacing whatever the previous level had.

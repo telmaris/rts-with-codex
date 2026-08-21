@@ -201,6 +201,10 @@ class TileMap
         Building* GetBuilding(int id);
         // Returns a building occupying map coordinates.
         Building* GetBuilding(Vec2i pos);
+        // Checks object identity without dereferencing the candidate. UI uses
+        // this to invalidate selections after simulation-side destruction or
+        // replacement, such as a defeated HQ becoming a StorageBuilding.
+        bool ContainsBuilding(const Building* candidate) const;
         // Returns true when coordinates are within map bounds.
         bool IsInside(Vec2i coords) const;
         // Returns true when every footprint tile is inside map bounds.

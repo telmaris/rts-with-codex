@@ -2,6 +2,7 @@
 #define AUDIO_SYSTEM_H
 
 #include "raylib.h"
+#include "ui/RaylibResource.h"
 
 #include <map>
 #include <random>
@@ -55,7 +56,7 @@ private:
 
     struct MusicEntry
     {
-        Music       music{};
+        tvorin::ui::MusicHandle music{};
         std::string filepath;
         bool        loaded{false};
     };
@@ -67,7 +68,7 @@ private:
 
     std::map<std::string, MusicEntry> tracks;
     std::map<std::string, MusicRotation> rotations;
-    std::map<std::string, Sound>      sounds;
+    std::map<std::string, tvorin::ui::SoundHandle> sounds;
 
     // Crossfade state
     std::string currentId;

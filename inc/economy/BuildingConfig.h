@@ -4,12 +4,6 @@
 #include "economy/BalanceModifiers.h"
 #include "economy/Building.h"
 
-struct ResourceAmountDefinition
-{
-    ResourceType type{ResourceType::Null};
-    int amount{0};
-};
-
 struct ResourceBufferDefinition
 {
     ResourceType type{ResourceType::Null};

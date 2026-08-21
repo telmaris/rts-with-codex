@@ -289,7 +289,7 @@ int ResolveAnimationFrame(const AnimationClip& clip, float elapsedTime)
 void CanvasLayer::Initialize(int width, int height)
 {
     Shutdown();
-    fbo = LoadRenderTexture(width, height);
+    fbo = tvorin::ui::RenderTextureHandle{LoadRenderTexture(width, height)};
 }
 
 Rectangle RenderTargetSourceRect(Texture2D texture, RenderTargetDestination destination)
@@ -303,23 +303,24 @@ Rectangle RenderTargetSourceRect(Texture2D texture, RenderTargetDestination dest
 
 void CanvasLayer::Shutdown()
 {
-    if (fbo.id != 0 && IsWindowReady())
-        UnloadRenderTexture(fbo);
-    fbo = {};
+    if (IsWindowReady())
+        fbo.Reset();
+    else
+        fbo.Forget();
 }
 
 void TextureAtlas::LoadTextureAtlas(const char* path, Vec2i tileSize)
 {
-    tex = LoadTexture(path);
+    tex = tvorin::ui::TextureHandle{LoadTexture(path)};
     // World atlases contain neighbouring, unrelated cells. Point sampling
     // keeps their pixel-art edges discrete instead of blending from a
     // neighbour while the map is minified.
-    if (tex.id != 0)
-        SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+    if (tex.IsValid())
+        SetTextureFilter(tex.Get(), TEXTURE_FILTER_POINT);
     size = tileSize;
-    dim = {tex.width / size.x, tex.height / size.y};
+    dim = {tex.Get().width / size.x, tex.Get().height / size.y};
 
-    Log::Msg("[Texture Atlas]", "Loaded. Size: [", tex.width, ", ", tex.height, "] Dimensions: [", dim.x, ", ", dim.y, "]");
+    Log::Msg("[Texture Atlas]", "Loaded. Size: [", tex.Get().width, ", ", tex.Get().height, "] Dimensions: [", dim.x, ", ", dim.y, "]");
 }
 
 Rectangle TextureAtlas::GetRectFromId(int id)
@@ -410,8 +411,8 @@ bool Renderer::InitializeWorldLayers()
         Shutdown();
         return false;
     }
-    SetTextureFilter(lightMap.fbo.texture, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(lightMap.fbo.texture, TEXTURE_WRAP_CLAMP);
+    SetTextureFilter(lightMap.fbo.Get().texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(lightMap.fbo.Get().texture, TEXTURE_WRAP_CLAMP);
 
     fogMask.Initialize(RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
     if (!fogMask.IsInitialized())
@@ -420,8 +421,8 @@ bool Renderer::InitializeWorldLayers()
         Shutdown();
         return false;
     }
-    SetTextureFilter(fogMask.fbo.texture, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(fogMask.fbo.texture, TEXTURE_WRAP_CLAMP);
+    SetTextureFilter(fogMask.fbo.Get().texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(fogMask.fbo.Get().texture, TEXTURE_WRAP_CLAMP);
 
     foggedWorld.Initialize();
     if (!foggedWorld.IsInitialized())
@@ -452,8 +453,8 @@ bool Renderer::InitializeWorldLayers()
     constexpr const char* RadialLightMaskPath = "assets/light/radial_light_mask_1024.png";
     if (FileExists(RadialLightMaskPath))
     {
-        radialLightMask = LoadTexture(RadialLightMaskPath);
-        if (radialLightMask.id == 0)
+        radialLightMask = tvorin::ui::TextureHandle{LoadTexture(RadialLightMaskPath)};
+        if (!radialLightMask.IsValid())
             Log::Msg("[Renderer] Failed to load radial light mask: ", RadialLightMaskPath);
     }
     else
@@ -483,26 +484,22 @@ void Renderer::Shutdown()
 
     if (IsWindowReady())
     {
+        buildingTextures.clear();
+        atlasMap.clear();
+        radialLightMask.Reset();
+    }
+    else
+    {
         for (auto& [type, texture] : buildingTextures)
-        {
-            if (texture.id != 0)
-                UnloadTexture(texture);
-        }
-
+            texture.Forget();
         for (auto& [atlasId, atlas] : atlasMap)
-        {
-            if (atlas.tex.id != 0)
-                UnloadTexture(atlas.tex);
-        }
-
-        if (radialLightMask.id != 0)
-            UnloadTexture(radialLightMask);
+            atlas.tex.Forget();
+        radialLightMask.Forget();
     }
 
     buildingTextures.clear();
     buildingAnimations.clear();
     atlasMap.clear();
-    radialLightMask = {};
     dynamicLights.clear();
     fogReveals.clear();
     cachedSnapshotTick = std::numeric_limits<std::uint64_t>::max();
@@ -629,27 +626,20 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
     if (!isOperational || IsRoadLike(type))
         return;
 
+    const Vector2 center{
+        pos.x + static_cast<float>(footprint.x * TILE_SIZE) * 0.5f,
+        pos.y + static_cast<float>(footprint.y * TILE_SIZE) * 0.5f};
     LightEmitterView light;
     switch (type)
     {
         case BuildingType::Foundry:
-            // The furnace itself is animated and brightly coloured. Anchor
-            // the environmental glow at the chimney instead, so the sprite's
-            // coloured work area is not mistaken for a flashing light source.
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.49f, pos.y + footprint.y * TILE_SIZE * 0.86f},
-                     Color{255, 164, 88, 255}, 272.0f, 0.66f, 0.70f, 0.0f, stableId, 30};
+            light = {center, Color{255, 115, 35, 255}, 272.0f, 0.74f, 0.70f, 0.0f, stableId, 30};
             break;
         case BuildingType::Smith:
-            // The smithy is entered from the lower facade; keep the glow at
-            // that doorway rather than on the team-coloured roof details.
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f, pos.y + footprint.y * TILE_SIZE * 0.22f},
-                     Color{255, 184, 112, 255}, 208.0f, 0.48f, 0.68f, 0.0f, stableId, 20};
+            light = {center, Color{255, 135, 45, 255}, 208.0f, 0.58f, 0.68f, 0.0f, stableId, 20};
             break;
         case BuildingType::Inn:
-            // A warm inn light reads as lamplight from the upper chimney,
-            // not as an emission from its painted trim.
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.76f, pos.y + footprint.y * TILE_SIZE * 0.86f},
-                     Color{255, 196, 126, 255}, 192.0f, 0.42f, 0.65f, 0.0f, stableId, 10};
+            light = {center, Color{255, 165, 75, 255}, 192.0f, 0.50f, 0.65f, 0.0f, stableId, 10};
             break;
         default:
         {
@@ -659,8 +649,7 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
             // any coloured sprite pixel, so painted roofs and trims cannot
             // start appearing to blink.
             const float largestDimension = static_cast<float>(std::max(footprint.x, footprint.y));
-            light = {{pos.x + footprint.x * TILE_SIZE * 0.50f,
-                      pos.y + footprint.y * TILE_SIZE * 0.54f},
+            light = {center,
                      Color{255, 200, 132, 255}, 96.0f + largestDimension * 40.0f,
                      0.36f, 0.64f, 0.0f, stableId, 5};
             break;
@@ -669,7 +658,7 @@ void Renderer::QueueBuildingLight(BuildingType type, Vec2i footprint, Vec2f pos,
     // Preserve a readable footprint at distant zoom and make every building
     // pool of light slightly more generous without changing gameplay space.
     light.radiusWorld *= 1.15f;
-    light.minimumScreenRadius = 56.0f;
+    light.minimumScreenRadius = 40.0f;
     QueueDynamicLight(light);
 }
 
@@ -702,7 +691,7 @@ void Renderer::DrawDynamicLightsToActiveTarget(const WorldLightingFrame& lightin
                                                bool bloomEnabled)
 {
     const Shader* radialLightShader = shaderLibrary.Find(ShaderId::RadialLight);
-    if (radialLightShader == nullptr || radialLightMask.id == 0 || dynamicLights.empty())
+    if (radialLightShader == nullptr || !radialLightMask.IsValid() || dynamicLights.empty())
         return;
 
     // The destination FBO is already active. Use the identical Camera2D
@@ -754,19 +743,19 @@ void Renderer::DrawDynamicLightsToActiveTarget(const WorldLightingFrame& lightin
                 light.intensity * visibility * flicker * intensityScale);
             const Color encodedLight = EncodeAdditiveLightTint(light.color, intensity);
             const float drawRadius = radiusWorld * radiusScale;
-            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.width),
-                             -static_cast<float>(radialLightMask.height)};
+            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.Get().width),
+                             -static_cast<float>(radialLightMask.Get().height)};
             Rectangle destination{light.worldPosition.x - drawRadius,
                                   RENDER_HEIGHT - light.worldPosition.y - drawRadius,
                                    drawRadius * 2.0f,
                                    drawRadius * 2.0f};
-            DrawTexturePro(radialLightMask, source, destination,
+            DrawTexturePro(radialLightMask.Get(), source, destination,
                            {0.0f, 0.0f}, 0.0f, encodedLight);
         }
     };
 
     if (bloomEnabled)
-        drawPass(1.28f, 0.15f);
+        drawPass(1.20f, 0.08f);
     drawPass(1.0f, 1.0f);
 
     EndMode2D();
@@ -779,7 +768,7 @@ void Renderer::DrawLightMap(const WorldLightingFrame& lighting, bool localLights
     if (!lightMap.IsInitialized())
         return;
 
-    BeginTextureMode(lightMap.fbo);
+    BeginTextureMode(lightMap.fbo.Get());
     ClearBackground(BLACK);
     if (localLightsEnabled)
         DrawDynamicLightsToActiveTarget(lighting, false);
@@ -791,10 +780,10 @@ void Renderer::DrawFogMask()
     if (!fogMask.IsInitialized())
         return;
 
-    BeginTextureMode(fogMask.fbo);
+    BeginTextureMode(fogMask.fbo.Get());
     ClearBackground(BLACK);
 
-    const float mapScale = fogMask.fbo.texture.width / static_cast<float>(RENDER_WIDTH);
+    const float mapScale = fogMask.fbo.Get().texture.width / static_cast<float>(RENDER_WIDTH);
     // fogMask is half-resolution, so use the same camera matrix scaled into
     // its target. The world and its visibility field now share one transform.
     Camera2D fogCamera = camera;
@@ -806,7 +795,7 @@ void Renderer::DrawFogMask()
     float animationTime = static_cast<float>(simulationTick) * 0.01f;
     const float animationAmount = 0.85f;
     const int maskOnly = 1;
-    if (radialMaskShader != nullptr && radialLightMask.id != 0)
+    if (radialMaskShader != nullptr && radialLightMask.IsValid())
     {
         animationTimeLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationTime");
         animationAmountLocation = shaderLibrary.GetLocation(ShaderId::RadialLight, "animationAmount");
@@ -828,14 +817,14 @@ void Renderer::DrawFogMask()
         const float centerX = reveal.worldPosition.x;
         const float centerY = RENDER_HEIGHT - reveal.worldPosition.y;
 
-        if (radialLightMask.id != 0)
+        if (radialLightMask.IsValid())
         {
             // The supplied alpha-gradient texture gives fog revealers a
             // natural falloff instead of the old concentric primitive discs.
-            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.width),
-                             -static_cast<float>(radialLightMask.height)};
+            Rectangle source{0.0f, 0.0f, static_cast<float>(radialLightMask.Get().width),
+                             -static_cast<float>(radialLightMask.Get().height)};
             Rectangle destination{centerX - radius, centerY - radius, radius * 2.0f, radius * 2.0f};
-            DrawTexturePro(radialLightMask, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawTexturePro(radialLightMask.Get(), source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
         }
         else
         {
@@ -844,7 +833,7 @@ void Renderer::DrawFogMask()
         }
     }
     EndMode2D();
-    if (radialMaskShader != nullptr && radialLightMask.id != 0)
+    if (radialMaskShader != nullptr && radialLightMask.IsValid())
         EndShaderMode();
     EndTextureMode();
 }
@@ -883,7 +872,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         renderSettings.localLightBloom = IsLocalLightBloomPreferenceEnabled();
         renderSettings.rainOverlay = IsRainOverlayPreferenceEnabled();
         renderSettings.logisticsOverlay = IsLogisticsOverlayPreferenceEnabled();
-        BeginTextureMode(worldComposite.fbo);
+        BeginTextureMode(worldComposite.fbo.Get());
         ClearBackground(BLANK);
 
         // Every render target uses canonical top-left screen space. The helper
@@ -900,12 +889,12 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                                   RL_FUNC_ADD, RL_FUNC_ADD);
         BeginBlendMode(BLEND_CUSTOM_SEPARATE);
         for (std::size_t index = 0; index < layers.size(); ++index)
-            DrawRenderTarget(layers[index].fbo.texture, layerDestination,
+            DrawRenderTarget(layers[index].fbo.Get().texture, layerDestination,
                              RenderTargetDestination::OffscreenPass);
         EndBlendMode();
         EndTextureMode();
 
-        Texture2D presentedWorld = worldComposite.fbo.texture;
+        Texture2D presentedWorld = worldComposite.fbo.Get().texture;
         const Shader* lightingShader = shaderLibrary.Find(ShaderId::WorldLighting);
         const bool hasLightingPass = (renderSettings.dayNightCycle || renderSettings.dynamicLights) &&
                                      lightingShader != nullptr;
@@ -928,7 +917,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             // framebuffer whose registration could drift with the camera.
             if (renderSettings.debugView == RenderDebugView::LightMap)
                 DrawLightMap(lighting, renderSettings.dynamicLights);
-            BeginTextureMode(litWorld.fbo);
+            BeginTextureMode(litWorld.fbo.Get());
             ClearBackground(BLANK);
             BeginShaderMode(*lightingShader);
 
@@ -948,13 +937,13 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             if (contrastLocation >= 0)
                 SetShaderValue(*lightingShader, contrastLocation, &lighting.contrast, SHADER_UNIFORM_FLOAT);
 
-            DrawRenderTarget(worldComposite.fbo.texture, layerDestination,
+            DrawRenderTarget(worldComposite.fbo.Get().texture, layerDestination,
                              RenderTargetDestination::OffscreenPass);
             EndShaderMode();
             if (renderSettings.dynamicLights)
                 DrawDynamicLightsToActiveTarget(lighting, renderSettings.localLightBloom);
             EndTextureMode();
-            presentedWorld = litWorld.fbo.texture;
+            presentedWorld = litWorld.fbo.Get().texture;
         }
 
         const Shader* postProcessShader =
@@ -963,7 +952,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                 : nullptr;
         if (postProcessShader != nullptr)
         {
-            BeginTextureMode(postProcessedWorld.fbo);
+            BeginTextureMode(postProcessedWorld.fbo.Get());
             ClearBackground(BLANK);
             BeginShaderMode(*postProcessShader);
 
@@ -998,7 +987,7 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
                              RenderTargetDestination::OffscreenPass);
             EndShaderMode();
             EndTextureMode();
-            presentedWorld = postProcessedWorld.fbo.texture;
+            presentedWorld = postProcessedWorld.fbo.Get().texture;
         }
 
         // Fog is the highest world layer. It is not a color-transform pass and
@@ -1011,16 +1000,16 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
         if (fogShader != nullptr)
         {
             DrawFogMask();
-            BeginTextureMode(foggedWorld.fbo);
+            BeginTextureMode(foggedWorld.fbo.Get());
             ClearBackground(BLANK);
             DrawRenderTarget(presentedWorld, layerDestination,
                              RenderTargetDestination::OffscreenPass);
             BeginShaderMode(*fogShader);
-            DrawRenderTarget(fogMask.fbo.texture, layerDestination,
+            DrawRenderTarget(fogMask.fbo.Get().texture, layerDestination,
                              RenderTargetDestination::OffscreenPass);
             EndShaderMode();
             EndTextureMode();
-            presentedWorld = foggedWorld.fbo.texture;
+            presentedWorld = foggedWorld.fbo.Get().texture;
         }
 
         const char* debugLabel = nullptr;
@@ -1029,15 +1018,15 @@ void Renderer::DrawContent(std::vector<UiWidget*> ui, double dt)
             case RenderDebugView::Final:
                 break;
             case RenderDebugView::WorldAlbedo:
-                presentedWorld = worldComposite.fbo.texture;
+                presentedWorld = worldComposite.fbo.Get().texture;
                 debugLabel = "DEBUG: world albedo (F8: next view)";
                 break;
             case RenderDebugView::LightMap:
-                presentedWorld = lightMap.fbo.texture;
+                presentedWorld = lightMap.fbo.Get().texture;
                 debugLabel = "DEBUG: light map (F8: next view)";
                 break;
             case RenderDebugView::FogMask:
-                presentedWorld = fogMask.fbo.texture;
+                presentedWorld = fogMask.fbo.Get().texture;
                 debugLabel = "DEBUG: fog visibility mask (F8: next view)";
                 break;
         }
@@ -1097,7 +1086,7 @@ void Renderer::BeginLayer(WorldRenderLayer layer)
     if (!worldLayersInitialized || layerActive)
         return;
 
-    BeginTextureMode(layers[ToLayerIndex(layer)].fbo);
+    BeginTextureMode(layers[ToLayerIndex(layer)].fbo.Get());
     // Cache straight-alpha artwork as premultiplied RGB plus *linear* alpha.
     // Raylib's default glBlendFunc applies SRC_ALPHA to the alpha channel as
     // well, which stores A*A in a transparent FBO. That squared coverage was
@@ -1128,7 +1117,7 @@ void Renderer::ClearLayer(WorldRenderLayer layer)
     if (!worldLayersInitialized)
         return;
 
-    BeginTextureMode(layers[ToLayerIndex(layer)].fbo);
+    BeginTextureMode(layers[ToLayerIndex(layer)].fbo.Get());
     ClearBackground(BLANK);
     EndTextureMode();
 }
@@ -1165,7 +1154,7 @@ void Renderer::DrawAtlasTile(int atlas, int tex, Vec2f pos, Vec2f drawSize)
         dest.width += renderPixelInWorld;
         dest.height += renderPixelInWorld;
     }
-    DrawTexturePro(at.tex, src, dest, {0,0}, 0, WHITE);
+    DrawTexturePro(at.tex.Get(), src, dest, {0,0}, 0, WHITE);
 }
 
 void Renderer::DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos)
@@ -1174,7 +1163,7 @@ void Renderer::DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos)
     const MineralOverlayStyle* style = GetMineralOverlayStyle(resourceOverlayTextureId);
     const Shader* shader = shaderLibrary.Find(ShaderId::ResourceOverlay);
     auto atlasIt = atlasMap.find(ResourceOverlayAtlasId);
-    if (style == nullptr || shader == nullptr || atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    if (style == nullptr || shader == nullptr || atlasIt == atlasMap.end() || !atlasIt->second.tex.IsValid())
     {
         DrawAtlasTile(ResourceOverlayAtlasId, resourceOverlayTextureId, pos);
         return;
@@ -1185,8 +1174,8 @@ void Renderer::DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos)
         return;
 
     Rectangle source = atlas.GetRectFromId(resourceOverlayTextureId);
-    const float textureWidth = static_cast<float>(atlas.tex.width);
-    const float textureHeight = static_cast<float>(atlas.tex.height);
+    const float textureWidth = static_cast<float>(atlas.tex.Get().width);
+    const float textureHeight = static_cast<float>(atlas.tex.Get().height);
     float atlasTexelSize[2]{1.0f / textureWidth, 1.0f / textureHeight};
     // Clamp neighbourhood samples to this 64 px atlas cell so the coal edge
     // detector never reads alpha from a neighbouring resource variant.
@@ -1241,7 +1230,7 @@ void Renderer::DrawResourceOverlay(int resourceOverlayTextureId, Vec2f pos)
     source.height *= -1.0f;
     Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
                           static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
-    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
+    DrawTexturePro(atlas.tex.Get(), source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
     EndShaderMode();
 }
 
@@ -1282,7 +1271,7 @@ void Renderer::DrawShipments(const std::vector<ShipmentRenderState>& shipments, 
 
     const auto atlasIt = atlasMap.find(ResourceAtlasId);
     if (!layerActive || mapSize.x <= 0 || mapSize.y <= 0 ||
-        atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+        atlasIt == atlasMap.end() || !atlasIt->second.tex.IsValid())
     {
         return;
     }
@@ -1418,15 +1407,15 @@ void Renderer::LoadBuildingTexture(BuildingType type, const std::string& path)
     if (!FileExists(path.c_str()))
         return;
 
-    Texture2D texture = LoadTexture(path.c_str());
-    if (texture.id != 0)
+    tvorin::ui::TextureHandle texture{LoadTexture(path.c_str())};
+    if (texture.IsValid())
     {
         // Building sprites are sampled directly by the team-colour shader.
         // Point filtering is required for pixel art and prevents subpixel
         // camera movement from blending neighbouring pixels or animation
         // frames into a shimmering/floating silhouette.
-        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
-        buildingTextures[type] = texture;
+        SetTextureFilter(texture.Get(), TEXTURE_FILTER_POINT);
+        buildingTextures[type] = std::move(texture);
     }
 }
 
@@ -1447,10 +1436,10 @@ Rectangle Renderer::GetBuildingTextureFirstFrameSource(BuildingType type) const
     }
 
     auto textureIt = buildingTextures.find(type);
-    if (textureIt == buildingTextures.end() || textureIt->second.id == 0)
+    if (textureIt == buildingTextures.end() || !textureIt->second.IsValid())
         return {};
 
-    const Texture2D& texture = textureIt->second;
+    const Texture2D& texture = textureIt->second.Get();
     float frameWidth = static_cast<float>(texture.width);
     float frameHeight = static_cast<float>(texture.height);
     auto animationIt = buildingAnimations.find(type);
@@ -1558,7 +1547,7 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
     auto textureIt = buildingTextures.find(type);
     if (textureIt != buildingTextures.end())
     {
-        Texture2D texture = textureIt->second;
+        const Texture2D& texture = textureIt->second.Get();
         Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), -static_cast<float>(texture.height)};
         Rectangle dest{pos.x, RENDER_HEIGHT - drawSize.y - pos.y, drawSize.x, drawSize.y};
         DrawBuildingSprite(texture, src, dest, tint, ownerColor, applyTeamColor, type);
@@ -1587,7 +1576,7 @@ void Renderer::DrawBuildingTexture(BuildingType type, Vec2i footprint, Vec2f pos
     }
 
     const AnimationClip& clip = animIt->second;
-    Texture2D texture = textureIt->second;
+    const Texture2D& texture = textureIt->second.Get();
     int frame = ResolveAnimationFrame(clip, elapsedTime);
     float frameWidth = static_cast<float>(texture.width) / clip.frameCount;
 
@@ -1981,7 +1970,7 @@ void Renderer::DrawRoadTexture(BuildingType type, Vec2f pos, int connectionMask,
     }
 
     auto atlasIt = atlasMap.find(atlasId);
-    if (atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    if (atlasIt == atlasMap.end() || !atlasIt->second.tex.IsValid())
     {
         DrawRectangle(static_cast<int>(pos.x), RENDER_HEIGHT - TILE_SIZE - static_cast<int>(pos.y),
                       TILE_SIZE, TILE_SIZE, Color{112, 78, 48, tint.a});
@@ -1993,7 +1982,7 @@ void Renderer::DrawRoadTexture(BuildingType type, Vec2f pos, int connectionMask,
     source.height *= -1.0f;
     Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
                           static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
-    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, tint);
+    DrawTexturePro(atlas.tex.Get(), source, destination, {0.0f, 0.0f}, 0.0f, tint);
 }
 
 void Renderer::DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint)
@@ -2015,7 +2004,7 @@ void Renderer::DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint
     }
 
     auto atlasIt = atlasMap.find(atlasId);
-    if (atlasIt == atlasMap.end() || atlasIt->second.tex.id == 0)
+    if (atlasIt == atlasMap.end() || !atlasIt->second.tex.IsValid())
     {
         DrawRectangle(static_cast<int>(pos.x), RENDER_HEIGHT - TILE_SIZE - static_cast<int>(pos.y),
                       TILE_SIZE, TILE_SIZE, Color{190, 178, 151, tint.a});
@@ -2027,7 +2016,7 @@ void Renderer::DrawMilitaryRoadTexture(Vec2f pos, int connectionMask, Color tint
     source.height *= -1.0f;
     Rectangle destination{pos.x, RENDER_HEIGHT - TILE_SIZE - pos.y,
                           static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
-    DrawTexturePro(atlas.tex, source, destination, {0.0f, 0.0f}, 0.0f, tint);
+    DrawTexturePro(atlas.tex.Get(), source, destination, {0.0f, 0.0f}, 0.0f, tint);
 }
 
 void Renderer::SetTopScreenPadding(float padding)
@@ -2070,7 +2059,7 @@ void Renderer::ClearLayers()
 
     for(auto& l : layers)
     {
-        BeginTextureMode(l.fbo);
+        BeginTextureMode(l.fbo.Get());
         ClearBackground(BLANK);
         EndTextureMode();
     }

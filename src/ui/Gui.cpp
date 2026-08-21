@@ -357,7 +357,7 @@ namespace
         if (resourceIconAtlas.IsLoaded())
         {
             Rectangle src = resourceIconAtlas.GetRect(view.type);
-            DrawTexturePro(resourceIconAtlas.texture, src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawTexturePro(resourceIconAtlas.texture.Get(), src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
         }
         else
         {
@@ -399,7 +399,7 @@ namespace
         if (resourceIconAtlas.IsLoaded())
         {
             Rectangle src = resourceIconAtlas.GetRect(view.type);
-            DrawTexturePro(resourceIconAtlas.texture, src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawTexturePro(resourceIconAtlas.texture.Get(), src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
         }
         else
         {
@@ -1961,23 +1961,19 @@ bool UiImage::LoadTextureFromFile(const std::string& path)
     if (!FileExists(path.c_str()))
         return false;
 
-    texture = LoadTexture(path.c_str());
-    hasTexture = texture.id != 0;
-    if (hasTexture)
-        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+    tvorin::ui::TextureHandle next{LoadTexture(path.c_str())};
+    if (!next)
+        return false;
+
+    SetTextureFilter(next.Get(), TEXTURE_FILTER_POINT);
+    texture = std::move(next);
+    hasTexture = true;
     return hasTexture;
 }
 
-UiImage::~UiImage()
-{
-    if (hasTexture && texture.id != 0 && IsWindowReady())
-        UnloadTexture(texture);
-}
+UiImage::~UiImage() = default;
 
-UiParallaxBackground::~UiParallaxBackground()
-{
-    ClearTextures();
-}
+UiParallaxBackground::~UiParallaxBackground() = default;
 
 bool UiParallaxBackground::LoadFromDirectory(const std::string& directory)
 {
@@ -1990,11 +1986,11 @@ bool UiParallaxBackground::LoadFromDirectory(const std::string& directory)
         if (!FileExists(path.c_str()))
             break;
 
-        Texture2D texture = LoadTexture(path.c_str());
-        if (texture.id == 0)
+        tvorin::ui::TextureHandle texture{LoadTexture(path.c_str())};
+        if (!texture)
             return !layers.empty();
-        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
-        layers.push_back(texture);
+        SetTextureFilter(texture.Get(), TEXTURE_FILTER_POINT);
+        layers.push_back(std::move(texture));
     }
 
     return !layers.empty();
@@ -2002,11 +1998,6 @@ bool UiParallaxBackground::LoadFromDirectory(const std::string& directory)
 
 void UiParallaxBackground::ClearTextures()
 {
-    for (Texture2D& texture : layers)
-    {
-        if (texture.id != 0 && IsWindowReady())
-            UnloadTexture(texture);
-    }
     layers.clear();
 }
 
@@ -2023,7 +2014,7 @@ void UiParallaxBackground::Update(double dt)
 
     for (std::size_t index = 0; index < layers.size(); ++index)
     {
-        const Texture2D texture = layers[index];
+        const Texture2D& texture = layers[index].Get();
         const float imageRatio = texture.width / static_cast<float>(texture.height);
         const float drawHeight = std::max(bounds.height, bounds.width / imageRatio);
         const float drawWidth = drawHeight * imageRatio;
@@ -2068,26 +2059,27 @@ void UiImage::Update(double dt)
     Rectangle bounds = WidgetBounds(*this);
     if (hasTexture)
     {
-        Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+        const Texture2D& textureValue = texture.Get();
+        Rectangle src{0.0f, 0.0f, static_cast<float>(textureValue.width), static_cast<float>(textureValue.height)};
         if (cover)
         {
-            float imageRatio = texture.width / static_cast<float>(texture.height);
+            float imageRatio = textureValue.width / static_cast<float>(textureValue.height);
             float targetRatio = bounds.width / bounds.height;
 
             if (imageRatio > targetRatio)
             {
-                float cropW = texture.height * targetRatio;
-                src.x = (texture.width - cropW) * 0.5f;
+                float cropW = textureValue.height * targetRatio;
+                src.x = (textureValue.width - cropW) * 0.5f;
                 src.width = cropW;
             }
             else
             {
-                float cropH = texture.width / targetRatio;
-                src.y = (texture.height - cropH) * 0.5f;
+                float cropH = textureValue.width / targetRatio;
+                src.y = (textureValue.height - cropH) * 0.5f;
                 src.height = cropH;
             }
         }
-        DrawTexturePro(texture, src, bounds, {0.0f, 0.0f}, 0.0f, WHITE);
+        DrawTexturePro(textureValue, src, bounds, {0.0f, 0.0f}, 0.0f, WHITE);
     }
     else
     {
@@ -2096,32 +2088,24 @@ void UiImage::Update(double dt)
     }
 }
 
-UiAnimation::~UiAnimation()
-{
-    ClearFrames();
-}
+UiAnimation::~UiAnimation() = default;
 
 bool UiAnimation::AddFrameFromFile(const std::string& path)
 {
     if (!FileExists(path.c_str()))
         return false;
 
-    Texture2D frame = LoadTexture(path.c_str());
-    if (frame.id == 0)
+    tvorin::ui::TextureHandle frame{LoadTexture(path.c_str())};
+    if (!frame)
         return false;
 
-    SetTextureFilter(frame, TEXTURE_FILTER_POINT);
-    frames.push_back(frame);
+    SetTextureFilter(frame.Get(), TEXTURE_FILTER_POINT);
+    frames.push_back(std::move(frame));
     return true;
 }
 
 void UiAnimation::ClearFrames()
 {
-    for (Texture2D& frame : frames)
-    {
-        if (frame.id != 0 && IsWindowReady())
-            UnloadTexture(frame);
-    }
     frames.clear();
 }
 
@@ -2150,7 +2134,7 @@ void UiAnimation::Update(double dt)
     elapsed += std::max(0.0, dt);
     const std::size_t frameIndex = static_cast<std::size_t>(
         std::floor(elapsed / static_cast<double>(frameDuration))) % frames.size();
-    const Texture2D texture = frames[frameIndex];
+    const Texture2D& texture = frames[frameIndex].Get();
     Rectangle bounds = WidgetBounds(*this);
     const float imageRatio = texture.width / static_cast<float>(texture.height);
     const float drawWidth = std::min(bounds.width, bounds.height * imageRatio);
@@ -2174,18 +2158,27 @@ void ResourceIconAtlas::Load(const std::string& path, Vec2i iconSize)
     if (!FileExists(path.c_str()))
         return;
 
-    texture = LoadTexture(path.c_str());
-    loaded = texture.id != 0;
+    tvorin::ui::TextureHandle next{LoadTexture(path.c_str())};
+    if (!next)
+        return;
+
+    SetTextureFilter(next.Get(), TEXTURE_FILTER_POINT);
+    texture = std::move(next);
+    loaded = true;
     size = iconSize;
-    if (loaded)
-        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+}
+
+void ResourceIconAtlas::Unload()
+{
+    texture.Reset();
+    loaded = false;
 }
 
 // Returns atlas source rectangle for one resource icon.
 Rectangle ResourceIconAtlas::GetRect(ResourceType type) const
 {
     int index = type == ResourceType::Null ? 0 : std::max(0, static_cast<int>(type));
-    int columns = std::max(1, texture.width / size.x);
+    int columns = std::max(1, texture.Get().width / size.x);
     return Rectangle{
         static_cast<float>((index % columns) * size.x),
         static_cast<float>((index / columns) * size.y),
@@ -2716,7 +2709,7 @@ void GuiPanel::Update(double dt)
                 if (resourceIconAtlas.IsLoaded())
                 {
                     Rectangle src = resourceIconAtlas.GetRect(type);
-                    DrawTexturePro(resourceIconAtlas.texture, src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
+                    DrawTexturePro(resourceIconAtlas.texture.Get(), src, icon, {0.0f, 0.0f}, 0.0f, WHITE);
                 }
                 else
                 {
@@ -3103,8 +3096,13 @@ GuiPanel::GuiPanel()
 {
     lockButton.func = [this]()
     {
-        if (building != nullptr && building->CanBlockProduction())
-            building->SetProductionBlocked(!building->IsProductionBlocked());
+        if (building != nullptr && scene != nullptr && scene->game != nullptr &&
+            building->CanBlockProduction())
+        {
+            scene->SubmitLocalCommand(GameCommand::SetProductionBlocked(
+                scene->game->GetLocalPlayerId(), building->positionId,
+                !building->IsProductionBlocked()));
+        }
     };
     recipeButton.func = [this]()
     {
@@ -3211,6 +3209,11 @@ void GuiPanel::LoadResourceAtlas(const std::string& path, Vec2i iconSize)
     resourceIconAtlas.Load(path, iconSize);
 }
 
+void GuiPanel::UnloadResourceAtlas()
+{
+    resourceIconAtlas.Unload();
+}
+
 // Loads the shared UI font and applies it to raygui widgets. The loading itself
 // lives in ui/UiText.cpp (shared with tools/); only the raygui hookup stays here,
 // because RAYGUI_IMPLEMENTATION is in this translation unit.
@@ -3238,7 +3241,7 @@ void GuiPanel::DrawResourceIcon(ResourceType type, Rectangle dest)
     if (resourceIconAtlas.IsLoaded())
     {
         Rectangle src = resourceIconAtlas.GetRect(type);
-        DrawTexturePro(resourceIconAtlas.texture, src, dest, {0.0f, 0.0f}, 0.0f, WHITE);
+        DrawTexturePro(resourceIconAtlas.texture.Get(), src, dest, {0.0f, 0.0f}, 0.0f, WHITE);
         return;
     }
 

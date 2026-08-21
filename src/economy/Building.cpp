@@ -123,7 +123,7 @@ void Building::AddResource(Resource* res)
             return;
         }
 
-        Log::Msg(tag, "resource added!");
+        TVORIN_LOG_TRACE(tag, "resource added!");
         it->second.AddResource(res);
         if (auto* log = GetComponent<LogisticsComponent>())
         {
@@ -419,6 +419,56 @@ bool Building::CanBlockProduction() const
     return HasComponent<ProductionComponent>();
 }
 
+std::vector<ResourceBuffer*> Building::GetResourceBuffers()
+{
+    std::vector<ResourceBuffer*> result;
+    if (auto* production = GetComponent<ProductionComponent>())
+    {
+        for (auto& [type, buffer] : production->inputBuffers)
+            result.push_back(&buffer);
+        for (auto& [type, buffer] : production->outputBuffers)
+            result.push_back(&buffer);
+    }
+    if (auto* storage = GetComponent<StorageComponent>())
+        for (auto& [type, buffer] : storage->buffers)
+            result.push_back(&buffer);
+    if (auto* local = GetComponent<LocalResourceBufferComponent>())
+        for (auto& [type, buffer] : local->buffers)
+            result.push_back(&buffer);
+    if (auto* population = GetComponent<PopulationComponent>())
+    {
+        result.push_back(&population->foodBuffer);
+        result.push_back(&population->householdGoodsBuffer);
+        result.push_back(&population->urbanGoodsBuffer);
+    }
+    return result;
+}
+
+std::vector<const ResourceBuffer*> Building::GetResourceBuffers() const
+{
+    std::vector<const ResourceBuffer*> result;
+    if (const auto* production = GetComponent<ProductionComponent>())
+    {
+        for (const auto& [type, buffer] : production->inputBuffers)
+            result.push_back(&buffer);
+        for (const auto& [type, buffer] : production->outputBuffers)
+            result.push_back(&buffer);
+    }
+    if (const auto* storage = GetComponent<StorageComponent>())
+        for (const auto& [type, buffer] : storage->buffers)
+            result.push_back(&buffer);
+    if (const auto* local = GetComponent<LocalResourceBufferComponent>())
+        for (const auto& [type, buffer] : local->buffers)
+            result.push_back(&buffer);
+    if (const auto* population = GetComponent<PopulationComponent>())
+    {
+        result.push_back(&population->foodBuffer);
+        result.push_back(&population->householdGoodsBuffer);
+        result.push_back(&population->urbanGoodsBuffer);
+    }
+    return result;
+}
+
 bool Building::IsProductionStalled() const
 {
     auto* prod = GetComponent<ProductionComponent>();
@@ -520,8 +570,8 @@ void Building::UpdateTransportables(double dt)
                 transportable->ReleaseShipment();
             auto* res = dynamic_cast<Resource*>(transportable);
             std::string resName = res != nullptr ? rt2s(res->type) : "Transportable";
-            Log::Msg(tag, "resource ", resName, " deleted from transportables; pos: ",
-                     transportable->map->GetCoordsFromId(positionId));
+            TVORIN_LOG_TRACE(tag, "resource ", resName, " deleted from transportables; pos: ",
+                             transportable->map->GetCoordsFromId(positionId));
             it = transportables.erase(it);
             continue;
         }
@@ -542,8 +592,8 @@ void Building::ReceptTransport(Transportable* trans)
         auto* ptr = dynamic_cast<Resource*>(trans);
         if (ptr != nullptr)
         {
-            Log::Msg(tag, "Transport of ", rt2s(ptr->type), " finished, adding resource; ID:",
-                     positionId, " pos: ", trans->map->GetCoordsFromId(positionId));
+            TVORIN_LOG_TRACE(tag, "Transport of ", rt2s(ptr->type), " finished, adding resource; ID:",
+                             positionId, " pos: ", trans->map->GetCoordsFromId(positionId));
             AddResource(ptr);
             trans->ReleaseShipment();
         }
@@ -553,8 +603,8 @@ void Building::ReceptTransport(Transportable* trans)
         transportables.push_back(trans);
         auto* res = dynamic_cast<Resource*>(trans);
         std::string resName = res != nullptr ? rt2s(res->type) : "Transportable";
-        Log::Msg(tag, resName, " pushed into transportables; ID: ", positionId, " pos: ",
-                 trans->map->GetCoordsFromId(positionId));
+        TVORIN_LOG_TRACE(tag, resName, " pushed into transportables; ID: ", positionId, " pos: ",
+                         trans->map->GetCoordsFromId(positionId));
     }
 }
 

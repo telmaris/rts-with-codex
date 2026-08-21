@@ -215,6 +215,39 @@ TEST(BuildingDomainTests, ProductionBuildingEffectiveCycleTimeUsesWorkerEfficien
     EXPECT_TRUE(std::isinf(building.production.GetEffectiveCycleTime(building)));
 }
 
+TEST(BuildingDomainTests, ProductionInputRequestsStopAtManualBlockOrFullNextOutput)
+{
+    Woodcutter building{8};
+    building.production.ingredients.clear();
+    building.production.products.clear();
+    building.production.inputBuffers.clear();
+    building.production.outputBuffers.clear();
+    building.production.products[ResourceType::PLANKS] = 2;
+    building.production.outputBuffers[ResourceType::PLANKS] =
+        ResourceBuffer{ResourceType::PLANKS, 4};
+    building.workers.capacity = 1;
+    building.workers.assigned = 1;
+    building.production.cycleTime = 1.0;
+
+    EXPECT_TRUE(building.production.ShouldRequestInputs(building));
+
+    building.SetProductionBlocked(true);
+    EXPECT_FALSE(building.production.ShouldRequestInputs(building));
+
+    building.SetProductionBlocked(false);
+    building.production.outputBuffers[ResourceType::PLANKS].buffer.push_back(
+        Resource::CreateOwned(ResourceType::PLANKS));
+    building.production.outputBuffers[ResourceType::PLANKS].buffer.push_back(
+        Resource::CreateOwned(ResourceType::PLANKS));
+    building.production.outputBuffers[ResourceType::PLANKS].buffer.push_back(
+        Resource::CreateOwned(ResourceType::PLANKS));
+    EXPECT_FALSE(building.production.ShouldRequestInputs(building));
+
+    building.production.outputBuffers[ResourceType::PLANKS].FreeResource();
+    building.production.outputBuffers[ResourceType::PLANKS].FreeResource();
+    building.production.outputBuffers[ResourceType::PLANKS].FreeResource();
+}
+
 // Regression test for the "production stalls for a moment right at 100%"
 // report: GetProductionProgress() used to divide by the unmodified
 // cycleTime.GetBase(), while Produce() actually completes the cycle when

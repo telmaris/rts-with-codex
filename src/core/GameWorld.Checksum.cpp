@@ -118,6 +118,14 @@ std::uint64_t GameWorld::BuildChecksum() const
             HashInt(hash, static_cast<int>(building->constructionRemaining * 1000.0));
             HashInt(hash, building->GetTotalProduced());
             HashInt(hash, building->IsProductionBlocked() ? 1 : 0);
+            HashInt(hash, static_cast<int>(building->buildCostRecordState));
+            HashInt(hash, building->buildCostWasPaid ? 1 : 0);
+            HashValue(hash, static_cast<std::uint64_t>(building->paidBuildCosts.size()));
+            for (const auto& cost : building->paidBuildCosts)
+            {
+                HashInt(hash, static_cast<int>(cost.type));
+                HashInt(hash, cost.amount);
+            }
 
             if (const auto* production = building->GetComponent<ProductionComponent>(); production != nullptr)
             {

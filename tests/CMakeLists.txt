@@ -21,6 +21,7 @@ add_executable(tvorin_tests
     BridgeTests.cpp
     BuildingConfigTests.cpp
     BuildingDomainTests.cpp
+    BuildingSalvageTests.cpp
     BuildingPlacementTests.cpp
     CombatPipelineTests.cpp
     EliminationTests.cpp
@@ -37,11 +38,15 @@ add_executable(tvorin_tests
     PlayerEconomyTests.cpp
     PersistenceValidationTests.cpp
     RendererAnimationTests.cpp
+    RaylibResourceTests.cpp
     ResourceBufferTests.cpp
+    ResourceShipmentTests.cpp
     RtsDataFileTests.cpp
     RoadNetworkTests.cpp
     SceneUtilsTests.cpp
     GameSessionPauseTests.cpp
+    GameplayClockTests.cpp
+    LogTests.cpp
     SimulationStateTests.cpp
     SnapshotTransferTests.cpp
     TcpGameTransportTests.cpp

@@ -2,8 +2,10 @@
 #define GUI_CONTROLLER_H
 
 #include "ui/Gui.h"
+#include "ui/GameplayClock.h"
 #include "ui/UiTheme.h"
 #include "economy/BuildingConfig.h"
+#include "economy/BuildingSalvage.h"
 #include "raylib.h"
 
 #include <functional>
@@ -16,6 +18,15 @@
 
 class Scene;
 class GameScene;
+
+class GameplayClockWidget : public UiWidget
+{
+public:
+    void UpdateSize(Vec2i windowSize) override;
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+};
 class GuiController;
 
 // Implementations are split across thematic translation units:
@@ -157,12 +168,16 @@ public:
     // Adds a widget to the current draw list.
     inline void AddUiWidget(UiWidget* ptr) { ui.push_back(ptr); }
 
+    GameplayClockWidget* GetGameplayClockWidget() { return &gameplayClockWidget; }
+
     std::map<std::string, std::shared_ptr<GuiSystem>> systems;
     std::shared_ptr<GuiSystem> activeSystem;
 
     std::vector<UiWidget*> ui;
     Scene *scene{nullptr};
+    GameplayClockWidget gameplayClockWidget;
 };
+
 
 // ─── Map overlay widgets ─────────────────────────────────────────────────────
 
@@ -189,6 +204,26 @@ public:
 
     GameScene* scene{nullptr};
     Building* building{nullptr};
+};
+
+class DemolitionTargetWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+    Building* building{nullptr};
+    bool actionable{false};
+};
+
+class DemolitionTooltipWidget : public UiWidget
+{
+public:
+    void Update(double dt) override;
+
+    GameScene* scene{nullptr};
+    Building* building{nullptr};
+    DemolitionPreview preview;
 };
 
 // Draws warning highlights over production buildings that cannot currently work.
@@ -555,8 +590,10 @@ private:
     void ClearHoverTarget();
 
     CameraMovement cameraMovement;
-    SelectedBuildingWidget destroyTargetWidget;
+    DemolitionTargetWidget destroyTargetWidget;
+    DemolitionTooltipWidget destroyTooltipWidget;
     Building* hoveredBuilding{nullptr};
+    DemolitionPreview demolitionPreview;
     StrategicResourceHudWidget strategicHudWidget;
 };
 

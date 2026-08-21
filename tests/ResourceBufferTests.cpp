@@ -115,3 +115,32 @@ TEST(ResourceBufferTests, CopyingAResourceDoesNotTransferAllocationOwnership)
     buffer.Clear();
     EXPECT_EQ(copy.type, ResourceType::STONE);
 }
+
+TEST(ResourceQuantityTests, AddAndRemoveAreBoundedAndAtomic)
+{
+    ResourceQuantity quantity{ResourceType::WOOD, 5};
+
+    EXPECT_TRUE(quantity.TryAdd(3));
+    EXPECT_EQ(quantity.amount, 3);
+    EXPECT_EQ(quantity.AvailableCapacity(), 2);
+
+    EXPECT_FALSE(quantity.TryAdd(3));
+    EXPECT_EQ(quantity.amount, 3);
+    EXPECT_FALSE(quantity.TryRemove(4));
+    EXPECT_EQ(quantity.amount, 3);
+
+    EXPECT_TRUE(quantity.TryRemove(2));
+    EXPECT_EQ(quantity.amount, 1);
+    EXPECT_FALSE(quantity.TryAdd(-1));
+    EXPECT_FALSE(quantity.TryRemove(-1));
+    EXPECT_EQ(quantity.amount, 1);
+}
+
+TEST(ResourceQuantityTests, NegativeCapacityIsClampedWithoutCreatingAmount)
+{
+    ResourceQuantity quantity{ResourceType::STONE, -10};
+
+    EXPECT_EQ(quantity.capacity, 0);
+    EXPECT_EQ(quantity.amount, 0);
+    EXPECT_FALSE(quantity.TryAdd(1));
+}

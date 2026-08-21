@@ -63,15 +63,46 @@ void ProductionComponent::Update(Building& self, double dt)
     if (self.owner != nullptr)
         self.owner->AutoAssignWorkers(&self);
 
-    auto* workers   = self.GetComponent<WorkerComponent>();
     auto* logistics = self.GetComponent<LogisticsComponent>();
-    if (workers != nullptr && workers->GetRatio() > 0.0f && logistics != nullptr)
-        logistics->MaintainRequests(self, *this);
+    if (logistics != nullptr)
+    {
+        logistics->requestBlocked = false;
+        if (ShouldRequestInputs(self))
+            logistics->MaintainRequests(self, *this);
+    }
 
     Produce(self, dt);
 
     if (logistics != nullptr)
         logistics->DispatchOutputs(self, *this);
+}
+
+bool ProductionComponent::ShouldRequestInputs(const Building& self) const
+{
+    if (self.IsUnderConstruction() || self.IsProductionBlocked() || products.empty())
+        return false;
+
+    const auto* workers = self.GetComponent<WorkerComponent>();
+    if (workers == nullptr || workers->GetRatio() <= 0.0f)
+        return false;
+
+    const double effectiveCycleTime = GetModifiedCycleTime(self);
+    if (!(effectiveCycleTime > 0.0) || !std::isfinite(effectiveCycleTime))
+        return false;
+    if (started)
+        return false;
+
+    for (const auto& [type, baseAmount] : products)
+    {
+        const auto it = outputBuffers.find(type);
+        if (it == outputBuffers.end())
+            return false;
+        const int outputAmount = GetModifiedOutputAmount(self, type, baseAmount);
+        if (outputAmount < 0 ||
+            static_cast<int>(it->second.buffer.size()) + outputAmount > it->second.bufferSize)
+            return false;
+    }
+    return true;
 }
 
 void ProductionComponent::Produce(Building& self, double dt)
@@ -104,7 +135,7 @@ void ProductionComponent::Produce(Building& self, double dt)
                         self.owner->economyTelemetry.RecordProduction(res);
                     self.totalProduced++;
                     totalProduced++;
-                    Log::Msg(self.tag, "Created a resource: ", rt2s(res));
+                    TVORIN_LOG_TRACE(self.tag, "Created a resource: ", rt2s(res));
                     if (logistics != nullptr)
                         logistics->DispatchOutputs(self, *this);
                 }
@@ -147,8 +178,9 @@ void ProductionComponent::Produce(Building& self, double dt)
                 if (self.owner != nullptr)
                     self.owner->economyTelemetry.RecordConsumption(res);
             }
-            if (logistics != nullptr)
-                logistics->RequestResource(res, amount, self);
+            // MaintainRequests() is the single owner of inbound requests.
+            // Do not create a second shipment path immediately after
+            // consuming this cycle's ingredients.
         }
         started = true;
     }

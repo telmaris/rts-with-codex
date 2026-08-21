@@ -87,6 +87,14 @@ void GameWindow::LaunchGame()
     MainLoop();
 
     ShutdownRenderers();
+    // Destroy scene-owned widget handles while the native window is still
+    // alive. This keeps move-only UI assets from attempting a late raylib
+    // unload during GameWindow destruction.
+    activeScene.reset();
+    scenes.clear();
+    uiAssets.Close();
+    GuiPanel::UnloadResourceAtlas();
+    UiTextFont::Unload();
     UiControlIcons::Unload();
     audio.Cleanup();
     CloseAudioDevice();

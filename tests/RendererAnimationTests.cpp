@@ -203,6 +203,16 @@ TEST(RendererLifecycleTests, OperationalBuildingsQueueAStableLight)
     ASSERT_EQ(renderer.dynamicLights.size(), 2u);
     EXPECT_GT(renderer.dynamicLights.back().radiusWorld, 4.0f * TILE_SIZE);
     EXPECT_FLOAT_EQ(renderer.dynamicLights.back().flickerAmount, 0.0f);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.back().worldPosition.x, 100.0f + 3.0f * TILE_SIZE * 0.5f);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights.back().worldPosition.y, 100.0f + 3.0f * TILE_SIZE * 0.5f);
+
+    renderer.QueueBuildingLight(BuildingType::Smith, {2, 2}, {240.0f, 80.0f}, 19, true);
+    renderer.QueueBuildingLight(BuildingType::Inn, {1, 1}, {320.0f, 80.0f}, 20, true);
+    ASSERT_EQ(renderer.dynamicLights.size(), 4u);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights[2].worldPosition.x, 240.0f + 2.0f * TILE_SIZE * 0.5f);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights[2].worldPosition.y, 80.0f + 2.0f * TILE_SIZE * 0.5f);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights[3].worldPosition.x, 320.0f + TILE_SIZE * 0.5f);
+    EXPECT_FLOAT_EQ(renderer.dynamicLights[3].worldPosition.y, 80.0f + TILE_SIZE * 0.5f);
 }
 
 TEST(RendererLifecycleTests, DynamicLightQueueIsIndependentOfCameraPanAndZoom)

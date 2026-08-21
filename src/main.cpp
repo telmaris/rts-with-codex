@@ -5,10 +5,12 @@
 // Initializes main.
 int main(void)
 {
-    Log::Msg("[Main]", "Starting RTS");
+    Log::Initialize();
+    Log::Msg("[Main]", "Starting Tvorin");
     GameWindow window;
     window.LaunchGame();
-    Log::Msg("[Main]", "Shutdown");
+    Log::Msg("[Main]", "Tvorin shutdown");
+    Log::Shutdown();
    
     return 0;
 }

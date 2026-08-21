@@ -32,6 +32,17 @@ namespace
 // Advances this object's state for one frame.
 TransportUpdateResult Transportable::Update(double dt)
 {
+    struct ShipmentRecordRefreshGuard
+    {
+        Transportable& transportable;
+
+        ~ShipmentRecordRefreshGuard()
+        {
+            if (transportable.shipmentNetwork != nullptr)
+                transportable.shipmentNetwork->RefreshShipment(transportable);
+        }
+    } refreshGuard{*this};
+
     auto cancelTransport = [&]()
     {
         auto* resource = dynamic_cast<Resource*>(this);
@@ -170,6 +181,7 @@ RoadNetwork::~RoadNetwork()
         }
     }
     activeShipments.clear();
+    shipmentRecords.Clear();
 }
 
 void RoadNetwork::RebindWorld(TileMap& map)
@@ -234,6 +246,24 @@ bool RoadNetwork::BeginTransport(Building *src, Building *dest, Transportable* r
     res->elapsedTime = 0.0;
     res->transportTime = src->GetModifiedDispatchDelay(
         resource != nullptr ? resource->type : ResourceType::Null);
+
+    // Keep a pointer-free value projection in lockstep with the legacy
+    // payload. Quantity is intentionally one for this migration stage so the
+    // existing economy balance and dispatch semantics remain unchanged.
+    if (resource != nullptr && resource->type != ResourceType::Null)
+    {
+        ResourceShipment record;
+        record.id = shipmentId;
+        record.type = resource->type;
+        record.quantity = 1;
+        record.sourceBuildingId = src->id;
+        record.targetBuildingId = dest->id;
+        record.pathTileIds = path;
+        record.currentPathStep = res->currentPathStep;
+        record.elapsedTime = res->elapsedTime;
+        record.transportTime = res->transportTime;
+        shipmentRecords.Insert(std::move(record));
+    }
     return true;
 }
 
@@ -242,6 +272,7 @@ void RoadNetwork::ReleaseShipment(Transportable* transportable)
     if (transportable == nullptr)
         return;
 
+    const ShipmentId shipmentId = transportable->shipmentId;
     bool released = false;
     if (transportable->shipmentNetwork == this && transportable->shipmentId != 0)
     {
@@ -270,9 +301,29 @@ void RoadNetwork::ReleaseShipment(Transportable* transportable)
 
     if (released || transportable->shipmentNetwork == this)
     {
+        shipmentRecords.Erase(shipmentId);
         transportable->shipmentNetwork = nullptr;
         transportable->shipmentId = 0;
     }
+}
+
+void RoadNetwork::RefreshShipment(const Transportable& transportable)
+{
+    if (transportable.shipmentId == 0)
+        return;
+
+    ResourceShipment* record = shipmentRecords.Find(transportable.shipmentId);
+    if (record == nullptr)
+        return;
+
+    const auto* resource = dynamic_cast<const Resource*>(&transportable);
+    if (resource == nullptr)
+        return;
+
+    record->currentPathStep = transportable.currentPathStep;
+    record->elapsedTime = transportable.elapsedTime;
+    record->transportTime = transportable.transportTime;
+    record->state = ResourceShipmentState::InTransit;
 }
 
 bool RoadNetwork::IsTrackingShipment(const Transportable* transportable) const

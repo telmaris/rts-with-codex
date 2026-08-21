@@ -2,6 +2,7 @@
 #define ROAD_NETWORK_H
 
 #include "economy/Building.h"
+#include "simulation/ResourceShipment.h"
 #include "simulation/ShipmentRenderState.h"
 
 class TileMap;
@@ -47,7 +48,12 @@ class RoadNetwork
     bool BeginTransport(Building* src, Building* dest, Transportable* res);
     // Removes a completed/cancelled transport from the world-owned registry.
     void ReleaseShipment(Transportable* transportable);
+    // Updates the pointer-free value record from the legacy payload while the
+    // two representations coexist during the WP-11 migration.
+    void RefreshShipment(const Transportable& transportable);
     std::size_t GetLiveShipmentCount() const { return activeShipments.size(); }
+    std::size_t GetShipmentRecordCount() const { return shipmentRecords.Size(); }
+    const ResourceShipment* FindShipmentRecord(ShipmentId id) const { return shipmentRecords.Find(id); }
     // Pointer-safe membership check for carrier cleanup. Callers may use this
     // before dereferencing a raw pointer held by a building's legacy carrier
     // vector, because completed shipments can leave stale entries there.
@@ -88,6 +94,7 @@ class RoadNetwork
         // Purely a performance memo: identical inputs, identical BFS result.
         std::map<std::pair<int, int>, std::vector<int>> pathCache;
         std::map<ShipmentId, Transportable*> activeShipments;
+        ResourceShipmentIndex shipmentRecords;
         ShipmentId nextShipmentId{1};
 };
 

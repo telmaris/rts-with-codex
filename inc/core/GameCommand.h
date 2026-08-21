@@ -23,6 +23,7 @@ enum class GameCommandType
     UpgradeBuilding,
     SetRecipe,
     SetTowerTargetMode,
+    SetProductionBlocked,
     DebugDeployEnemyUnits
 };
 
@@ -66,7 +67,7 @@ struct GameCommand
     // Reuses sourceTileId (the building to upgrade), same as DestroyBuilding
     // — cost/duration for the next level are resolved deterministically
     // server-side from the building's current UpgradeComponent::level, so no
-    // new wire field is needed (WireVersion stays 12).
+    // new wire field is needed.
     static GameCommand UpgradeBuilding(int playerId, int tileId)
     {
         GameCommand command;
@@ -78,7 +79,7 @@ struct GameCommand
 
     // Reuses sourceTileId (the building whose recipe to switch) and targetTileId
     // (the recipe index to activate) — resolved deterministically server-side,
-    // no new wire field, WireVersion stays 12 (same trick as UpgradeBuilding).
+    // no new wire field (same trick as UpgradeBuilding).
     static GameCommand SetRecipe(int playerId, int buildingTileId, int recipeIndex)
     {
         GameCommand command;
@@ -96,6 +97,16 @@ struct GameCommand
         command.type = GameCommandType::SetTowerTargetMode;
         command.sourceTileId = buildingTileId;
         command.targetTileId = mode;
+        return command;
+    }
+
+    static GameCommand SetProductionBlocked(int playerId, int buildingTileId, bool blocked)
+    {
+        GameCommand command;
+        command.playerId = playerId;
+        command.type = GameCommandType::SetProductionBlocked;
+        command.sourceTileId = buildingTileId;
+        command.targetTileId = blocked ? 1 : 0;
         return command;
     }
 
@@ -277,6 +288,7 @@ struct GameCommand
             case GameCommandType::UpgradeBuilding:
             case GameCommandType::SetRecipe:
             case GameCommandType::SetTowerTargetMode:
+            case GameCommandType::SetProductionBlocked:
             case GameCommandType::DebugDeployEnemyUnits:
                 return true;
         }

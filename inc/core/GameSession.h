@@ -88,7 +88,8 @@ public:
 
 struct FixedSimulationClock
 {
-    static constexpr double FixedDt = 1.0 / 100.0;
+    static constexpr std::uint64_t TicksPerSecond = 100;
+    static constexpr double FixedDt = 1.0 / static_cast<double>(TicksPerSecond);
     static constexpr int MaxTicksPerUpdate = 12;
 
     double accumulator{0.0};

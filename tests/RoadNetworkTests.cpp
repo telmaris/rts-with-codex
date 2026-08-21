@@ -131,15 +131,27 @@ TEST(RoadNetworkTests, BeginTransportQueuesResourceOnSourceWhenPathAndCapacityEx
     EXPECT_FALSE(wood.transportPath.empty());
     EXPECT_NE(wood.shipmentId, 0u);
     EXPECT_EQ(network.GetLiveShipmentCount(), 1u);
+    EXPECT_EQ(network.GetShipmentRecordCount(), 1u);
+    const ResourceShipment* record = network.FindShipmentRecord(wood.shipmentId);
+    ASSERT_NE(record, nullptr);
+    EXPECT_EQ(record->type, ResourceType::WOOD);
+    EXPECT_EQ(record->quantity, 1);
+    EXPECT_EQ(record->sourceBuildingId, source->id);
+    EXPECT_EQ(record->targetBuildingId, destination->id);
+    EXPECT_EQ(record->pathTileIds, wood.transportPath);
     EXPECT_DOUBLE_EQ(wood.transportTime, 0.1);
 
     source->UpdateTransportables(0.09);
     EXPECT_EQ(wood.currentPathStep, 0);
+    record = network.FindShipmentRecord(wood.shipmentId);
+    ASSERT_NE(record, nullptr);
+    EXPECT_DOUBLE_EQ(record->elapsedTime, 0.09);
     ASSERT_EQ(source->transportables.size(), 1u);
     EXPECT_EQ(source->transportables.front(), &wood);
 
     wood.ReleaseShipment();
     EXPECT_EQ(network.GetLiveShipmentCount(), 0u);
+    EXPECT_EQ(network.GetShipmentRecordCount(), 0u);
     EXPECT_EQ(wood.shipmentId, 0u);
     source->transportables.clear();
 }

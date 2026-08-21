@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "data/Resource.h"
 #include "ui/InputManager.h"
+#include "ui/RaylibResource.h"
 #include "ui/UiText.h"
 #include "raylib.h"
 
@@ -406,7 +407,7 @@ class UiImage : public UiWidget
         // Loads a texture from disk for this widget.
         bool LoadTextureFromFile(const std::string& path);
 
-        Texture2D texture{};
+        tvorin::ui::TextureHandle texture{};
         bool hasTexture{false};
         bool cover{false};
 };
@@ -426,7 +427,7 @@ public:
 private:
     void ClearTextures();
 
-    std::vector<Texture2D> layers;
+    std::vector<tvorin::ui::TextureHandle> layers;
     float scrollSpeed{3.2f};
     std::size_t scrollLayerIndex{1};
     double scrollOffset{0.0};
@@ -449,7 +450,7 @@ public:
     void Update(double dt) override;
 
 private:
-    std::vector<Texture2D> frames;
+    std::vector<tvorin::ui::TextureHandle> frames;
     float frameDuration{0.18f};
     float floatAmplitude{0.0f};
     float floatPeriod{1.0f};
@@ -516,12 +517,14 @@ struct ResourceIconAtlas
 {
     // Loads atlas texture and records one icon cell size.
     void Load(const std::string& path, Vec2i iconSize);
+    // Releases the atlas while the raylib window is still alive.
+    void Unload();
     // Returns true after the atlas texture is loaded.
     bool IsLoaded() const { return loaded; }
     // Returns atlas rectangle for a resource type.
     Rectangle GetRect(ResourceType type) const;
 
-    Texture2D texture{};
+    tvorin::ui::TextureHandle texture{};
     Vec2i size{64, 64};
     bool loaded{false};
 };
@@ -555,6 +558,8 @@ class GuiPanel : public UiWidget
         }
         // Loads shared resource icon atlas used by all panels.
         static void LoadResourceAtlas(const std::string& path, Vec2i iconSize = {64, 64});
+        // Releases the shared atlas before the native window is closed.
+        static void UnloadResourceAtlas();
         // Loads shared UI font used by custom panel text and raygui controls.
         static void LoadUiFont(const std::string& path);
         // Loads the dense UI font and makes it the default for controls and

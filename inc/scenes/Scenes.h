@@ -31,7 +31,7 @@ public:
 private:
     double elapsed{0.0};
     bool transitionRequested{false};
-    Texture2D studioLogo{};
+    tvorin::ui::TextureHandle studioLogo{};
 };
 
 // Strategy object for mode-specific gameplay update/render details.
@@ -92,7 +92,7 @@ class MainMenuScene : public Scene, public IGuiHandler
     double statusTimer{0.0};
 
 private:
-    Texture2D menuCloudTexture{};
+    tvorin::ui::TextureHandle menuCloudTexture{};
     double menuCloudScroll{0.0};
 };
 

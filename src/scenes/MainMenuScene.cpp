@@ -42,13 +42,13 @@ MainMenuScene::MainMenuScene()
 
     menuCloudsBgParallax.ChangeSizeAnchor(fullScreen);
     menuCloudsBgParallax.ChangePositionAnchor({0.0f, 0.0f});
-    menuCloudTexture = LoadTexture("assets/ui/menu/layer_2.png");
-    if (menuCloudTexture.id != 0)
-        SetTextureFilter(menuCloudTexture, TEXTURE_FILTER_POINT);
+    menuCloudTexture = tvorin::ui::TextureHandle{LoadTexture("assets/ui/menu/layer_2.png")};
+    if (menuCloudTexture.IsValid())
+        SetTextureFilter(menuCloudTexture.Get(), TEXTURE_FILTER_POINT);
     menuCloudsBgParallax.func = [this](double dt)
     {
         menuCloudScroll += std::max(0.0, dt) * 3.2;
-        DrawMenuClouds(menuCloudTexture,
+        DrawMenuClouds(menuCloudTexture.Get(),
                        {static_cast<float>(menuCloudsBgParallax.pos.x),
                         static_cast<float>(menuCloudsBgParallax.pos.y),
                         static_cast<float>(menuCloudsBgParallax.size.x),
@@ -110,8 +110,7 @@ MainMenuScene::MainMenuScene()
 
 MainMenuScene::~MainMenuScene()
 {
-    if (menuCloudTexture.id != 0 && IsWindowReady())
-        UnloadTexture(menuCloudTexture);
+    menuCloudTexture.Reset();
 }
 
 // Starts the menu music theme.

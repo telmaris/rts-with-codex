@@ -291,6 +291,17 @@ Building* TileMap::GetBuilding(Vec2i pos)
     return GetBuilding(GetIdFromCoords(pos));
 }
 
+bool TileMap::ContainsBuilding(const Building* candidate) const
+{
+    if (candidate == nullptr)
+        return false;
+
+    for (const Tile& tile : tilemap)
+        if (tile.building.get() == candidate || tile.buildingRef == candidate)
+            return true;
+    return false;
+}
+
 // Converts map coordinates to a linear tile id.
 int TileMap::GetIdFromCoords(Vec2i coords) const
 {

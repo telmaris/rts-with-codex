@@ -61,6 +61,7 @@ void InputProcessor::HandleInputs()
 void GuiController::Init(Scene *s)
 {
     scene = s;
+    gameplayClockWidget.scene = dynamic_cast<GameScene*>(s);
 }
 
 // Switches active interaction system. Purely generic (user-directed rework,
@@ -211,7 +212,20 @@ void BasicMapViewSystem::Update(double dt)
             return;
         }
 
-        selectedBuildingWidget.building = activePanel->GetBuilding();
+        // Simulation can destroy/replace the selected building asynchronously
+        // (notably when the local HQ falls and becomes a StorageBuilding).
+        // Validate object identity before copying the pointer into another UI
+        // widget or dereferencing it through the panel.
+        Building* selected = activePanel->GetBuilding();
+        if (scene == nullptr || scene->game == nullptr ||
+            !scene->game->GetTileMap().ContainsBuilding(selected))
+        {
+            selectedBuildingWidget.building = nullptr;
+            ClearBuildingSelection();
+            return;
+        }
+
+        selectedBuildingWidget.building = selected;
         if (activePanel->ConsumeDestroyRequest())
         {
             Building* building = activePanel->GetBuilding();
@@ -226,6 +240,7 @@ void BasicMapViewSystem::Update(double dt)
         owner->AddUiWidget(activePanel);
     }
     owner->AddUiWidget(&strategicHudWidget);
+    owner->AddUiWidget(owner->GetGameplayClockWidget());
 }
 
 // Applies window size changes to widgets owned by this mode.

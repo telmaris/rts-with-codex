@@ -2,6 +2,7 @@
 #define SHADER_LIBRARY_H
 
 #include "raylib.h"
+#include "ui/RaylibResource.h"
 
 #include <map>
 #include <string>
@@ -38,7 +39,7 @@ public:
     void Shutdown();
 
 private:
-    std::map<ShaderId, Shader> shaders;
+    std::map<ShaderId, tvorin::ui::ShaderHandle> shaders;
     std::map<ShaderId, std::map<std::string, int>> locations;
 };
 

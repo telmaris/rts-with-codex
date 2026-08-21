@@ -117,9 +117,9 @@ struct CanvasLayer
     void Initialize(int width = RENDER_WIDTH, int height = RENDER_HEIGHT);
     // Must normally be called while the raylib window/context is still alive.
     void Shutdown();
-    bool IsInitialized() const { return fbo.id != 0; }
+    bool IsInitialized() const { return fbo.IsValid(); }
 
-    RenderTexture2D fbo{};
+    tvorin::ui::RenderTextureHandle fbo{};
 };
 
 // All render targets use canonical screen space (origin in the top-left).
@@ -150,7 +150,7 @@ struct TextureAtlas
     // Resolves which atlas frame a clip should show at a given elapsed time.
     int GetFrameForAnimation(int clipId, float elapsedTime) const;
 
-    Texture2D tex;
+    tvorin::ui::TextureHandle tex;
     Vec2i size;
     Vec2i dim;
     std::map<int, AnimationClip> animations;
@@ -327,10 +327,10 @@ class Renderer
     // receives palette quantization, scanlines, or contrast correction.
     CanvasLayer postProcessedWorld;
     std::map<int, TextureAtlas> atlasMap;
-    std::map<BuildingType, Texture2D> buildingTextures;
+    std::map<BuildingType, tvorin::ui::TextureHandle> buildingTextures;
     std::map<BuildingType, AnimationClip> buildingAnimations;
     // White radial alpha mask shared by additive lights and soft fog revealers.
-    Texture2D radialLightMask{};
+    tvorin::ui::TextureHandle radialLightMask{};
     ShaderLibrary shaderLibrary;
 
     Camera2D camera;

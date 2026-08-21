@@ -54,6 +54,7 @@ std::string GameWorld::SerializeSimulationState() const
 bool GameWorld::SaveToStream(std::ostream& out) const
 {
 
+    // Save v35: exact construction payment records for deterministic salvage.
     // Save v34: private Barracks/tower buffers separated from StorageComponent.
     // Save v33: independent household/urban Village upkeep timers.
     // Save v32: runtime identifiers and simulation tick for multiplayer restore.
@@ -176,7 +177,11 @@ bool GameWorld::SaveToStream(std::ostream& out) const
             << building->footprint.x << ' ' << building->footprint.y << ' '
             << building->productionBlocked << ' ' << building->lifetime << ' '
             << building->activeTime << ' ' << building->totalProduced << ' '
-            << building->transportTime.GetBase() << '\n';
+            << building->transportTime.GetBase() << ' '
+            << static_cast<int>(building->buildCostRecordState) << ' '
+            << building->paidBuildCosts.size() << '\n';
+        for (const auto& cost : building->paidBuildCosts)
+            out << "PAID " << static_cast<int>(cost.type) << ' ' << cost.amount << '\n';
         out << "CONSTRUCTION " << building->buildTime.GetBase() << ' ' << building->constructionRemaining << '\n';
 
         if (const auto* prod = building->GetComponent<ProductionComponent>())
@@ -416,6 +421,7 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // dropped, not merely extended — a breaking change per the rework plan.
     // Older saves are rejected outright rather than partially parsed.
     // v27 (AI rework czystka): DiplomaticState removed from the format.
+    // v35: exact construction payment records for deterministic salvage.
     // v34: private Barracks/tower buffers separated from StorageComponent.
     // v33: independent household/urban Village upkeep timers.
     // v32: runtime identifiers and simulation tick for multiplayer restore.
@@ -424,7 +430,8 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
     // v29: added tower target priority.
     // v28: added the UPG block (UpgradeComponent).
     if (tag != "RTS_SAVE" ||
-        (version != 30 && version != 31 && version != 32 && version != 33 && version != 34))
+        (version != 30 && version != 31 && version != 32 && version != 33 &&
+         version != 34 && version != 35))
         return false;
 
     render = renderer;
@@ -749,12 +756,34 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
         double activeTime = 0.0;
         int totalProduced = 0;
         double transportTime = 0.0;
+        int buildCostState = static_cast<int>(BuildCostRecordState::Free);
+        int paidCostCount = 0;
 
         in >> tag >> positionId >> buildingType >> buildingId >> ownerId >> textureId
             >> footprint.x >> footprint.y >> productionBlocked >> lifetime >> activeTime
             >> totalProduced >> transportTime;
         if (tag != "B")
             return false;
+
+        std::vector<ResourceAmountDefinition> paidBuildCosts;
+        if (version >= 35)
+        {
+            in >> buildCostState >> paidCostCount;
+            if (!in || buildCostState < static_cast<int>(BuildCostRecordState::Free) ||
+                buildCostState > static_cast<int>(BuildCostRecordState::LegacyUnknown) ||
+                !PersistenceLimits::IsCountInRange(paidCostCount, PersistenceLimits::MaxBufferEntries))
+                return false;
+            paidBuildCosts.reserve(static_cast<std::size_t>(paidCostCount));
+            for (int costIndex = 0; costIndex < paidCostCount; ++costIndex)
+            {
+                int resourceType = 0;
+                int amount = 0;
+                in >> tag >> resourceType >> amount;
+                if (!in || tag != "PAID" || amount < 0)
+                    return false;
+                paidBuildCosts.push_back({static_cast<ResourceType>(resourceType), amount});
+            }
+        }
 
         auto ownerIt = playerHandler.players.find(ownerId);
         Player* owner = ownerIt != playerHandler.players.end() ? ownerIt->second.get() : nullptr;
@@ -776,6 +805,21 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
         placed->activeTime = activeTime;
         placed->totalProduced = totalProduced;
         placed->transportTime = transportTime;
+        if (version >= 35)
+        {
+            placed->buildCostRecordState = static_cast<BuildCostRecordState>(buildCostState);
+            placed->buildCostWasPaid = placed->buildCostRecordState == BuildCostRecordState::PaidRecorded;
+            placed->paidBuildCosts = std::move(paidBuildCosts);
+        }
+        else
+        {
+            // v34 did not persist construction payments. Keep this explicit
+            // rather than pretending the current balance modifiers were the
+            // historical price; salvage resolves the documented fallback.
+            placed->buildCostRecordState = placed->buildingType == BuildingType::Headquarters
+                ? BuildCostRecordState::Free : BuildCostRecordState::LegacyUnknown;
+            placed->buildCostWasPaid = false;
+        }
 
         while (in >> tag)
         {
@@ -1051,17 +1095,23 @@ bool GameWorld::LoadFromStream(std::istream& in, Renderer* renderer, AudioSystem
                 upgrade->isUpgrading = isUpgrading != 0;
                 if (auto* population = placed->GetComponent<PopulationComponent>())
                     population->SetSettlementLevel(upgrade->level);
-                // Modifiers themselves aren't persisted (same as tech/focus) —
-                // re-derive them from the loaded level right away; owner and
-                // positionId are already valid at this point.
-                if (upgrade->level > 1 && placed->owner != nullptr)
-                    placed->owner->ApplyUpgradeLevelModifiers(*placed);
             }
             else
             {
                 return false;
             }
         }
+    }
+
+    // Upgrade modifiers are derived state, just like technology and focus
+    // modifiers. Rebuild them only after every building has been registered;
+    // doing it while parsing one UPG block makes the result depend on the
+    // order of serialized buildings and cannot remove stale entries from a
+    // reused player state.
+    for (auto& [id, player] : playerHandler.players)
+    {
+        (void)id;
+        player->RefreshUpgradeModifiers();
     }
 
     for (auto& [id, player] : playerHandler.players)

@@ -1,4 +1,5 @@
 #include "ui/ControlIcons.h"
+#include "ui/RaylibResource.h"
 
 #include <algorithm>
 #include <array>
@@ -7,36 +8,36 @@
 
 namespace
 {
-    std::map<std::string, Texture2D> textures;
-    Texture2D hudAtlas{};
-    Texture2D hudHoverAtlas{};
-    Texture2D royalPanel{};
-    Texture2D royalChip{};
-    Texture2D royalButtonFrame{};
-    Texture2D royalButtonFrameHover{};
-    Texture2D royalCrest{};
-    Texture2D royalWindowPanel{};
-    Texture2D royalResourceSlot{};
-    Texture2D royalTitleBar{};
-    Texture2D royalCloseButton{};
-    Texture2D royalCloseButtonHover{};
-    Texture2D pixelHudFrame{};
-    Texture2D pixelHudPanel{};
-    Texture2D pixelHudButton{};
-    Texture2D pixelHudButtonHover{};
-    Texture2D pixelTopHudStyle{};
-    Texture2D pixelHudWidgetFrame{};
-    Texture2D pixelHudCrest{};
-    Texture2D pixelHudGlyphs{};
-    Texture2D pixelPopulationGlyph{};
-    Shader pixelHudGlowShader{};
+    std::map<std::string, tvorin::ui::TextureHandle> textures;
+    tvorin::ui::TextureHandle hudAtlas{};
+    tvorin::ui::TextureHandle hudHoverAtlas{};
+    tvorin::ui::TextureHandle royalPanel{};
+    tvorin::ui::TextureHandle royalChip{};
+    tvorin::ui::TextureHandle royalButtonFrame{};
+    tvorin::ui::TextureHandle royalButtonFrameHover{};
+    tvorin::ui::TextureHandle royalCrest{};
+    tvorin::ui::TextureHandle royalWindowPanel{};
+    tvorin::ui::TextureHandle royalResourceSlot{};
+    tvorin::ui::TextureHandle royalTitleBar{};
+    tvorin::ui::TextureHandle royalCloseButton{};
+    tvorin::ui::TextureHandle royalCloseButtonHover{};
+    tvorin::ui::TextureHandle pixelHudFrame{};
+    tvorin::ui::TextureHandle pixelHudPanel{};
+    tvorin::ui::TextureHandle pixelHudButton{};
+    tvorin::ui::TextureHandle pixelHudButtonHover{};
+    tvorin::ui::TextureHandle pixelTopHudStyle{};
+    tvorin::ui::TextureHandle pixelHudWidgetFrame{};
+    tvorin::ui::TextureHandle pixelHudCrest{};
+    tvorin::ui::TextureHandle pixelHudGlyphs{};
+    tvorin::ui::TextureHandle pixelPopulationGlyph{};
+    tvorin::ui::ShaderHandle pixelHudGlowShader{};
     int pixelGlowTexelSizeLocation{-1};
     int pixelGlowUvMinLocation{-1};
     int pixelGlowUvMaxLocation{-1};
     int pixelGlowColorLocation{-1};
     int pixelGlowIntensityLocation{-1};
-    Texture2D unitPortraitAtlas{};
-    Texture2D militaryStatAtlas{};
+    tvorin::ui::TextureHandle unitPortraitAtlas{};
+    tvorin::ui::TextureHandle militaryStatAtlas{};
 
     constexpr std::array<const char*, 24> ActiveIconNames{
         "key_q", "key_r", "key_d", "key_e", "key_s", "key_f", "key_t", "key_u", "key_l",
@@ -88,19 +89,19 @@ namespace
     {
         if (icon == UiControlIcons::HudIcon::Manpower)
         {
-            if (pixelPopulationGlyph.id == 0)
+            if (!pixelPopulationGlyph.IsValid())
                 return false;
-            texture = pixelPopulationGlyph;
+            texture = pixelPopulationGlyph.Get();
             source = {0.0f, 0.0f, static_cast<float>(texture.width),
                       static_cast<float>(texture.height)};
             return true;
         }
 
         const size_t index = static_cast<size_t>(icon);
-        if (pixelHudGlyphs.id == 0 || index >= PixelHudGlyphSources.size() ||
+        if (!pixelHudGlyphs.IsValid() || index >= PixelHudGlyphSources.size() ||
             PixelHudGlyphSources[index].width <= 0.0f)
             return false;
-        texture = pixelHudGlyphs;
+        texture = pixelHudGlyphs.Get();
         source = PixelHudGlyphSources[index];
         return true;
     }
@@ -371,108 +372,108 @@ void UiControlIcons::Load(const std::string& directory)
         if (!FileExists(path.c_str()))
             continue;
 
-        Texture2D texture = LoadTexture(path.c_str());
-        if (texture.id == 0)
+        tvorin::ui::TextureHandle texture{LoadTexture(path.c_str())};
+        if (!texture)
             continue;
 
-        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
-        textures.emplace(name, texture);
+        SetTextureFilter(texture.Get(), TEXTURE_FILTER_BILINEAR);
+        textures.emplace(name, std::move(texture));
     }
 
     constexpr const char* HudAtlasPath = "assets/ui/hud/generated/royal_hud_icons_atlas_v2.png";
     if (FileExists(HudAtlasPath))
     {
-        hudAtlas = LoadTexture(HudAtlasPath);
-        if (hudAtlas.id != 0)
-            SetTextureFilter(hudAtlas, TEXTURE_FILTER_BILINEAR);
+        hudAtlas = tvorin::ui::TextureHandle{LoadTexture(HudAtlasPath)};
+        if (hudAtlas)
+            SetTextureFilter(hudAtlas.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* HudHoverAtlasPath = "assets/ui/hud/generated/royal_hud_icons_hover_atlas_v2.png";
     if (FileExists(HudHoverAtlasPath))
     {
-        hudHoverAtlas = LoadTexture(HudHoverAtlasPath);
-        if (hudHoverAtlas.id != 0)
-            SetTextureFilter(hudHoverAtlas, TEXTURE_FILTER_BILINEAR);
+        hudHoverAtlas = tvorin::ui::TextureHandle{LoadTexture(HudHoverAtlasPath)};
+        if (hudHoverAtlas)
+            SetTextureFilter(hudHoverAtlas.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalPanelPath = "assets/ui/hud/generated/royal_panel_modular_graphite_v1.png";
     if (FileExists(RoyalPanelPath))
     {
-        royalPanel = LoadTexture(RoyalPanelPath);
-        if (royalPanel.id != 0)
-            SetTextureFilter(royalPanel, TEXTURE_FILTER_BILINEAR);
+        royalPanel = tvorin::ui::TextureHandle{LoadTexture(RoyalPanelPath)};
+        if (royalPanel)
+            SetTextureFilter(royalPanel.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalChipPath = "assets/ui/hud/generated/royal_stat_chip_graphite_v1.png";
     if (FileExists(RoyalChipPath))
     {
-        royalChip = LoadTexture(RoyalChipPath);
-        if (royalChip.id != 0)
-            SetTextureFilter(royalChip, TEXTURE_FILTER_BILINEAR);
+        royalChip = tvorin::ui::TextureHandle{LoadTexture(RoyalChipPath)};
+        if (royalChip)
+            SetTextureFilter(royalChip.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalButtonFramePath = "assets/ui/hud/generated/royal_button_frame_graphite_v1.png";
     if (FileExists(RoyalButtonFramePath))
     {
-        royalButtonFrame = LoadTexture(RoyalButtonFramePath);
-        if (royalButtonFrame.id != 0)
-            SetTextureFilter(royalButtonFrame, TEXTURE_FILTER_BILINEAR);
+        royalButtonFrame = tvorin::ui::TextureHandle{LoadTexture(RoyalButtonFramePath)};
+        if (royalButtonFrame)
+            SetTextureFilter(royalButtonFrame.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalButtonFrameHoverPath = "assets/ui/hud/generated/royal_button_frame_graphite_hover_v1.png";
     if (FileExists(RoyalButtonFrameHoverPath))
     {
-        royalButtonFrameHover = LoadTexture(RoyalButtonFrameHoverPath);
-        if (royalButtonFrameHover.id != 0)
-            SetTextureFilter(royalButtonFrameHover, TEXTURE_FILTER_BILINEAR);
+        royalButtonFrameHover = tvorin::ui::TextureHandle{LoadTexture(RoyalButtonFrameHoverPath)};
+        if (royalButtonFrameHover)
+            SetTextureFilter(royalButtonFrameHover.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalCrestPath = "assets/ui/hud/generated/royal_lion_crest_v1.png";
     if (FileExists(RoyalCrestPath))
     {
-        royalCrest = LoadTexture(RoyalCrestPath);
-        if (royalCrest.id != 0)
-            SetTextureFilter(royalCrest, TEXTURE_FILTER_BILINEAR);
+        royalCrest = tvorin::ui::TextureHandle{LoadTexture(RoyalCrestPath)};
+        if (royalCrest)
+            SetTextureFilter(royalCrest.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalWindowPanelPath = "assets/ui/hud/generated/royal_window_panel_graphite_v1.png";
     if (FileExists(RoyalWindowPanelPath))
     {
-        royalWindowPanel = LoadTexture(RoyalWindowPanelPath);
-        if (royalWindowPanel.id != 0)
-            SetTextureFilter(royalWindowPanel, TEXTURE_FILTER_BILINEAR);
+        royalWindowPanel = tvorin::ui::TextureHandle{LoadTexture(RoyalWindowPanelPath)};
+        if (royalWindowPanel)
+            SetTextureFilter(royalWindowPanel.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalResourceSlotPath = "assets/ui/hud/generated/royal_resource_slot_graphite_v1.png";
     if (FileExists(RoyalResourceSlotPath))
     {
-        royalResourceSlot = LoadTexture(RoyalResourceSlotPath);
-        if (royalResourceSlot.id != 0)
-            SetTextureFilter(royalResourceSlot, TEXTURE_FILTER_BILINEAR);
+        royalResourceSlot = tvorin::ui::TextureHandle{LoadTexture(RoyalResourceSlotPath)};
+        if (royalResourceSlot)
+            SetTextureFilter(royalResourceSlot.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalTitleBarPath = "assets/ui/hud/generated/royal_title_bar_v2.png";
     if (FileExists(RoyalTitleBarPath))
     {
-        royalTitleBar = LoadTexture(RoyalTitleBarPath);
-        if (royalTitleBar.id != 0)
-            SetTextureFilter(royalTitleBar, TEXTURE_FILTER_BILINEAR);
+        royalTitleBar = tvorin::ui::TextureHandle{LoadTexture(RoyalTitleBarPath)};
+        if (royalTitleBar)
+            SetTextureFilter(royalTitleBar.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalCloseButtonPath = "assets/ui/hud/generated/royal_close_socket_square_v4.png";
     if (FileExists(RoyalCloseButtonPath))
     {
-        royalCloseButton = LoadTexture(RoyalCloseButtonPath);
-        if (royalCloseButton.id != 0)
-            SetTextureFilter(royalCloseButton, TEXTURE_FILTER_BILINEAR);
+        royalCloseButton = tvorin::ui::TextureHandle{LoadTexture(RoyalCloseButtonPath)};
+        if (royalCloseButton)
+            SetTextureFilter(royalCloseButton.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* RoyalCloseButtonHoverPath = "assets/ui/hud/generated/royal_close_socket_square_hover_v4.png";
     if (FileExists(RoyalCloseButtonHoverPath))
     {
-        royalCloseButtonHover = LoadTexture(RoyalCloseButtonHoverPath);
-        if (royalCloseButtonHover.id != 0)
-            SetTextureFilter(royalCloseButtonHover, TEXTURE_FILTER_BILINEAR);
+        royalCloseButtonHover = tvorin::ui::TextureHandle{LoadTexture(RoyalCloseButtonHoverPath)};
+        if (royalCloseButtonHover)
+            SetTextureFilter(royalCloseButtonHover.Get(), TEXTURE_FILTER_BILINEAR);
     }
 
     constexpr const char* PixelHudFramePath = "assets/ui/hud/pixel_pilot/top_hud_frame.png";
@@ -486,12 +487,12 @@ void UiControlIcons::Load(const std::string& directory)
     constexpr const char* MilitaryStatAtlasPath = "assets/ui/barracks/military_stat_icons_atlas.png";
     auto loadPixelTexture = [](const char* path)
     {
-        Texture2D texture{};
+        tvorin::ui::TextureHandle texture{};
         if (FileExists(path))
         {
-            texture = LoadTexture(path);
-            if (texture.id != 0)
-                SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+            texture = tvorin::ui::TextureHandle{LoadTexture(path)};
+            if (texture)
+                SetTextureFilter(texture.Get(), TEXTURE_FILTER_POINT);
         }
         return texture;
     };
@@ -506,14 +507,14 @@ void UiControlIcons::Load(const std::string& directory)
     pixelPopulationGlyph = loadPixelTexture(PixelPopulationPath);
     if (FileExists(PixelGlowShaderPath))
     {
-        pixelHudGlowShader = LoadShader(nullptr, PixelGlowShaderPath);
-        if (pixelHudGlowShader.id != 0)
+        pixelHudGlowShader = tvorin::ui::ShaderHandle{LoadShader(nullptr, PixelGlowShaderPath)};
+        if (pixelHudGlowShader)
         {
-            pixelGlowTexelSizeLocation = GetShaderLocation(pixelHudGlowShader, "atlasTexelSize");
-            pixelGlowUvMinLocation = GetShaderLocation(pixelHudGlowShader, "sourceUvMin");
-            pixelGlowUvMaxLocation = GetShaderLocation(pixelHudGlowShader, "sourceUvMax");
-            pixelGlowColorLocation = GetShaderLocation(pixelHudGlowShader, "glowColor");
-            pixelGlowIntensityLocation = GetShaderLocation(pixelHudGlowShader, "glowIntensity");
+            pixelGlowTexelSizeLocation = GetShaderLocation(pixelHudGlowShader.Get(), "atlasTexelSize");
+            pixelGlowUvMinLocation = GetShaderLocation(pixelHudGlowShader.Get(), "sourceUvMin");
+            pixelGlowUvMaxLocation = GetShaderLocation(pixelHudGlowShader.Get(), "sourceUvMax");
+            pixelGlowColorLocation = GetShaderLocation(pixelHudGlowShader.Get(), "glowColor");
+            pixelGlowIntensityLocation = GetShaderLocation(pixelHudGlowShader.Get(), "glowIntensity");
         }
     }
     unitPortraitAtlas = loadPixelTexture(UnitPortraitAtlasPath);
@@ -522,86 +523,36 @@ void UiControlIcons::Load(const std::string& directory)
 
 void UiControlIcons::Unload()
 {
-    for (auto& [name, texture] : textures)
-        UnloadTexture(texture);
     textures.clear();
-    if (hudAtlas.id != 0)
-        UnloadTexture(hudAtlas);
-    hudAtlas = {};
-    if (hudHoverAtlas.id != 0)
-        UnloadTexture(hudHoverAtlas);
-    hudHoverAtlas = {};
-    if (royalPanel.id != 0)
-        UnloadTexture(royalPanel);
-    royalPanel = {};
-    if (royalChip.id != 0)
-        UnloadTexture(royalChip);
-    royalChip = {};
-    if (royalButtonFrame.id != 0)
-        UnloadTexture(royalButtonFrame);
-    royalButtonFrame = {};
-    if (royalButtonFrameHover.id != 0)
-        UnloadTexture(royalButtonFrameHover);
-    royalButtonFrameHover = {};
-    if (royalCrest.id != 0)
-        UnloadTexture(royalCrest);
-    royalCrest = {};
-    if (royalWindowPanel.id != 0)
-        UnloadTexture(royalWindowPanel);
-    royalWindowPanel = {};
-    if (royalResourceSlot.id != 0)
-        UnloadTexture(royalResourceSlot);
-    royalResourceSlot = {};
-    if (royalTitleBar.id != 0)
-        UnloadTexture(royalTitleBar);
-    royalTitleBar = {};
-    if (royalCloseButton.id != 0)
-        UnloadTexture(royalCloseButton);
-    royalCloseButton = {};
-    if (royalCloseButtonHover.id != 0)
-        UnloadTexture(royalCloseButtonHover);
-    royalCloseButtonHover = {};
-    if (pixelHudFrame.id != 0)
-        UnloadTexture(pixelHudFrame);
-    pixelHudFrame = {};
-    if (pixelHudPanel.id != 0)
-        UnloadTexture(pixelHudPanel);
-    pixelHudPanel = {};
-    if (pixelHudButton.id != 0)
-        UnloadTexture(pixelHudButton);
-    pixelHudButton = {};
-    if (pixelHudButtonHover.id != 0)
-        UnloadTexture(pixelHudButtonHover);
-    pixelHudButtonHover = {};
-    if (pixelTopHudStyle.id != 0)
-        UnloadTexture(pixelTopHudStyle);
-    pixelTopHudStyle = {};
-    if (pixelHudWidgetFrame.id != 0)
-        UnloadTexture(pixelHudWidgetFrame);
-    pixelHudWidgetFrame = {};
-    if (pixelHudCrest.id != 0)
-        UnloadTexture(pixelHudCrest);
-    pixelHudCrest = {};
-    if (pixelHudGlyphs.id != 0)
-        UnloadTexture(pixelHudGlyphs);
-    pixelHudGlyphs = {};
-    if (pixelPopulationGlyph.id != 0)
-        UnloadTexture(pixelPopulationGlyph);
-    pixelPopulationGlyph = {};
-    if (pixelHudGlowShader.id != 0)
-        UnloadShader(pixelHudGlowShader);
-    pixelHudGlowShader = {};
+    hudAtlas.Reset();
+    hudHoverAtlas.Reset();
+    royalPanel.Reset();
+    royalChip.Reset();
+    royalButtonFrame.Reset();
+    royalButtonFrameHover.Reset();
+    royalCrest.Reset();
+    royalWindowPanel.Reset();
+    royalResourceSlot.Reset();
+    royalTitleBar.Reset();
+    royalCloseButton.Reset();
+    royalCloseButtonHover.Reset();
+    pixelHudFrame.Reset();
+    pixelHudPanel.Reset();
+    pixelHudButton.Reset();
+    pixelHudButtonHover.Reset();
+    pixelTopHudStyle.Reset();
+    pixelHudWidgetFrame.Reset();
+    pixelHudCrest.Reset();
+    pixelHudGlyphs.Reset();
+    pixelPopulationGlyph.Reset();
+    pixelHudGlowShader.Reset();
     pixelGlowTexelSizeLocation = -1;
     pixelGlowUvMinLocation = -1;
     pixelGlowUvMaxLocation = -1;
     pixelGlowColorLocation = -1;
     pixelGlowIntensityLocation = -1;
-    if (unitPortraitAtlas.id != 0)
-        UnloadTexture(unitPortraitAtlas);
-    unitPortraitAtlas = {};
-    if (militaryStatAtlas.id != 0)
-        UnloadTexture(militaryStatAtlas);
-    militaryStatAtlas = {};
+    unitPortraitAtlas.Reset();
+    militaryStatAtlas.Reset();
 }
 
 bool UiControlIcons::IsLoaded()
@@ -615,7 +566,7 @@ bool UiControlIcons::Draw(const std::string& name, Rectangle destination, Color 
     if (it == textures.end())
         return false;
 
-    const Texture2D texture = it->second;
+    const Texture2D& texture = it->second.Get();
     Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
     DrawTexturePro(texture, source, destination, {0.0f, 0.0f}, 0.0f, tint);
     return true;
@@ -623,7 +574,7 @@ bool UiControlIcons::Draw(const std::string& name, Rectangle destination, Color 
 
 bool UiControlIcons::DrawHud(HudIcon icon, Rectangle destination, bool hovered, Color tint)
 {
-    const Texture2D texture = hovered && hudHoverAtlas.id != 0 ? hudHoverAtlas : hudAtlas;
+    const Texture2D& texture = hovered && hudHoverAtlas.IsValid() ? hudHoverAtlas.Get() : hudAtlas.Get();
     if (texture.id == 0)
         return false;
 
@@ -641,7 +592,7 @@ bool UiControlIcons::DrawHud(HudIcon icon, Rectangle destination, bool hovered, 
 
 bool UiControlIcons::DrawHudGlyph(HudIcon icon, Rectangle destination, Color tint)
 {
-    if (hudAtlas.id == 0)
+    if (!hudAtlas.IsValid())
         return false;
 
     const size_t index = static_cast<size_t>(icon);
@@ -653,7 +604,7 @@ bool UiControlIcons::DrawHudGlyph(HudIcon icon, Rectangle destination, Color tin
     source.y += source.height * 0.13f;
     source.width *= 0.74f;
     source.height *= 0.70f;
-    DrawTexturePro(hudAtlas, source, destination, {0.0f, 0.0f}, 0.0f, tint);
+    DrawTexturePro(hudAtlas.Get(), source, destination, {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
 
@@ -679,7 +630,7 @@ bool UiControlIcons::DrawPixelHudPanelFrame(Rectangle destination, Color tint)
     // canvas gutter. Keeping the crop here makes the frame's visible edge
     // coincide with the layout rectangle passed by every panel.
     constexpr Rectangle source{47.0f, 64.0f, 159.0f, 122.0f};
-    return DrawPixelPilotFrame(pixelHudPanel, source, 23.0f, 20.0f, 26.0f, 20.0f,
+    return DrawPixelPilotFrame(pixelHudPanel.Get(), source, 23.0f, 20.0f, 26.0f, 20.0f,
                                destination, tint);
 }
 
@@ -689,9 +640,9 @@ bool UiControlIcons::DrawPixelHudButtonFrame(Rectangle destination, bool hovered
     // Same treatment as the panel frame: button_hud has a transparent gutter
     // around its authored 160x154 visible frame.
     constexpr Rectangle source{48.0f, 50.0f, 160.0f, 154.0f};
-    const Texture2D frame = hovered && pixelHudButtonHover.id != 0
-        ? pixelHudButtonHover
-        : pixelHudButton;
+    const Texture2D& frame = hovered && pixelHudButtonHover.IsValid()
+        ? pixelHudButtonHover.Get()
+        : pixelHudButton.Get();
     return DrawPixelPilotFrame(frame, source, 32.0f, 32.0f, 34.0f, 32.0f,
                                destination, tint);
 }
@@ -716,7 +667,7 @@ bool UiControlIcons::DrawPixelTopHudFrame(Rectangle destination, Color tint)
     const float destinationRight = sourceRight * cornerScale;
     const float destinationTop = sourceTop * cornerScale;
     const float destinationBottom = sourceBottom * cornerScale;
-    return DrawAsymmetricNineSlice(pixelTopHudStyle, source,
+    return DrawAsymmetricNineSlice(pixelTopHudStyle.Get(), source,
                                    sourceLeft, sourceRight, sourceTop, sourceBottom,
                                    destination, destinationLeft, destinationRight,
                                    destinationTop, destinationBottom, tint);
@@ -751,7 +702,7 @@ bool UiControlIcons::DrawPixelHudWidgetFrame(Rectangle destination, bool hovered
 bool UiControlIcons::DrawPixelTopHudWidgetFrame(Rectangle destination, bool hovered,
                                                 Color tint)
 {
-    if (!DrawWidgetNineSlice(pixelHudWidgetFrame, destination, tint))
+    if (!DrawWidgetNineSlice(pixelHudWidgetFrame.Get(), destination, tint))
         return false;
 
     if (hovered)
@@ -766,11 +717,11 @@ bool UiControlIcons::DrawPixelTopHudWidgetFrame(Rectangle destination, bool hove
 
 bool UiControlIcons::DrawPixelTopHudCrest(Rectangle destination, Color tint)
 {
-    if (pixelHudCrest.id == 0)
+    if (!pixelHudCrest.IsValid())
         return false;
-    DrawTexturePro(pixelHudCrest,
-                   {0.0f, 0.0f, static_cast<float>(pixelHudCrest.width),
-                    static_cast<float>(pixelHudCrest.height)},
+    DrawTexturePro(pixelHudCrest.Get(),
+                   {0.0f, 0.0f, static_cast<float>(pixelHudCrest.Get().width),
+                    static_cast<float>(pixelHudCrest.Get().height)},
                    destination, {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
@@ -791,7 +742,7 @@ bool UiControlIcons::DrawPixelHudGlow(HudIcon icon, Rectangle destination, Color
 {
     Texture2D texture{};
     Rectangle source{};
-    if (pixelHudGlowShader.id == 0 ||
+    if (!pixelHudGlowShader.IsValid() ||
         !ResolvePixelHudGlyph(icon, texture, source))
         return false;
 
@@ -807,23 +758,23 @@ bool UiControlIcons::DrawPixelHudGlow(HudIcon icon, Rectangle destination, Color
     intensity = std::clamp(intensity, 0.0f, 2.0f);
 
     if (pixelGlowTexelSizeLocation >= 0)
-        SetShaderValue(pixelHudGlowShader, pixelGlowTexelSizeLocation, texelSize,
+        SetShaderValue(pixelHudGlowShader.Get(), pixelGlowTexelSizeLocation, texelSize,
                        SHADER_UNIFORM_VEC2);
     if (pixelGlowUvMinLocation >= 0)
-        SetShaderValue(pixelHudGlowShader, pixelGlowUvMinLocation, uvMin,
+        SetShaderValue(pixelHudGlowShader.Get(), pixelGlowUvMinLocation, uvMin,
                        SHADER_UNIFORM_VEC2);
     if (pixelGlowUvMaxLocation >= 0)
-        SetShaderValue(pixelHudGlowShader, pixelGlowUvMaxLocation, uvMax,
+        SetShaderValue(pixelHudGlowShader.Get(), pixelGlowUvMaxLocation, uvMax,
                        SHADER_UNIFORM_VEC2);
     if (pixelGlowColorLocation >= 0)
-        SetShaderValue(pixelHudGlowShader, pixelGlowColorLocation, glow,
+        SetShaderValue(pixelHudGlowShader.Get(), pixelGlowColorLocation, glow,
                        SHADER_UNIFORM_VEC3);
     if (pixelGlowIntensityLocation >= 0)
-        SetShaderValue(pixelHudGlowShader, pixelGlowIntensityLocation, &intensity,
+        SetShaderValue(pixelHudGlowShader.Get(), pixelGlowIntensityLocation, &intensity,
                        SHADER_UNIFORM_FLOAT);
 
     BeginBlendMode(BLEND_ADDITIVE);
-    BeginShaderMode(pixelHudGlowShader);
+    BeginShaderMode(pixelHudGlowShader.Get());
     DrawTexturePro(texture, source, destination, {0.0f, 0.0f}, 0.0f, WHITE);
     EndShaderMode();
     EndBlendMode();
@@ -833,7 +784,7 @@ bool UiControlIcons::DrawPixelHudGlow(HudIcon icon, Rectangle destination, Color
 bool UiControlIcons::DrawUnitPortrait(const std::string& unitDefId,
                                       Rectangle destination, Color tint)
 {
-    if (unitPortraitAtlas.id == 0)
+    if (!unitPortraitAtlas.IsValid())
         return false;
 
     auto it = std::find_if(UnitPortraitIds.begin(), UnitPortraitIds.end(),
@@ -842,8 +793,8 @@ bool UiControlIcons::DrawUnitPortrait(const std::string& unitDefId,
         return false;
 
     const int index = static_cast<int>(std::distance(UnitPortraitIds.begin(), it));
-    const float cellWidth = unitPortraitAtlas.width / static_cast<float>(UnitPortraitColumns);
-    const float cellHeight = unitPortraitAtlas.height / 4.0f;
+    const float cellWidth = unitPortraitAtlas.Get().width / static_cast<float>(UnitPortraitColumns);
+    const float cellHeight = unitPortraitAtlas.Get().height / 4.0f;
     const Rectangle crop = UnitPortraitCrops[static_cast<size_t>(index)];
     Rectangle source{
         static_cast<float>(index % UnitPortraitColumns) * cellWidth + crop.x,
@@ -865,7 +816,7 @@ bool UiControlIcons::DrawUnitPortrait(const std::string& unitDefId,
         safeDestination.y + (safeDestination.height - source.height * scale) * 0.5f,
         source.width * scale,
         source.height * scale};
-    DrawTexturePro(unitPortraitAtlas, source, fitted,
+    DrawTexturePro(unitPortraitAtlas.Get(), source, fitted,
                    {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
@@ -873,27 +824,27 @@ bool UiControlIcons::DrawUnitPortrait(const std::string& unitDefId,
 bool UiControlIcons::DrawMilitaryStat(MilitaryStatIcon icon,
                                       Rectangle destination, Color tint)
 {
-    if (militaryStatAtlas.id == 0)
+    if (!militaryStatAtlas.IsValid())
         return false;
 
     const int index = static_cast<int>(icon);
     if (index < 0 || index >= 6)
         return false;
-    const float cellWidth = militaryStatAtlas.width / static_cast<float>(MilitaryStatColumns);
-    const float cellHeight = militaryStatAtlas.height / 2.0f;
+    const float cellWidth = militaryStatAtlas.Get().width / static_cast<float>(MilitaryStatColumns);
+    const float cellHeight = militaryStatAtlas.Get().height / 2.0f;
     Rectangle source{
         static_cast<float>(index % MilitaryStatColumns) * cellWidth,
         static_cast<float>(index / MilitaryStatColumns) * cellHeight,
         cellWidth,
         cellHeight};
-    DrawTexturePro(militaryStatAtlas, source, destination,
+    DrawTexturePro(militaryStatAtlas.Get(), source, destination,
                    {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
 
 bool UiControlIcons::DrawRoyalPanel(Rectangle destination, Color tint)
 {
-    if (royalPanel.id == 0)
+    if (!royalPanel.IsValid())
         return false;
 
     // This restrained source deliberately has uniform rails and no center
@@ -909,7 +860,7 @@ bool UiControlIcons::DrawRoyalPanel(Rectangle destination, Color tint)
     auto drawSlice = [&](Rectangle src, Rectangle dest)
     {
         if (dest.width > 0.0f && dest.height > 0.0f)
-            DrawTexturePro(royalPanel, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
+            DrawTexturePro(royalPanel.Get(), src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
     };
 
     drawSlice({source.x, source.y, sourceCap, sourceCap},
@@ -957,7 +908,7 @@ bool UiControlIcons::DrawRoyalPanel(Rectangle destination, Color tint)
 
 bool UiControlIcons::DrawRoyalChip(Rectangle destination, Color tint)
 {
-    if (royalChip.id == 0)
+    if (!royalChip.IsValid())
         return false;
 
     constexpr Rectangle source{273.0f, 281.0f, 1228.0f, 325.0f};
@@ -967,15 +918,15 @@ bool UiControlIcons::DrawRoyalChip(Rectangle destination, Color tint)
     const float middleSourceWidth = source.width - sourceCap * 2.0f;
     const float middleDestinationWidth = std::max(0.0f, destination.width - cap * 2.0f);
 
-    DrawTexturePro(royalChip, {source.x, source.y, sourceCap, source.height},
+    DrawTexturePro(royalChip.Get(), {source.x, source.y, sourceCap, source.height},
                    {destination.x, destination.y, cap, destination.height},
                    {0.0f, 0.0f}, 0.0f, tint);
     if (middleDestinationWidth > 0.0f)
-        DrawTexturePro(royalChip,
+        DrawTexturePro(royalChip.Get(),
                        {source.x + sourceCap, source.y, middleSourceWidth, source.height},
                        {destination.x + cap, destination.y, middleDestinationWidth, destination.height},
                        {0.0f, 0.0f}, 0.0f, tint);
-    DrawTexturePro(royalChip,
+    DrawTexturePro(royalChip.Get(),
                    {source.x + source.width - sourceCap, source.y, sourceCap, source.height},
                    {destination.x + destination.width - cap, destination.y, cap, destination.height},
                    {0.0f, 0.0f}, 0.0f, tint);
@@ -984,9 +935,9 @@ bool UiControlIcons::DrawRoyalChip(Rectangle destination, Color tint)
 
 bool UiControlIcons::DrawRoyalButtonFrame(Rectangle destination, bool hovered, Color tint)
 {
-    const Texture2D texture = hovered && royalButtonFrameHover.id != 0
-        ? royalButtonFrameHover
-        : royalButtonFrame;
+    const Texture2D& texture = hovered && royalButtonFrameHover.IsValid()
+        ? royalButtonFrameHover.Get()
+        : royalButtonFrame.Get();
     if (texture.id == 0)
         return false;
 
@@ -1027,7 +978,7 @@ bool UiControlIcons::DrawRoyalButtonFrame(Rectangle destination, bool hovered, C
 
 bool UiControlIcons::DrawRoyalCrest(Rectangle destination, Color tint)
 {
-    if (royalCrest.id == 0)
+    if (!royalCrest.IsValid())
         return false;
 
     constexpr Rectangle source{240.0f, 184.0f, 766.0f, 888.0f};
@@ -1043,13 +994,13 @@ bool UiControlIcons::DrawRoyalCrest(Rectangle destination, Color tint)
         fitted.height = destination.width / sourceAspect;
         fitted.y += (destination.height - fitted.height) * 0.5f;
     }
-    DrawTexturePro(royalCrest, source, fitted, {0.0f, 0.0f}, 0.0f, tint);
+    DrawTexturePro(royalCrest.Get(), source, fitted, {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
 
 bool UiControlIcons::DrawRoyalWindowPanel(Rectangle destination, Color tint)
 {
-    if (royalWindowPanel.id == 0)
+    if (!royalWindowPanel.IsValid())
         return false;
 
     constexpr Rectangle source{70.0f, 72.0f, 1114.0f, 1110.0f};
@@ -1062,7 +1013,7 @@ bool UiControlIcons::DrawRoyalWindowPanel(Rectangle destination, Color tint)
     auto drawSlice = [&](Rectangle src, Rectangle dest)
     {
         if (dest.width > 0.0f && dest.height > 0.0f)
-            DrawTexturePro(royalWindowPanel, src, dest, {0.0f, 0.0f}, 0.0f, tint);
+            DrawTexturePro(royalWindowPanel.Get(), src, dest, {0.0f, 0.0f}, 0.0f, tint);
     };
 
     drawSlice({source.x, source.y, sourceCap, sourceCap},
@@ -1115,17 +1066,17 @@ float UiControlIcons::RoyalWindowPanelInset(Rectangle destination)
 
 bool UiControlIcons::DrawRoyalResourceSlot(Rectangle destination, Color tint)
 {
-    if (royalResourceSlot.id == 0)
+    if (!royalResourceSlot.IsValid())
         return false;
 
-    DrawTexturePro(royalResourceSlot, ResourceSlotSource, destination,
+    DrawTexturePro(royalResourceSlot.Get(), ResourceSlotSource, destination,
                    {0.0f, 0.0f}, 0.0f, tint);
     return true;
 }
 
 bool UiControlIcons::DrawRoyalTitleBar(Rectangle destination, Color tint)
 {
-    if (royalTitleBar.id == 0)
+    if (!royalTitleBar.IsValid())
         return false;
 
     constexpr float sourceCap = 112.0f;
@@ -1134,18 +1085,18 @@ bool UiControlIcons::DrawRoyalTitleBar(Rectangle destination, Color tint)
     const float sourceMiddle = TitleBarSource.width - sourceCap * 2.0f;
     const float destinationMiddle = std::max(0.0f, destination.width - cap * 2.0f);
 
-    DrawTexturePro(royalTitleBar,
+    DrawTexturePro(royalTitleBar.Get(),
                    {TitleBarSource.x, TitleBarSource.y, sourceCap, TitleBarSource.height},
                    {destination.x, destination.y, cap, destination.height},
                    {0.0f, 0.0f}, 0.0f, tint);
     if (destinationMiddle > 0.0f)
-        DrawTexturePro(royalTitleBar,
+        DrawTexturePro(royalTitleBar.Get(),
                        {TitleBarSource.x + sourceCap, TitleBarSource.y,
                         sourceMiddle, TitleBarSource.height},
                        {destination.x + cap, destination.y,
                         destinationMiddle, destination.height},
                        {0.0f, 0.0f}, 0.0f, tint);
-    DrawTexturePro(royalTitleBar,
+    DrawTexturePro(royalTitleBar.Get(),
                    {TitleBarSource.x + TitleBarSource.width - sourceCap,
                     TitleBarSource.y, sourceCap, TitleBarSource.height},
                    {destination.x + destination.width - cap, destination.y,
@@ -1156,9 +1107,9 @@ bool UiControlIcons::DrawRoyalTitleBar(Rectangle destination, Color tint)
 
 bool UiControlIcons::DrawPanelCloseButton(Rectangle destination, bool hovered, Color tint)
 {
-    const Texture2D texture = hovered && royalCloseButtonHover.id != 0
-        ? royalCloseButtonHover
-        : royalCloseButton;
+    const Texture2D& texture = hovered && royalCloseButtonHover.IsValid()
+        ? royalCloseButtonHover.Get()
+        : royalCloseButton.Get();
     if (texture.id == 0)
         return false;
 

@@ -39,6 +39,22 @@ TEST(TileMapDomainTests, TileBuildingLifecycle)
     EXPECT_FALSE(tile.HasBuilding());
 }
 
+TEST(TileMapDomainTests, ContainsBuildingRejectsDestroyedObject)
+{
+    TileMap map;
+    Player player{0, map};
+    FillMap(map, &player, 8, 8);
+
+    Building* pointer = map.PlaceLoadedBuilding(
+        map.GetIdFromCoords({2, 2}), &player, std::make_unique<StorageBuilding>(1234));
+    ASSERT_NE(pointer, nullptr);
+    EXPECT_TRUE(map.ContainsBuilding(pointer));
+
+    const int positionId = pointer->positionId;
+    map.DestroyBuildingAt(positionId);
+    EXPECT_FALSE(map.ContainsBuilding(pointer));
+}
+
 TEST(TileMapDomainTests, AdjacentTileIdsSkipFootprintAndDiagonals)
 {
     TileMap map;

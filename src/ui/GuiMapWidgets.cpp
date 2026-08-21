@@ -11,8 +11,10 @@
 #include "economy/Player.h"
 #include "economy/BuildingComponents.h"
 #include "warfare/CombatPipeline.h"
+#include "ui/GameplayClock.h"
 
 #include <cmath>
+#include <sstream>
 
 namespace
 {
@@ -73,6 +75,31 @@ namespace
     }
 }
 
+void GameplayClockWidget::UpdateSize(Vec2i windowSize)
+{
+    size = {136, 34};
+    pos = {std::max(0, windowSize.x - size.x - 12),
+           std::max(0, windowSize.y - size.y - 12)};
+}
+
+void GameplayClockWidget::Update(double dt)
+{
+    (void)dt;
+    if (scene == nullptr)
+        return;
+
+    UpdateSize({GetScreenWidth(), GetScreenHeight()});
+    const std::uint64_t tick = scene->game != nullptr
+        ? scene->game->GetSimulationTick()
+        : scene->latestSnapshot.simulationTick;
+    const std::uint64_t seconds = tick / FixedSimulationClock::TicksPerSecond;
+    const Rectangle bounds{static_cast<float>(pos.x), static_cast<float>(pos.y),
+                           static_cast<float>(size.x), static_cast<float>(size.y)};
+    DrawRectangleRounded(bounds, 0.12f, 6, Color{20, 25, 31, 225});
+    DrawRectangleRoundedLines(bounds, 0.12f, 6, 1.0f, UiTheme::Iron);
+    UiText::Draw(FormatGameplayDuration(seconds), pos.x + 10, pos.y + 7, 18, UiTheme::Parchment);
+}
+
 // ─── SelectedBuildingWidget ──────────────────────────────────────────────────
 
 // Highlights the selected building and its suppliers.
@@ -99,6 +126,66 @@ void SelectedBuildingWidget::Update(double dt)
     DrawPulsingOutline(dest, Color{112, 230, 150, 220}, 1.25f);
 
     DrawTowerRangeRing(scene, building);
+}
+
+void DemolitionTargetWidget::Update(double dt)
+{
+    (void)dt;
+    if (scene == nullptr || scene->game == nullptr || building == nullptr ||
+        !scene->game->GetTileMap().ContainsBuilding(building))
+        return;
+
+    const Rectangle dest = BuildingScreenRect(scene, building);
+    if (actionable)
+    {
+        DrawRectangleRounded(dest, 0.04f, 8, Color{125, 20, 26, 42});
+        DrawPulsingOutline(dest, Color{255, 82, 76, 220}, 1.5f);
+    }
+    else
+    {
+        DrawRectangleRoundedLines(dest, 0.04f, 8, 1.0f, Color{145, 145, 145, 150});
+    }
+}
+
+void DemolitionTooltipWidget::Update(double dt)
+{
+    (void)dt;
+    if (scene == nullptr || scene->game == nullptr || building == nullptr ||
+        !scene->game->GetTileMap().ContainsBuilding(building))
+        return;
+
+    const Vector2 mouse = GetMousePosition();
+    // title + action/reason + refund summary + one line per resource
+    const int lineCount = 3 + static_cast<int>(preview.resources.size());
+    const float width = 300.0f;
+    const float height = 22.0f + lineCount * 20.0f;
+    Rectangle box{mouse.x + 14.0f, mouse.y + 14.0f, width, height};
+    box.x = std::clamp(box.x, 8.0f, static_cast<float>(GetScreenWidth()) - width - 8.0f);
+    box.y = std::clamp(box.y, 8.0f, static_cast<float>(GetScreenHeight()) - height - 8.0f);
+    DrawRectangleRounded(box, 0.06f, 8, Color{20, 22, 28, 240});
+    DrawRectangleRoundedLines(box, 0.06f, 8, 1.0f,
+                              preview.allowed ? Color{255, 82, 76, 220} : UiTheme::Iron);
+    UiText::Draw(building->name, static_cast<int>(box.x + 10), static_cast<int>(box.y + 7),
+                 17, UiTheme::Parchment);
+    int y = static_cast<int>(box.y + 29.0f);
+    UiText::Draw(preview.allowed ? "Click to demolish" : preview.reason,
+                 static_cast<int>(box.x + 10), y, 14,
+                 preview.allowed ? Color{255, 120, 112, 255} : Color{225, 170, 150, 255});
+    y += 20;
+    if (preview.allowed)
+    {
+        UiText::Draw(preview.unfinished ? "Cancellation refund: 100%" : "Refund: 50% base construction payment",
+                     static_cast<int>(box.x + 10), y, 13, UiTheme::Parchment);
+        y += 20;
+        for (const auto& line : preview.resources)
+        {
+            std::string text = rt2s(line.type) + ": " + std::to_string(line.bufferedAmount);
+            if (line.refundAmount > 0)
+                text += " +" + std::to_string(line.refundAmount);
+            UiText::Draw(text, static_cast<int>(box.x + 10), y, 13, UiTheme::Parchment);
+            y += 20;
+        }
+    }
 }
 
 // ─── ProductionWarningWidget ─────────────────────────────────────────────────

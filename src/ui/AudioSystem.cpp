@@ -73,12 +73,6 @@ void AudioSystem::Init()
 
 void AudioSystem::Cleanup()
 {
-    for (auto& [id, entry] : tracks)
-        if (entry.loaded && MusicOk(entry.music))
-            UnloadMusicStream(entry.music);
-    for (auto& [id, sound] : sounds)
-        if (SoundOk(sound))
-            UnloadSound(sound);
     tracks.clear();
     rotations.clear();
     sounds.clear();
@@ -106,15 +100,15 @@ void AudioSystem::RegisterMusicRotation(const std::string& rotationId,
 bool AudioSystem::EnsureMusicLoaded(MusicEntry& entry)
 {
     if (entry.loaded)
-        return MusicOk(entry.music);
+        return MusicOk(entry.music.Get());
 
-    entry.music  = LoadMusicStream(entry.filepath.c_str());
+    entry.music  = tvorin::ui::MusicHandle{LoadMusicStream(entry.filepath.c_str())};
     entry.loaded = true;
-    if (!MusicOk(entry.music))
+    if (!MusicOk(entry.music.Get()))
         return false;
 
-    entry.music.looping = true;
-    ::SetMusicVolume(entry.music, 0.0f);
+    entry.music.Get().looping = true;
+    ::SetMusicVolume(entry.music.Get(), 0.0f);
     return true;
 }
 
@@ -130,9 +124,9 @@ bool AudioSystem::PreloadMusic(const std::string& id)
 void AudioSystem::RegisterSound(const std::string& id, const std::string& filepath)
 {
     if (!initialized) return;
-    Sound s = LoadSound(filepath.c_str());
-    if (SoundOk(s))
-        sounds[id] = s;
+    tvorin::ui::SoundHandle sound{LoadSound(filepath.c_str())};
+    if (SoundOk(sound.Get()))
+        sounds[id] = std::move(sound);
     // Missing/unsupported file: silently skip; PlaySound("id") will be a no-op.
 }
 
@@ -175,10 +169,10 @@ void AudioSystem::PlayMusicInternal(const std::string& id, float fadeSecs)
         if (!nextId.empty())
         {
             auto nextIt = tracks.find(nextId);
-            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music.Get()))
             {
-                StopMusicStream(nextIt->second.music);
-                ::SetMusicVolume(nextIt->second.music, 0.0f);
+                StopMusicStream(nextIt->second.music.Get());
+                ::SetMusicVolume(nextIt->second.music.Get(), 0.0f);
             }
         }
         nextId.clear();
@@ -204,24 +198,24 @@ void AudioSystem::PlayMusicInternal(const std::string& id, float fadeSecs)
     {
         currentId  = id;
         currentVol = 0.0f;
-        PlayMusicStream(it->second.music);
+        PlayMusicStream(it->second.music.Get());
     }
     else
     {
         if (!nextId.empty())
         {
             auto nextIt = tracks.find(nextId);
-            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+            if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music.Get()))
             {
-                StopMusicStream(nextIt->second.music);
-                ::SetMusicVolume(nextIt->second.music, 0.0f);
+                StopMusicStream(nextIt->second.music.Get());
+                ::SetMusicVolume(nextIt->second.music.Get(), 0.0f);
             }
         }
         nextId  = id;
         nextVol = 0.0f;
         crossfadeProgress = 0.0f;
         crossfadeSourceVol = std::clamp(currentVol, 0.0f, 1.0f);
-        PlayMusicStream(it->second.music);
+        PlayMusicStream(it->second.music.Get());
     }
 }
 
@@ -264,10 +258,10 @@ void AudioSystem::StopMusic(float fadeSecs)
     if (!nextId.empty())
     {
         auto nextIt = tracks.find(nextId);
-        if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music))
+        if (nextIt != tracks.end() && nextIt->second.loaded && MusicOk(nextIt->second.music.Get()))
         {
-            StopMusicStream(nextIt->second.music);
-            ::SetMusicVolume(nextIt->second.music, 0.0f);
+            StopMusicStream(nextIt->second.music.Get());
+            ::SetMusicVolume(nextIt->second.music.Get(), 0.0f);
         }
     }
     nextId.clear();
@@ -280,13 +274,13 @@ void AudioSystem::Update(float dt)
     if (!initialized) return;
 
     for (auto& [id, entry] : tracks)
-        if (entry.loaded && MusicOk(entry.music) && IsMusicStreamPlaying(entry.music))
-            UpdateMusicStream(entry.music);
+        if (entry.loaded && MusicOk(entry.music.Get()) && IsMusicStreamPlaying(entry.music.Get()))
+            UpdateMusicStream(entry.music.Get());
 
     if (currentId.empty()) return;
 
     MusicEntry& current = tracks[currentId];
-    if (!MusicOk(current.music))
+    if (!MusicOk(current.music.Get()))
     {
         currentId.clear();
         nextId.clear();
@@ -295,8 +289,8 @@ void AudioSystem::Update(float dt)
 
     if (nextId.empty() && !fadingToSilence && !activeRotationId.empty())
     {
-        const float length = GetMusicTimeLength(current.music);
-        const float played = GetMusicTimePlayed(current.music);
+        const float length = GetMusicTimeLength(current.music.Get());
+        const float played = GetMusicTimePlayed(current.music.Get());
         if (length > 0.0f && played > 0.0f && length - played <= RotationLeadSeconds)
             QueueRandomRotationTrack(1.6f);
     }
@@ -304,7 +298,7 @@ void AudioSystem::Update(float dt)
     if (!nextId.empty())
     {
         MusicEntry& next = tracks[nextId];
-        if (!MusicOk(next.music))
+        if (!MusicOk(next.music.Get()))
         {
             nextId.clear();
             return;
@@ -318,12 +312,12 @@ void AudioSystem::Update(float dt)
         currentVol = crossfadeSourceVol * std::cos(angle);
         nextVol    = std::sin(angle);
 
-        ::SetMusicVolume(current.music, currentVol * EffectiveMusicVol());
-        ::SetMusicVolume(next.music,    nextVol    * EffectiveMusicVol());
+        ::SetMusicVolume(current.music.Get(), currentVol * EffectiveMusicVol());
+        ::SetMusicVolume(next.music.Get(),    nextVol    * EffectiveMusicVol());
 
         if (crossfadeProgress >= 1.0f)
         {
-            StopMusicStream(current.music);
+            StopMusicStream(current.music.Get());
             currentId  = nextId;
             currentVol = 1.0f;
             nextId.clear();
@@ -335,11 +329,11 @@ void AudioSystem::Update(float dt)
     else if (fadingToSilence)
     {
         currentVol = std::max(0.0f, currentVol - fadeSpeed * dt);
-        ::SetMusicVolume(current.music, currentVol * EffectiveMusicVol());
+        ::SetMusicVolume(current.music.Get(), currentVol * EffectiveMusicVol());
 
         if (currentVol <= 0.0f)
         {
-            StopMusicStream(current.music);
+            StopMusicStream(current.music.Get());
             currentId.clear();
             fadingToSilence = false;
         }
@@ -347,7 +341,7 @@ void AudioSystem::Update(float dt)
     else
     {
         currentVol = std::min(1.0f, currentVol + fadeSpeed * dt);
-        ::SetMusicVolume(current.music, currentVol * EffectiveMusicVol());
+        ::SetMusicVolume(current.music.Get(), currentVol * EffectiveMusicVol());
     }
 }
 
@@ -356,8 +350,8 @@ void AudioSystem::PlaySound(const std::string& id, float volume)
     if (!initialized) return;
     auto it = sounds.find(id);
     if (it == sounds.end()) return;
-    SetSoundVolume(it->second, volume * EffectiveSfxVol());
-    ::PlaySound(it->second);
+    SetSoundVolume(it->second.Get(), volume * EffectiveSfxVol());
+    ::PlaySound(it->second.Get());
 }
 
 void AudioSystem::SetMasterVolume(float v)

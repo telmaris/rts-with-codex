@@ -36,7 +36,7 @@ void StorageComponent::AddResource(Resource* res, Building& self)
         return;
     }
 
-    Log::Msg(self.tag, "resource added!");
+    TVORIN_LOG_TRACE(self.tag, "resource added!");
     it->second.AddResource(res);
 }
 
@@ -136,7 +136,7 @@ void LocalResourceBufferComponent::AddResource(Resource* res, Building& self)
         return;
     }
 
-    Log::Msg(self.tag, "local resource added!");
+    TVORIN_LOG_TRACE(self.tag, "local resource added!");
     it->second.AddResource(res);
 }
 

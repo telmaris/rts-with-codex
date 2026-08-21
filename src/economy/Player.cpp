@@ -287,6 +287,20 @@ void Player::RefreshTechnologyModifiers()
     focuses.CollectModifiers(balanceModifiers);
 }
 
+void Player::RefreshUpgradeModifiers()
+{
+    balanceModifiers.ClearSourcePrefix("upgrade:");
+    for (Building* building : GetTrackedBuildings())
+    {
+        if (building == nullptr)
+            continue;
+
+        const auto* upgrade = building->GetComponent<UpgradeComponent>();
+        if (upgrade != nullptr && upgrade->level > 1)
+            ApplyUpgradeLevelModifiers(*building);
+    }
+}
+
 void Player::ApplyUpgradeLevelModifiers(Building& building)
 {
     auto* upgrade = building.GetComponent<UpgradeComponent>();
