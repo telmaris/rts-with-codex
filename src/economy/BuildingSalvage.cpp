@@ -84,7 +84,7 @@ std::vector<Building*> OrderedWarehouses(const Player& owner, const Building& so
             continue;
         std::vector<int> path;
         const RoadNetwork* roadNetwork = owner.GetRoadNetwork();
-        const int expectedMapArea = owner.tilemap.params.sizeX * owner.tilemap.params.sizeY;
+    const int expectedMapArea = owner.tilemap->params.sizeX * owner.tilemap->params.sizeY;
         if (roadNetwork != nullptr && roadNetwork->navMap != nullptr &&
             static_cast<int>(roadNetwork->navMap->map.size()) == expectedMapArea)
         {
@@ -97,7 +97,7 @@ std::vector<Building*> OrderedWarehouses(const Player& owner, const Building& so
                               !path.empty(),
                               warehouse->buildingType == BuildingType::Headquarters,
                               static_cast<int>(path.size()),
-                              Distance(owner.tilemap, source, *warehouse)});
+                              Distance(*owner.tilemap, source, *warehouse)});
     }
 
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b)

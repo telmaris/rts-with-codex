@@ -10,6 +10,8 @@ struct BFactory
     BFactory() = default;
     BFactory(Player* p, TileMap& map, int id) : player(p), tilemap(&map), playerId(id) {}
 
+    void RebindTileMap(TileMap& map) { tilemap = &map; }
+
     // Constructs a building type and places it on the requested tile.
     template <typename T> void Build(int tilePos)
     {

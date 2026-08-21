@@ -34,10 +34,16 @@ class Player
 {
 public:
     Player() = default;
-    Player(int i, TileMap& tmap) : tilemap(tmap), id(i), build(this, tilemap, id)
+    Player(int i, TileMap& tmap) : tilemap(&tmap), id(i), build(this, tmap, id)
     {
-        roadNetwork = std::make_unique<RoadNetwork>(tilemap);
+        roadNetwork = std::make_unique<RoadNetwork>(tmap);
         RefreshTechnologyModifiers();
+    }
+
+    void RebindTileMap(TileMap& map)
+    {
+        tilemap = &map;
+        build.RebindTileMap(map);
     }
 
     void UpdateFocus(double dt);
@@ -102,8 +108,8 @@ public:
     {
         static_assert(std::is_base_of<Building, T>::value);
         T preview{0};
-        Vec2i anchor = tilemap.GetCoordsFromId(tilePos);
-        if (!tilemap.CanBuildFootprint(anchor, preview.GetFootprint(), this, preview.buildingType))
+        Vec2i anchor = tilemap->GetCoordsFromId(tilePos);
+        if (!tilemap->CanBuildFootprint(anchor, preview.GetFootprint(), this, preview.buildingType))
             return nullptr;
 
         const auto& definition = GetBuildingDefinition(preview.buildingType);
@@ -115,7 +121,7 @@ public:
         }
 
         build.Build<T>(tilePos);
-        auto bld = tilemap.GetBuilding(tilePos);
+        auto bld = tilemap->GetBuilding(tilePos);
         if (bld != nullptr)
         {
             double buildTime = ModifyBalanceAt(BalanceStat::BuildTime, definition.buildTime, preview.buildingType, anchor);
@@ -127,9 +133,9 @@ public:
             bld->paidBuildCosts = chargeCost ? effectiveCosts : std::vector<ResourceAmountDefinition>{};
             if (!bld->IsUnderConstruction())
             {
-                for (int occupiedTileId : tilemap.GetBuildingTileIds(bld))
+                for (int occupiedTileId : tilemap->GetBuildingTileIds(bld))
                     roadNetwork->UpdateNavMap(occupiedTileId, bld);
-                tilemap.AutoConnectBuilding(bld);
+                tilemap->AutoConnectBuilding(bld);
             }
         }
         return bld;
@@ -139,7 +145,7 @@ public:
     template <typename T>
     Building* Build(Vec2i pos, bool chargeCost = true)
     {
-        return Build<T>(tilemap.GetIdFromCoords(pos), chargeCost);
+        return Build<T>(tilemap->GetIdFromCoords(pos), chargeCost);
     }
 
     bool HasBuildResources(const std::vector<ResourceAmountDefinition>& costs) const;
@@ -298,8 +304,8 @@ public:
     {
         BalanceModifierContext context{stat, buildingType, resourceType};
         context.position = position;
-        if (position.has_value() && tilemap.IsInside(position.value()))
-            context.positionId = tilemap.GetIdFromCoords(position.value());
+        if (position.has_value() && tilemap->IsInside(position.value()))
+            context.positionId = tilemap->GetIdFromCoords(position.value());
         return context;
     }
 
@@ -317,7 +323,7 @@ public:
         context.buildingId = building->id;
         context.positionId = building->positionId;
         if (building->positionId >= 0)
-            context.position = tilemap.GetCoordsFromId(building->positionId);
+            context.position = tilemap->GetCoordsFromId(building->positionId);
         return context;
     }
 
@@ -355,7 +361,7 @@ public:
     bool defeated{false};
 
     std::unique_ptr<RoadNetwork> roadNetwork;
-    TileMap& tilemap;
+    TileMap* tilemap{nullptr};
     BFactory build;
 
     // ETAP 10: Strategic building registries — indexed direct access without map scans.

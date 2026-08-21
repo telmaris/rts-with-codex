@@ -523,7 +523,7 @@ namespace GameWorldInternal
         if (player == nullptr)
             return;
 
-        TileMap& tilemap = player->tilemap;
+        TileMap& tilemap = *player->tilemap;
         std::vector<int> path = FindRoadPathBetweenFootprints(
             tilemap, player, fromAnchor, fromFootprint, toAnchor, toFootprint, militaryRoadClearance);
 

@@ -402,6 +402,8 @@ void GameWorld::RebindMovedState()
     for (auto& [playerId, player] : playerHandler.players)
     {
         (void)playerId;
+        if (player != nullptr)
+            player->RebindTileMap(tilemap);
         if (player != nullptr && player->roadNetwork != nullptr)
             player->roadNetwork->RebindWorld(tilemap);
     }

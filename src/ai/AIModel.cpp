@@ -148,14 +148,14 @@ namespace
                 !production->consumesTerrain || production->terrainType == TileType::GRASS ||
                 !production->products.contains(resource))
                 continue;
-            Vec2i anchor = player->tilemap.GetCoordsFromId(building->positionId);
+            Vec2i anchor = player->tilemap->GetCoordsFromId(building->positionId);
             for (int y = 0; y < building->GetFootprint().y; y++)
                 for (int x = 0; x < building->GetFootprint().x; x++)
                 {
                     Vec2i pos{anchor.x + x, anchor.y + y};
-                    if (!player->tilemap.IsInside(pos))
+                    if (!player->tilemap->IsInside(pos))
                         continue;
-                    const Tile& tile = player->tilemap[player->tilemap.GetIdFromCoords(pos)];
+                    const Tile& tile = (*player->tilemap)[player->tilemap->GetIdFromCoords(pos)];
                     if (tile.tileType == production->terrainType)
                         remaining += std::max(0, tile.resourceRichness);
                 }

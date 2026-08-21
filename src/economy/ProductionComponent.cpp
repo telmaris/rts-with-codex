@@ -240,15 +240,15 @@ bool ProductionComponent::HasTerrainRichness(const Building& self) const
     if (self.owner == nullptr || self.positionId < 0 || terrainType == TileType::GRASS)
         return false;
 
-    Vec2i anchor = self.owner->tilemap.GetCoordsFromId(self.positionId);
+    Vec2i anchor = self.owner->tilemap->GetCoordsFromId(self.positionId);
     for (int y = 0; y < self.footprint.y; y++)
     {
         for (int x = 0; x < self.footprint.x; x++)
         {
             Vec2i pos{anchor.x + x, anchor.y + y};
-            if (!self.owner->tilemap.IsInside(pos))
+            if (!self.owner->tilemap->IsInside(pos))
                 continue;
-            const Tile& tile = self.owner->tilemap.tilemap[self.owner->tilemap.GetIdFromCoords(pos)];
+            const Tile& tile = self.owner->tilemap->tilemap[self.owner->tilemap->GetIdFromCoords(pos)];
             if (tile.tileType == terrainType && tile.resourceRichness > 0)
                 return true;
         }
@@ -261,15 +261,15 @@ bool ProductionComponent::ConsumeTerrainRichness(Building& self)
     if (self.owner == nullptr || self.positionId < 0 || terrainType == TileType::GRASS)
         return false;
 
-    Vec2i anchor = self.owner->tilemap.GetCoordsFromId(self.positionId);
+    Vec2i anchor = self.owner->tilemap->GetCoordsFromId(self.positionId);
     for (int y = 0; y < self.footprint.y; y++)
     {
         for (int x = 0; x < self.footprint.x; x++)
         {
             Vec2i pos{anchor.x + x, anchor.y + y};
-            if (!self.owner->tilemap.IsInside(pos))
+            if (!self.owner->tilemap->IsInside(pos))
                 continue;
-            Tile& tile = self.owner->tilemap.tilemap[self.owner->tilemap.GetIdFromCoords(pos)];
+            Tile& tile = self.owner->tilemap->tilemap[self.owner->tilemap->GetIdFromCoords(pos)];
             if (tile.tileType != terrainType || tile.resourceRichness <= 0)
                 continue;
 
@@ -277,10 +277,10 @@ bool ProductionComponent::ConsumeTerrainRichness(Building& self)
             if (tile.resourceRichness <= 0)
             {
                 tile.tileType = TileType::GRASS;
-                std::mt19937 rng(static_cast<unsigned int>(tile.id + self.owner->tilemap.params.seed));
-                tile.terrainTextureId = self.owner->tilemap.PickTerrainTexture(TileType::GRASS, rng);
+                std::mt19937 rng(static_cast<unsigned int>(tile.id + self.owner->tilemap->params.seed));
+                tile.terrainTextureId = self.owner->tilemap->PickTerrainTexture(TileType::GRASS, rng);
                 tile.resourceOverlayTextureId = -1;
-                self.owner->tilemap.terrainDirty = true;
+                self.owner->tilemap->terrainDirty = true;
             }
             return true;
         }

@@ -645,7 +645,7 @@ namespace
             production->terrainType == TileType::GRASS || !production->ingredients.empty())
             return -1;
 
-        const TileMap& tilemap = building->owner->tilemap;
+            const TileMap& tilemap = *building->owner->tilemap;
         Vec2i anchor = tilemap.GetCoordsFromId(building->positionId);
         Vec2i footprint = building->GetFootprint();
         int richness = 0;

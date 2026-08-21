@@ -30,7 +30,7 @@ void Player::ReportBuildCostFailure(const std::string& buildingName) const
 
 void Player::UpdateFocus(double dt)
 {
-    if (tilemap.params.debugMode)
+    if (tilemap->params.debugMode)
         dt *= 20.0;
     std::string completedFocus = focuses.GetActiveFocusId();
     if (focuses.UpdateActiveFocus(dt))
@@ -42,7 +42,7 @@ void Player::UpdateFocus(double dt)
 
 void Player::UpdateResearch(double dt)
 {
-    if (tilemap.params.debugMode)
+    if (tilemap->params.debugMode)
         dt *= 20.0;
     for (auto* building : GetTrackedBuildingsWithComponent<ResearchComponent>())
     {
@@ -115,7 +115,7 @@ std::vector<std::string> Player::GetBuildRequirementFailures(const BuildingDefin
     for (const auto& focus : definition.requiredFocuses)
         if (!focuses.HasFocus(focus))
             failures.push_back("Requires focus: " + RequirementDisplayName(focus, true));
-    if ((!tilemap.params.debugMode || !ignoreDebugFreeBuild) && !HasBuildResources(GetEffectiveBuildCosts(definition)))
+    if ((!tilemap->params.debugMode || !ignoreDebugFreeBuild) && !HasBuildResources(GetEffectiveBuildCosts(definition)))
         failures.push_back("Not enough resources");
     return failures;
 }
@@ -201,7 +201,7 @@ bool Player::CanResearchTechnology(const std::string& id) const
     return definition != nullptr &&
            technologies.CanUnlock(id) &&
            !IsTechnologyInProgress(id) &&
-           (tilemap.params.debugMode || HasBuildResources(definition->costs));
+           (tilemap->params.debugMode || HasBuildResources(definition->costs));
 }
 
 bool Player::UnlockFocus(const std::string& id)
@@ -242,7 +242,7 @@ bool Player::UnlockTechnology(const std::string& id)
     if (definition == nullptr || !technologies.CanUnlock(id))
         return false;
 
-    if (!tilemap.params.debugMode && !TryPayBuildCost(definition->costs))
+    if (!tilemap->params.debugMode && !TryPayBuildCost(definition->costs))
         return false;
 
     if (!technologies.UnlockTechnology(id))
@@ -265,7 +265,7 @@ bool Player::StartTechnologyResearch(const std::string& id, Building* university
     if (!CanResearchTechnology(id))
         return false;
 
-    if (!tilemap.params.debugMode && !TryPayBuildCost(definition->costs))
+    if (!tilemap->params.debugMode && !TryPayBuildCost(definition->costs))
         return false;
 
     double researchTime = ModifyBalanceForBuilding(

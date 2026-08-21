@@ -697,6 +697,7 @@ TEST(BuildingDomainTests, SaveAndLoadPreservesRoadUpgradeLevelAndReappliesModifi
 
     Player* loadedPlayer = loaded.GetPlayerHandler().players.at(0).get();
     ASSERT_NE(loadedPlayer, nullptr);
+    ASSERT_EQ(loadedPlayer->tilemap, &loaded.GetTileMap());
     Road* loadedRoad = nullptr;
     for (auto* building : loadedPlayer->GetTrackedBuildings())
         if (auto* candidate = dynamic_cast<Road*>(building))
